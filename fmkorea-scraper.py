@@ -123,23 +123,27 @@ def save_board_config(config_data):
 # ==========================================
 # 3. 내장 경량 API 웹 서버
 # ==========================================
+# ==========================================
+# 3. 내장 경량 API 웹 서버 (400 / 500 에러 완벽 방어 버전)
+# ==========================================
 class KeywordAPIServer(BaseHTTPRequestHandler):
     def log_message(self, format, *args): return
 
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
-    
+
     def do_GET(self):
-        if self.path == '/' or self.path == '/index.html':
+        if self.path == '/' or self.path == '/index.html' or self.path.startswith('/?'):
             try:
                 with open(HTML_OUTPUT_FILE, 'r', encoding='utf-8') as f:
                     content = f.read()
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 self.wfile.write(content.encode('utf-8'))
             except Exception as e:
@@ -153,16 +157,27 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
     def do_POST(self):
         global all_keywords_data
         
-        # 🎯 [추가] 알림 토글 전용 엔드포인트 분기 생성
-        if self.path.startswith('/api/toggle-alert'):
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length).decode('utf-8')
+        # URL에서 쿼리스트링 등을 제외한 순수 경로만 추출하여 비교 분기합니다.
+        pure_path = self.path.split('?')[0]
+        
+        # 🎯 1. 알림 토글 API 처리 분기
+        if pure_path == '/api/toggle-alert':
             try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                if content_length == 0:
+                    self.send_response(400)
+                    self.end_headers()
+                    self.wfile.write(b"Bad Request: Empty Body")
+                    return
+
+                post_data = self.rfile.read(content_length).decode('utf-8')
                 params = json.loads(post_data)
+                
                 board = params.get('board', '').strip()
                 enabled = params.get('enabled', True)
                 password = params.get('password', '').strip()
                 
+                # 순서 준수: 헤더 전송 전에 상태 코드(200)를 먼저 지정해야 브라우저 400 에러를 방지합니다.
                 self.send_response(200)
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -184,8 +199,6 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                     current_board_config = load_board_config()
                     current_board_config[board]['alert'] = enabled
                     save_board_config(current_board_config)
-                    
-                    # HTML 즉시 리빌드하여 토글 스위치 상태 동기화
                     generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
                 
                 status_str = "켜짐" if enabled else "꺼짐"
@@ -193,18 +206,19 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 response_data = {'success': True, 'message': msg}
                 self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
             except Exception as e:
-                try:
-                    self.send_response(500)
-                    self.end_headers()
-                    self.wfile.write(str(e).encode('utf-8'))
-                except: pass
+                print(f"⚠️ 토글 API 에러 발생: {e}")
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(str(e).encode('utf-8'))
             return
 
-        if self.path.startswith('/api/keyword'):
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length).decode('utf-8')
+        # 🎯 2. 키워드 추가/삭제 API 처리 분기
+        if pure_path == '/api/keyword':
             try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                post_data = self.rfile.read(content_length).decode('utf-8')
                 params = json.loads(post_data)
+                
                 action = params.get('action')
                 keyword = params.get('keyword', '').strip()
                 password = params.get('password', '').strip()
@@ -257,11 +271,15 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 response_data = {'success': True, 'message': msg}
                 self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
             except Exception as e:
-                try:
-                    self.send_response(500)
-                    self.end_headers()
-                    self.wfile.write(str(e).encode('utf-8'))
-                except: pass
+                print(f"⚠️ 키워드 API 에러 발생: {e}")
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(str(e).encode('utf-8'))
+            return
+            
+        # 매칭되는 API 엔드포인트가 없을 때
+        self.send_response(404)
+        self.end_headers()
 
 def run_api_server():
     server_address = ('', 8080)
