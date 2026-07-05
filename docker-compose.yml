@@ -1,0 +1,17 @@
+version: '3'
+services:
+  fmkorea-scraper:
+    build: .
+    container_name: fmkorea-scraper
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    volumes:
+      # NAS의 공유 폴더에 HTML 결과물 저장 (경로는 NAS 환경에 맞게 수정)
+      - /volume2/docker/fmkorea-scraper/output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 1G
