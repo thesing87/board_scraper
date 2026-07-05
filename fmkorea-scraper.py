@@ -683,7 +683,11 @@ def generate_multiboard_html(all_keywords_data, output_file):
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Malgun Gothic', sans-serif; background-color: #f0f2f5; margin: 0; padding: 10px; color: #1c1e21; box-sizing: border-box; }}
         .container {{ width: 100%; max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; }}
         
-        .admin-panel {{ background: #fff; padding: 12px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; gap: 12px; }}
+        /* 🎯 디자인 보완: 토글 버튼 스타일 및 관리 패널 숨김 기본 스타일 정의 */
+        .panel-toggle-btn {{ background: #4e5154; color: white; border: none; width: 100%; padding: 10px; font-size: 13px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-bottom: 8px; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,0.1); transition: background 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px; }}
+        .panel-toggle-btn:hover {{ background: #3c3f41; }}
+        
+        .admin-panel {{ background: #fff; padding: 12px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: none; flex-direction: column; gap: 12px; transition: all 0.3s ease; }}
         .admin-title {{ font-size: 13px; font-weight: bold; color: #1c1e21; margin-bottom: 2px; border-bottom: 1px dashed #e4e6eb; padding-bottom: 6px; }}
         .admin-row {{ display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }}
         .admin-select {{ padding: 8px; border: 1px solid #ccd0d5; border-radius: 6px; font-size: 13px; background: white; }}
@@ -811,7 +815,21 @@ def generate_multiboard_html(all_keywords_data, output_file):
     <script>
         const POSTS_PER_PAGE = 10;
 
-        // 🎯 변경 포인트: 사용자가 새로고침 버튼을 누를 때만 'is_refreshing' 기록을 세션에 심어줍니다.
+        // 🎯 추가 포인트: 관리자 설정 패널 토글 구동 제어 함수
+        function toggleAdminPanel() {{
+            const panel = document.getElementById('admin-panel-zone');
+            const btn = document.getElementById('panel-toggle-trigger');
+            if (panel.style.display === 'none' || panel.style.display === '') {{
+                panel.style.display = 'flex';
+                btn.innerHTML = '⚙️ 실시간 모니터링 관리 패널 접기 ▲';
+                localStorage.setItem('admin_panel_open', 'true');
+            }} else {{
+                panel.style.display = 'none';
+                btn.innerHTML = '⚙️ 실시간 모니터링 관리 패널 열기 ▼';
+                localStorage.setItem('admin_panel_open', 'false');
+            }}
+        }}
+
         function refreshCurrentTab() {{
             const activeTabContent = document.querySelector('.tab-content[style*="display: block"]');
             if (activeTabContent) {{
@@ -1001,8 +1019,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 syncTabDotState(boardId);
             }});
             
-            // 🎯 변경 포인트: 시스템이 처음 문서를 열었을 때는 0번째 탭을 강제 일괄 청소하지 않습니다.
-            // 사용자가 '현재 키워드 새로고침' 버튼을 눌러 들어온 명확한 상태일 때만 일괄 제거 로직을 작동시킵니다.
             const activeContent = document.querySelector('.tab-content[style*="display: block"]');
             if (activeContent) {{
                 updatePagination(activeContent.id);
@@ -1085,6 +1101,12 @@ def generate_multiboard_html(all_keywords_data, output_file):
             
             restoreAllTabsState();
 
+            // 🎯 추가 포인트: 사용자가 이전에 패널을 열어둔 채로 새로고침했었다면 열린 상태 기억 복원
+            if (localStorage.getItem('admin_panel_open') === 'true') {{
+                document.getElementById('admin-panel-zone').style.display = 'flex';
+                document.getElementById('panel-toggle-trigger').innerHTML = '⚙️ 실시간 모니터링 관리 패널 접기 ▲';
+            }}
+
             const topBtn = document.getElementById('floating-top-btn');
             window.addEventListener('scroll', () => {{
                 if (window.scrollY > 300) {{
@@ -1131,7 +1153,11 @@ def generate_multiboard_html(all_keywords_data, output_file):
 </head>
 <body>
     <div class="container">
-        <div class="admin-panel">
+        <!-- 🎯 변경 포인트: 평소 화면을 넓게 쓰기 위해 패널 오픈 전용 트리거 버튼 신설 -->
+        <button id="panel-toggle-trigger" class="panel-toggle-btn" onclick="toggleAdminPanel()">⚙️ 실시간 모니터링 관리 패널 열기 ▼</button>
+
+        <!-- 🎯 변경 포인트: id="admin-panel-zone"을 연결하여 동적 제어가 가능하도록 변경 -->
+        <div class="admin-panel" id="admin-panel-zone">
             <div class="admin-title">🛠️ 키워드 실시간 모니터링 관리 패널</div>
             <div class="admin-row">
                 <select id="board-select" class="admin-select">
