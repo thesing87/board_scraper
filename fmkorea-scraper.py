@@ -683,7 +683,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Malgun Gothic', sans-serif; background-color: #f0f2f5; margin: 0; padding: 10px; color: #1c1e21; box-sizing: border-box; }}
         .container {{ width: 100%; max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; }}
         
-        /* 🎯 디자인 보완: 토글 버튼 스타일 및 관리 패널 숨김 기본 스타일 정의 */
         .panel-toggle-btn {{ background: #4e5154; color: white; border: none; width: 100%; padding: 10px; font-size: 13px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-bottom: 8px; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,0.1); transition: background 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px; }}
         .panel-toggle-btn:hover {{ background: #3c3f41; }}
         
@@ -815,7 +814,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
     <script>
         const POSTS_PER_PAGE = 10;
 
-        // 🎯 추가 포인트: 관리자 설정 패널 토글 구동 제어 함수
         function toggleAdminPanel() {{
             const panel = document.getElementById('admin-panel-zone');
             const btn = document.getElementById('panel-toggle-trigger');
@@ -917,7 +915,9 @@ def generate_multiboard_html(all_keywords_data, output_file):
             window.scrollTo({{ top: containerOffset, behavior: 'smooth' }});
         }}
 
-        function markAllPostsInTabAsRead(boardId) {{
+        // 🎯 변경 포인트: 사용자가 '다른 탭으로 이동할 때' 혹은 '새로고침 버튼을 눌렀을 때'만 
+        // 기존 새 글의 ID들을 스토리지에 밀어 넣어 다음 화면 갱신 때 뱃지가 정리되도록 유도합니다.
+        function savePostsToReadList(boardId) {{
             const boardEl = document.getElementById(boardId);
             if (!boardEl) return;
 
@@ -925,35 +925,21 @@ def generate_multiboard_html(all_keywords_data, output_file):
             if (allCards.length === 0) return;
 
             let readIds = [];
-            try {{
-                readIds = JSON.parse(localStorage.getItem('read_post_ids') || '[]');
-            }} catch(e) {{ readIds = []; }}
+            try {{ readIds = JSON.parse(localStorage.getItem('read_post_ids') || '[]'); }} catch(e) {{}}
 
             let hasNewRead = false;
-
             allCards.forEach(card => {{
                 const idMatch = card.id.replace('post-', '');
                 if (idMatch && !readIds.includes(idMatch)) {{
                     readIds.push(idMatch);
                     hasNewRead = true;
                 }}
-                
-                card.classList.remove('new-post');
-                card.style.border = 'none';
-                const badge = card.querySelector('.new-badge');
-                if (badge) badge.remove();
             }});
 
             if (hasNewRead) {{
-                if (readIds.length > 1500) {{
-                    readIds = readIds.slice(readIds.length - 1500);
-                }}
+                if (readIds.length > 1500) readIds = readIds.slice(readIds.length - 1500);
                 localStorage.setItem('read_post_ids', JSON.stringify(readIds));
             }}
-
-            const globalIdx = boardId.replace('board-', '');
-            const targetDot = document.getElementById('dot-board-' + globalIdx);
-            if (targetDot) targetDot.style.display = 'none';
         }}
 
         function syncTabDotState(boardId) {{
@@ -982,6 +968,13 @@ def generate_multiboard_html(all_keywords_data, output_file):
         }}
 
         function openTab(evt, boardId) {{
+            // 🎯 변경 포인트: 탭을 전환하기 전, 직전까지 사용자가 읽고 있었던 이전 활성 탭의 
+            // 개 게시글 ID 상태를 스토리지에 세이브하여 백업 정리 처리합니다.
+            const previousActiveTab = document.querySelector('.tab-content[style*="display: block"]');
+            if (previousActiveTab && previousActiveTab.id !== boardId) {{
+                savePostsToReadList(previousActiveTab.id);
+            }}
+
             var i, tabcontent, tablinks;
             tabcontent = document.getElementsByClassName("tab-content");
             for (i = 0; i < tabcontent.length; i++) {{ tabcontent[i].style.display = "none"; }}
@@ -993,7 +986,12 @@ def generate_multiboard_html(all_keywords_data, output_file):
             if (evt) evt.currentTarget.className += " active";
             
             updatePagination(boardId);
-            markAllPostsInTabAsRead(boardId);
+            
+            // 🎯 변경 포인트: 사용자가 탭을 누른 직후에는 본문 안의 NEW 뱃지를 강제로 지우지 않고 유지합니다!
+            // 대신 상단의 빨간 도트(🔴)만 즉시 눈에 띄지 않게 처리하여 눈을 편하게 보호합니다.
+            const globalIdx = boardId.replace('board-', '');
+            const targetDot = document.getElementById('dot-board-' + globalIdx);
+            if (targetDot) targetDot.style.display = 'none';
         }}
 
         function restoreAllTabsState() {{
@@ -1023,11 +1021,24 @@ def generate_multiboard_html(all_keywords_data, output_file):
             if (activeContent) {{
                 updatePagination(activeContent.id);
                 
+                // 사용자가 명시적으로 새로고침 단추를 눌렀을 때만 기존 글들을 스토리지에 밀어 넣고 정리합니다.
                 if (sessionStorage.getItem('is_refreshing') === 'true') {{
-                    markAllPostsInTabAsRead(activeContent.id);
+                    savePostsToReadList(activeContent.id);
                     sessionStorage.removeItem('is_refreshing');
+                    
+                    // 새로고침 직후에는 변경 플래그가 반영된 스토리지 기준으로 뱃지와 보더를 싹 청소해 줍니다.
+                    const cards = activeContent.querySelectorAll('.posts-container > .post-card');
+                    cards.forEach(card => {{
+                        card.classList.remove('new-post');
+                        card.style.border = 'none';
+                        const badge = card.querySelector('.new-badge');
+                        if (badge) badge.remove();
+                    }});
                 }} else {{
-                    syncTabDotState(activeContent.id);
+                    // 평소 최초 로드 시에는 빨간 도트 상태만 싱크를 맞춰주고 본문 뱃지는 보호합니다.
+                    const globalIdx = activeContent.id.replace('board-', '');
+                    const targetDot = document.getElementById('dot-board-' + globalIdx);
+                    if (targetDot) targetDot.style.display = 'none';
                 }}
             }}
         }}
@@ -1101,7 +1112,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
             
             restoreAllTabsState();
 
-            // 🎯 추가 포인트: 사용자가 이전에 패널을 열어둔 채로 새로고침했었다면 열린 상태 기억 복원
             if (localStorage.getItem('admin_panel_open') === 'true') {{
                 document.getElementById('admin-panel-zone').style.display = 'flex';
                 document.getElementById('panel-toggle-trigger').innerHTML = '⚙️ 실시간 모니터링 관리 패널 접기 ▲';
@@ -1153,10 +1163,8 @@ def generate_multiboard_html(all_keywords_data, output_file):
 </head>
 <body>
     <div class="container">
-        <!-- 🎯 변경 포인트: 평소 화면을 넓게 쓰기 위해 패널 오픈 전용 트리거 버튼 신설 -->
         <button id="panel-toggle-trigger" class="panel-toggle-btn" onclick="toggleAdminPanel()">⚙️ 실시간 모니터링 관리 패널 열기 ▼</button>
 
-        <!-- 🎯 변경 포인트: id="admin-panel-zone"을 연결하여 동적 제어가 가능하도록 변경 -->
         <div class="admin-panel" id="admin-panel-zone">
             <div class="admin-title">🛠️ 키워드 실시간 모니터링 관리 패널</div>
             <div class="admin-row">
