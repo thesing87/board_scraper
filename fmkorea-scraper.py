@@ -45,16 +45,14 @@ DDNS_URL = os.environ.get('DDNS_URL')
 
 IS_LINUX = platform.system() == 'Linux'
 
-if IS_LINUX:
-    OUTPUT_DIR = os.environ.get('OUTPUT_DIR', '/output')
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    HTML_OUTPUT_FILE = os.path.join(OUTPUT_DIR, 'index.html')
-    JSON_BACKUP_FILE = os.path.join(OUTPUT_DIR, 'board_data_backup.json')
-    KEYWORDS_FILE = os.path.join(OUTPUT_DIR, 'keywords_config.json')
-else:
-    HTML_OUTPUT_FILE = 'index.html'
-    JSON_BACKUP_FILE = 'board_data_backup.json'
-    KEYWORDS_FILE = 'keywords_config.json'
+# 1. 현재 파이썬 파일이 실행되는 위치나 환경변수에서 지정한 output 폴더 경로를 잡습니다.
+OUTPUT_DIR = os.environ.get('OUTPUT_DIR', 'output')
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# 2. os.path.join을 사용하면 윈도우(\)와 리눅스(/) 경로를 운영체제에 맞게 자동으로 맞춰줍니다.
+HTML_OUTPUT_FILE = os.path.join(OUTPUT_DIR, 'index.html')
+JSON_BACKUP_FILE = os.path.join(OUTPUT_DIR, 'board_data_backup.json')
+KEYWORDS_FILE = os.path.join(OUTPUT_DIR, 'keywords_config.json')
 
 all_keywords_data = {}
 data_lock = threading.Lock()
