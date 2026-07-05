@@ -53,12 +53,13 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 HTML_OUTPUT_FILE = os.path.join(OUTPUT_DIR, 'index.html')
 JSON_BACKUP_FILE = os.path.join(OUTPUT_DIR, 'board_data_backup.json')
 KEYWORDS_FILE = os.path.join(OUTPUT_DIR, 'keywords_config.json')
+BOARD_CONFIG_FILE = os.path.join(OUTPUT_DIR, 'board_config.json')  # 🎯 게시판별 설정 파일 추가
 
 all_keywords_data = {}
 data_lock = threading.Lock()
 
 # ==========================================
-# 2. 키워드 파일(JSON) I/O 헬퍼 함수
+# 2. 파일 I/O 헬퍼 함수 (키워드 및 게시판 설정)
 # ==========================================
 def load_keywords_from_file():
     if not os.path.exists(KEYWORDS_FILE):
@@ -89,6 +90,36 @@ def save_keywords_to_file(config_data):
         print(f"⚠️ 키워드 파일 저장 오류: {e}")
         return False
 
+# 🎯 [추가] 게시판 설정(알림 토글 상태 등) 로드 함수
+def load_board_config():
+    if not os.path.exists(BOARD_CONFIG_FILE):
+        # 초기 상태는 모든 게시판 알림 활성화(True)
+        initial_config = {board: {"alert": True} for board in BOARD_MAP.keys()}
+        with open(BOARD_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(initial_config, f, ensure_ascii=False, indent=4)
+        return initial_config
+    try:
+        with open(BOARD_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            # 신규 누락된 게시판 맵핑 방어 코드
+            for board in BOARD_MAP.keys():
+                if board not in config:
+                    config[board] = {"alert": True}
+            return config
+    except Exception as e:
+        print(f"⚠️ 게시판 설정 파일 로드 오류: {e}")
+        return {board: {"alert": True} for board in BOARD_MAP.keys()}
+
+# 🎯 [추가] 게시판 설정 저장 함수
+def save_board_config(config_data):
+    try:
+        with open(BOARD_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config_data, f, ensure_ascii=False, indent=4)
+        return True
+    except Exception as e:
+        print(f"⚠️ 게시판 설정 파일 저장 오류: {e}")
+        return False
+
 # ==========================================
 # 3. 내장 경량 API 웹 서버
 # ==========================================
@@ -101,9 +132,74 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
+    
+    def do_GET(self):
+        if self.path == '/' or self.path == '/index.html':
+            try:
+                with open(HTML_OUTPUT_FILE, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.end_headers()
+                self.wfile.write(content.encode('utf-8'))
+            except Exception as e:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(f"❌ HTML 파일을 찾을 수 없습니다: {e}".encode('utf-8'))
+        else:
+            self.send_response(404)
+            self.end_headers()
 
     def do_POST(self):
         global all_keywords_data
+        
+        # 🎯 [추가] 알림 토글 전용 엔드포인트 분기 생성
+        if self.path.startswith('/api/toggle-alert'):
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length).decode('utf-8')
+            try:
+                params = json.loads(post_data)
+                board = params.get('board', '').strip()
+                enabled = params.get('enabled', True)
+                password = params.get('password', '').strip()
+                
+                self.send_response(200)
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+                self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.end_headers()
+                
+                if password != ADMIN_PASSWORD:
+                    response_data = {'success': False, 'message': '❌ 인증 비밀번호가 일치하지 않습니다.'}
+                    self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
+                    return
+                
+                if board not in BOARD_MAP:
+                    response_data = {'success': False, 'message': '❌ 존재하지 않는 게시판입니다.'}
+                    self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
+                    return
+                
+                with data_lock:
+                    current_board_config = load_board_config()
+                    current_board_config[board]['alert'] = enabled
+                    save_board_config(current_board_config)
+                    
+                    # HTML 즉시 리빌드하여 토글 스위치 상태 동기화
+                    generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
+                
+                status_str = "켜짐" if enabled else "꺼짐"
+                msg = f"🔔 {BOARD_MAP[board]} 게시판의 알림이 {status_str} 상태로 변경되었습니다."
+                response_data = {'success': True, 'message': msg}
+                self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
+            except Exception as e:
+                try:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write(str(e).encode('utf-8'))
+                except: pass
+            return
+
         if self.path.startswith('/api/keyword'):
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length).decode('utf-8')
@@ -170,7 +266,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
 def run_api_server():
     server_address = ('', 8080)
     httpd = HTTPServer(server_address, KeywordAPIServer)
-    print("🌐 [API Server] 키워드 제어 웹서버가 8080포트에서 가동되었습니다.")
+    print("🌐 [API Server] 키워드 및 알림 제어 웹서버가 8080포트에서 가동되었습니다.")
     httpd.serve_forever()
 
 # ==========================================
@@ -314,6 +410,7 @@ def scrape_post_detail(driver, post_info):
             block.unwrap()
             
         raw_text = content_area.decode_contents()
+        
         raw_text = re.sub(r'<script.*?>.*?</script>', '', raw_text, flags=re.DOTALL)
         raw_text = re.sub(r'<!--.*?-->', '', raw_text, flags=re.DOTALL) 
         raw_text = raw_text.replace('\\', '')
@@ -398,6 +495,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
     boards_html = ""
     
     active_config = load_keywords_from_file()
+    board_alert_config = load_board_config()  # 🎯 게시판 알림 토글 데이터 로드
     
     flattened_keywords = []
     for board, keywords in active_config.items():
@@ -439,8 +537,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
         </div>
         """
         
-        # 반복 사용할 공통 페이지네이션 마크업 생성 (상단/하단 배치용)
-        # 클래스명으로 상/하단 버튼을 동시 제어할 수 있도록 구조 유지
         pagination_markup = f"""
             <div class="pagination-control" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin: 15px 0;">
                 <button class="page-nav-btn btn-first" onclick="goToExtremePage('board-{global_idx}', 'first')" title="첫 페이지로">⏮️</button>
@@ -528,7 +624,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 </div>
                 """
         
-        # 🎯 [요청 반영] 게시글 목록 컨테이너 바로 밑(하단)에도 페이지네이션 추가
         board_content += f"""
             </div>
             {pagination_markup}
@@ -537,6 +632,27 @@ def generate_multiboard_html(all_keywords_data, output_file):
         boards_html += board_content
 
     board_options = "".join([f'<option value="{k}">{v}</option>' for k, v in BOARD_MAP.items()])
+
+    # 🎯 [추가] 관리 대시보드 내 게시판별 알림 토글 리스트 HTML 생성
+    alert_toggles_html = ""
+    for b_key, b_val in BOARD_MAP.items():
+        is_alert_on = board_alert_config.get(b_key, {}).get("alert", True)
+        checked_attr = "checked" if is_alert_on else ""
+        status_label = "🔔 알림 활성" if is_alert_on else "🔕 알림 꺼짐"
+        status_class = "status-on" if is_alert_on else "status-off"
+        
+        alert_toggles_html += f"""
+        <div class="toggle-item">
+            <span class="toggle-label">🎯 {b_val}</span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span class="toggle-status {status_class}">{status_label}</span>
+                <label class="switch">
+                    <input type="checkbox" {checked_attr} onchange="toggleBoardAlert('{b_key}', this)">
+                    <span class="slider round"></span>
+                </label>
+            </div>
+        </div>
+        """
 
     html_content = f"""<!DOCTYPE html>
 <html lang="ko">
@@ -547,8 +663,9 @@ def generate_multiboard_html(all_keywords_data, output_file):
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Malgun Gothic', sans-serif; background-color: #f0f2f5; margin: 0; padding: 10px; color: #1c1e21; box-sizing: border-box; }}
         .container {{ width: 100%; max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; }}
-        .admin-panel {{ background: #fff; padding: 12px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; gap: 8px; }}
-        .admin-title {{ font-size: 13px; font-weight: bold; color: #1c1e21; margin-bottom: 2px; }}
+        
+        .admin-panel {{ background: #fff; padding: 12px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; gap: 12px; }}
+        .admin-title {{ font-size: 13px; font-weight: bold; color: #1c1e21; margin-bottom: 2px; border-bottom: 1px dashed #e4e6eb; padding-bottom: 6px; }}
         .admin-row {{ display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }}
         .admin-select {{ padding: 8px; border: 1px solid #ccd0d5; border-radius: 6px; font-size: 13px; background: white; }}
         .admin-input {{ flex: 1; min-width: 120px; padding: 8px 12px; border: 1px solid #ccd0d5; border-radius: 6px; font-size: 13px; outline: none; }}
@@ -557,6 +674,24 @@ def generate_multiboard_html(all_keywords_data, output_file):
         .refresh-btn {{ background: #28a745; color: #fff; border: none; padding: 0 14px; font-size: 13px; font-weight: bold; border-radius: 6px; cursor: pointer; white-space: nowrap; height: 36px; display: inline-flex; align-items: center; gap: 4px; }}
         .refresh-btn:hover {{ background: #218838; }}
         
+        /* 🎯 [추가] 토글 스위치 컴포넌트 스타일링 스타일 */
+        .alert-management-zone {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; padding-top: 4px; }}
+        .toggle-item {{ display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; padding: 6px 10px; border-radius: 6px; border: 1px solid #e4e6eb; }}
+        .toggle-label {{ font-size: 13px; font-weight: bold; color: #4e5154; }}
+        .toggle-status {{ font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px; }}
+        .toggle-status.status-on {{ background-color: #e2f9e9; color: #1e7e34; }}
+        .toggle-status.status-off {{ background-color: #fff0f0; color: #dc3545; }}
+
+        .switch {{ position: relative; display: inline-block; width: 38px; height: 22px; }}
+        .switch input {{ opacity: 0; width: 0; height: 0; }}
+        .slider {{ position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .3s; }}
+        .slider:before {{ position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; transition: .3s; }}
+        input:checked + .slider {{ background-color: #1877f2; }}
+        input:focus + .slider {{ box-shadow: 0 0 1px #1877f2; }}
+        input:checked + .slider:before {{ transform: translateX(16px); }}
+        .slider.round {{ border-radius: 22px; }}
+        .slider.round:before {{ border-radius: 50%; }}
+
         .tab-container {{ 
             display: flex; 
             gap: 6px; 
@@ -611,7 +746,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
         .page-nav-btn:hover {{ background-color: #f2f3f5; }}
         .page-nav-btn:disabled {{ background-color: #e4e6eb; color: #bcc0c4; cursor: not-allowed; border-color: #e4e6eb; }}
 
-        /* 🎯 [요청 반영] 언제나 화면 우하단에 고정되어 떠 있는 Top 플로팅 버튼 스타일 */
         .scroll-top-btn {{
             position: fixed;
             bottom: 25px;
@@ -631,18 +765,11 @@ def generate_multiboard_html(all_keywords_data, output_file):
             align-items: center;
             justify-content: center;
             transition: all 0.2s ease;
-            opacity: 0; /* 기본 상태 숨김 (스크롤 시 활성화) */
+            opacity: 0;
             visibility: hidden;
         }}
-        .scroll-top-btn.visible {{
-            opacity: 1;
-            visibility: visible;
-        }}
-        .scroll-top-btn:hover {{
-            background-color: #145dbf;
-            transform: translateY(-3px);
-            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
-        }}
+        .scroll-top-btn.visible {{ opacity: 1; visibility: visible; }}
+        .scroll-top-btn:hover {{ background-color: #145dbf; transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3); }}
     </style>
     
     <script>
@@ -689,7 +816,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
             window.location.reload();
         }}
 
-        // 🎯 상/하단 양쪽 페이지네이션 엘리먼트들을 동시에 업데이트하도록 대폭 수정
         function updatePagination(boardId) {{
             const boardEl = document.getElementById(boardId);
             if (!boardEl) return;
@@ -720,7 +846,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 }}
             }});
             
-            // 상단 컴포넌트와 하단 컴포넌트의 글자 및 버튼 상태를 전부 동기화
             controls.forEach(ctrl => {{
                 const indicator = ctrl.querySelector('.page-indicator');
                 if (indicator) indicator.innerText = currentPage + " / " + totalPages;
@@ -851,9 +976,39 @@ def generate_multiboard_html(all_keywords_data, output_file):
             }}
         }}
 
-        // 🎯 [요청 반영] 플로팅 Top 버튼 클릭 시 최상단으로 부드럽게 스크롤해주는 함수
         function scrollToTop() {{
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
+        }}
+
+        // 🎯 [추가] 게시판 알림 상태 실시간 API 요청 함수 (비밀번호 인증 연동)
+        function toggleBoardAlert(boardKey, checkboxElement) {{
+            let pwd = document.getElementById('admin-pwd-input').value.trim();
+            if (!pwd) {{ 
+                alert('알림 설정을 변경하려면 패널 우측의 관리자 암호를 먼저 입력해 주세요.'); 
+                checkboxElement.checked = !checkboxElement.checked; // 입력값 롤백
+                return; 
+            }}
+            
+            const targetStatus = checkboxElement.checked;
+            
+            fetch('/api/toggle-alert', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ board: boardKey, enabled: targetStatus, password: pwd }})
+            }})
+            .then(res => res.json())
+            .then(data => {{
+                alert(data.message);
+                if (data.success) {{ 
+                    location.reload(); 
+                }} else {{
+                    checkboxElement.checked = !targetStatus; // 실패 시 원래 스위치 상태로 복원
+                }}
+            }})
+            .catch(err => {{
+                alert('알림 상태 요청 중 오류가 발생했습니다.');
+                checkboxElement.checked = !targetStatus;
+            }});
         }}
 
         window.addEventListener('DOMContentLoaded', () => {{
@@ -889,7 +1044,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
             
             restoreAllTabsState();
 
-            // 🎯 스크롤 위치에 따라 Top 플로팅 버튼의 표시 여부를 제어하는 리스너 등록
             const topBtn = document.getElementById('floating-top-btn');
             window.addEventListener('scroll', () => {{
                 if (window.scrollY > 300) {{
@@ -956,6 +1110,12 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 <button class="admin-btn" onclick="manageKeyword('add')">➕ 등록</button>
                 <button class="refresh-btn" onclick="refreshCurrentTab()">🔄 현재 키워드 새로고침</button>
             </div>
+            
+            <!-- 🎯 [추가] 관리 대시보드 내 실시간 알림 ON/OFF 스위치 토글 영역 배치 -->
+            <div class="admin-title" style="margin-top: 4px;">🔔 게시판별 텔레그램 알림 토글 제어 (관리자 암호 필요)</div>
+            <div class="alert-management-zone">
+                {alert_toggles_html}
+            </div>
         </div>
 
         <div class="tab-container" id="tab-scroll-container">
@@ -965,7 +1125,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
         {boards_html}
     </div>
 
-    <!-- 🎯 [요청 반영] 화면 우하단 고정 플로팅 '맨 위로' 버튼 생성 -->
     <button id="floating-top-btn" class="scroll-top-btn" onclick="scrollToTop()" title="맨 위로 이동">▲</button>
 
     <script>
@@ -1048,6 +1207,7 @@ try:
 
         with data_lock:
             config_data = load_keywords_from_file()
+            board_alert_config = load_board_config()  # 🎯 실시간 모니터링 루프 내 알림 상태 로드
             
         now_str = datetime.now().strftime('%H:%M:%S')
         print(f"\n🔍 [{now_str}] 실시간 모니터링 시작")
@@ -1115,6 +1275,8 @@ try:
                     else:
                         new_posts = new_post_list
                 
+                # ... [기존 상위 코드 생략] ...
+
                 if new_posts:
                     print(f"   🆕 [{board_name}] 실시간 새 글 {len(new_posts)}개 발견!")
                         
@@ -1128,13 +1290,27 @@ try:
                                 generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
                             save_backup_data(all_keywords_data)
                             
-                            telegram_text = (
-                                f"🔔 *[{board_name} - {keyword}] 실시간 새 글!*\n\n"
-                                f"📌 *제목:* {post_data['title']}\n"
-                                f"✍️ *작성자:* {post_data['author']}\n\n"
-                                f"📂 [게시판 확인]({DDNS_URL}#post-{post_data['id']})"
-                            )
-                            send_telegram_message(telegram_text)
+                            # 🎯 [수정] 동영상 포함 여부 확인
+                            # scrape_post_detail에서 본문 내 동영상이 검출되면 post_data['videos'] 배열에 담깁니다.
+                            has_video = len(post_data.get('videos', [])) > 0
+                            is_alert_enabled = board_alert_config.get(board, {}).get("alert", True)
+                            
+                            # 🎯 [핵심 조건 변경] 
+                            # 게시판 알림이 켜져 있거나(True), 게시판 알림이 꺼져 있더라도 동영상이 포함되어 있다면(has_video) 발송!
+                            if is_alert_enabled or has_video:
+                                
+                                # 알림을 끈 상태인데 동영상 때문에 강제 발송되는 경우, 텔레그램 타이틀에 별도 표시를 해줍니다.
+                                video_badge = " [🎬 동영상 포함 강제알림]" if (not is_alert_enabled and has_video) else ""
+                                
+                                telegram_text = (
+                                    f"🔔 *[{board_name} - {keyword}]{video_badge} 실시간 새 글!*\n\n"
+                                    f"📌 *제목:* {post_data['title']}\n"
+                                    f"✍️ *작성자:* {post_data['author']}\n\n"
+                                    f"📂 [게시판 확인]({DDNS_URL}#post-{post_data['id']})"
+                                )
+                                send_telegram_message(telegram_text)
+                            else:
+                                print(f"      🔕 [{board_name}] 알림 비활성화 상태(동영상 없음) - 텔레그램 발송을 생략합니다.")
                         except Exception as e: pass
                     has_changes = True
         
