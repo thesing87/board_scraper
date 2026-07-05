@@ -90,10 +90,8 @@ def save_keywords_to_file(config_data):
         print(f"⚠️ 키워드 파일 저장 오류: {e}")
         return False
 
-# 🎯 [추가] 게시판 설정(알림 토글 상태 등) 로드 함수
 def load_board_config():
     if not os.path.exists(BOARD_CONFIG_FILE):
-        # 초기 상태는 모든 게시판 알림 활성화(True)
         initial_config = {board: {"alert": True} for board in BOARD_MAP.keys()}
         with open(BOARD_CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(initial_config, f, ensure_ascii=False, indent=4)
@@ -101,7 +99,6 @@ def load_board_config():
     try:
         with open(BOARD_CONFIG_FILE, 'r', encoding='utf-8') as f:
             config = json.load(f)
-            # 신규 누락된 게시판 맵핑 방어 코드
             for board in BOARD_MAP.keys():
                 if board not in config:
                     config[board] = {"alert": True}
@@ -110,7 +107,6 @@ def load_board_config():
         print(f"⚠️ 게시판 설정 파일 로드 오류: {e}")
         return {board: {"alert": True} for board in BOARD_MAP.keys()}
 
-# 🎯 [추가] 게시판 설정 저장 함수
 def save_board_config(config_data):
     try:
         with open(BOARD_CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -121,10 +117,7 @@ def save_board_config(config_data):
         return False
 
 # ==========================================
-# 3. 내장 경량 API 웹 서버
-# ==========================================
-# ==========================================
-# 3. 내장 경량 API 웹 서버 (400 / 500 에러 완벽 방어 버전)
+# 3. 내장 경량 API 웹 서버 (GET 기반 토글 지원)
 # ==========================================
 class KeywordAPIServer(BaseHTTPRequestHandler):
     def log_message(self, format, *args): return
@@ -137,50 +130,22 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if self.path == '/' or self.path == '/index.html' or self.path.startswith('/?'):
-            try:
-                with open(HTML_OUTPUT_FILE, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                self.send_response(200)
-                self.send_header('Content-Type', 'text/html; charset=utf-8')
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                self.wfile.write(content.encode('utf-8'))
-            except Exception as e:
-                self.send_response(404)
-                self.end_headers()
-                self.wfile.write(f"❌ HTML 파일을 찾을 수 없습니다: {e}".encode('utf-8'))
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def do_POST(self):
         global all_keywords_data
-        
-        # URL에서 쿼리스트링 등을 제외한 순수 경로만 추출하여 비교 분기합니다.
         pure_path = self.path.split('?')[0]
         
-        # 🎯 1. 알림 토글 API 처리 분기
+        # 🎯 iptime 환경에서 400 에러를 유발하던 POST 바디 유실 이슈를 피하기 위해 GET 파라미터 구조로 완벽 전환
         if pure_path == '/api/toggle-alert':
+            from urllib.parse import parse_qs, urlparse
             try:
-                content_length = int(self.headers.get('Content-Length', 0))
-                if content_length == 0:
-                    self.send_response(400)
-                    self.end_headers()
-                    self.wfile.write(b"Bad Request: Empty Body")
-                    return
-
-                post_data = self.rfile.read(content_length).decode('utf-8')
-                params = json.loads(post_data)
+                query_params = parse_qs(urlparse(self.path).query)
+                board = query_params.get('board', [''])[0].strip()
+                enabled_str = query_params.get('enabled', ['true'])[0].strip()
+                enabled = enabled_str.lower() == 'true'
+                password = query_params.get('password', [''])[0].strip()
                 
-                board = params.get('board', '').strip()
-                enabled = params.get('enabled', True)
-                password = params.get('password', '').strip()
-                
-                # 순서 준수: 헤더 전송 전에 상태 코드(200)를 먼저 지정해야 브라우저 400 에러를 방지합니다.
                 self.send_response(200)
                 self.send_header('Access-Control-Allow-Origin', '*')
-                self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+                self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
                 self.send_header('Access-Control-Allow-Headers', 'Content-Type')
                 self.send_header('Content-Type', 'application/json; charset=utf-8')
                 self.end_headers()
@@ -212,13 +177,32 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self.wfile.write(str(e).encode('utf-8'))
             return
 
-        # 🎯 2. 키워드 추가/삭제 API 처리 분기
+        if pure_path == '/' or pure_path == '/index.html' or self.path.startswith('/?'):
+            try:
+                with open(HTML_OUTPUT_FILE, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(content.encode('utf-8'))
+            except Exception as e:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(f"❌ HTML 파일을 찾을 수 없습니다: {e}".encode('utf-8'))
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self):
+        global all_keywords_data
+        pure_path = self.path.split('?')[0]
+        
         if pure_path == '/api/keyword':
             try:
                 content_length = int(self.headers.get('Content-Length', 0))
                 post_data = self.rfile.read(content_length).decode('utf-8')
                 params = json.loads(post_data)
-                
                 action = params.get('action')
                 keyword = params.get('keyword', '').strip()
                 password = params.get('password', '').strip()
@@ -271,20 +255,18 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 response_data = {'success': True, 'message': msg}
                 self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
             except Exception as e:
-                print(f"⚠️ 키워드 API 에러 발생: {e}")
                 self.send_response(500)
                 self.end_headers()
                 self.wfile.write(str(e).encode('utf-8'))
             return
             
-        # 매칭되는 API 엔드포인트가 없을 때
         self.send_response(404)
         self.end_headers()
 
 def run_api_server():
-    server_address = ('', 8080)
+    server_address = ('', 8081)
     httpd = HTTPServer(server_address, KeywordAPIServer)
-    print("🌐 [API Server] 키워드 및 알림 제어 웹서버가 8080포트에서 가동되었습니다.")
+    print("🌐 [API Server] 키워드 및 알림 제어 웹서버가 8081포트에서 가동되었습니다.")
     httpd.serve_forever()
 
 # ==========================================
@@ -505,7 +487,7 @@ def scrape_post_detail(driver, post_info):
     }
 
 # ==========================================
-# 5. UI 빌더 (마우스 드래그 스크롤 완벽 지원)
+# 5. UI 빌더 (중괄호 이스케이프 완벽 준수 구조)
 # ==========================================
 def generate_multiboard_html(all_keywords_data, output_file):
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -513,7 +495,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
     boards_html = ""
     
     active_config = load_keywords_from_file()
-    board_alert_config = load_board_config()  # 🎯 게시판 알림 토글 데이터 로드
+    board_alert_config = load_board_config()
     
     flattened_keywords = []
     for board, keywords in active_config.items():
@@ -651,7 +633,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
 
     board_options = "".join([f'<option value="{k}">{v}</option>' for k, v in BOARD_MAP.items()])
 
-    # 🎯 [추가] 관리 대시보드 내 게시판별 알림 토글 리스트 HTML 생성
     alert_toggles_html = ""
     for b_key, b_val in BOARD_MAP.items():
         is_alert_on = board_alert_config.get(b_key, {}).get("alert", True)
@@ -672,6 +653,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
         </div>
         """
 
+    # 🎯 파이썬 문자열 포맷팅 에러(KeyError 등)를 차단하기 위해 모든 스크립트 중괄호를 이중{{}}화 처리 완료
     html_content = f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -692,7 +674,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
         .refresh-btn {{ background: #28a745; color: #fff; border: none; padding: 0 14px; font-size: 13px; font-weight: bold; border-radius: 6px; cursor: pointer; white-space: nowrap; height: 36px; display: inline-flex; align-items: center; gap: 4px; }}
         .refresh-btn:hover {{ background: #218838; }}
         
-        /* 🎯 [추가] 토글 스위치 컴포넌트 스타일링 스타일 */
         .alert-management-zone {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; padding-top: 4px; }}
         .toggle-item {{ display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; padding: 6px 10px; border-radius: 6px; border: 1px solid #e4e6eb; }}
         .toggle-label {{ font-size: 13px; font-weight: bold; color: #4e5154; }}
@@ -998,21 +979,25 @@ def generate_multiboard_html(all_keywords_data, output_file):
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
         }}
 
-        // 🎯 [추가] 게시판 알림 상태 실시간 API 요청 함수 (비밀번호 인증 연동)
+        // 🎯 [수정 완역] 파이썬 문자열 포맷팅 규격을 완벽 준수하도록 중괄호 이중화 및 GET 쿼리스트링 구조 적용
         function toggleBoardAlert(boardKey, checkboxElement) {{
             let pwd = document.getElementById('admin-pwd-input').value.trim();
             if (!pwd) {{ 
                 alert('알림 설정을 변경하려면 패널 우측의 관리자 암호를 먼저 입력해 주세요.'); 
-                checkboxElement.checked = !checkboxElement.checked; // 입력값 롤백
+                checkboxElement.checked = !checkboxElement.checked;
                 return; 
             }}
             
             const targetStatus = checkboxElement.checked;
             
-            fetch('/api/toggle-alert', {{
-                method: 'POST',
-                headers: {{ 'Content-Type': 'application/json' }},
-                body: JSON.stringify({{ board: boardKey, enabled: targetStatus, password: pwd }})
+            // iptime 포트포워딩 환경 최적화를 위한 GET 주소 조립 체계 구현
+            const apiUrl = '/api/toggle-alert?board=' + encodeURIComponent(boardKey) + 
+                           '&enabled=' + targetStatus + 
+                           '&password=' + encodeURIComponent(pwd);
+            
+            fetch(apiUrl, {{
+                method: 'GET',
+                headers: {{ 'Accept': 'application/json' }}
             }})
             .then(res => res.json())
             .then(data => {{
@@ -1020,7 +1005,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 if (data.success) {{ 
                     location.reload(); 
                 }} else {{
-                    checkboxElement.checked = !targetStatus; // 실패 시 원래 스위치 상태로 복원
+                    checkboxElement.checked = !targetStatus;
                 }}
             }})
             .catch(err => {{
@@ -1129,7 +1114,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 <button class="refresh-btn" onclick="refreshCurrentTab()">🔄 현재 키워드 새로고침</button>
             </div>
             
-            <!-- 🎯 [추가] 관리 대시보드 내 실시간 알림 ON/OFF 스위치 토글 영역 배치 -->
             <div class="admin-title" style="margin-top: 4px;">🔔 게시판별 텔레그램 알림 토글 제어 (관리자 암호 필요)</div>
             <div class="alert-management-zone">
                 {alert_toggles_html}
@@ -1225,7 +1209,7 @@ try:
 
         with data_lock:
             config_data = load_keywords_from_file()
-            board_alert_config = load_board_config()  # 🎯 실시간 모니터링 루프 내 알림 상태 로드
+            board_alert_config = load_board_config()
             
         now_str = datetime.now().strftime('%H:%M:%S')
         print(f"\n🔍 [{now_str}] 실시간 모니터링 시작")
@@ -1293,8 +1277,6 @@ try:
                     else:
                         new_posts = new_post_list
                 
-                # ... [기존 상위 코드 생략] ...
-
                 if new_posts:
                     print(f"   🆕 [{board_name}] 실시간 새 글 {len(new_posts)}개 발견!")
                         
@@ -1308,16 +1290,10 @@ try:
                                 generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
                             save_backup_data(all_keywords_data)
                             
-                            # 🎯 [수정] 동영상 포함 여부 확인
-                            # scrape_post_detail에서 본문 내 동영상이 검출되면 post_data['videos'] 배열에 담깁니다.
                             has_video = len(post_data.get('videos', [])) > 0
                             is_alert_enabled = board_alert_config.get(board, {}).get("alert", True)
                             
-                            # 🎯 [핵심 조건 변경] 
-                            # 게시판 알림이 켜져 있거나(True), 게시판 알림이 꺼져 있더라도 동영상이 포함되어 있다면(has_video) 발송!
                             if is_alert_enabled or has_video:
-                                
-                                # 알림을 끈 상태인데 동영상 때문에 강제 발송되는 경우, 텔레그램 타이틀에 별도 표시를 해줍니다.
                                 video_badge = " [🎬 동영상 포함 강제알림]" if (not is_alert_enabled and has_video) else ""
                                 
                                 telegram_text = (
