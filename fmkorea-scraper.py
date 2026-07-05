@@ -505,16 +505,34 @@ def generate_multiboard_html(all_keywords_data, output_file):
             
             new_posts_count = sum(1 for post in board_data if post.get('is_new', False))
             
+            # 🎯 탭 내에 수집된 글이 있다면, 가장 첫 번째 글(가장 최신 글)의 'date' 문자열을 기준으로 잡습니다.
+            # 날짜 형식이 파싱하기 어렵거나 없으면 빈 문자열 혹은 아주 오래된 날짜 처리
+            latest_post_date = ""
+            if board_data and len(board_data) > 0:
+                latest_post_date = board_data[0].get('date', '')
+            
             flattened_keywords.append({
                 'board': board,
                 'keyword': keyword,
                 'combined_key': combined_key,
                 'board_data': board_data,
                 'new_posts_count': new_posts_count,
-                'total_count': len(board_data)
+                'total_count': len(board_data),
+                'latest_post_date': latest_post_date  # 시간 정렬용 필드 추가
             })
     
-    flattened_keywords.sort(key=lambda x: (x['new_posts_count'] > 0, x['new_posts_count'], x['total_count']), reverse=True)
+    # 🎯 정렬 조건 변경: 
+    # 1. 안읽은 새 글이 존재하는 탭이 우선 (new_posts_count > 0)
+    # 2. 그 안에서는 '가장 최신 글의 등록 시간(latest_post_date)'이 최근인 순서대로 1등 줄세우기
+    # 3. 글이 없는 빈 탭이나 동일 조건은 전체 글 개수 기준
+    flattened_keywords.sort(
+        key=lambda x: (
+            x['new_posts_count'] > 0, 
+            x['latest_post_date'], 
+            x['total_count']
+        ), 
+        reverse=True
+    )
     
     for global_idx, item in enumerate(flattened_keywords):
         board = item['board']
@@ -653,7 +671,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
         </div>
         """
 
-    # 🎯 파이썬 문자열 포맷팅 에러(KeyError 등)를 차단하기 위해 모든 스크립트 중괄호를 이중{{}}화 처리 완료
     html_content = f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -773,35 +790,24 @@ def generate_multiboard_html(all_keywords_data, output_file):
     
     <script>
         (function() {{
-            let styleRules = "";
-            for (let i = 0; i < localStorage.length; i++) {{
-                const key = localStorage.key(i);
-                if (key.startsWith('dot_hidden_') && localStorage.getItem(key) === 'true') {{
-                    const tabName = key.replace('dot_hidden_', '');
-                    styleRules += `.tab-btn[data-tab-name="${{tabName}}"] .new-dot {{ display: none !important; }}\\n`;
+            try {{
+                let readIds = JSON.parse(localStorage.getItem('read_post_ids') || '[]');
+                if (readIds.length > 0) {{
+                    let styleRules = "";
+                    readIds.forEach(id => {{
+                        styleRules += `#post-${{id}} {{ border: none !important; }}\\n`;
+                        styleRules += `#post-${{id}} .new-badge {{ display: none !important; }}\\n`;
+                    }});
+                    const styleEl = document.createElement('style');
+                    styleEl.innerHTML = styleRules;
+                    document.head.appendChild(styleEl);
                 }}
-                if (key.startsWith('badges_cleared_') && localStorage.getItem(key) === 'true') {{
-                    const tabName = key.replace('badges_cleared_', '');
-                    styleRules += `.tab-content[data-tab-name="${{tabName}}"] .new-badge {{ display: none !important; }}\\n`;
-                    styleRules += `.tab-content[data-tab-name="${{tabName}}"] .post-card.new-post {{ border: none !important; }}\\n`;
-                }}
-            }}
-            if (styleRules) {{
-                const styleEl = document.createElement('style');
-                styleEl.innerHTML = styleRules;
-                document.head.appendChild(styleEl);
-            }}
+            }} catch(e) {{}}
         }})();
     </script>
     
     <script>
         const POSTS_PER_PAGE = 10;
-
-        function getStorageKey(prefix, boardId) {{
-            const btn = document.querySelector('.tab-wrapper[data-board-id="' + boardId + '"] .tab-btn');
-            const txt = btn ? btn.getAttribute('data-tab-name') : boardId;
-            return prefix + '_' + txt;
-        }}
 
         function refreshCurrentTab() {{
             const activeTabContent = document.querySelector('.tab-content[style*="display: block"]');
@@ -889,6 +895,70 @@ def generate_multiboard_html(all_keywords_data, output_file):
             window.scrollTo({{ top: containerOffset, behavior: 'smooth' }});
         }}
 
+        function markAllPostsInTabAsRead(boardId) {{
+            const boardEl = document.getElementById(boardId);
+            if (!boardEl) return;
+
+            const allCards = boardEl.querySelectorAll('.posts-container > .post-card');
+            if (allCards.length === 0) return;
+
+            let readIds = [];
+            try {{
+                readIds = JSON.parse(localStorage.getItem('read_post_ids') || '[]');
+            }} catch(e) {{ readIds = []; }}
+
+            let hasNewRead = false;
+
+            allCards.forEach(card => {{
+                const idMatch = card.id.replace('post-', '');
+                if (idMatch && !readIds.includes(idMatch)) {{
+                    readIds.push(idMatch);
+                    hasNewRead = true;
+                }}
+                
+                card.classList.remove('new-post');
+                card.style.border = 'none';
+                const badge = card.querySelector('.new-badge');
+                if (badge) badge.remove();
+            }});
+
+            if (hasNewRead) {{
+                if (readIds.length > 1500) {{
+                    readIds = readIds.slice(readIds.length - 1500);
+                }}
+                localStorage.setItem('read_post_ids', JSON.stringify(readIds));
+            }}
+
+            const globalIdx = boardId.replace('board-', '');
+            const targetDot = document.getElementById('dot-board-' + globalIdx);
+            if (targetDot) targetDot.style.display = 'none';
+        }}
+
+        function syncTabDotState(boardId) {{
+            const boardEl = document.getElementById(boardId);
+            if (!boardEl) return;
+
+            let readIds = [];
+            try {{ readIds = JSON.parse(localStorage.getItem('read_post_ids') || '[]'); }} catch(e) {{}}
+
+            const allNewCards = boardEl.querySelectorAll('.posts-container > .post-card[data-is-new="true"]');
+            let hasUnreadPost = false;
+
+            for (let card of allNewCards) {{
+                const id = card.id.replace('post-', '');
+                if (!readIds.includes(id)) {{
+                    hasUnreadPost = true;
+                    break;
+                }}
+            }}
+
+            const globalIdx = boardId.replace('board-', '');
+            const targetDot = document.getElementById('dot-board-' + globalIdx);
+            if (targetDot) {{
+                targetDot.style.display = hasUnreadPost ? 'inline' : 'none';
+            }}
+        }}
+
         function openTab(evt, boardId) {{
             var i, tabcontent, tablinks;
             tabcontent = document.getElementsByClassName("tab-content");
@@ -900,78 +970,37 @@ def generate_multiboard_html(all_keywords_data, output_file):
             targetBoard.style.display = "block";
             if (evt) evt.currentTarget.className += " active";
             
-            const vKey = getStorageKey('visit', boardId);
-            const dKey = getStorageKey('dot_hidden', boardId);
-            const bKey = getStorageKey('badges_cleared', boardId);
-            
-            let visitCount = parseInt(localStorage.getItem(vKey) || '0');
-            visitCount += 1;
-            localStorage.setItem(vKey, visitCount);
-            
-            const targetDot = document.getElementById('dot-' + boardId);
-            if (targetDot) targetDot.style.display = 'none';
-            localStorage.setItem(dKey, 'true');
-            
-            if (visitCount >= 2) {{
-                localStorage.setItem(bKey, 'true');
-                localStorage.setItem(getStorageKey('clear_time', boardId), Date.now());
-                
-                const newBadges = targetBoard.querySelectorAll('.new-badge');
-                newBadges.forEach(badge => badge.remove());
-                
-                const newCards = targetBoard.querySelectorAll('.post-card.new-post');
-                newCards.forEach(card => {{
-                    card.classList.remove('new-post');
-                    card.style.border = 'none';
-                }});
-            }}
-            
             updatePagination(boardId);
+            markAllPostsInTabAsRead(boardId);
         }}
 
         function restoreAllTabsState() {{
             const allContents = document.querySelectorAll('.tab-content');
             
+            let readIds = [];
+            try {{ readIds = JSON.parse(localStorage.getItem('read_post_ids') || '[]'); }} catch(e) {{}}
+
             allContents.forEach(content => {{
                 const boardId = content.id;
-                const dKey = getStorageKey('dot_hidden', boardId);
-                const bKey = getStorageKey('badges_cleared', boardId);
-                const tKey = getStorageKey('clear_time', boardId);
                 
-                if (localStorage.getItem(dKey) === 'true') {{
-                    const targetDot = document.getElementById('dot-' + boardId);
-                    if (targetDot) targetDot.style.display = 'none';
-                }}
-                
-                const clearTime = parseInt(localStorage.getItem(tKey) || '0');
-                if (localStorage.getItem(bKey) === 'true' || clearTime > 0) {{
-                    const newCards = content.querySelectorAll('.post-card');
-                    newCards.forEach(card => {{
-                        if (card.getAttribute('data-is-new') === 'true') {{
-                            card.classList.remove('new-post');
-                            card.style.border = 'none';
-                            const badge = card.querySelector('.new-badge');
-                            if (badge) badge.remove();
-                        }}
-                    }});
-                }}
+                const cards = content.querySelectorAll('.posts-container > .post-card');
+                cards.forEach(card => {{
+                    const id = card.id.replace('post-', '');
+                    if (readIds.includes(id)) {{
+                        card.classList.remove('new-post');
+                        card.style.border = 'none';
+                        const badge = card.querySelector('.new-badge');
+                        if (badge) badge.remove();
+                    }}
+                }});
+
+                syncTabDotState(boardId);
             }});
             
             const activeContent = document.querySelector('.tab-content[style*="display: block"]');
             if (activeContent) {{
-                const boardId = activeContent.id;
-                const vKey = getStorageKey('visit', boardId);
-                const dKey = getStorageKey('dot_hidden', boardId);
-                
-                if (!localStorage.getItem(vKey)) {{
-                    localStorage.setItem(vKey, '1');
-                }}
-                
-                const targetDot = document.getElementById('dot-' + boardId);
-                if (targetDot) targetDot.style.display = 'none';
-                localStorage.setItem(dKey, 'true');
-                
-                updatePagination(boardId);
+                updatePagination(activeContent.id);
+                markAllPostsInTabAsRead(activeContent.id);
             }}
         }}
 
@@ -979,7 +1008,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
         }}
 
-        // 🎯 [수정 완역] 파이썬 문자열 포맷팅 규격을 완벽 준수하도록 중괄호 이중화 및 GET 쿼리스트링 구조 적용
+        // 🎯 iptime 등 DDNS 포트포워딩 환경에서 완벽 작동하도록 고정된 GET 주소 통신 처리
         function toggleBoardAlert(boardKey, checkboxElement) {{
             let pwd = document.getElementById('admin-pwd-input').value.trim();
             if (!pwd) {{ 
@@ -989,8 +1018,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
             }}
             
             const targetStatus = checkboxElement.checked;
-            
-            // iptime 포트포워딩 환경 최적화를 위한 GET 주소 조립 체계 구현
             const apiUrl = '/api/toggle-alert?board=' + encodeURIComponent(boardKey) + 
                            '&enabled=' + targetStatus + 
                            '&password=' + encodeURIComponent(pwd);
@@ -1071,15 +1098,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
             
             const btn = event ? event.target : null;
             if (btn) btn.disabled = true;
-            
-            if (action === 'delete') {{
-                for (let i = localStorage.length - 1; i >= 0; i--) {{
-                    const key = localStorage.key(i);
-                    if (key.includes(kw)) {{
-                        localStorage.removeItem(key);
-                    }}
-                }}
-            }}
 
             fetch('/api/keyword', {{
                 method: 'POST',
