@@ -364,10 +364,20 @@ def scrape_post_detail(driver, post_info):
     videos = []  
     
     if content_area:
+        # 🎯 [핵심 수정 1] 비디오 플레이어 구동용 내부 시스템 쓰레기 태그 선제 파괴
+        # 이미지와 본문 텍스트를 추출하기 전에 '가장 먼저' 실행하여 더미 썸네일과 "/" 슬래시 유발 인자를 완전히 제거합니다.
+        for trash in content_area.select('.mejs__offscreen, .mejs__poster, .mejs__poster-img, .mejs__time-total, .mejs__currenttime, .mejs__duration, .mejs__controls, button, svg, ul, meta'):
+            trash.extract()
+            
+        for a_trash in content_area.select('a.mejs__horizontal-volume-slider'):
+            a_trash.extract()
+
+        # 링크 기본 스타일 고정
         for a_tag in content_area.find_all('a'):
             a_tag['target'] = '_blank'
             a_tag['style'] = "color: #1877f2; text-decoration: underline; font-weight: bold;"
 
+        # 순수 비디오 소스 주소 및 iframe 정보는 청소 전 미리 안전하게 백업 수집
         for video in content_area.select('video'):
             source = video.select_one('source')
             src = video.get('src') or (source.get('src') if source else None)
@@ -382,6 +392,8 @@ def scrape_post_detail(driver, post_info):
                 if src.startswith('//'): src = 'https:' + src
                 videos.append({'type': 'iframe', 'src': src})
 
+        # 🎯 [핵심 수정 2] 순수 사용자가 업로드한 '진짜 본문 이미지'만 수집
+        # 플레이어 썸네일용 태그들이 위에서 이미 청소(extract)되었으므로, 오직 진짜 사진만 남게 됩니다.
         for img in content_area.select('img'):
             img_src = img.get('src') or img.get('data-original')
             if img_src:
@@ -389,21 +401,17 @@ def scrape_post_detail(driver, post_info):
                 elif img_src.startswith('/'): img_src = 'https://www.fmkorea.com' + img_src
                 images.append(img_src)
 
+        # 이미지/영상 관련 마크업 태그 본문 추출용 정리
         for img_tag in content_area.find_all('img'):
             img_tag.extract()
 
         for iframe_tag in content_area.find_all('iframe'):
             iframe_tag.extract()
 
-        for trash in content_area.select('.mejs__offscreen, .mejs__poster-img, .mejs__time-total, .mejs__currenttime, .mejs__duration, button, svg, ul, meta'):
-            trash.extract()
-            
-        for a_trash in content_area.select('a.mejs__horizontal-volume-slider'):
-            a_trash.extract()
-
         for v_tag in content_area.find_all(['video', 'source']):
             v_tag.extract()
 
+        # 본문 텍스트 정제 가공 진행 (숨은 슬래시 유발 인자가 제거되어 깔끔한 문장만 남음)
         for br in content_area.find_all("br"): br.replace_with("\n")
         for block in content_area.find_all(['p', 'div', 'li', 'h1', 'h2', 'h3']): 
             block.insert_after('\n')
@@ -505,8 +513,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
             
             new_posts_count = sum(1 for post in board_data if post.get('is_new', False))
             
-            # 🎯 탭 내에 수집된 글이 있다면, 가장 첫 번째 글(가장 최신 글)의 'date' 문자열을 기준으로 잡습니다.
-            # 날짜 형식이 파싱하기 어렵거나 없으면 빈 문자열 혹은 아주 오래된 날짜 처리
             latest_post_date = ""
             if board_data and len(board_data) > 0:
                 latest_post_date = board_data[0].get('date', '')
@@ -518,13 +524,9 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 'board_data': board_data,
                 'new_posts_count': new_posts_count,
                 'total_count': len(board_data),
-                'latest_post_date': latest_post_date  # 시간 정렬용 필드 추가
+                'latest_post_date': latest_post_date
             })
     
-    # 🎯 정렬 조건 변경: 
-    # 1. 안읽은 새 글이 존재하는 탭이 우선 (new_posts_count > 0)
-    # 2. 그 안에서는 '가장 최신 글의 등록 시간(latest_post_date)'이 최근인 순서대로 1등 줄세우기
-    # 3. 글이 없는 빈 탭이나 동일 조건은 전체 글 개수 기준
     flattened_keywords.sort(
         key=lambda x: (
             x['new_posts_count'] > 0, 
@@ -809,6 +811,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
     <script>
         const POSTS_PER_PAGE = 10;
 
+        // 🎯 변경 포인트: 사용자가 새로고침 버튼을 누를 때만 'is_refreshing' 기록을 세션에 심어줍니다.
         function refreshCurrentTab() {{
             const activeTabContent = document.querySelector('.tab-content[style*="display: block"]');
             if (activeTabContent) {{
@@ -817,6 +820,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 
                 sessionStorage.setItem('last_active_board', currentBoardId);
                 sessionStorage.setItem('last_active_page', currentPage);
+                sessionStorage.setItem('is_refreshing', 'true');
             }}
             window.location.reload();
         }}
@@ -997,10 +1001,18 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 syncTabDotState(boardId);
             }});
             
+            // 🎯 변경 포인트: 시스템이 처음 문서를 열었을 때는 0번째 탭을 강제 일괄 청소하지 않습니다.
+            // 사용자가 '현재 키워드 새로고침' 버튼을 눌러 들어온 명확한 상태일 때만 일괄 제거 로직을 작동시킵니다.
             const activeContent = document.querySelector('.tab-content[style*="display: block"]');
             if (activeContent) {{
                 updatePagination(activeContent.id);
-                markAllPostsInTabAsRead(activeContent.id);
+                
+                if (sessionStorage.getItem('is_refreshing') === 'true') {{
+                    markAllPostsInTabAsRead(activeContent.id);
+                    sessionStorage.removeItem('is_refreshing');
+                }} else {{
+                    syncTabDotState(activeContent.id);
+                }}
             }}
         }}
 
@@ -1008,7 +1020,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
         }}
 
-        // 🎯 iptime 등 DDNS 포트포워딩 환경에서 완벽 작동하도록 고정된 GET 주소 통신 처리
         function toggleBoardAlert(boardKey, checkboxElement) {{
             let pwd = document.getElementById('admin-pwd-input').value.trim();
             if (!pwd) {{ 
