@@ -51,6 +51,9 @@ TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin1234')
 DDNS_URL = os.environ.get('DDNS_URL')
 
+# [추가] 키워드 탭당 최대 데이터 보존 개수 (HTML 용량 최적화용)
+MAX_DATA_PER_KEYWORD = 100
+
 IS_LINUX = platform.system() == 'Linux'
 
 OUTPUT_DIR = os.environ.get('OUTPUT_DIR', 'output')
@@ -201,6 +204,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             return
 
         if pure_path == '/' or pure_path == '/index.html' or self.path.startswith('/?'):
+            # ==========================================
+            # 🛠️ [수정 파트 1] BrokenPipeError 및 ConnectionReset 예외 방어공사
+            # ==========================================
             try:
                 log_msg("[API 서버] 대시보드 메인 HTML 페이지 렌더링 응답 개시", "DEBUG")
                 with open(HTML_OUTPUT_FILE, 'r', encoding='utf-8') as f:
@@ -210,11 +216,17 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 self.wfile.write(content.encode('utf-8'))
+            except (BrokenPipeError, ConnectionResetError):
+                log_msg("[API 서버] ℹ️ 전송 중 브라우저 연결 끊김 감지 (사용자 새로고침 혹은 창 닫음)", "INFO")
+                return
             except Exception as e:
                 log_msg(f"⚠️ [API 서버] HTML 템플릿 반환 실패: {e}", "ERROR")
-                self.send_response(404)
-                self.end_headers()
-                self.wfile.write(f"❌ HTML 파일을 찾을 수 없습니다: {e}".encode('utf-8'))
+                try:
+                    self.send_response(404)
+                    self.end_headers()
+                    self.wfile.write(f"❌ HTML 파일을 찾을 수 없습니다: {e}".encode('utf-8'))
+                except Exception:
+                    pass
         else:
             self.send_response(404)
             self.end_headers()
@@ -558,12 +570,22 @@ def scrape_post_detail(driver, post_info):
             while c_paragraphs and c_paragraphs[-1] == '': c_paragraphs.pop()
 
         style = item.get('style', '')
-        margin_left = "0px"
-        match = re.search(r'(?:margin-left|padding-left)\s*:\s*(\d+px)', style)
-        if match: margin_left = match.group(1)
-        elif 'indent' in item.get('class', []): margin_left = "30px"
+        classes = item.get('class', [])
+        
+        is_reply = False
+        if any(k in "".join(classes).lower() for k in ['indent', 'depth', 'reply', 'respond']):
+            is_reply = True
+        elif 'margin-left' in style or 'padding-left' in style:
+            if not re.search(r'(?:margin-left|padding-left)\s*:\s*0(px|%|em)?(?![\d])', style):
+                is_reply = True
             
-        comments.append({'author': c_author, 'date': c_date, 'votes': c_votes, 'content': c_paragraphs, 'margin_left': margin_left})
+        comments.append({
+            'author': c_author, 
+            'date': c_date, 
+            'votes': c_votes, 
+            'content': c_paragraphs, 
+            'is_reply': is_reply
+        })
     
     log_msg(f"상세 글 스크래핑 완료 (정제 완료된 최종 댓글 개수: {len(comments)}개)", "INFO")
     return {
@@ -681,9 +703,10 @@ def generate_multiboard_html(all_keywords_data, output_file):
                     comments_html += f'<div class="post-comments-section"><h3>💬 댓글 ({post["comment_count"]})</h3>'
                     for c in post['comments']:
                         c_content_html = "".join([f"<p style='margin: 3px 0;'>{t}</p>" if t else "<br>" for t in c['content']])
-                        is_reply = c['margin_left'] != "0px"
+                        
+                        is_reply = c.get('is_reply', False)
                         indent_class = "comment-reply" if is_reply else ""
-                        reply_icon = '<span style="color:#adb5bd; margin-right:5px; font-weight:bold;">└</span>' if is_reply else ''
+                        reply_icon = '<span style="color:#adb5bd; margin-right:5px; font-weight:bold; display:inline-block !important;">└</span>' if is_reply else ''
                         
                         if c['author'] == post['author']:
                             bg_color = "#fff0f0"
@@ -1362,7 +1385,15 @@ with data_lock:
     for board, keywords in config_data.items():
         for keyword in keywords:
             combined_key = f"{board}::{keyword}"
-            all_keywords_data[combined_key] = backup_data.get(combined_key, [])
+            
+            # ==========================================
+            # 🛠️ [수정 파트 2] 복원 단계에서도 최대 수집 개수를 제한해 줍니다.
+            # ==========================================
+            loaded_data = backup_data.get(combined_key, [])
+            if len(loaded_data) > MAX_DATA_PER_KEYWORD:
+                loaded_data = loaded_data[:MAX_DATA_PER_KEYWORD]
+                
+            all_keywords_data[combined_key] = loaded_data
             log_msg(f"메모리 캐시 변수 초기 데이터 매핑 완료: {combined_key} (수집 누적 글: {len(all_keywords_data[combined_key])}개)", "DEBUG")
 
 with data_lock:
@@ -1471,7 +1502,15 @@ try:
                             post_data['is_new'] = True
                             
                             with data_lock:
+                                # 신규 글 추가
                                 all_keywords_data[combined_key] = [post_data] + all_keywords_data[combined_key]
+                                
+                                # ==========================================
+                                # 🛠️ [수정 파트 3] 실시간 수집 시 최대 글 개수 (100개) 유지 및 자동 슬라이싱
+                                # ==========================================
+                                if len(all_keywords_data[combined_key]) > MAX_DATA_PER_KEYWORD:
+                                    all_keywords_data[combined_key] = all_keywords_data[combined_key][:MAX_DATA_PER_KEYWORD]
+                                    
                                 generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
                             save_backup_data(all_keywords_data)
                             
