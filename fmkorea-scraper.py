@@ -9,10 +9,11 @@ import os
 import platform
 import json
 import requests
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlparse, parse_qs
 from datetime import datetime
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn  # <-- API 서버 병목 방지용 멀티스레드 믹스인 추가
 import threading
 from dotenv import load_dotenv
 
@@ -51,7 +52,6 @@ TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin1234')
 DDNS_URL = os.environ.get('DDNS_URL')
 
-# [추가] 키워드 탭당 최대 데이터 보존 개수 (HTML 용량 최적화용)
 MAX_DATA_PER_KEYWORD = 100
 
 IS_LINUX = platform.system() == 'Linux'
@@ -140,10 +140,8 @@ def save_board_config(config_data):
 # ==========================================
 # 3. 내장 경량 API 웹 서버 (수정본)
 # ==========================================
-from socketserver import ThreadingMixIn  # <-- 멀티스레드 서버 변환을 위해 상단에 추가하거나 여기에 포함
-
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
-    """요청마다 새로운 스레드를 생성하여 오버헤드와 블로킹을 방지하는 멀티스레드 서버"""
+    """요청마다 새로운 스레드를 독립 할당하여 동기 블로킹 및 접속 지연을 차단"""
     daemon_threads = True
 
 class KeywordAPIServer(BaseHTTPRequestHandler):
@@ -162,7 +160,6 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         log_msg(f"[API 서버] GET 요청 수신 -> Path: {pure_path}", "DEBUG")
         
         if pure_path == '/api/toggle-alert':
-            from urllib.parse import parse_qs, urlparse
             try:
                 query_params = parse_qs(urlparse(self.path).query)
                 board = query_params.get('board', [''])[0].strip()
@@ -213,20 +210,19 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             try:
                 log_msg("[API 서버] 대시보드 메인 HTML 페이지 렌더링 응답 개시", "DEBUG")
                 
-                # HTML_OUTPUT_FILE이 생성되기 전이거나 부재할 때의 예외 처리
                 if not os.path.exists(HTML_OUTPUT_FILE):
                     self.send_response(503)
                     self.end_headers()
                     self.wfile.write("⏳ 대시보드 파일 초기 생성 중입니다. 잠시 후 새로고침 해주세요.".encode('utf-8'))
                     return
 
-                # 파일 읽기 lock 최소화 및 버퍼링 최적화 기본 읽기
+                # 바이너리 읽기로 전송 오버헤드 최소화
                 with open(HTML_OUTPUT_FILE, 'rb') as f:
                     content = f.read()
                     
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
-                self.send_header('Content-Length', str(len(content))) # 브라우저가 컨텐츠 크기를 명확히 알게 하여 대기 해제
+                self.send_header('Content-Length', str(len(content)))  # 다운로드 완료 시점 명시로 브라우저 렌더링 속도 개선
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 self.wfile.write(content)
@@ -246,14 +242,88 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
-        # 기존 do_POST 내부 코드는 완전히 동일하므로 유지하시면 됩니다.
-        # (지면 관계상 생략하나 기존 코드를 그대로 넣어주세요)
-        pass
+        global all_keywords_data
+        pure_path = self.path.split('?')[0]
+        log_msg(f"[API 서버] POST 요청 수신 -> Path: {pure_path}", "DEBUG")
+        
+        if pure_path == '/api/keyword':
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                post_data = self.rfile.read(content_length).decode('utf-8')
+                params = json.loads(post_data)
+                action = params.get('action')
+                keyword = params.get('keyword', '').strip()
+                password = params.get('password', '').strip()
+                board = params.get('board', 'car').strip()
+                
+                log_msg(f"[API 서버] 키워드 제어 요청 수신 (Action: {action}, Board: {board}, Keyword: {keyword})", "INFO")
+                
+                self.send_response(200)
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+                self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.end_headers()
+                
+                if password != ADMIN_PASSWORD:
+                    log_msg("[API 서버] ❌ 비밀번호 불일치로 키워드 매니징 작업이 거부되었습니다.", "WARN")
+                    response_data = {'success': False, 'message': '❌ 인증 비밀번호가 일치하지 않습니다.'}
+                    self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
+                    return
+                
+                if not keyword: 
+                    log_msg("[API 서버] 공백 키워드 수신으로 요청을 무시합니다.", "WARN")
+                    return
+
+                with data_lock:
+                    current_config = load_keywords_from_file()
+                    if board not in current_config:
+                        current_config[board] = []
+                    
+                    combined_key = f"{board}::{keyword}"
+                    
+                    if action == 'add':
+                        if keyword in current_config[board]:
+                            msg = '이미 존재하는 키워드입니다.'
+                            log_msg(f"[API 서버] 키워드 중복 추가 생략 처리: {combined_key}", "WARN")
+                        else:
+                            current_config[board].append(keyword)
+                            save_keywords_to_file(current_config)
+                            if combined_key not in all_keywords_data:
+                                all_keywords_data[combined_key] = []
+                            msg = f'🎯 {BOARD_MAP.get(board, board)} -> [{keyword}] 추가되었습니다.'
+                            log_msg(f"[API 서버] 신규 키워드 등록 완료: {combined_key}", "INFO")
+                            
+                    elif action == 'delete':
+                        if keyword in current_config[board]:
+                            current_config[board].remove(keyword)
+                            save_keywords_to_file(current_config)
+                            if combined_key in all_keywords_data:
+                                del all_keywords_data[combined_key]
+                            msg = f'🗑️ {BOARD_MAP.get(board, board)} -> [{keyword}] 삭제되었습니다.'
+                            log_msg(f"[API 서버] 키워드 영구 제거 완료: {combined_key}", "INFO")
+                        else:
+                            msg = '존재하지 않는 키워드입니다.'
+                            log_msg(f"[API 서버] 삭제 거부 (존재하지 않는 키워드): {combined_key}", "WARN")
+                    
+                    generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
+                    save_backup_data(all_keywords_data)
+
+                response_data = {'success': True, 'message': msg}
+                self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
+            except Exception as e:
+                log_msg(f"⚠️ [API 서버] 키워드 포스트 제어 에러 발생: {e}", "ERROR")
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(str(e).encode('utf-8'))
+            return
+            
+        self.send_response(404)
+        self.end_headers()
 
 def run_api_server():
     server_address = ('', 8081)
-    # 기존 HTTPServer 대신 ThreadedHTTPServer로 시동
-    httpd = ThreadedHTTPServer(server_address, KeywordAPIServer)
+    httpd = ThreadedHTTPServer(server_address, KeywordAPIServer)  # 멀티스레드 인스턴스로 바인딩
     log_msg("🌐 [API 서버] 비블로킹 멀티스레드 제어 웹서버가 8081포트에서 정식 가동되었습니다.", "INFO")
     httpd.serve_forever()
 
@@ -346,6 +416,7 @@ def get_list_page_posts(driver, board, keyword, page=1):
     return post_list
 
 def scrape_post_detail(driver, post_info):
+    """상세글 파싱 및 본문 삭제 교차 검증 처리 수정한 코어 함수[cite: 1]"""
     link = post_info['link']
     title = post_info['title']
     author = post_info['author']
@@ -364,7 +435,22 @@ def scrape_post_detail(driver, post_info):
     log_msg(f"상세 로딩 보장용 지연 대기: {delay:.2f}초", "DEBUG")
     time.sleep(delay)
     
-    detail_soup = BeautifulSoup(driver.page_source, 'html.parser')
+    # ------------------------------------------------------------
+    # [수정] 원문 삭제 및 예외 안내 상태 검증[cite: 1]
+    # ------------------------------------------------------------
+    page_source = driver.page_source
+    if "삭제된 문서입니다" in page_source or "권한이 없습니다" in page_source or "존재하지 않는" in page_source:
+        log_msg(f"🗑️ [원문 삭제 감지] 글 ID: {post_id}는 원문이 폭파되었거나 접근할 수 없습니다.", "WARN")
+        return None  # 삭제 판정 시 None을 전달[cite: 1]
+    
+    detail_soup = BeautifulSoup(page_source, 'html.parser')
+    
+    content_area = detail_soup.select_one('.xe_content')
+    if not content_area:
+        log_msg(f"🗑️ [원문 부재 감지] 글 ID: {post_id}의 본문 데이터 DOM 구조가 소멸되어 삭제로 간주합니다.", "WARN")
+        return None  # 본문 태그 누락 시 None 전달[cite: 1]
+    # ------------------------------------------------------------
+    
     full_date_tag = detail_soup.select_one('.top_area .date, span.date.m_no')
     if full_date_tag and len(full_date_tag.text.strip()) > 5:
         date = full_date_tag.text.strip()
@@ -381,9 +467,7 @@ def scrape_post_detail(driver, post_info):
     except Exception as meta_err:
         log_msg(f"글 메타데이터 파싱 중 일부 누락/스킵: {meta_err}", "DEBUG")
     
-    content_area = detail_soup.select_one('.xe_content')
     paragraphs = []
-    
     if content_area:
         log_msg(f"본문 태그 클리닝 및 미디어 구조화 시작 (ID: {post_id})", "DEBUG")
         for trash in content_area.select('.mejs__offscreen, .mejs__poster, .mejs__poster-img, .mejs__time-total, .mejs__currenttime, .mejs__duration, .mejs__controls, button, svg, ul, meta'):
@@ -1326,9 +1410,6 @@ with data_lock:
         for keyword in keywords:
             combined_key = f"{board}::{keyword}"
             
-            # ==========================================
-            # 🛠️ [수정 파트 2] 복원 단계에서도 최대 수집 개수를 제한해 줍니다.
-            # ==========================================
             loaded_data = backup_data.get(combined_key, [])
             if len(loaded_data) > MAX_DATA_PER_KEYWORD:
                 loaded_data = loaded_data[:MAX_DATA_PER_KEYWORD]
@@ -1372,14 +1453,25 @@ try:
                         all_keywords_data[combined_key] = []
                     board_data = all_keywords_data[combined_key]
                 
-                # 1단계: 기존 상위 노출 수집글에 대한 백그라운드 댓글 및 추천수 최신화 동기화
+                # ------------------------------------------------------------
+                # 1단계: 기존 상위 노출 수집글에 대한 백그라운드 갱신 및 원문 삭제 검증[cite: 1]
+                # ------------------------------------------------------------
                 if board_data:
                     log_msg(f"      - 기존 캐시 데이터 갱신을 위한 상위 {MAX_POSTS_TO_SYNC_COMMENTS}개 타겟 딥 스캔 진입", "DEBUG")
                     posts_to_sync = board_data[:MAX_POSTS_TO_SYNC_COMMENTS]
+                    posts_to_remove = []  # 원문 파괴로 인해 목록에서 쳐내야 할 ID 바구니[cite: 1]
+                    
                     for idx, old_post in enumerate(posts_to_sync):
                         try:
                             log_msg(f"      [동기화 딥스캔] 글 ID: {old_post['id']} 상세 페이지 갱신 추적 시작", "DEBUG")
                             updated_post = scrape_post_detail(driver, old_post)
+                            
+                            # 만약 원문 삭제 처리되어 None이 돌아왔다면 삭제 대상 리스트에 추가[cite: 1]
+                            if updated_post is None:
+                                log_msg(f"      [삭제 확정] 글 ID: {old_post['id']}가 원문에서 유실되었습니다. 대시보드 리스트에서 제거 조치합니다.", "INFO")
+                                posts_to_remove.append(old_post['id'])
+                                continue
+                            
                             updated_post['is_new'] = old_post.get('is_new', False) 
                             
                             if (old_post['comment_count'] != updated_post['comment_count'] or 
@@ -1392,6 +1484,13 @@ try:
                                 has_changes = True
                         except Exception as sync_ex:
                             log_msg(f"      ⚠️ 기존 글 ID {old_post['id']} 백그라운드 갱신 스킵 (예외 피드백): {sync_ex}", "WARN")
+                    
+                    # 삭제가 확정된 대상을 리스트 컴프리헨션으로 일괄 도려냅니다.[cite: 1]
+                    if posts_to_remove:
+                        with data_lock:
+                            all_keywords_data[combined_key] = [p for p in board_data if p['id'] not in posts_to_remove]
+                        has_changes = True
+                # ------------------------------------------------------------
                 
                 # 2단계: 신규 글 목록 존재 여부 체크 정찰조 구동
                 try:
@@ -1418,10 +1517,11 @@ try:
                             try:
                                 first_post_info = new_post_list[0]
                                 post_data = scrape_post_detail(driver, first_post_info)
-                                post_data['is_new'] = False
-                                with data_lock:
-                                    all_keywords_data[combined_key] = [post_data]
-                                log_msg(f"   📦 [{board_name} - {keyword}] 최초 기준점 빌드 매핑 성공", "INFO")
+                                if post_data:  # 유효한 정상 글인 경우에만 빌드
+                                    post_data['is_new'] = False
+                                    with data_lock:
+                                        all_keywords_data[combined_key] = [post_data]
+                                    log_msg(f"   📦 [{board_name} - {keyword}] 최초 기준점 빌드 매핑 성공", "INFO")
                             except Exception as e:
                                 log_msg(f"      ⚠️ 베이스라인 최신 글 1개 데이터 수집 실패 예외 로그: {e}", "ERROR")
                                 
@@ -1439,15 +1539,16 @@ try:
                         try:
                             log_msg(f"   🆕 신규 글 상세 딥 크롤링 프로세스 전개 -> ID: {post_info['id']}", "INFO")
                             post_data = scrape_post_detail(driver, post_info)
+                            
+                            # 만약 신규 글 수집 단계에서 바로 삭제된 경우 패스[cite: 1]
+                            if post_data is None:
+                                continue
+                                
                             post_data['is_new'] = True
                             
                             with data_lock:
-                                # 신규 글 추가
                                 all_keywords_data[combined_key] = [post_data] + all_keywords_data[combined_key]
                                 
-                                # ==========================================
-                                # 🛠️ [수정 파트 3] 실시간 수집 시 최대 글 개수 (100개) 유지 및 자동 슬라이싱
-                                # ==========================================
                                 if len(all_keywords_data[combined_key]) > MAX_DATA_PER_KEYWORD:
                                     all_keywords_data[combined_key] = all_keywords_data[combined_key][:MAX_DATA_PER_KEYWORD]
                                     
