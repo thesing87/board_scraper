@@ -816,7 +816,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
         .admin-input {{ flex: 1; min-width: 120px; padding: 8px 12px; border: 1px solid #ccd0d5; border-radius: 6px; font-size: 13px; outline: none; }}
         .admin-btn {{ background: #1877f2; color: #fff; border: none; padding: 0 16px; font-size: 13px; font-weight: bold; border-radius: 6px; cursor: pointer; white-space: nowrap; height: 36px; }}
 
-        /* 기존 패널 내부 상주 새로고침 버튼 스타일 제거 */
         .refresh-btn {{ display: none; }}
 
         .alert-management-zone {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; padding-top: 4px; }}
@@ -859,7 +858,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
         .tab-del-btn {{ background: none; border: none; padding: 8px 12px 8px 4px; font-size: 14px; cursor: pointer; color: #8d949e; font-weight: bold; outline: none; }}
         .tab-wrapper:has(.tab-btn.active) .tab-del-btn {{ color: #e4e6eb; }}
         
-        .post-card {{ background: white; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); word-break: break-all; transition: border 0.2s ease; }}
+        .post-card {{ background: white; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); word-break: break-all; transition: border 0.2s ease, background-color 1s ease; }}
         .post-card.new-post {{ border: 2px solid #1877f2; }}
         .new-badge {{ display: inline-block; background: #1877f2; color: white; font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-left: 5px; }}
         .sync-badge {{ display: inline-block; background: #28a745; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 5px; }}
@@ -890,7 +889,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
         .page-nav-btn:hover {{ background-color: #f2f3f5; }}
         .page-nav-btn:disabled {{ background-color: #e4e6eb; color: #bcc0c4; cursor: not-allowed; border-color: #e4e6eb; }}
 
-        /* 우측 하단 고정 플로팅 컨테이너 스타일 */
         .floating-actions {{
             position: fixed;
             bottom: 25px;
@@ -917,7 +915,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
             transition: all 0.2s ease;
         }}
 
-        /* 항상 위에 노출되는 고정 플로팅 새로고침 버튼 */
         .floating-refresh-btn {{
             background-color: #28a745;
         }}
@@ -966,7 +963,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
                     document.head.appendChild(styleEl);
                 }}
             }} catch(e) {{}}
-        }})();
+        }}).call(this);
     </script>
     
     <script>
@@ -1235,6 +1232,50 @@ def generate_multiboard_html(all_keywords_data, output_file):
             }});
         }}
 
+        // 🌟 텔레그램 연동 앵커(#post-xxxx) 정밀 타겟 추적 함수 (중요)
+        function handleTelegramAnchorLink() {{
+            const hash = window.location.hash;
+            if (hash && hash.startsWith('#post-')) {{
+                const targetPost = document.querySelector(hash);
+                if (targetPost) {{
+                    // 1. 해당 글이 속해 있는 부모 탭(tab-content) 찾기
+                    const parentTab = targetPost.closest('.tab-content');
+                    if (parentTab) {{
+                        const boardId = parentTab.id;
+                        
+                        // 2. 이 글이 이 탭 내부에서 몇 번째 카드인지 계산해서 몇 페이지에 있는지 구하기
+                        const allCardsInTab = Array.from(parentTab.querySelectorAll('.posts-container > .post-card'));
+                        const postIndex = allCardsInTab.indexOf(targetPost);
+                        
+                        if (postIndex !== -1) {{
+                            const targetPage = Math.ceil((postIndex + 1) / POSTS_PER_PAGE);
+                            parentTab.setAttribute('data-current-page', targetPage);
+                        }}
+                        
+                        // 3. 탭 UI 상태 전환 (상단 버튼 및 컨텐츠 영역 활성화)
+                        const tabcontents = document.getElementsByClassName("tab-content");
+                        for (let i = 0; i < tabcontents.length; i++) {{ tabcontents[i].style.display = "none"; }}
+                        parentTab.style.display = "block";
+                        
+                        const tablinks = document.getElementsByClassName("tab-btn");
+                        for (let i = 0; i < tablinks.length; i++) {{ tablinks[i].classList.remove("active"); }}
+                        const matchWrapperBtn = document.querySelector(`.tab-wrapper[data-board-id="${{boardId}}"] .tab-btn`);
+                        if (matchWrapperBtn) matchWrapperBtn.classList.add("active");
+                        
+                        // 4. 페이지네이션 새로고침하여 타겟 글이 노출(display: block)되도록 조치
+                        updatePagination(boardId);
+                        
+                        // 5. 브라우저가 화면을 모두 렌더링한 후 정확한 위치로 스크롤 및 노란색 하이라이트 효과 적용
+                        setTimeout(() => {{
+                            targetPost.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                            targetPost.style.backgroundColor = '#fff9c4'; // 부드러운 강조 배경색
+                            setTimeout(() => {{ targetPost.style.backgroundColor = ''; }}, 2500);
+                        }}, 400);
+                    }}
+                }}
+            }}
+        }}
+
         window.addEventListener('beforeunload', () => {{
             const activeContent = document.querySelector('.tab-content[style*="display: block"]');
             if (activeContent) {{
@@ -1275,6 +1316,9 @@ def generate_multiboard_html(all_keywords_data, output_file):
             
             restoreAllTabsState();
 
+            // ⚡ DOM 구성이 끝난 직후 텔레그램 링크 유입 감지엔진 우선 동작
+            handleTelegramAnchorLink();
+
             if (localStorage.getItem('admin_panel_open') === 'true') {{
                 document.getElementById('admin-panel-zone').style.display = 'flex';
                 document.getElementById('panel-toggle-trigger').innerHTML = '⚙️ 실시간 모니터링 관리 패널 접기 ▲';
@@ -1290,6 +1334,9 @@ def generate_multiboard_html(all_keywords_data, output_file):
             }});
         }});
 
+        // 💡 페이지가 닫히지 않은 상태에서 새로운 해시가 들어올 때를 위한 리스너 추가
+        window.addEventListener('hashchange', handleTelegramAnchorLink);
+
         function manageKeyword(action, targetKw, targetBoard) {{
             let kw = targetKw || document.getElementById('new-kw-input').value.trim();
             let pwd = document.getElementById('admin-pwd-input').value.trim();
@@ -1302,7 +1349,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 if (!confirm("'" + kw + "' 키워드를 정말 삭제하시겠습니까?")) return;
             }}
             
-            const btn = event ? event.target : null;
+            const btn = window.event ? window.event.target : null;
             if (btn) btn.disabled = true;
 
             fetch('/api/keyword', {{
@@ -1352,7 +1399,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
         {boards_html}
     </div>
 
-    <!-- 우측 하단 항상 위에 고정 노출되는 플로팅 버튼 영역 -->
     <div class="floating-actions">
         <button class="floating-refresh-btn" onclick="refreshCurrentTab()" title="현재 키워드 즉시 새로고침">🔄</button>
         <button id="floating-top-btn" class="scroll-top-btn" onclick="scrollToTop()" title="맨 위로 이동">▲</button>
