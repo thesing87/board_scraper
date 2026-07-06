@@ -13,7 +13,7 @@ from urllib.parse import quote, urlparse, parse_qs
 from datetime import datetime
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from socketserver import ThreadingMixIn  # <-- API 서버 병목 방지용 멀티스레드 믹스인 추가
+from socketserver import ThreadingMixIn
 import threading
 from dotenv import load_dotenv
 
@@ -138,7 +138,7 @@ def save_board_config(config_data):
         return False
 
 # ==========================================
-# 3. 내장 경량 API 웹 서버 (수정본)
+# 3. 내장 경량 API 웹 서버
 # ==========================================
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     """요청마다 새로운 스레드를 독립 할당하여 동기 블로킹 및 접속 지연을 차단"""
@@ -216,13 +216,12 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                     self.wfile.write("⏳ 대시보드 파일 초기 생성 중입니다. 잠시 후 새로고침 해주세요.".encode('utf-8'))
                     return
 
-                # 바이너리 읽기로 전송 오버헤드 최소화
                 with open(HTML_OUTPUT_FILE, 'rb') as f:
                     content = f.read()
                     
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
-                self.send_header('Content-Length', str(len(content)))  # 다운로드 완료 시점 명시로 브라우저 렌더링 속도 개선
+                self.send_header('Content-Length', str(len(content)))
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 self.wfile.write(content)
@@ -323,7 +322,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
 
 def run_api_server():
     server_address = ('', 8081)
-    httpd = ThreadedHTTPServer(server_address, KeywordAPIServer)  # 멀티스레드 인스턴스로 바인딩
+    httpd = ThreadedHTTPServer(server_address, KeywordAPIServer)
     log_msg("🌐 [API 서버] 비블로킹 멀티스레드 제어 웹서버가 8081포트에서 정식 가동되었습니다.", "INFO")
     httpd.serve_forever()
 
@@ -416,7 +415,6 @@ def get_list_page_posts(driver, board, keyword, page=1):
     return post_list
 
 def scrape_post_detail(driver, post_info):
-    """상세글 파싱 및 본문 삭제 교차 검증 처리 수정한 코어 함수[cite: 1]"""
     link = post_info['link']
     title = post_info['title']
     author = post_info['author']
@@ -435,21 +433,17 @@ def scrape_post_detail(driver, post_info):
     log_msg(f"상세 로딩 보장용 지연 대기: {delay:.2f}초", "DEBUG")
     time.sleep(delay)
     
-    # ------------------------------------------------------------
-    # [수정] 원문 삭제 및 예외 안내 상태 검증[cite: 1]
-    # ------------------------------------------------------------
     page_source = driver.page_source
     if "삭제된 문서입니다" in page_source or "권한이 없습니다" in page_source or "존재하지 않는" in page_source:
         log_msg(f"🗑️ [원문 삭제 감지] 글 ID: {post_id}는 원문이 폭파되었거나 접근할 수 없습니다.", "WARN")
-        return None  # 삭제 판정 시 None을 전달[cite: 1]
+        return None
     
     detail_soup = BeautifulSoup(page_source, 'html.parser')
     
     content_area = detail_soup.select_one('.xe_content')
     if not content_area:
         log_msg(f"🗑️ [원문 부재 감지] 글 ID: {post_id}의 본문 데이터 DOM 구조가 소멸되어 삭제로 간주합니다.", "WARN")
-        return None  # 본문 태그 누락 시 None 전달[cite: 1]
-    # ------------------------------------------------------------
+        return None
     
     full_date_tag = detail_soup.select_one('.top_area .date, span.date.m_no')
     if full_date_tag and len(full_date_tag.text.strip()) > 5:
@@ -821,10 +815,10 @@ def generate_multiboard_html(all_keywords_data, output_file):
         .admin-select {{ padding: 8px; border: 1px solid #ccd0d5; border-radius: 6px; font-size: 13px; background: white; }}
         .admin-input {{ flex: 1; min-width: 120px; padding: 8px 12px; border: 1px solid #ccd0d5; border-radius: 6px; font-size: 13px; outline: none; }}
         .admin-btn {{ background: #1877f2; color: #fff; border: none; padding: 0 16px; font-size: 13px; font-weight: bold; border-radius: 6px; cursor: pointer; white-space: nowrap; height: 36px; }}
-        
-        .refresh-btn {{ background: #28a745; color: #fff; border: none; padding: 0 14px; font-size: 13px; font-weight: bold; border-radius: 6px; cursor: pointer; white-space: nowrap; height: 36px; display: inline-flex; align-items: center; gap: 4px; }}
-        .refresh-btn:hover {{ background: #218838; }}
-        
+
+        /* 기존 패널 내부 상주 새로고침 버튼 스타일 제거 */
+        .refresh-btn {{ display: none; }}
+
         .alert-management-zone {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; padding-top: 4px; }}
         .toggle-item {{ display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; padding: 6px 10px; border-radius: 6px; border: 1px solid #e4e6eb; }}
         .toggle-label {{ font-size: 13px; font-weight: bold; color: #4e5154; }}
@@ -896,13 +890,20 @@ def generate_multiboard_html(all_keywords_data, output_file):
         .page-nav-btn:hover {{ background-color: #f2f3f5; }}
         .page-nav-btn:disabled {{ background-color: #e4e6eb; color: #bcc0c4; cursor: not-allowed; border-color: #e4e6eb; }}
 
-        .scroll-top-btn {{
+        /* 우측 하단 고정 플로팅 컨테이너 스타일 */
+        .floating-actions {{
             position: fixed;
             bottom: 25px;
             right: 25px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 9999;
+        }}
+
+        .scroll-top-btn, .floating-refresh-btn {{
             width: 48px;
             height: 48px;
-            background-color: #1877f2;
             color: white;
             border: none;
             border-radius: 50%;
@@ -910,11 +911,24 @@ def generate_multiboard_html(all_keywords_data, output_file):
             font-weight: bold;
             cursor: pointer;
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-            z-index: 9999;
             display: flex;
             align-items: center;
             justify-content: center;
             transition: all 0.2s ease;
+        }}
+
+        /* 항상 위에 노출되는 고정 플로팅 새로고침 버튼 */
+        .floating-refresh-btn {{
+            background-color: #28a745;
+        }}
+        .floating-refresh-btn:hover {{
+            background-color: #218838;
+            transform: translateY(-3px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+        }}
+
+        .scroll-top-btn {{
+            background-color: #1877f2;
             opacity: 0;
             visibility: hidden;
         }}
@@ -1323,7 +1337,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 <input type="text" id="new-kw-input" class="admin-input" placeholder="추가할 키워드 입력">
                 <input type="password" id="admin-pwd-input" class="admin-input" style="max-width:140px;" placeholder="관리자 암호">
                 <button class="admin-btn" onclick="manageKeyword('add')">➕ 등록</button>
-                <button class="refresh-btn" onclick="refreshCurrentTab()">🔄 현재 키워드 새로고침</button>
             </div>
             
             <div class="admin-title" style="margin-top: 4px;">🔔 게시판별 텔레그램 알림 토글 제어 (관리자 암호 필요)</div>
@@ -1339,7 +1352,11 @@ def generate_multiboard_html(all_keywords_data, output_file):
         {boards_html}
     </div>
 
-    <button id="floating-top-btn" class="scroll-top-btn" onclick="scrollToTop()" title="맨 위로 이동">▲</button>
+    <!-- 우측 하단 항상 위에 고정 노출되는 플로팅 버튼 영역 -->
+    <div class="floating-actions">
+        <button class="floating-refresh-btn" onclick="refreshCurrentTab()" title="현재 키워드 즉시 새로고침">🔄</button>
+        <button id="floating-top-btn" class="scroll-top-btn" onclick="scrollToTop()" title="맨 위로 이동">▲</button>
+    </div>
 
     <script>
         const slider = document.getElementById('tab-scroll-container');
@@ -1453,20 +1470,16 @@ try:
                         all_keywords_data[combined_key] = []
                     board_data = all_keywords_data[combined_key]
                 
-                # ------------------------------------------------------------
-                # 1단계: 기존 상위 노출 수집글에 대한 백그라운드 갱신 및 원문 삭제 검증[cite: 1]
-                # ------------------------------------------------------------
                 if board_data:
                     log_msg(f"      - 기존 캐시 데이터 갱신을 위한 상위 {MAX_POSTS_TO_SYNC_COMMENTS}개 타겟 딥 스캔 진입", "DEBUG")
                     posts_to_sync = board_data[:MAX_POSTS_TO_SYNC_COMMENTS]
-                    posts_to_remove = []  # 원문 파괴로 인해 목록에서 쳐내야 할 ID 바구니[cite: 1]
+                    posts_to_remove = []
                     
                     for idx, old_post in enumerate(posts_to_sync):
                         try:
                             log_msg(f"      [동기화 딥스캔] 글 ID: {old_post['id']} 상세 페이지 갱신 추적 시작", "DEBUG")
                             updated_post = scrape_post_detail(driver, old_post)
                             
-                            # 만약 원문 삭제 처리되어 None이 돌아왔다면 삭제 대상 리스트에 추가[cite: 1]
                             if updated_post is None:
                                 log_msg(f"      [삭제 확정] 글 ID: {old_post['id']}가 원문에서 유실되었습니다. 대시보드 리스트에서 제거 조치합니다.", "INFO")
                                 posts_to_remove.append(old_post['id'])
@@ -1485,14 +1498,11 @@ try:
                         except Exception as sync_ex:
                             log_msg(f"      ⚠️ 기존 글 ID {old_post['id']} 백그라운드 갱신 스킵 (예외 피드백): {sync_ex}", "WARN")
                     
-                    # 삭제가 확정된 대상을 리스트 컴프리헨션으로 일괄 도려냅니다.[cite: 1]
                     if posts_to_remove:
                         with data_lock:
                             all_keywords_data[combined_key] = [p for p in board_data if p['id'] not in posts_to_remove]
                         has_changes = True
-                # ------------------------------------------------------------
                 
-                # 2단계: 신규 글 목록 존재 여부 체크 정찰조 구동
                 try:
                     log_msg(f"      - 새 글 목록 모니터링 수집 쿼리 가동 중...", "DEBUG")
                     new_post_list = get_list_page_posts(driver, board, keyword, page=1)
@@ -1517,7 +1527,7 @@ try:
                             try:
                                 first_post_info = new_post_list[0]
                                 post_data = scrape_post_detail(driver, first_post_info)
-                                if post_data:  # 유효한 정상 글인 경우에만 빌드
+                                if post_data:
                                     post_data['is_new'] = False
                                     with data_lock:
                                         all_keywords_data[combined_key] = [post_data]
@@ -1531,7 +1541,6 @@ try:
                     else:
                         new_posts = new_post_list
                 
-                # 3단계: 확인된 순수 새 글 타격대 매핑 스크래핑
                 if new_posts:
                     log_msg(f"   🆕 [{board_name}] 교차 검증을 거친 실시간 신규 새 글 {len(new_posts)}개 탐지 성공!", "INFO")
                         
@@ -1540,7 +1549,6 @@ try:
                             log_msg(f"   🆕 신규 글 상세 딥 크롤링 프로세스 전개 -> ID: {post_info['id']}", "INFO")
                             post_data = scrape_post_detail(driver, post_info)
                             
-                            # 만약 신규 글 수집 단계에서 바로 삭제된 경우 패스[cite: 1]
                             if post_data is None:
                                 continue
                                 
