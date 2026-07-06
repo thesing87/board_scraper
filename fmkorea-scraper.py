@@ -25,6 +25,14 @@ except Exception:
     pass
 
 # ==========================================
+# 0. 커스텀 로그 함수 정의
+# ==========================================
+def log_msg(message, level="INFO"):
+    """모든 로그에 24시간 표기 방식의 현재 시간을 추가하여 출력하는 전역 로그 함수"""
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"[{timestamp}] [{level}] {message}")
+
+# ==========================================
 # 1. 게시판 정의 및 환경변수 로드
 # ==========================================
 BOARD_MAP = {
@@ -45,24 +53,24 @@ DDNS_URL = os.environ.get('DDNS_URL')
 
 IS_LINUX = platform.system() == 'Linux'
 
-# 1. 현재 파이썬 파일이 실행되는 위치나 환경변수에서 지정한 output 폴더 경로를 잡습니다.
 OUTPUT_DIR = os.environ.get('OUTPUT_DIR', 'output')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 2. os.path.join을 사용하면 윈도우(\)와 리눅스(/) 경로를 운영체제에 맞게 자동으로 맞춰줍니다.
 HTML_OUTPUT_FILE = os.path.join(OUTPUT_DIR, 'index.html')
 JSON_BACKUP_FILE = os.path.join(OUTPUT_DIR, 'board_data_backup.json')
 KEYWORDS_FILE = os.path.join(OUTPUT_DIR, 'keywords_config.json')
-BOARD_CONFIG_FILE = os.path.join(OUTPUT_DIR, 'board_config.json')  # 🎯 게시판별 설정 파일 추가
+BOARD_CONFIG_FILE = os.path.join(OUTPUT_DIR, 'board_config.json')
 
 all_keywords_data = {}
 data_lock = threading.Lock()
 
 # ==========================================
-# 2. 파일 I/O 헬퍼 함수 (키워드 및 게시판 설정)
+# 2. 파일 I/O 헬퍼 함수
 # ==========================================
 def load_keywords_from_file():
+    log_msg(f"키워드 파일 로드 시도: {KEYWORDS_FILE}", "DEBUG")
     if not os.path.exists(KEYWORDS_FILE):
+        log_msg("키워드 설정 파일이 존재하지 않아 환경변수 기반으로 신규 생성을 진행합니다.", "INFO")
         initial_config = {}
         for board in BOARD_MAP.keys():
             env_str = os.environ.get(f'KEYWORDS_{board.upper()}', '')
@@ -72,26 +80,33 @@ def load_keywords_from_file():
         
         with open(KEYWORDS_FILE, 'w', encoding='utf-8') as f:
             json.dump(initial_config, f, ensure_ascii=False, indent=4)
+        log_msg("초기 키워드 설정 파일 생성이 완료되었습니다.", "INFO")
         return initial_config
     
     try:
         with open(KEYWORDS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+            log_msg(f"키워드 설정 로드 성공 (등록된 게시판 데이터 세트: {len(data)})", "DEBUG")
+            return data
     except Exception as e:
-        print(f"⚠️ 키워드 파일 로드 오류: {e}")
+        log_msg(f"⚠️ 키워드 파일 로드 중 오류 발생: {e}", "ERROR")
         return {board: [] for board in BOARD_MAP.keys()}
 
 def save_keywords_to_file(config_data):
+    log_msg("키워드 파일 디스크 저장을 시도합니다.", "DEBUG")
     try:
         with open(KEYWORDS_FILE, 'w', encoding='utf-8') as f:
             json.dump(config_data, f, ensure_ascii=False, indent=4)
+        log_msg("키워드 설정 데이터 변경사항이 성공적으로 저장되었습니다.", "INFO")
         return True
     except Exception as e:
-        print(f"⚠️ 키워드 파일 저장 오류: {e}")
+        log_msg(f"⚠️ 키워드 파일 저장 중 오류 발생: {e}", "ERROR")
         return False
 
 def load_board_config():
+    log_msg(f"게시판 알림 설정 파일 로드 시도: {BOARD_CONFIG_FILE}", "DEBUG")
     if not os.path.exists(BOARD_CONFIG_FILE):
+        log_msg("게시판 알림 설정 파일이 존재하지 않아 초기화를 진행합니다.", "INFO")
         initial_config = {board: {"alert": True} for board in BOARD_MAP.keys()}
         with open(BOARD_CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(initial_config, f, ensure_ascii=False, indent=4)
@@ -102,22 +117,25 @@ def load_board_config():
             for board in BOARD_MAP.keys():
                 if board not in config:
                     config[board] = {"alert": True}
+            log_msg("게시판 알림 구성 정보 로드 성공", "DEBUG")
             return config
     except Exception as e:
-        print(f"⚠️ 게시판 설정 파일 로드 오류: {e}")
+        log_msg(f"⚠️ 게시판 설정 파일 로드 중 오류 발생: {e}", "ERROR")
         return {board: {"alert": True} for board in BOARD_MAP.keys()}
 
 def save_board_config(config_data):
+    log_msg("게시판 알림 환경 설정 파일 디스크 쓰기를 시도합니다.", "DEBUG")
     try:
         with open(BOARD_CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(config_data, f, ensure_ascii=False, indent=4)
+        log_msg("게시판 알림 토글 설정이 디스크에 성공적으로 저장되었습니다.", "INFO")
         return True
     except Exception as e:
-        print(f"⚠️ 게시판 설정 파일 저장 오류: {e}")
+        log_msg(f"⚠️ 게시판 설정 파일 저장 중 오류 발생: {e}", "ERROR")
         return False
 
 # ==========================================
-# 3. 내장 경량 API 웹 서버 (GET 기반 토글 지원)
+# 3. 내장 경량 API 웹 서버
 # ==========================================
 class KeywordAPIServer(BaseHTTPRequestHandler):
     def log_message(self, format, *args): return
@@ -132,8 +150,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
     def do_GET(self):
         global all_keywords_data
         pure_path = self.path.split('?')[0]
+        log_msg(f"[API 서버] GET 요청 수신 -> Path: {pure_path}", "DEBUG")
         
-        # 🎯 iptime 환경에서 400 에러를 유발하던 POST 바디 유실 이슈를 피하기 위해 GET 파라미터 구조로 완벽 전환
         if pure_path == '/api/toggle-alert':
             from urllib.parse import parse_qs, urlparse
             try:
@@ -143,6 +161,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 enabled = enabled_str.lower() == 'true'
                 password = query_params.get('password', [''])[0].strip()
                 
+                log_msg(f"[API 서버] 알림 토글 API 호출됨 (Target Board: {board}, Enabled: {enabled})", "INFO")
+                
                 self.send_response(200)
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
@@ -151,11 +171,13 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self.end_headers()
                 
                 if password != ADMIN_PASSWORD:
+                    log_msg("[API 서버] ❌ 비밀번호 불일치로 알림 토글 작업이 거부되었습니다.", "WARN")
                     response_data = {'success': False, 'message': '❌ 인증 비밀번호가 일치하지 않습니다.'}
                     self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
                     return
                 
                 if board not in BOARD_MAP:
+                    log_msg(f"[API 서버] ❌ 유효하지 않은 게시판 인자 전달됨: {board}", "WARN")
                     response_data = {'success': False, 'message': '❌ 존재하지 않는 게시판입니다.'}
                     self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
                     return
@@ -168,10 +190,11 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 
                 status_str = "켜짐" if enabled else "꺼짐"
                 msg = f"🔔 {BOARD_MAP[board]} 게시판의 알림이 {status_str} 상태로 변경되었습니다."
+                log_msg(f"[API 서버] {msg}", "INFO")
                 response_data = {'success': True, 'message': msg}
                 self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
             except Exception as e:
-                print(f"⚠️ 토글 API 에러 발생: {e}")
+                log_msg(f"⚠️ [API 서버] 알림 토글 API 내부 크리티컬 에러 발생: {e}", "ERROR")
                 self.send_response(500)
                 self.end_headers()
                 self.wfile.write(str(e).encode('utf-8'))
@@ -179,6 +202,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
 
         if pure_path == '/' or pure_path == '/index.html' or self.path.startswith('/?'):
             try:
+                log_msg("[API 서버] 대시보드 메인 HTML 페이지 렌더링 응답 개시", "DEBUG")
                 with open(HTML_OUTPUT_FILE, 'r', encoding='utf-8') as f:
                     content = f.read()
                 self.send_response(200)
@@ -187,6 +211,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(content.encode('utf-8'))
             except Exception as e:
+                log_msg(f"⚠️ [API 서버] HTML 템플릿 반환 실패: {e}", "ERROR")
                 self.send_response(404)
                 self.end_headers()
                 self.wfile.write(f"❌ HTML 파일을 찾을 수 없습니다: {e}".encode('utf-8'))
@@ -197,6 +222,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
     def do_POST(self):
         global all_keywords_data
         pure_path = self.path.split('?')[0]
+        log_msg(f"[API 서버] POST 요청 수신 -> Path: {pure_path}", "DEBUG")
         
         if pure_path == '/api/keyword':
             try:
@@ -208,6 +234,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 password = params.get('password', '').strip()
                 board = params.get('board', 'car').strip()
                 
+                log_msg(f"[API 서버] 키워드 제어 요청 수신 (Action: {action}, Board: {board}, Keyword: {keyword})", "INFO")
+                
                 self.send_response(200)
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -216,11 +244,14 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self.end_headers()
                 
                 if password != ADMIN_PASSWORD:
+                    log_msg("[API 서버] ❌ 비밀번호 불일치로 키워드 매니징 작업이 거부되었습니다.", "WARN")
                     response_data = {'success': False, 'message': '❌ 인증 비밀번호가 일치하지 않습니다.'}
                     self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
                     return
                 
-                if not keyword: return
+                if not keyword: 
+                    log_msg("[API 서버] 공백 키워드 수신으로 요청을 무시합니다.", "WARN")
+                    return
 
                 with data_lock:
                     current_config = load_keywords_from_file()
@@ -232,12 +263,14 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                     if action == 'add':
                         if keyword in current_config[board]:
                             msg = '이미 존재하는 키워드입니다.'
+                            log_msg(f"[API 서버] 키워드 중복 추가 생략 처리: {combined_key}", "WARN")
                         else:
                             current_config[board].append(keyword)
                             save_keywords_to_file(current_config)
                             if combined_key not in all_keywords_data:
                                 all_keywords_data[combined_key] = []
                             msg = f'🎯 {BOARD_MAP.get(board, board)} -> [{keyword}] 추가되었습니다.'
+                            log_msg(f"[API 서버] 신규 키워드 등록 완료: {combined_key}", "INFO")
                             
                     elif action == 'delete':
                         if keyword in current_config[board]:
@@ -246,8 +279,10 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                             if combined_key in all_keywords_data:
                                 del all_keywords_data[combined_key]
                             msg = f'🗑️ {BOARD_MAP.get(board, board)} -> [{keyword}] 삭제되었습니다.'
+                            log_msg(f"[API 서버] 키워드 영구 제거 완료: {combined_key}", "INFO")
                         else:
                             msg = '존재하지 않는 키워드입니다.'
+                            log_msg(f"[API 서버] 삭제 거부 (존재하지 않는 키워드): {combined_key}", "WARN")
                     
                     generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
                     save_backup_data(all_keywords_data)
@@ -255,6 +290,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 response_data = {'success': True, 'message': msg}
                 self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
             except Exception as e:
+                log_msg(f"⚠️ [API 서버] 키워드 포스트 제어 에러 발생: {e}", "ERROR")
                 self.send_response(500)
                 self.end_headers()
                 self.wfile.write(str(e).encode('utf-8'))
@@ -266,7 +302,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
 def run_api_server():
     server_address = ('', 8081)
     httpd = HTTPServer(server_address, KeywordAPIServer)
-    print("🌐 [API Server] 키워드 및 알림 제어 웹서버가 8081포트에서 가동되었습니다.")
+    log_msg("🌐 [API 서버] 키워드 및 알림 제어 웹서버가 8081포트에서 정식 가동되었습니다.", "INFO")
     httpd.serve_forever()
 
 # ==========================================
@@ -282,32 +318,54 @@ def extract_post_id(link):
     return str(int(time.time()))
 
 def send_telegram_message(text):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: 
+        log_msg("텔레그램 연동 환경변수가 부재하여 메시지 발송을 취소합니다.", "DEBUG")
+        return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown"}
-    try: requests.post(url, json=payload, timeout=10)
-    except: pass
+    try: 
+        res = requests.post(url, json=payload, timeout=10)
+        log_msg(f"텔레그램 발송 요청 완료 (응답 코드: {res.status_code})", "DEBUG")
+    except Exception as e: 
+        log_msg(f"⚠️ 텔레그램 알림 메시지 발송 예외 발생: {e}", "ERROR")
 
 def load_backup_data():
+    log_msg(f"디스크 백업 JSON 데이터 복원 로드 시도: {JSON_BACKUP_FILE}", "DEBUG")
     if os.path.exists(JSON_BACKUP_FILE):
         try:
             with open(JSON_BACKUP_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except: pass
+                data = json.load(f)
+                log_msg(f"기존 백업 복원 성공 (총 키워드 조합 데이터 개수: {len(data)})", "INFO")
+                return data
+        except Exception as e:
+            log_msg(f"⚠️ 백업 데이터 로드 실패 (파일 손상 가능성): {e}", "ERROR")
+    else:
+        log_msg("수집 백업 데이터 파일이 감지되지 않아 빈 상태로 시작합니다.", "INFO")
     return {}
 
 def save_backup_data(all_keywords_data):
+    log_msg("전체 데이터 캐시 -> 디스크 JSON 백업 쓰기 요청 수신", "DEBUG")
     try:
         with open(JSON_BACKUP_FILE, 'w', encoding='utf-8') as f:
             json.dump(all_keywords_data, f, ensure_ascii=False, indent=4)
+        log_msg("JSON 데이터 백업 디스크 저장 성공 완료", "DEBUG")
     except Exception as e:
-        print(f"⚠️ 데이터 백업 저장 실패: {e}")
+        log_msg(f"⚠️ 데이터 백업 저장 실패: {e}", "ERROR")
 
 def get_list_page_posts(driver, board, keyword, page=1):
     encoded_keyword = quote(keyword)
     list_url = f"https://www.fmkorea.com/index.php?mid={board}&search_target=title_content&search_keyword={encoded_keyword}&page={page}"
-    driver.get(list_url)
-    time.sleep(random.uniform(5.0, 7.0))
+    log_msg(f"[정찰조 Selenium] 목록 페이지 진입 시도 -> Board: {board}, Keyword: {keyword}", "DEBUG")
+    
+    try:
+        driver.get(list_url)
+    except Exception as e:
+        log_msg(f"⚠️ 목록 페이지 브라우저 진입 에러: {e}", "ERROR")
+        return []
+        
+    delay = random.uniform(5.0, 7.0)
+    log_msg(f"목록 렌더링 대기용 지연 버퍼 구동: {delay:.2f}초", "DEBUG")
+    time.sleep(delay)
     
     soup = BeautifulSoup(driver.page_source, 'html.parser')
     posts = soup.select('table.bd_lst tbody tr:not(.notice)')
@@ -331,6 +389,8 @@ def get_list_page_posts(driver, board, keyword, page=1):
             
             post_id = extract_post_id(link)
             post_list.append({'link': link, 'title': title, 'author': author, 'date': date, 'id': post_id})
+            
+    log_msg(f"[정찰조] 목록 파싱 결과: {len(post_list)}개의 게시글 발견 완료", "DEBUG")
     return post_list
 
 def scrape_post_detail(driver, post_info):
@@ -340,8 +400,17 @@ def scrape_post_detail(driver, post_info):
     date = post_info['date']
     post_id = post_info.get('id', extract_post_id(link))
     
-    driver.get(link)
-    time.sleep(random.uniform(4.0, 7.0))
+    log_msg(f"[타격대 Selenium] 본문 상세 스크래핑 진입 -> ID: {post_id} | Title: {title[:18]}...", "INFO")
+    
+    try:
+        driver.get(link)
+    except Exception as drive_err:
+        log_msg(f"⚠️ 상세 페이지 브라우저 호출 오류: {drive_err}", "ERROR")
+        raise drive_err
+        
+    delay = random.uniform(4.0, 7.0)
+    log_msg(f"상세 로딩 보장용 지연 대기: {delay:.2f}초", "DEBUG")
+    time.sleep(delay)
     
     detail_soup = BeautifulSoup(driver.page_source, 'html.parser')
     full_date_tag = detail_soup.select_one('.top_area .date, span.date.m_no')
@@ -356,83 +425,89 @@ def scrape_post_detail(driver, post_info):
         if vote_span: votes = vote_span.find_next('b').text.strip()
         comment_span = detail_soup.find(string=re.compile('댓글'))
         if comment_span: comment_count = comment_span.find_next('b').text.strip()
-    except: pass
+        log_msg(f"글 메타데이터 수집 완료 -> 조회: {views}, 추천: {votes}, 댓글 수: {comment_count}", "DEBUG")
+    except Exception as meta_err:
+        log_msg(f"글 메타데이터 파싱 중 일부 누락/스킵: {meta_err}", "DEBUG")
     
     content_area = detail_soup.select_one('.xe_content')
     paragraphs = []
-    images = []
-    videos = []  
     
     if content_area:
-        # 🎯 [핵심 수정 1] 비디오 플레이어 구동용 내부 시스템 쓰레기 태그 선제 파괴
-        # 이미지와 본문 텍스트를 추출하기 전에 '가장 먼저' 실행하여 더미 썸네일과 "/" 슬래시 유발 인자를 완전히 제거합니다.
+        log_msg(f"본문 태그 클리닝 및 미디어 구조화 시작 (ID: {post_id})", "DEBUG")
         for trash in content_area.select('.mejs__offscreen, .mejs__poster, .mejs__poster-img, .mejs__time-total, .mejs__currenttime, .mejs__duration, .mejs__controls, button, svg, ul, meta'):
             trash.extract()
             
         for a_trash in content_area.select('a.mejs__horizontal-volume-slider'):
             a_trash.extract()
 
-        # 링크 기본 스타일 고정
         for a_tag in content_area.find_all('a'):
             a_tag['target'] = '_blank'
             a_tag['style'] = "color: #1877f2; text-decoration: underline; font-weight: bold;"
 
-        # 순수 비디오 소스 주소 및 iframe 정보는 청소 전 미리 안전하게 백업 수집
         for video in content_area.select('video'):
             source = video.select_one('source')
             src = video.get('src') or (source.get('src') if source else None)
             if src:
                 if src.startswith('//'): src = 'https:' + src
                 elif src.startswith('/'): src = 'https://www.fmkorea.com' + src
-                videos.append({'type': 'video', 'src': src})
+                video['src'] = src
+                video['controls'] = 'controls'
+                video['style'] = "width: 100%; max-width: 100%; margin-top: 8px; border-radius: 6px;"
         
         for iframe in content_area.select('iframe'):
             src = iframe.get('src')
             if src:
                 if src.startswith('//'): src = 'https:' + src
-                videos.append({'type': 'iframe', 'src': src})
+                iframe['src'] = src
+                iframe['style'] = "width: 100%; max-width: 100%; min-height: 360px; border-radius: 6px; margin-top: 8px;"
 
-        # 🎯 [핵심 수정 2] 순수 사용자가 업로드한 '진짜 본문 이미지'만 수집
-        # 플레이어 썸네일용 태그들이 위에서 이미 청소(extract)되었으므로, 오직 진짜 사진만 남게 됩니다.
+        img_count = 0
         for img in content_area.select('img'):
-            img_src = img.get('src') or img.get('data-original')
-            if img_src:
-                if img_src.startswith('//'): img_src = 'https:' + img_src
-                elif img_src.startswith('/'): img_src = 'https://www.fmkorea.com' + img_src
-                images.append(img_src)
+            real_src = (
+                img.get('data-original') or 
+                img.get('original') or 
+                img.get('attach_target') or 
+                img.get('native-src') or 
+                img.get('src')
+            )
+            
+            if not real_src or 'blank.gif' in real_src or 'pixel.gif' in real_src:
+                img.extract()
+                continue
+                
+            if real_src.startswith('//'): real_src = 'https:' + real_src
+            elif real_src.startswith('/'): real_src = 'https://www.fmkorea.com' + real_src
+            
+            img['src'] = real_src
+            img['alt'] = '첨부이미지'
+            img['style'] = "width: 100%; height: auto; border-radius: 6px; margin-top: 8px; display: block;"
+            if 'loading' in img.attrs: del img['loading']
+            img_count += 1
+            
+        log_msg(f"본문 내 유효 첨부이미지 파싱 완료 -> 총 {img_count}개 정형화됨", "DEBUG")
 
-        # 이미지/영상 관련 마크업 태그 본문 추출용 정리
-        for img_tag in content_area.find_all('img'):
-            img_tag.extract()
-
-        for iframe_tag in content_area.find_all('iframe'):
-            iframe_tag.extract()
-
-        for v_tag in content_area.find_all(['video', 'source']):
-            v_tag.extract()
-
-        # 본문 텍스트 정제 가공 진행 (숨은 슬래시 유발 인자가 제거되어 깔끔한 문장만 남음)
-        for br in content_area.find_all("br"): br.replace_with("\n")
+        for br in content_area.find_all("br"): 
+            br.replace_with("\n")
+            
         for block in content_area.find_all(['p', 'div', 'li', 'h1', 'h2', 'h3']): 
             block.insert_after('\n')
-            block.unwrap()
             
-        raw_text = content_area.decode_contents()
+        raw_html = content_area.decode_contents()
+        raw_html = re.sub(r'<script.*?>.*?</script>', '', raw_html, flags=re.DOTALL)
+        raw_html = re.sub(r'<!--.*?-->', '', raw_html, flags=re.DOTALL) 
+        raw_html = raw_html.replace('\\', '')
         
-        raw_text = re.sub(r'<script.*?>.*?</script>', '', raw_text, flags=re.DOTALL)
-        raw_text = re.sub(r'<!--.*?-->', '', raw_text, flags=re.DOTALL) 
-        raw_text = raw_text.replace('\\', '')
-        
-        lines = [line.strip() for line in raw_text.split('\n')]
-        
+        lines = raw_html.split('\n')
         empty_count = 0
         for line in lines:
-            if line == '':
+            line_str = line.strip()
+            if line_str == '':
                 empty_count += 1
-                if empty_count <= 2: paragraphs.append(line)
+                if empty_count <= 2: 
+                    paragraphs.append('')
             else:
                 empty_count = 0
-                paragraphs.append(line)
+                paragraphs.append(line_str)
         
         while paragraphs and paragraphs[0] == '': paragraphs.pop(0)
         while paragraphs and paragraphs[-1] == '': paragraphs.pop()
@@ -441,6 +516,7 @@ def scrape_post_detail(driver, post_info):
     comment_items = detail_soup.select('.fdb_lst_ul > li.fdb_itm, ul#comment > li.fdb_itm, .fdb_lst > li.fdb_itm')
     if not comment_items: comment_items = detail_soup.select('.fdb_lst_ul > li')
 
+    log_msg(f"댓글 영역 스캔 시작 -> 파싱 대상 DOM 개수: {len(comment_items)}개", "DEBUG")
     for item in comment_items:
         c_author_tag = item.select_one('.meta a')
         c_author = c_author_tag.text.strip() if c_author_tag else "익명"
@@ -489,15 +565,17 @@ def scrape_post_detail(driver, post_info):
             
         comments.append({'author': c_author, 'date': c_date, 'votes': c_votes, 'content': c_paragraphs, 'margin_left': margin_left})
     
+    log_msg(f"상세 글 스크래핑 완료 (정제 완료된 최종 댓글 개수: {len(comments)}개)", "INFO")
     return {
         'id': post_id, 'title': title, 'author': author, 'date': date, 'views': views, 'votes': votes,
-        'comment_count': comment_count, 'link': link, 'content': paragraphs, 'images': images, 'videos': videos, 'comments': comments
+        'comment_count': comment_count, 'link': link, 'content': paragraphs, 'images': [], 'videos': [], 'comments': comments
     }
 
 # ==========================================
-# 5. UI 빌더 (중괄호 이스케이프 완벽 준수 구조)
+# 5. UI 빌더
 # ==========================================
 def generate_multiboard_html(all_keywords_data, output_file):
+    log_msg("HTML 정적 대시보드 파일 템플릿 컴파일 빌드를 시작합니다.", "DEBUG")
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     tabs_html = ""
     boards_html = ""
@@ -536,6 +614,8 @@ def generate_multiboard_html(all_keywords_data, output_file):
         reverse=True
     )
     
+    js_tab_meta_json = {}
+    
     for global_idx, item in enumerate(flattened_keywords):
         board = item['board']
         keyword = item['keyword']
@@ -545,6 +625,8 @@ def generate_multiboard_html(all_keywords_data, output_file):
         board_name = BOARD_MAP.get(board, board)
         active_class = "active" if global_idx == 0 else ""
         display_style = "block" if global_idx == 0 else "none"
+        
+        js_tab_meta_json[f"board-{global_idx}"] = [p['id'] for p in board_data if p.get('is_new', False)]
         
         new_tag_in_tab = f'<span class="new-dot" id="dot-board-{global_idx}">🔴 </span>' if new_posts_count > 0 else f'<span class="new-dot" id="dot-board-{global_idx}" style="display:none;">🔴 </span>'
         
@@ -580,15 +662,14 @@ def generate_multiboard_html(all_keywords_data, output_file):
             board_content += '<div class="post-card" style="text-align:center; color:#65676b;">수집된 게시글이 없습니다. 모니터링 중 새 글이 등록되면 수집을 시작합니다.</div>'
         else:
             for post_idx, post in enumerate(board_data):
-                content_html = "".join([f"<p>{text}</p>" if text else "<p style='margin:0; height:12px;'></p>" for text in post['content']])
-                images_html = "".join([f'<img src="{img_src}" alt="첨부이미지">' for img_src in post['images']])
-                
-                videos_html = ""
-                for v in post.get('videos', []):
-                    if v['type'] == 'video':
-                        videos_html += f'<video src="{v["src"]}" controls style="width: 100%; max-width: 100%; margin-top: 8px; border-radius: 6px;"></video>'
-                    elif v['type'] == 'iframe':
-                        videos_html += f'<div style="position: relative; padding-bottom: 56.25%; height: 0; margin-top: 8px;"><iframe src="{v["src"]}" frameborder="0" allowfullscreen style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 6px;"></iframe></div>'
+                content_html = ""
+                for block in post['content']:
+                    if block == '':
+                        content_html += "<div style='height:12px;'></div>"
+                    elif block.startswith('<img') or block.startswith('<video') or block.startswith('<div') or block.startswith('<iframe'):
+                        content_html += block  
+                    else:
+                        content_html += f"<p style='margin: 6px 0; line-height: 1.6;'>{block}</p>" 
                 
                 is_new = post.get('is_new', False)
                 card_class = "post-card new-post" if is_new else "post-card"
@@ -635,7 +716,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
                     </div>
                     <div class="post-body">
                         <div class="post-content">{content_html}</div>
-                        <div class="post-images">{images_html}{videos_html}</div>
                         <div style="margin-top: 15px; display: flex; gap: 10px;">
                             <a href="{post['link']}" target="_blank" class="original-link-btn" onclick="event.stopPropagation();">🔗 에프엠코리아 원문</a>
                         </div>
@@ -672,6 +752,8 @@ def generate_multiboard_html(all_keywords_data, output_file):
             </div>
         </div>
         """
+
+    js_meta_string = json.dumps(js_tab_meta_json)
 
     html_content = f"""<!DOCTYPE html>
 <html lang="ko">
@@ -744,7 +826,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
         .post-title {{ font-size: 16px; font-weight: bold; margin-bottom: 8px; color: #1877f2; line-height: 1.4; }}
         .post-meta {{ font-size: 12px; color: #65676b; display: flex; flex-wrap: wrap; gap: 10px; }}
         .post-content {{ font-size: 14px; line-height: 1.6; color: #1c1e21; }}
-        .post-images img {{ width: 100%; height: auto; border-radius: 6px; margin-top: 8px; }}
+        .post-content img {{ width: 100%; height: auto; border-radius: 6px; margin-top: 8px; display: block; }}
         .original-link-btn {{ display: inline-block; padding: 8px 14px; background: #e4e6eb; color: #333; text-decoration: none; border-radius: 6px; font-size: 13px; font-weight: bold; text-align: center; }}
         .update-info {{ text-align: center; color: #65676b; font-size: 12px; margin-bottom: 15px; padding: 8px; background: white; border-radius: 6px; }}
         .post-comments-section {{ margin-top: 15px; border-top: 2px solid #e4e6eb; padding-top: 12px; }}
@@ -797,12 +879,27 @@ def generate_multiboard_html(all_keywords_data, output_file):
         (function() {{
             try {{
                 let readIds = JSON.parse(localStorage.getItem('read_post_ids') || '[]');
+                let tabMeta = {js_meta_string}; 
+                let styleRules = "";
+
                 if (readIds.length > 0) {{
-                    let styleRules = "";
                     readIds.forEach(id => {{
                         styleRules += `#post-${{id}} {{ border: none !important; }}\\n`;
                         styleRules += `#post-${{id}} .new-badge {{ display: none !important; }}\\n`;
                     }});
+                }}
+
+                for (let boardId in tabMeta) {{
+                    let newIdsInTab = tabMeta[boardId];
+                    if (newIdsInTab.length > 0) {{
+                        let isAllRead = newIdsInTab.every(id => readIds.includes(String(id)));
+                        if (isAllRead) {{
+                            styleRules += `#dot-${{boardId}} {{ display: none !important; }}\\n`;
+                        }}
+                    }}
+                }}
+
+                if (styleRules) {{
                     const styleEl = document.createElement('style');
                     styleEl.innerHTML = styleRules;
                     document.head.appendChild(styleEl);
@@ -915,8 +1012,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
             window.scrollTo({{ top: containerOffset, behavior: 'smooth' }});
         }}
 
-        // 🎯 변경 포인트: 사용자가 '다른 탭으로 이동할 때' 혹은 '새로고침 버튼을 눌렀을 때'만 
-        // 기존 새 글의 ID들을 스토리지에 밀어 넣어 다음 화면 갱신 때 뱃지가 정리되도록 유도합니다.
         function savePostsToReadList(boardId) {{
             const boardEl = document.getElementById(boardId);
             if (!boardEl) return;
@@ -940,6 +1035,19 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 if (readIds.length > 1500) readIds = readIds.slice(readIds.length - 1500);
                 localStorage.setItem('read_post_ids', JSON.stringify(readIds));
             }}
+        }}
+
+        function clearPostBadgesInDOM(boardId) {{
+            const boardEl = document.getElementById(boardId);
+            if (!boardEl) return;
+
+            const cards = boardEl.querySelectorAll('.posts-container > .post-card');
+            cards.forEach(card => {{
+                card.classList.remove('new-post');
+                card.style.border = 'none';
+                const badge = card.querySelector('.new-badge');
+                if (badge) badge.remove();
+            }});
         }}
 
         function syncTabDotState(boardId) {{
@@ -968,11 +1076,10 @@ def generate_multiboard_html(all_keywords_data, output_file):
         }}
 
         function openTab(evt, boardId) {{
-            // 🎯 변경 포인트: 탭을 전환하기 전, 직전까지 사용자가 읽고 있었던 이전 활성 탭의 
-            // 개 게시글 ID 상태를 스토리지에 세이브하여 백업 정리 처리합니다.
             const previousActiveTab = document.querySelector('.tab-content[style*="display: block"]');
             if (previousActiveTab && previousActiveTab.id !== boardId) {{
                 savePostsToReadList(previousActiveTab.id);
+                clearPostBadgesInDOM(previousActiveTab.id);
             }}
 
             var i, tabcontent, tablinks;
@@ -987,8 +1094,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
             
             updatePagination(boardId);
             
-            // 🎯 변경 포인트: 사용자가 탭을 누른 직후에는 본문 안의 NEW 뱃지를 강제로 지우지 않고 유지합니다!
-            // 대신 상단의 빨간 도트(🔴)만 즉시 눈에 띄지 않게 처리하여 눈을 편하게 보호합니다.
             const globalIdx = boardId.replace('board-', '');
             const targetDot = document.getElementById('dot-board-' + globalIdx);
             if (targetDot) targetDot.style.display = 'none';
@@ -1021,21 +1126,11 @@ def generate_multiboard_html(all_keywords_data, output_file):
             if (activeContent) {{
                 updatePagination(activeContent.id);
                 
-                // 사용자가 명시적으로 새로고침 단추를 눌렀을 때만 기존 글들을 스토리지에 밀어 넣고 정리합니다.
                 if (sessionStorage.getItem('is_refreshing') === 'true') {{
                     savePostsToReadList(activeContent.id);
                     sessionStorage.removeItem('is_refreshing');
-                    
-                    // 새로고침 직후에는 변경 플래그가 반영된 스토리지 기준으로 뱃지와 보더를 싹 청소해 줍니다.
-                    const cards = activeContent.querySelectorAll('.posts-container > .post-card');
-                    cards.forEach(card => {{
-                        card.classList.remove('new-post');
-                        card.style.border = 'none';
-                        const badge = card.querySelector('.new-badge');
-                        if (badge) badge.remove();
-                    }});
+                    clearPostBadgesInDOM(activeContent.id);
                 }} else {{
-                    // 평소 최초 로드 시에는 빨간 도트 상태만 싱크를 맞춰주고 본문 뱃지는 보호합니다.
                     const globalIdx = activeContent.id.replace('board-', '');
                     const targetDot = document.getElementById('dot-board-' + globalIdx);
                     if (targetDot) targetDot.style.display = 'none';
@@ -1078,6 +1173,13 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 checkboxElement.checked = !targetStatus;
             }});
         }}
+
+        window.addEventListener('beforeunload', () => {{
+            const activeContent = document.querySelector('.tab-content[style*="display: block"]');
+            if (activeContent) {{
+                savePostsToReadList(activeContent.id);
+            }}
+        }});
 
         window.addEventListener('DOMContentLoaded', () => {{
             const savedBoard = sessionStorage.getItem('last_active_board');
@@ -1223,26 +1325,35 @@ def generate_multiboard_html(all_keywords_data, output_file):
 </body>
 </html>
 """
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(html_content)
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        log_msg(f"HTML 빌드 및 index.html 디스크 파일 출력 완료 (총 키워드 조합: {len(flattened_keywords)}개)", "INFO")
+    except Exception as e:
+        log_msg(f"⚠️ HTML 템플릿 물리 저장 중 오류 발생: {e}", "ERROR")
+
 # ==========================================
 # 6. 메인 크롤러 루프 환경 구성
 # ==========================================
+log_msg("백그라운드 API 제어용 서버 스레드 분리 가동 개시 준비", "DEBUG")
 api_thread = threading.Thread(target=run_api_server, daemon=True)
 api_thread.start()
 
 options = Options()
 services = Service()
 if IS_LINUX:
+    log_msg("리눅스(Linux) 환경 감지로 인한 Headless 플래그 및 보호 우회 속성 강제 주입", "INFO")
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
 
 try:
+    log_msg("Selenium 웹드라이버 시동 및 내부 크롬 프로세스 인스턴스 할당 시작", "DEBUG")
     driver = Chrome(options=options, service=services)
+    log_msg("Selenium 크롬 웹 드라이버 정상 준비 완료", "INFO")
 except Exception as chrome_err:
-    print(f"❌ 크롬 실행 실패: {chrome_err}")
+    log_msg(f"❌ 크롬 웹 드라이버 엔진 실행 프로세스 도중 크리티컬 오류로 중단됨: {chrome_err}", "CRITICAL")
     exit()
 
 backup_data = load_backup_data()
@@ -1252,12 +1363,13 @@ with data_lock:
         for keyword in keywords:
             combined_key = f"{board}::{keyword}"
             all_keywords_data[combined_key] = backup_data.get(combined_key, [])
+            log_msg(f"메모리 캐시 변수 초기 데이터 매핑 완료: {combined_key} (수집 누적 글: {len(all_keywords_data[combined_key])}개)", "DEBUG")
 
 with data_lock:
     generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
 
-print(f"\n🎉 통합 게시판 초기화 완료 (과거 저장된 데이터로 index.html 복원 완료)")
-print(f"📡 실시간 모니터링 준비 완료. 데이터 스캔 시점에 실시간 갱신됩니다.")
+log_msg("🎉 통합 미니 게시판 시스템 초기화 완료 (기존 백업 데이터로 대시보드 복원 성공)", "INFO")
+log_msg("📡 메인 백그라운드 실시간 모니터링 감시 무한 루프 엔진을 가동합니다.", "INFO")
 
 try:
     is_first_scan = {}
@@ -1265,7 +1377,7 @@ try:
 
     while True:
         if not is_initial_run:
-            print(f"\n⏳ {CHECK_INTERVAL}초 대기 중...")
+            log_msg(f"⏳ 다음 실시간 스캔 쿼리 탐색 주기까지 {CHECK_INTERVAL}초 대기 프로세스 진행", "DEBUG")
             time.sleep(CHECK_INTERVAL)
         
         is_initial_run = False
@@ -1274,8 +1386,7 @@ try:
             config_data = load_keywords_from_file()
             board_alert_config = load_board_config()
             
-        now_str = datetime.now().strftime('%H:%M:%S')
-        print(f"\n🔍 [{now_str}] 실시간 모니터링 시작")
+        log_msg("🔍 실시간 주기적 크롤링 스캔 작업 세션 개시", "INFO")
         has_changes = False
         
         for board, keywords in config_data.items():
@@ -1283,18 +1394,20 @@ try:
             
             for keyword in keywords:
                 combined_key = f"{board}::{keyword}"
-                print(f"   ▶ 작업 중: [{board_name}] - {keyword}")
+                log_msg(f"   ▶ 순회 작업 진행 타겟 -> [{board_name}] - 키워드: {keyword}", "DEBUG")
                 
                 with data_lock:
                     if combined_key not in all_keywords_data:
                         all_keywords_data[combined_key] = []
                     board_data = all_keywords_data[combined_key]
                 
+                # 1단계: 기존 상위 노출 수집글에 대한 백그라운드 댓글 및 추천수 최신화 동기화
                 if board_data:
-                    print(f"      - 댓글 동기화 및 상태 보존 진행 중 ({MAX_POSTS_TO_SYNC_COMMENTS}개 대상)")
+                    log_msg(f"      - 기존 캐시 데이터 갱신을 위한 상위 {MAX_POSTS_TO_SYNC_COMMENTS}개 타겟 딥 스캔 진입", "DEBUG")
                     posts_to_sync = board_data[:MAX_POSTS_TO_SYNC_COMMENTS]
                     for idx, old_post in enumerate(posts_to_sync):
                         try:
+                            log_msg(f"      [동기화 딥스캔] 글 ID: {old_post['id']} 상세 페이지 갱신 추적 시작", "DEBUG")
                             updated_post = scrape_post_detail(driver, old_post)
                             updated_post['is_new'] = old_post.get('is_new', False) 
                             
@@ -1302,15 +1415,20 @@ try:
                                 len(old_post['comments']) != len(updated_post['comments']) or
                                 old_post['votes'] != updated_post['votes']):
                                 
+                                log_msg(f"      [변경 사항 감지] 글 ID: {old_post['id']} 메타/댓글 데이터 변경됨. 캐시 즉시 업데이트.", "INFO")
                                 with data_lock:
                                     board_data[idx] = updated_post
                                 has_changes = True
-                        except: pass
+                        except Exception as sync_ex:
+                            log_msg(f"      ⚠️ 기존 글 ID {old_post['id']} 백그라운드 갱신 스킵 (예외 피드백): {sync_ex}", "WARN")
                 
+                # 2단계: 신규 글 목록 존재 여부 체크 정찰조 구동
                 try:
-                    print(f"      - 새 글 확인 중...")
+                    log_msg(f"      - 새 글 목록 모니터링 수집 쿼리 가동 중...", "DEBUG")
                     new_post_list = get_list_page_posts(driver, board, keyword, page=1)
-                except: continue
+                except Exception as list_ex:
+                    log_msg(f"      ⚠️ [{board_name} - {keyword}] 목록 파싱 실패로 이번 주기 패스 처리: {list_ex}", "WARN")
+                    continue
                 
                 if combined_key not in is_first_scan:
                     is_first_scan[combined_key] = False if board_data else True
@@ -1319,11 +1437,12 @@ try:
                 if board_data:
                     existing_ids = {post['id'] for post in board_data}
                     for p in new_post_list:
-                        if p['id'] in existing_ids: break
+                        if p['id'] in existing_ids: 
+                            break
                         new_posts.append(p)
                 else:
                     if is_first_scan[combined_key]:
-                        print(f"   📦 [{board_name} - {keyword}] 최초 빌드: 가장 최신 글 1개만 베이스라인으로 등록합니다.")
+                        log_msg(f"   📦 [{board_name} - {keyword}] 최초 빌드: 리스트의 최신 글 1개만 베이스라인 데이터로 강제 적재합니다.", "INFO")
                         if new_post_list:
                             try:
                                 first_post_info = new_post_list[0]
@@ -1331,8 +1450,9 @@ try:
                                 post_data['is_new'] = False
                                 with data_lock:
                                     all_keywords_data[combined_key] = [post_data]
+                                log_msg(f"   📦 [{board_name} - {keyword}] 최초 기준점 빌드 매핑 성공", "INFO")
                             except Exception as e:
-                                print(f"      ⚠️ 최신 글 1개 수집 중 오류: {e}")
+                                log_msg(f"      ⚠️ 베이스라인 최신 글 1개 데이터 수집 실패 예외 로그: {e}", "ERROR")
                                 
                         is_first_scan[combined_key] = False
                         has_changes = True
@@ -1340,11 +1460,13 @@ try:
                     else:
                         new_posts = new_post_list
                 
+                # 3단계: 확인된 순수 새 글 타격대 매핑 스크래핑
                 if new_posts:
-                    print(f"   🆕 [{board_name}] 실시간 새 글 {len(new_posts)}개 발견!")
+                    log_msg(f"   🆕 [{board_name}] 교차 검증을 거친 실시간 신규 새 글 {len(new_posts)}개 탐지 성공!", "INFO")
                         
                     for post_info in reversed(new_posts):
                         try:
+                            log_msg(f"   🆕 신규 글 상세 딥 크롤링 프로세스 전개 -> ID: {post_info['id']}", "INFO")
                             post_data = scrape_post_detail(driver, post_info)
                             post_data['is_new'] = True
                             
@@ -1358,7 +1480,7 @@ try:
                             
                             if is_alert_enabled or has_video:
                                 video_badge = " [🎬 동영상 포함 강제알림]" if (not is_alert_enabled and has_video) else ""
-                                
+                                log_msg(f"   🚀 텔레그램 연동 채널 알림 발송을 개시합니다. (게시글 ID: {post_data['id']})", "INFO")
                                 telegram_text = (
                                     f"🔔 *[{board_name} - {keyword}]{video_badge} 실시간 새 글!*\n\n"
                                     f"📌 *제목:* {post_data['title']}\n"
@@ -1367,19 +1489,27 @@ try:
                                 )
                                 send_telegram_message(telegram_text)
                             else:
-                                print(f"      🔕 [{board_name}] 알림 비활성화 상태(동영상 없음) - 텔레그램 발송을 생략합니다.")
-                        except Exception as e: pass
+                                log_msg(f"      🔕 [{board_name}] 알림 토글 비활성화 상태(동영상 요소 없음) - 텔레그램 발송을 안전하게 생략합니다.", "INFO")
+                        except Exception as deep_ex:
+                            log_msg(f"      ⚠️ 새 글 상세 크롤링 처리 도중 예외로 인한 패스 스킵 피드백: {deep_ex}", "ERROR")
                     has_changes = True
         
         if has_changes:
+            log_msg("🔄 이번 주기 캐시 변경 내역 발생 확인 -> index.html 동적 렌더링 동기화 즉시 갱신 진행", "INFO")
             with data_lock:
                 generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
             save_backup_data(all_keywords_data)
+        else:
+            log_msg("🔍 이번 턴 실시간 모니터링 감시 주기 종료: 변경 발생 데이터 없음", "DEBUG")
 
 except KeyboardInterrupt:
-    print(f"\n\n⛔ 모니터링 중단.")
+    log_msg("⛔ 사용자의 KeyboardInterrupt 입력을 감지하여 실시간 모니터링 엔진 시스템을 안전하게 중단합니다.", "WARN")
 except Exception as e:
-    print(f"🚨 오류 발생: {e}")
+    log_msg(f"🚨 크롤러 런타임 코어 루프 엔진 무너짐 치명적 시스템 에러 발생: {e}", "CRITICAL")
 finally:
-    try: driver.quit()
-    except: pass
+    log_msg("최종 시스템 할당 리소스 및 메모리 웹 드라이버 인스턴스 반환 절차 개시", "INFO")
+    try:
+        driver.quit()
+        log_msg("Selenium 웹드라이버 엔진 종료 정상 완료", "INFO")
+    except Exception as ex:
+        log_msg(f"드라이버 인스턴스 해제 시도 실패 또는 이미 프로세스가 꺼져 있습니다: {ex}", "DEBUG")
