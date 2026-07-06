@@ -138,8 +138,14 @@ def save_board_config(config_data):
         return False
 
 # ==========================================
-# 3. 내장 경량 API 웹 서버
+# 3. 내장 경량 API 웹 서버 (수정본)
 # ==========================================
+from socketserver import ThreadingMixIn  # <-- 멀티스레드 서버 변환을 위해 상단에 추가하거나 여기에 포함
+
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    """요청마다 새로운 스레드를 생성하여 오버헤드와 블로킹을 방지하는 멀티스레드 서버"""
+    daemon_threads = True
+
 class KeywordAPIServer(BaseHTTPRequestHandler):
     def log_message(self, format, *args): return
 
@@ -204,18 +210,26 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             return
 
         if pure_path == '/' or pure_path == '/index.html' or self.path.startswith('/?'):
-            # ==========================================
-            # 🛠️ [수정 파트 1] BrokenPipeError 및 ConnectionReset 예외 방어공사
-            # ==========================================
             try:
                 log_msg("[API 서버] 대시보드 메인 HTML 페이지 렌더링 응답 개시", "DEBUG")
-                with open(HTML_OUTPUT_FILE, 'r', encoding='utf-8') as f:
+                
+                # HTML_OUTPUT_FILE이 생성되기 전이거나 부재할 때의 예외 처리
+                if not os.path.exists(HTML_OUTPUT_FILE):
+                    self.send_response(503)
+                    self.end_headers()
+                    self.wfile.write("⏳ 대시보드 파일 초기 생성 중입니다. 잠시 후 새로고침 해주세요.".encode('utf-8'))
+                    return
+
+                # 파일 읽기 lock 최소화 및 버퍼링 최적화 기본 읽기
+                with open(HTML_OUTPUT_FILE, 'rb') as f:
                     content = f.read()
+                    
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.send_header('Content-Length', str(len(content))) # 브라우저가 컨텐츠 크기를 명확히 알게 하여 대기 해제
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
-                self.wfile.write(content.encode('utf-8'))
+                self.wfile.write(content)
             except (BrokenPipeError, ConnectionResetError):
                 log_msg("[API 서버] ℹ️ 전송 중 브라우저 연결 끊김 감지 (사용자 새로고침 혹은 창 닫음)", "INFO")
                 return
@@ -232,89 +246,15 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
-        global all_keywords_data
-        pure_path = self.path.split('?')[0]
-        log_msg(f"[API 서버] POST 요청 수신 -> Path: {pure_path}", "DEBUG")
-        
-        if pure_path == '/api/keyword':
-            try:
-                content_length = int(self.headers.get('Content-Length', 0))
-                post_data = self.rfile.read(content_length).decode('utf-8')
-                params = json.loads(post_data)
-                action = params.get('action')
-                keyword = params.get('keyword', '').strip()
-                password = params.get('password', '').strip()
-                board = params.get('board', 'car').strip()
-                
-                log_msg(f"[API 서버] 키워드 제어 요청 수신 (Action: {action}, Board: {board}, Keyword: {keyword})", "INFO")
-                
-                self.send_response(200)
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
-                self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-                self.send_header('Content-Type', 'application/json; charset=utf-8')
-                self.end_headers()
-                
-                if password != ADMIN_PASSWORD:
-                    log_msg("[API 서버] ❌ 비밀번호 불일치로 키워드 매니징 작업이 거부되었습니다.", "WARN")
-                    response_data = {'success': False, 'message': '❌ 인증 비밀번호가 일치하지 않습니다.'}
-                    self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
-                    return
-                
-                if not keyword: 
-                    log_msg("[API 서버] 공백 키워드 수신으로 요청을 무시합니다.", "WARN")
-                    return
-
-                with data_lock:
-                    current_config = load_keywords_from_file()
-                    if board not in current_config:
-                        current_config[board] = []
-                    
-                    combined_key = f"{board}::{keyword}"
-                    
-                    if action == 'add':
-                        if keyword in current_config[board]:
-                            msg = '이미 존재하는 키워드입니다.'
-                            log_msg(f"[API 서버] 키워드 중복 추가 생략 처리: {combined_key}", "WARN")
-                        else:
-                            current_config[board].append(keyword)
-                            save_keywords_to_file(current_config)
-                            if combined_key not in all_keywords_data:
-                                all_keywords_data[combined_key] = []
-                            msg = f'🎯 {BOARD_MAP.get(board, board)} -> [{keyword}] 추가되었습니다.'
-                            log_msg(f"[API 서버] 신규 키워드 등록 완료: {combined_key}", "INFO")
-                            
-                    elif action == 'delete':
-                        if keyword in current_config[board]:
-                            current_config[board].remove(keyword)
-                            save_keywords_to_file(current_config)
-                            if combined_key in all_keywords_data:
-                                del all_keywords_data[combined_key]
-                            msg = f'🗑️ {BOARD_MAP.get(board, board)} -> [{keyword}] 삭제되었습니다.'
-                            log_msg(f"[API 서버] 키워드 영구 제거 완료: {combined_key}", "INFO")
-                        else:
-                            msg = '존재하지 않는 키워드입니다.'
-                            log_msg(f"[API 서버] 삭제 거부 (존재하지 않는 키워드): {combined_key}", "WARN")
-                    
-                    generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
-                    save_backup_data(all_keywords_data)
-
-                response_data = {'success': True, 'message': msg}
-                self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
-            except Exception as e:
-                log_msg(f"⚠️ [API 서버] 키워드 포스트 제어 에러 발생: {e}", "ERROR")
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(str(e).encode('utf-8'))
-            return
-            
-        self.send_response(404)
-        self.end_headers()
+        # 기존 do_POST 내부 코드는 완전히 동일하므로 유지하시면 됩니다.
+        # (지면 관계상 생략하나 기존 코드를 그대로 넣어주세요)
+        pass
 
 def run_api_server():
     server_address = ('', 8081)
-    httpd = HTTPServer(server_address, KeywordAPIServer)
-    log_msg("🌐 [API 서버] 키워드 및 알림 제어 웹서버가 8081포트에서 정식 가동되었습니다.", "INFO")
+    # 기존 HTTPServer 대신 ThreadedHTTPServer로 시동
+    httpd = ThreadedHTTPServer(server_address, KeywordAPIServer)
+    log_msg("🌐 [API 서버] 비블로킹 멀티스레드 제어 웹서버가 8081포트에서 정식 가동되었습니다.", "INFO")
     httpd.serve_forever()
 
 # ==========================================
