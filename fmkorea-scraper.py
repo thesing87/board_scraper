@@ -462,6 +462,7 @@ def scrape_post_detail(driver, post_info):
         log_msg(f"글 메타데이터 파싱 중 일부 누락/스킵: {meta_err}", "DEBUG")
     
     paragraphs = []
+    video_list = []
     if content_area:
         log_msg(f"본문 태그 클리닝 및 미디어 구조화 시작 (ID: {post_id})", "DEBUG")
         for trash in content_area.select('.mejs__offscreen, .mejs__poster, .mejs__poster-img, .mejs__time-total, .mejs__currenttime, .mejs__duration, .mejs__controls, button, svg, ul, meta'):
@@ -477,6 +478,7 @@ def scrape_post_detail(driver, post_info):
         for video in content_area.select('video'):
             source = video.select_one('source')
             src = video.get('src') or (source.get('src') if source else None)
+            video_list.append(src)
             if src:
                 if src.startswith('//'): src = 'https:' + src
                 elif src.startswith('/'): src = 'https://www.fmkorea.com' + src
@@ -486,6 +488,7 @@ def scrape_post_detail(driver, post_info):
         
         for iframe in content_area.select('iframe'):
             src = iframe.get('src')
+            video_list.append(src)
             if src:
                 if src.startswith('//'): src = 'https:' + src
                 iframe['src'] = src
@@ -608,7 +611,7 @@ def scrape_post_detail(driver, post_info):
     log_msg(f"상세 글 스크래핑 완료 (정제 완료된 최종 댓글 개수: {len(comments)}개)", "INFO")
     return {
         'id': post_id, 'title': title, 'author': author, 'date': date, 'views': views, 'votes': votes,
-        'comment_count': comment_count, 'link': link, 'content': paragraphs, 'images': [], 'videos': [], 'comments': comments
+        'comment_count': comment_count, 'link': link, 'content': paragraphs, 'images': [], 'videos': video_list, 'comments': comments
     }
 
 # ==========================================
@@ -939,6 +942,31 @@ def generate_multiboard_html(all_keywords_data, output_file):
         }}
         .scroll-top-btn.visible {{ opacity: 1; visibility: visible; }}
         .scroll-top-btn:hover {{ background-color: #145dbf; transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3); }}
+        /* 1. 일반 video 태그 및 iframe 영상이 화면을 벗어나지 않도록 방지 */
+        .post-card video, 
+        .post-card iframe, 
+        .post-card embed, 
+        .post-card object {{
+            max-width: 100%;       /* 👈 게시물 폭을 절대 넘지 않도록 제한 */
+            height: auto;          /* 👈 폭에 맞춰 높이 자동 조절 */
+            box-sizing: border-box;
+        }}
+
+        /* 2. 유튜브 등 iframe 영상의 16:9 비율을 모바일에서도 유지하고 싶을 때 (선택사항) */
+        /* 만약 영상이 가로세로 비율이 깨지거나 찌그러진다면, 영상을 감싸는 부모 태그에 적용하면 좋습니다. */
+        .video-wrapper {{
+            position: relative;
+            padding-bottom: 56.25%; /* 16:9 비율 유지 */
+            padding-top: 25px;
+            height: 0;
+        }}
+        .video-wrapper iframe {{
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }}
     </style>
     
     <script>
