@@ -949,7 +949,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
             background: linear-gradient(135deg, #1e293b, #0f172a); /* 세련된 다크 그레이/네이비 톤 */
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             z-index: 9999; /* 다른 요소보다 항상 위에 위치 */
-            padding: 12px 0;
+            padding: 15px 0;
             margin: 0 auto;
             margin-bottom: 10px;
             border-radius: 8px;
@@ -962,7 +962,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 10px;
+            padding: 15px;
             box-sizing: border-box;
         }}
 
@@ -1326,7 +1326,20 @@ def generate_multiboard_html(all_keywords_data, output_file):
                         
                         // 4. 글 시작점(start) 이동 및 탭 레이아웃에 가려지지 않도록 상단 여백(-60px) 자동 보정
                         setTimeout(() => {{
-                            targetPost.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+                            // 1. 게시글의 화면상 절대 위치(Y축) 계산
+                            const elementPosition = targetPost.getBoundingClientRect().top + window.pageYOffset;
+                            
+                            // 2. 원하는 상단 여백 설정 (숫자가 커질수록 게시글이 화면 아래쪽으로 내려옵니다)
+                            const offset = 60; // 👈 60~100 사이의 값으로 조절해보세요 (기본 상단바 두께만큼)
+                            const offsetPosition = elementPosition - offset;
+
+                            // 3. 계산된 위치로 부드럽게 스크롤 이동
+                            window.scrollTo({{
+                                top: offsetPosition,
+                                behavior: 'smooth'
+                            }});
+
+                            // 하이라이트 효과는 그대로 유지
                             targetPost.style.backgroundColor = '#fff9c4'; 
                             setTimeout(() => {{ targetPost.style.backgroundColor = ''; }}, 2500);
                         }}, 400);
