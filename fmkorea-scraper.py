@@ -1232,18 +1232,17 @@ def generate_multiboard_html(all_keywords_data, output_file):
             }});
         }}
 
-        // 🌟 텔레그램 연동 앵커(#post-xxxx) 정밀 타겟 추적 함수 (중요)
+        // 🌟 텔레그램 연동 앵커 정밀 타겟 추적 함수 (시작점 정렬 + 상단 여백 보정 완료)
         function handleTelegramAnchorLink() {{
             const hash = window.location.hash;
             if (hash && hash.startsWith('#post-')) {{
                 const targetPost = document.querySelector(hash);
                 if (targetPost) {{
-                    // 1. 해당 글이 속해 있는 부모 탭(tab-content) 찾기
                     const parentTab = targetPost.closest('.tab-content');
                     if (parentTab) {{
                         const boardId = parentTab.id;
                         
-                        // 2. 이 글이 이 탭 내부에서 몇 번째 카드인지 계산해서 몇 페이지에 있는지 구하기
+                        // 1. 페이지 위치 역산 계산 엔진
                         const allCardsInTab = Array.from(parentTab.querySelectorAll('.posts-container > .post-card'));
                         const postIndex = allCardsInTab.indexOf(targetPost);
                         
@@ -1252,7 +1251,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
                             parentTab.setAttribute('data-current-page', targetPage);
                         }}
                         
-                        // 3. 탭 UI 상태 전환 (상단 버튼 및 컨텐츠 영역 활성화)
+                        // 2. 대시보드 탭 UI 강제 전환 활성화
                         const tabcontents = document.getElementsByClassName("tab-content");
                         for (let i = 0; i < tabcontents.length; i++) {{ tabcontents[i].style.display = "none"; }}
                         parentTab.style.display = "block";
@@ -1262,13 +1261,19 @@ def generate_multiboard_html(all_keywords_data, output_file):
                         const matchWrapperBtn = document.querySelector(`.tab-wrapper[data-board-id="${{boardId}}"] .tab-btn`);
                         if (matchWrapperBtn) matchWrapperBtn.classList.add("active");
                         
-                        // 4. 페이지네이션 새로고침하여 타겟 글이 노출(display: block)되도록 조치
+                        // 3. 페이지네이션 갱신 (숨겨진 display: none 해제)
                         updatePagination(boardId);
                         
-                        // 5. 브라우저가 화면을 모두 렌더링한 후 정확한 위치로 스크롤 및 노란색 하이라이트 효과 적용
+                        // 4. 글 시작점(start) 이동 및 탭 레이아웃에 가려지지 않도록 상단 여백(-60px) 자동 보정
                         setTimeout(() => {{
-                            targetPost.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-                            targetPost.style.backgroundColor = '#fff9c4'; // 부드러운 강조 배경색
+                            targetPost.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+                            
+                            // 상단 탭 고정 레이어 영역 확보용 마진 스크롤 처리
+                            setTimeout(() => {{
+                                window.scrollBy({{ top: -60, behavior: 'smooth' }});
+                            }}, 300);
+
+                            targetPost.style.backgroundColor = '#fff9c4'; 
                             setTimeout(() => {{ targetPost.style.backgroundColor = ''; }}, 2500);
                         }}, 400);
                     }}
@@ -1316,7 +1321,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
             
             restoreAllTabsState();
 
-            // ⚡ DOM 구성이 끝난 직후 텔레그램 링크 유입 감지엔진 우선 동작
+            // DOM 렌더링 즉시 텔레그램 진입 좌표 추적 작동 개시
             handleTelegramAnchorLink();
 
             if (localStorage.getItem('admin_panel_open') === 'true') {{
@@ -1334,7 +1339,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
             }});
         }});
 
-        // 💡 페이지가 닫히지 않은 상태에서 새로운 해시가 들어올 때를 위한 리스너 추가
         window.addEventListener('hashchange', handleTelegramAnchorLink);
 
         function manageKeyword(action, targetKw, targetBoard) {{
