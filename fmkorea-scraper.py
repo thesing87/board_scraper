@@ -892,11 +892,19 @@ def generate_multiboard_html(all_keywords_data, output_file):
         .floating-actions {{
             position: fixed;
             bottom: 25px;
-            right: 25px;
+            /* 화면 중앙에서 본문 너비의 절반(400px)만큼 우측으로 밀고, 15px 여백을 둠 */
+            left: calc(50% + 400px + 15px); 
             display: flex;
             flex-direction: column;
             gap: 12px;
             z-index: 9999;
+        }}
+
+        @media (max-width: 830px) {{
+            .floating-actions {{
+                left: auto;
+                right: 25px;
+            }}
         }}
 
         .scroll-top-btn, .floating-refresh-btn {{
