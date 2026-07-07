@@ -475,16 +475,46 @@ def scrape_post_detail(driver, post_info):
             a_tag['target'] = '_blank'
             a_tag['style'] = "color: #1877f2; text-decoration: underline; font-weight: bold;"
 
+        for a_tag in content_area.find_all('a'):
+            a_tag['target'] = '_blank'
+            a_tag['style'] = "color: #1877f2; text-decoration: underline; font-weight: bold;"
+
+        # 🎯 1. 에펨코리아 고정형 pc 미디어 wrapper 및 플레이어 고정값 완전 파괴
+        for wrapper in content_area.select('.auto_media_wrapper'):
+            if wrapper.get('style'): del wrapper['style']
+            wrapper['style'] = "width: 100% !important; max-width: 100% !important; height: auto !important; display: block; margin-bottom: 10px;"
+
+        # 🎯 2. height_keep 강제 패딩(57%) 비율 박스 해제 및 최신 규격으로 전환
+        for hk in content_area.select('.height_keep'):
+            if hk.get('style'): del hk['style']
+            hk['style'] = "padding: 0 !important; padding-bottom: 0 !important; width: 100% !important; max-width: 100% !important; height: auto !important; aspect-ratio: 16 / 9 !important; display: block;"
+
+        # 🎯 3. 자바스크립트가 강제로 꽂아넣은 미디어플레이어 컨테이너(mejs) 고정 픽셀값 박살내기
+        for mejs in content_area.select('.mejs__container, .mejs__video, .mejs__inner, .mejs__mediaelement'):
+            if mejs.get('style'): del mejs['style']
+            if mejs.get('width'): del mejs['width']
+            if mejs.get('height'): del mejs['height']
+            mejs['style'] = "width: 100% !important; max-width: 100% !important; height: auto !important; aspect-ratio: 16 / 9 !important;"
+
+        # 🎯 4. 영상 밑에 귀신같이 박혀있는 쓰레기 12px 여백 박스 및 빈 p 태그 전량 소거
+        for empty_div in content_area.select('div[style*="height:12px"], div[style*="height: 12px"]'):
+            empty_div.extract() # 👈 본문에서 아예 삭제처리하여 공백 누수 차단
+            
         for video in content_area.select('video'):
+            if video.get('width'): del video['width']
+            if video.get('height'): del video['height']
+            if video.get('style'): del video['style']
+            
             source = video.select_one('source')
             src = video.get('src') or (source.get('src') if source else None)
-            video_list.append(src)
             if src:
                 if src.startswith('//'): src = 'https:' + src
-                elif src.startswith('/'): src = 'https://www.fmkorea.com' + src
+                video_list.append(src)
                 video['src'] = src
-                video['controls'] = 'controls'
-                video['style'] = "width: 100%; max-width: 100%; margin-top: 8px; border-radius: 6px;"
+                
+            video['controls'] = 'controls'
+            video['playsinline'] = 'true'
+            video['style'] = "width: 100% !important; max-width: 100% !important; height: auto !important; aspect-ratio: 16 / 9 !important; border-radius: 8px; object-fit: contain; display: block;"
         
         for iframe in content_area.select('iframe'):
             src = iframe.get('src')
@@ -1018,6 +1048,62 @@ def generate_multiboard_html(all_keywords_data, output_file):
             .nav-logo {{
                 font-size: 1rem;
             }}
+        }}
+
+        /* 에펨코리아 강제 고정 미디어 래퍼 모바일 호환성 강제 적용 */
+        .auto_media_wrapper, .auto_media_wrapper.full.pc {{
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            padding: 0 !important;
+            margin: 8px 0 !important;
+            display: block !important;
+        }}
+
+        /* 105라인 부근 고정 이미지 스타일 아래에 추가 또는 변경 */
+        .post-content img {{ max-width: 100%; height: auto; border-radius: 6px; margin: 6px 0; display: block; }}
+
+        /* 🎯 [여기서부터 복사해서 붙여넣으세요] 영상 모바일 탈출 방지 치트키 */
+        .post-content video {{
+            width: 100% !important;        /* 인라인 width 속성 강제 무시 */
+            max-width: 100% !important;    /* 게시물 가로폭 절대 안 넘게 제한 */
+            height: auto !important;       /* 고정 높이(500px 등)를 무시하고 가로 비율에 맞춤 */
+            max-height: 70vh !important;   /* 모바일 화면 세로를 너무 가득 채우지 않도록 제한 */
+            object-fit: contain;
+            border-radius: 8px;
+            margin: 8px 0;
+            display: block;
+        }}
+
+        .post-content iframe {{
+            width: 100% !important;
+            max-width: 100% !important;
+            /* 유튜브 등의 iframe은 height: auto 사용 시 높이가 0이 되므로 모바일 비율에 맞춰 적절히 지정 */
+            height: 250px !important;      
+            border-radius: 8px;
+            margin: 8px 0;
+            display: block;
+        }}
+
+        /* 에펨코리아 자체 미디어플레이어 컨테이너가 가로로 터지는 현상 방지 */
+        .mejs__container, .mejs__embed, .mejs__player {{
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+        }}
+
+        /* 🎯 height_keep 클래스가 들고 있는 악성 padding 57% 설정을 강제로 파괴 */
+        .height_keep {{
+            padding: 0 !important;
+            padding-bottom: 0 !important; /* 👈 57% 영역을 완전히 삭제합니다 */
+            
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            
+            /* 16:9 정비율로 박스 크기를 모바일에 맞춰 자동 재계산합니다 */
+            aspect-ratio: 16 / 9 !important; 
+            display: block !important;
         }}
     </style>
     
