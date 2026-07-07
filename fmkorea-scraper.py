@@ -500,7 +500,9 @@ def scrape_post_detail(driver, post_info):
         for empty_div in content_area.select('div[style*="height:12px"], div[style*="height: 12px"]'):
             empty_div.extract() # 👈 본문에서 아예 삭제처리하여 공백 누수 차단
             
+        # 🎯 [최종 고도화] video 태그 분석 및 가로/세로형 가변 비율 적용
         for video in content_area.select('video'):
+            # 원래 비디오가 가지고 있던 고정 스타일 속성 전량 파괴
             if video.get('width'): del video['width']
             if video.get('height'): del video['height']
             if video.get('style'): del video['style']
@@ -514,7 +516,28 @@ def scrape_post_detail(driver, post_info):
                 
             video['controls'] = 'controls'
             video['playsinline'] = 'true'
-            video['style'] = "width: 100% !important; max-width: 100% !important; height: auto !important; aspect-ratio: 16 / 9 !important; border-radius: 8px; object-fit: contain; display: block;"
+            
+            # 에펨 원본 데이터에서 가로/세로 크기 속성 추출 추출
+            ori_w = int(video.get('data-original-width', 0) or video.get('data-x-width', 0) or 0)
+            ori_h = int(video.get('data-original-height', 0) or video.get('data-x-height', 0) or 0)
+            
+            # 💡 판단: 만약 세로(height)가 가로(width)보다 긴 '쇼츠형 세로 영상'이라면?
+            if ori_h > ori_w and ori_w > 0:
+                # 세로형 쇼츠 전용 반응형 스타일 주입 (최대 높이를 제한하여 폰 화면을 다 가리지 않게 함)
+                video['style'] = (
+                    "width: 100% !important; max-width: 450px !important; "
+                    "aspect-ratio: 9 / 16 !important; height: auto !important; "
+                    "max-height: 75vh !important; background-color: #000; "
+                    "margin: 10px auto !important; border-radius: 12px; "
+                    "object-fit: contain; display: block;"
+                )
+            else:
+                # 일반 가로형 영상 스타일 주입
+                video['style'] = (
+                    "width: 100% !important; max-width: 100% !important; "
+                    "aspect-ratio: 16 / 9 !important; height: auto !important; "
+                    "border-radius: 8px; object-fit: contain; display: block; margin: 10px 0;"
+                )
         
         for iframe in content_area.select('iframe'):
             src = iframe.get('src')
@@ -1050,13 +1073,16 @@ def generate_multiboard_html(all_keywords_data, output_file):
             }}
         }}
 
-        /* 에펨코리아 강제 고정 미디어 래퍼 모바일 호환성 강제 적용 */
-        .auto_media_wrapper, .auto_media_wrapper.full.pc {{
+        /* 대시보드 스타일 태그 내 기존 미디어 wrapper 관련 CSS를 아래와 같이 유연하게 통합 변경합니다 */
+        .auto_media_wrapper, 
+        .auto_media_wrapper.full.pc,
+        .height_keep {{
             width: 100% !important;
             max-width: 100% !important;
-            height: auto !important;
+            height: auto !important;      /* 👈 고정 높이 완벽 제거 */
             padding: 0 !important;
-            margin: 8px 0 !important;
+            padding-bottom: 0 !important; /* 👈 악성 57% 패딩 완벽 제거 */
+            margin: 8px auto !important;
             display: block !important;
         }}
 
@@ -1075,13 +1101,14 @@ def generate_multiboard_html(all_keywords_data, output_file):
             display: block;
         }}
 
-        .post-content iframe {{
+        /* iframe(유튜브)은 원본 비율을 파이썬이 알기 어려우므로 기본 16:9를 주되 가변 허용 */
+        .post-content iframe, 
+        .xe_content iframe {{
             width: 100% !important;
             max-width: 100% !important;
-            /* 유튜브 등의 iframe은 height: auto 사용 시 높이가 0이 되므로 모바일 비율에 맞춰 적절히 지정 */
-            height: 250px !important;      
+            aspect-ratio: 16 / 9 !important;
+            height: auto !important;
             border-radius: 8px;
-            margin: 8px 0;
             display: block;
         }}
 
@@ -1090,20 +1117,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
             width: 100% !important;
             max-width: 100% !important;
             height: auto !important;
-        }}
-
-        /* 🎯 height_keep 클래스가 들고 있는 악성 padding 57% 설정을 강제로 파괴 */
-        .height_keep {{
-            padding: 0 !important;
-            padding-bottom: 0 !important; /* 👈 57% 영역을 완전히 삭제합니다 */
-            
-            width: 100% !important;
-            max-width: 100% !important;
-            height: auto !important;
-            
-            /* 16:9 정비율로 박스 크기를 모바일에 맞춰 자동 재계산합니다 */
-            aspect-ratio: 16 / 9 !important; 
-            display: block !important;
         }}
     </style>
     
