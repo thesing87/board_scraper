@@ -1267,12 +1267,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
                         // 4. 글 시작점(start) 이동 및 탭 레이아웃에 가려지지 않도록 상단 여백(-60px) 자동 보정
                         setTimeout(() => {{
                             targetPost.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
-                            
-                            // 상단 탭 고정 레이어 영역 확보용 마진 스크롤 처리
-                            setTimeout(() => {{
-                                window.scrollBy({{ top: -60, behavior: 'smooth' }});
-                            }}, 300);
-
                             targetPost.style.backgroundColor = '#fff9c4'; 
                             setTimeout(() => {{ targetPost.style.backgroundColor = ''; }}, 2500);
                         }}, 400);
