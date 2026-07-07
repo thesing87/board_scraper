@@ -939,6 +939,58 @@ def generate_multiboard_html(all_keywords_data, output_file):
         }}
         .scroll-top-btn.visible {{ opacity: 1; visibility: visible; }}
         .scroll-top-btn:hover {{ background-color: #145dbf; transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3); }}
+        /* 상단 고정 네비게이션 배너 스타일 */
+        .top-nav-banner {{
+            position: sticky;
+            top: 0;
+            left: 0;
+            width: 100%;
+            max-width: 800px;
+            background: linear-gradient(135deg, #1e293b, #0f172a); /* 세련된 다크 그레이/네이비 톤 */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 9999; /* 다른 요소보다 항상 위에 위치 */
+            padding: 12px 0;
+            margin: 0 auto;
+            margin-bottom: 10px;
+            border-radius: 8px;
+        }}
+
+        .nav-container {{
+            position: relative;
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            box-sizing: border-box;
+        }}
+
+        .nav-logo {{
+            position: absolute; left: 50%; transform: translateX(-50%);
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #f8fafc;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: color 0.2s ease;
+        }}
+
+        .nav-logo:hover {{
+            color: #38bdf8; /* 호버 시 스카이블루 포인트 */
+        }}
+
+        /* 모바일 대응 화면 여백 확보 */
+        @media (max-width: 768px) {{
+            .nav-container {{
+                padding: 0 15px;
+            }}
+            .nav-logo {{
+                font-size: 1rem;
+            }}
+        }}
     </style>
     
     <script>
@@ -1378,6 +1430,13 @@ def generate_multiboard_html(all_keywords_data, output_file):
     </script>
 </head>
 <body>
+    <header class="top-nav-banner">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <span class="icon">🏠</span> 실시간 모니터링 대시보드
+            </a>
+        </div>
+    </header>
     <div class="container">
         <button id="panel-toggle-trigger" class="panel-toggle-btn" onclick="toggleAdminPanel()">⚙️ 실시간 모니터링 관리 패널 열기 ▼</button>
 
