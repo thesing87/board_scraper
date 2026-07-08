@@ -545,7 +545,7 @@ def scrape_post_detail(driver, post_info):
             if src:
                 if src.startswith('//'): src = 'https:' + src
                 iframe['src'] = src
-                iframe['style'] = "width: 100%; max-width: 100%; min-height: 360px; border-radius: 6px; margin-top: 8px;"
+                iframe['style'] = "width: 100%; max-width: 100%; border-radius: 6px; margin-top: 8px;"
 
         img_count = 0
         for img in content_area.select('img'):
@@ -1662,7 +1662,8 @@ if IS_LINUX:
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
-
+else:
+    DDNS_URL = "127.0.0.1:8081"
 try:
     log_msg("Selenium 웹드라이버 시동 및 내부 크롬 프로세스 인스턴스 할당 시작", "DEBUG")
     driver = Chrome(options=options, service=services)
