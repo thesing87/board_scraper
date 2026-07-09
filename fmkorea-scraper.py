@@ -739,12 +739,19 @@ def generate_multiboard_html(all_keywords_data, output_file):
         """
         
         pagination_markup = f"""
-            <div class="pagination-control" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin: 15px 0;">
+            <div class="pagination-control" style="position: relative; display: flex; justify-content: center; align-items: center; gap: 8px; margin: 15px 0; padding-right: 110px; padding-left: 110px;">
                 <button class="page-nav-btn btn-first" onclick="goToExtremePage('board-{global_idx}', 'first')" title="첫 페이지로">⏮️</button>
                 <button class="page-nav-btn btn-prev" onclick="changePage('board-{global_idx}', -1)">◀ 이전</button>
                 <span class="page-indicator" style="font-size: 14px; font-weight: bold; color: #4e5154; margin: 0 5px;">1 / 1</span>
                 <button class="page-nav-btn btn-next" onclick="changePage('board-{global_idx}', 1)">다음 ▶</button>
                 <button class="page-nav-btn btn-last" onclick="goToExtremePage('board-{global_idx}', 'last')" title="마지막 페이지로">⏭️</button>
+                <div class="video-toggle-zone" style="position: absolute; right: 0; display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 12px; font-weight: bold; color: #4e5154; white-space: nowrap;">🎬 동영상만</span>
+                    <label class="switch" style="width: 38px; height: 22px; display: inline-block; position: relative; flex-shrink: 0;">
+                        <input type="checkbox" class="video-only-checkbox" onchange="toggleVideoOnly('board-{global_idx}')">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
             </div>
         """
 
@@ -803,8 +810,9 @@ def generate_multiboard_html(all_keywords_data, output_file):
                         """
                     comments_html += '</div>'
                 
+                has_video_val = str(len(post.get('videos', [])) > 0).lower()
                 board_content += f"""
-                <div class="{card_class}" id="post-{post['id']}" data-is-new="{str(is_new).lower()}">
+                <div class="{card_class}" id="post-{post['id']}" data-is-new="{str(is_new).lower()}" data-has-video="{has_video_val}">
                     <div class="post-header">
                         <div class="post-title">{post['title']}{new_badge}{sync_badge}</div>
                         <div class="post-meta">
@@ -1121,6 +1129,11 @@ def generate_multiboard_html(all_keywords_data, output_file):
             max-width: 100% !important;
             height: auto !important;
         }}
+
+        /* 게시글 카드 중 동영상이 없는 항목만 숨김 */
+        .tab-content.video-only-active .post-card:not(.has-video) {{
+            display: none !important;
+        }}
     </style>
     
     <script>
@@ -1190,16 +1203,57 @@ def generate_multiboard_html(all_keywords_data, output_file):
             const boardEl = document.getElementById(boardId);
             if (!boardEl) return;
             
-            const posts = boardEl.querySelectorAll('.posts-container > .post-card');
+            const postsContainer = boardEl.querySelector('.posts-container');
+            if (!postsContainer) return;
+
+            // empty-video-state를 제외한 실제 게시글 카드만 수집
+            const posts = Array.from(postsContainer.querySelectorAll('.post-card:not(.empty-video-state)'));
             const controls = boardEl.querySelectorAll('.pagination-control');
             
-            if (posts.length === 0) {{
-                controls.forEach(ctrl => ctrl.style.display = 'none');
+            // "동영상만 보기" 토글 상태 확인
+            const videoOnlyCheckbox = boardEl.querySelector('.video-only-checkbox');
+            const isVideoOnly = videoOnlyCheckbox ? videoOnlyCheckbox.checked : false;
+            
+            // 필터링 적용
+            let targetPosts = posts;
+            if (isVideoOnly) {{
+                targetPosts = posts.filter(post => post.getAttribute('data-has-video') === 'true');
+            }}
+            
+            // 모든 기존 글 일단 숨김
+            posts.forEach(post => post.style.display = 'none');
+            
+            // 기존 '동영상 없음' 안내 메시지 제거
+            const existingEmpty = postsContainer.querySelector('.empty-video-state');
+            if (existingEmpty) existingEmpty.remove();
+            
+            // 동영상 게시글이 0개인 경우 처리
+            if (targetPosts.length === 0) {{
+                // 상단/하단 컨트롤(메뉴/페이지네이션)은 유지하고, 안내 문구만 표시
+                controls.forEach(ctrl => {{
+                    ctrl.style.display = 'flex';
+                    const indicator = ctrl.querySelector('.page-indicator');
+                    if (indicator) indicator.innerText = "0 / 0";
+                    
+                    const btns = ctrl.querySelectorAll('button');
+                    btns.forEach(btn => btn.disabled = true);
+                }});
+                
+                const emptyMsg = document.createElement('div');
+                emptyMsg.className = 'post-card empty-video-state';
+                emptyMsg.style.textAlign = 'center';
+                emptyMsg.style.color = '#65676b';
+                emptyMsg.style.padding = '30px 10px';
+                emptyMsg.innerText = '🎥 동영상이 포함된 게시글이 없습니다.';
+                postsContainer.appendChild(emptyMsg);
                 return;
             }}
             
+            // 컨트롤 바 노출 및 버튼 상태 정상화
+            controls.forEach(ctrl => ctrl.style.display = 'flex');
+            
             let currentPage = parseInt(boardEl.getAttribute('data-current-page') || '1');
-            const totalPages = Math.ceil(posts.length / POSTS_PER_PAGE);
+            const totalPages = Math.ceil(targetPosts.length / POSTS_PER_PAGE) || 1;
             
             if (currentPage > totalPages) currentPage = totalPages;
             if (currentPage < 1) currentPage = 1;
@@ -1208,7 +1262,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
             const startIdx = (currentPage - 1) * POSTS_PER_PAGE;
             const endIdx = startIdx + POSTS_PER_PAGE;
             
-            posts.forEach((post, index) => {{
+            targetPosts.forEach((post, index) => {{
                 if (index >= startIdx && index < endIdx) {{
                     post.style.display = 'block';
                 }} else {{
@@ -1216,6 +1270,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 }}
             }});
             
+            // 페이지네이션 인디케이터 및 버튼 상태 업데이트
             controls.forEach(ctrl => {{
                 const indicator = ctrl.querySelector('.page-indicator');
                 if (indicator) indicator.innerText = currentPage + " / " + totalPages;
@@ -1230,6 +1285,15 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 if (nextBtn) nextBtn.disabled = (currentPage === totalPages);
                 if (lastBtn) lastBtn.disabled = (currentPage === totalPages);
             }});
+        }}
+
+        function toggleVideoOnly(boardId) {{
+            const boardEl = document.getElementById(boardId);
+            if (!boardEl) return;
+            
+            // 1페이지로 리셋 후 페이징 재계산
+            boardEl.setAttribute('data-current-page', '1');
+            updatePagination(boardId);
         }}
 
         function changePage(boardId, direction) {{
@@ -1431,6 +1495,12 @@ def generate_multiboard_html(all_keywords_data, output_file):
                     const parentTab = targetPost.closest('.tab-content');
                     if (parentTab) {{
                         const boardId = parentTab.id;
+                        
+                        // 🌟 UX 보완: 만약 동영상만 보기 필터가 켜져 있다면, 타겟 글을 볼 수 있도록 필터를 끕니다.
+                        const videoOnlyCheckbox = parentTab.querySelector('.video-only-checkbox');
+                        if (videoOnlyCheckbox && videoOnlyCheckbox.checked) {{
+                            videoOnlyCheckbox.checked = false;
+                        }}
                         
                         // 1. 페이지 위치 역산 계산 엔진
                         const allCardsInTab = Array.from(parentTab.querySelectorAll('.posts-container > .post-card'));
