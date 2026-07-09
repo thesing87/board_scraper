@@ -741,12 +741,12 @@ def generate_multiboard_html(all_keywords_data, output_file):
         pagination_markup_up = f"""
             <div class="pagination-control" style="position: relative; display: flex; justify-content: center; align-items: center; gap: 8px; margin: 15px 0; padding-right: 110px; padding-left: 110px;">
                 <button class="page-nav-btn btn-first" onclick="goToExtremePage('board-{global_idx}', 'first')" title="첫 페이지로">⏮️</button>
-                <button class="page-nav-btn btn-prev" onclick="changePage('board-{global_idx}', -1)">◀ 이전</button>
+                <button class="page-nav-btn btn-prev" onclick="changePage('board-{global_idx}', -1)">◀</button>
                 <span class="page-indicator" style="font-size: 14px; font-weight: bold; color: #4e5154; margin: 0 5px;">1 / 1</span>
-                <button class="page-nav-btn btn-next" onclick="changePage('board-{global_idx}', 1)">다음 ▶</button>
+                <button class="page-nav-btn btn-next" onclick="changePage('board-{global_idx}', 1)">▶</button>
                 <button class="page-nav-btn btn-last" onclick="goToExtremePage('board-{global_idx}', 'last')" title="마지막 페이지로">⏭️</button>
                 <div class="video-toggle-zone" style="position: absolute; right: 0; display: flex; align-items: center; gap: 6px;">
-                    <span style="font-size: 12px; font-weight: bold; color: #4e5154; white-space: nowrap;">🎬 동영상만</span>
+                    <span style="font-size: 12px; font-weight: bold; color: #4e5154; white-space: nowrap;">🎬</span>
                     <label class="switch" style="width: 38px; height: 22px; display: inline-block; position: relative; flex-shrink: 0;">
                         <input type="checkbox" class="video-only-checkbox" onchange="toggleVideoOnly('board-{global_idx}')">
                         <span class="slider round"></span>
@@ -758,9 +758,9 @@ def generate_multiboard_html(all_keywords_data, output_file):
         pagination_markup_down = f"""
             <div class="pagination-control" style="position: relative; display: flex; justify-content: center; align-items: center; gap: 8px; margin: 15px 0; padding-right: 110px; padding-left: 110px;">
                 <button class="page-nav-btn btn-first" onclick="goToExtremePage('board-{global_idx}', 'first')" title="첫 페이지로">⏮️</button>
-                <button class="page-nav-btn btn-prev" onclick="changePage('board-{global_idx}', -1)">◀ 이전</button>
+                <button class="page-nav-btn btn-prev" onclick="changePage('board-{global_idx}', -1)">◀</button>
                 <span class="page-indicator" style="font-size: 14px; font-weight: bold; color: #4e5154; margin: 0 5px;">1 / 1</span>
-                <button class="page-nav-btn btn-next" onclick="changePage('board-{global_idx}', 1)">다음 ▶</button>
+                <button class="page-nav-btn btn-next" onclick="changePage('board-{global_idx}', 1)">▶</button>
                 <button class="page-nav-btn btn-last" onclick="goToExtremePage('board-{global_idx}', 'last')" title="마지막 페이지로">⏭️</button>
             </div>
         """
