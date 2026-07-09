@@ -1022,7 +1022,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
         .post-card embed, 
         .post-card object {{
             max-width: 100%;       /* 👈 게시물 폭을 절대 넘지 않도록 제한 */
-            height: auto;          /* 👈 폭에 맞춰 높이 자동 조절 */
             box-sizing: border-box;
         }}
 
@@ -1128,7 +1127,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
             width: 100% !important;
             max-width: 100% !important;
             aspect-ratio: 16 / 9 !important;
-            height: auto !important;
             border-radius: 8px;
             display: block;
         }}
