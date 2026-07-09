@@ -739,7 +739,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
         """
         
         pagination_markup_up = f"""
-            <div class="pagination-control" style="position: relative; display: flex; justify-content: center; align-items: center; gap: 8px; margin: 15px 0; padding-right: 110px; padding-left: 110px;">
+            <div class="pagination-control" style="position: relative; display: flex; justify-content: center; align-items: center; gap: 8px; margin: 15px 0;">
                 <button class="page-nav-btn btn-first" onclick="goToExtremePage('board-{global_idx}', 'first')" title="첫 페이지로">⏮️</button>
                 <button class="page-nav-btn btn-prev" onclick="changePage('board-{global_idx}', -1)">◀</button>
                 <span class="page-indicator" style="font-size: 14px; font-weight: bold; color: #4e5154; margin: 0 5px;">1 / 1</span>
@@ -756,7 +756,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
         """
 
         pagination_markup_down = f"""
-            <div class="pagination-control" style="position: relative; display: flex; justify-content: center; align-items: center; gap: 8px; margin: 15px 0; padding-right: 110px; padding-left: 110px;">
+            <div class="pagination-control" style="position: relative; display: flex; justify-content: center; align-items: center; gap: 8px; margin: 15px 0;">
                 <button class="page-nav-btn btn-first" onclick="goToExtremePage('board-{global_idx}', 'first')" title="첫 페이지로">⏮️</button>
                 <button class="page-nav-btn btn-prev" onclick="changePage('board-{global_idx}', -1)">◀</button>
                 <span class="page-indicator" style="font-size: 14px; font-weight: bold; color: #4e5154; margin: 0 5px;">1 / 1</span>
