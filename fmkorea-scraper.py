@@ -738,7 +738,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
         </div>
         """
         
-        pagination_markup = f"""
+        pagination_markup_up = f"""
             <div class="pagination-control" style="position: relative; display: flex; justify-content: center; align-items: center; gap: 8px; margin: 15px 0; padding-right: 110px; padding-left: 110px;">
                 <button class="page-nav-btn btn-first" onclick="goToExtremePage('board-{global_idx}', 'first')" title="첫 페이지로">⏮️</button>
                 <button class="page-nav-btn btn-prev" onclick="changePage('board-{global_idx}', -1)">◀ 이전</button>
@@ -755,11 +755,21 @@ def generate_multiboard_html(all_keywords_data, output_file):
             </div>
         """
 
+        pagination_markup_down = f"""
+            <div class="pagination-control" style="position: relative; display: flex; justify-content: center; align-items: center; gap: 8px; margin: 15px 0; padding-right: 110px; padding-left: 110px;">
+                <button class="page-nav-btn btn-first" onclick="goToExtremePage('board-{global_idx}', 'first')" title="첫 페이지로">⏮️</button>
+                <button class="page-nav-btn btn-prev" onclick="changePage('board-{global_idx}', -1)">◀ 이전</button>
+                <span class="page-indicator" style="font-size: 14px; font-weight: bold; color: #4e5154; margin: 0 5px;">1 / 1</span>
+                <button class="page-nav-btn btn-next" onclick="changePage('board-{global_idx}', 1)">다음 ▶</button>
+                <button class="page-nav-btn btn-last" onclick="goToExtremePage('board-{global_idx}', 'last')" title="마지막 페이지로">⏭️</button>
+            </div>
+        """
+
         board_content = f"""
         <div id="board-{global_idx}" class="tab-content" style="display: {display_style};" data-current-page="1" data-tab-name="{tab_clean_text}">
             <div class="update-info">🔄 업데이트: {now} | {board_name} 게시판 -> [{keyword}] 총 {len(board_data)}개 글</div>
             
-            {pagination_markup}
+            {pagination_markup_up}
             
             <div class="posts-container">
         """
@@ -834,7 +844,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
         
         board_content += f"""
             </div>
-            {pagination_markup}
+            {pagination_markup_down}
         </div>
         """
         boards_html += board_content
@@ -1199,6 +1209,31 @@ def generate_multiboard_html(all_keywords_data, output_file):
             window.location.reload();
         }}
 
+        function toggleVideoOnly(boardId, sourceCheckbox) {{
+            const boardEl = document.getElementById(boardId);
+            if (!boardEl) return;
+            
+            // 1. 이벤트가 일어난 스위치(sourceCheckbox)의 체크 상태를 확인
+            // 만약 event/this가 전달되지 않았다면 첫 번째 체크박스 기준 또는 현재 반대 상태로 설정
+            const checkboxes = Array.from(boardEl.querySelectorAll('.video-only-checkbox'));
+            
+            let targetState = false;
+            if (sourceCheckbox) {{
+                targetState = sourceCheckbox.checked;
+            }} else if (checkboxes.length > 0) {{
+                targetState = checkboxes[0].checked;
+            }}
+
+            // 2. 상단, 하단 모든 체크박스의 checked 상태를 하나로 통일 (완전 연동)
+            checkboxes.forEach(cb => {{
+                cb.checked = targetState;
+            }});
+            
+            // 3. 1페이지로 리셋 후 페이징 및 목록 다시 계산
+            boardEl.setAttribute('data-current-page', '1');
+            updatePagination(boardId);
+        }}
+
         function updatePagination(boardId) {{
             const boardEl = document.getElementById(boardId);
             if (!boardEl) return;
@@ -1206,30 +1241,32 @@ def generate_multiboard_html(all_keywords_data, output_file):
             const postsContainer = boardEl.querySelector('.posts-container');
             if (!postsContainer) return;
 
-            // empty-video-state를 제외한 실제 게시글 카드만 수집
+            // empty-video-state 안내 문구를 제외한 카드들만 가져오기
             const posts = Array.from(postsContainer.querySelectorAll('.post-card:not(.empty-video-state)'));
             const controls = boardEl.querySelectorAll('.pagination-control');
             
-            // "동영상만 보기" 토글 상태 확인
-            const videoOnlyCheckbox = boardEl.querySelector('.video-only-checkbox');
-            const isVideoOnly = videoOnlyCheckbox ? videoOnlyCheckbox.checked : false;
+            // 🔥 [핵심] 상단/하단 토글 중 체크된 요소가 하나라도 있는지 직접 확인
+            const allCheckboxes = boardEl.querySelectorAll('.video-only-checkbox');
+            let isVideoOnly = false;
+            allCheckboxes.forEach(cb => {{
+                if (cb.checked) isVideoOnly = true;
+            }});
             
-            // 필터링 적용
+            // 동영상 게시글 필터링
             let targetPosts = posts;
             if (isVideoOnly) {{
                 targetPosts = posts.filter(post => post.getAttribute('data-has-video') === 'true');
             }}
             
-            // 모든 기존 글 일단 숨김
+            // 모든 글 일단 숨김
             posts.forEach(post => post.style.display = 'none');
             
-            // 기존 '동영상 없음' 안내 메시지 제거
+            // 기존 '동영상 없음' 메시지 제거
             const existingEmpty = postsContainer.querySelector('.empty-video-state');
             if (existingEmpty) existingEmpty.remove();
             
-            // 동영상 게시글이 0개인 경우 처리
+            // 동영상 글이 0개일 때 처리
             if (targetPosts.length === 0) {{
-                // 상단/하단 컨트롤(메뉴/페이지네이션)은 유지하고, 안내 문구만 표시
                 controls.forEach(ctrl => {{
                     ctrl.style.display = 'flex';
                     const indicator = ctrl.querySelector('.page-indicator');
@@ -1249,7 +1286,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 return;
             }}
             
-            // 컨트롤 바 노출 및 버튼 상태 정상화
+            // 게시글이 있는 경우 컨트롤 및 화면 복원
             controls.forEach(ctrl => ctrl.style.display = 'flex');
             
             let currentPage = parseInt(boardEl.getAttribute('data-current-page') || '1');
@@ -1270,7 +1307,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 }}
             }});
             
-            // 페이지네이션 인디케이터 및 버튼 상태 업데이트
+            // 페이지네이션 인디케이터 & 버튼 활성화/비활성화
             controls.forEach(ctrl => {{
                 const indicator = ctrl.querySelector('.page-indicator');
                 if (indicator) indicator.innerText = currentPage + " / " + totalPages;
@@ -1285,15 +1322,6 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 if (nextBtn) nextBtn.disabled = (currentPage === totalPages);
                 if (lastBtn) lastBtn.disabled = (currentPage === totalPages);
             }});
-        }}
-
-        function toggleVideoOnly(boardId) {{
-            const boardEl = document.getElementById(boardId);
-            if (!boardEl) return;
-            
-            // 1페이지로 리셋 후 페이징 재계산
-            boardEl.setAttribute('data-current-page', '1');
-            updatePagination(boardId);
         }}
 
         function changePage(boardId, direction) {{
