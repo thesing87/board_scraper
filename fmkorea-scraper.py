@@ -223,6 +223,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
                 self.send_header('Content-Length', str(len(content)))
                 self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+                self.send_header('Pragma', 'no-cache')
+                self.send_header('Expires', '0')
                 self.end_headers()
                 self.wfile.write(content)
             except (BrokenPipeError, ConnectionResetError):
@@ -1423,7 +1426,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
         function handleTelegramAnchorLink() {{
             const hash = window.location.hash;
             if (hash && hash.startsWith('#post-')) {{
-                const targetPost = document.querySelector(hash);
+                const targetPost = document.getElementById(hash.replace('#', ''));
                 if (targetPost) {{
                     const parentTab = targetPost.closest('.tab-content');
                     if (parentTab) {{
@@ -1470,6 +1473,11 @@ def generate_multiboard_html(all_keywords_data, output_file):
                             targetPost.style.backgroundColor = '#fff9c4'; 
                             setTimeout(() => {{ targetPost.style.backgroundColor = ''; }}, 2500);
                         }}, 400);
+                    }}
+                }} else {{
+                    const postId = hash.replace('#post-', '');
+                    if (postId) {{
+                        window.location.replace('https://www.fmkorea.com/' + postId);
                     }}
                 }}
             }}
