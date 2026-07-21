@@ -44,6 +44,9 @@ def main():
     api_thread.start()
 
     options = Options()
+    options.page_load_strategy = 'eager'
+    options.add_argument('--blink-settings=imagesEnabled=false')
+    options.add_argument('--disable-images')
     services = Service()
     if IS_LINUX:
         log_msg("리눅스(Linux) 환경 감지로 인한 Headless 플래그 및 보호 우회 속성 강제 주입", "INFO")

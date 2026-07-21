@@ -17,7 +17,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY fmkorea-scraper.py .
+COPY *.py ./
 
 # 실시간 로그 출력을 위해 -u (unbuffered) 옵션 사용
 CMD ["python", "-u", "fmkorea-scraper.py"]

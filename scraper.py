@@ -3,6 +3,9 @@ import random
 import re
 from urllib.parse import quote, urlparse
 from bs4 import BeautifulSoup
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from config import log_msg
 
 def extract_post_id(link):
@@ -21,11 +24,14 @@ def get_list_page_posts(driver, board, keyword, page=1):
     
     try:
         driver.get(list_url)
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'table.bd_lst, body'))
+        )
     except Exception as e:
         log_msg(f"⚠️ 목록 페이지 브라우저 진입 에러: {e}", "ERROR")
         return []
         
-    delay = random.uniform(5.0, 7.0)
+    delay = random.uniform(0.5, 1.2)
     log_msg(f"목록 렌더링 대기용 지연 버퍼 구동: {delay:.2f}초", "DEBUG")
     time.sleep(delay)
     
@@ -66,11 +72,14 @@ def scrape_post_detail(driver, post_info):
     
     try:
         driver.get(link)
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, '.xe_content, .top_area, body'))
+        )
     except Exception as drive_err:
         log_msg(f"⚠️ 상세 페이지 브라우저 호출 오류: {drive_err}", "ERROR")
         raise drive_err
         
-    delay = random.uniform(4.0, 7.0)
+    delay = random.uniform(0.5, 1.2)
     log_msg(f"상세 로딩 보장용 지연 대기: {delay:.2f}초", "DEBUG")
     time.sleep(delay)
     
