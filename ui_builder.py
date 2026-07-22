@@ -270,7 +270,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
         .tab-container:active {{ cursor: grabbing; }}
         .tab-container::-webkit-scrollbar {{ display: none; }}
         
-        .tab-wrapper {{ display: flex; align-items: center; background-color: #e4e6eb; border-radius: 20px; overflow: hidden; flex-shrink: 0; user-select: none; }}
+        .tab-wrapper {{ display: flex; align-items: center; background-color: #e4e6eb; border-radius: 20px; overflow: hidden; flex-shrink: 0; }}
         .tab-btn {{ background: none; border: none; padding: 8px 12px 8px 16px; font-size: 13px; font-weight: bold; cursor: pointer; color: #4e5154; outline: none; white-space: nowrap; }}
         .tab-wrapper:has(.tab-btn.active) {{ background-color: #1877f2; }}
         .tab-btn.active {{ color: white; }}
