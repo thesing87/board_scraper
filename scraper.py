@@ -92,8 +92,7 @@ def scrape_post_detail(driver, post_info):
     
     content_area = detail_soup.select_one('.xe_content')
     if not content_area:
-        log_msg(f"🗑️ [원문 부재 감지] 글 ID: {post_id}의 본문 데이터 DOM 구조가 소멸되어 삭제로 간주합니다.", "WARN")
-        return None
+        raise Exception("본문 DOM 구조(.xe_content)를 찾을 수 없습니다. (서버 불안정 또는 일시적 로드 실패)")
     
     full_date_tag = detail_soup.select_one('.top_area .date, span.date.m_no')
     if full_date_tag and len(full_date_tag.text.strip()) > 5:

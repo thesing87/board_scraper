@@ -118,16 +118,21 @@ def main():
                     if board_data:
                         log_msg(f"      - 기존 캐시 데이터 갱신을 위한 상위 {MAX_POSTS_TO_SYNC_COMMENTS}개 타겟 딥 스캔 진입", "DEBUG")
                         posts_to_sync = board_data[:MAX_POSTS_TO_SYNC_COMMENTS]
-                        posts_to_remove = []
                         
                         for idx, old_post in enumerate(posts_to_sync):
                             try:
+                                if old_post.get('is_deleted', False):
+                                    continue
+                                    
                                 log_msg(f"      [동기화 딥스캔] 글 ID: {old_post['id']} 상세 페이지 갱신 추적 시작", "DEBUG")
                                 updated_post = scrape_post_detail(driver, old_post)
                                 
                                 if updated_post is None:
-                                    log_msg(f"      [삭제 확정] 글 ID: {old_post['id']}가 원문에서 유실되었습니다. 대시보드 리스트에서 제거 조치합니다.", "INFO")
-                                    posts_to_remove.append(old_post['id'])
+                                    log_msg(f"      [삭제 확정/보존] 글 ID: {old_post['id']}가 원문에서 유실되었습니다. 삭제하지 않고 보존 처리합니다.", "INFO")
+                                    if not old_post.get('is_deleted', False):
+                                        with data_lock:
+                                            old_post['is_deleted'] = True
+                                        has_changes = True
                                     continue
                                 
                                 updated_post['is_new'] = old_post.get('is_new', False) 
@@ -142,11 +147,6 @@ def main():
                                     has_changes = True
                             except Exception as sync_ex:
                                 log_msg(f"      ⚠️ 기존 글 ID {old_post['id']} 백그라운드 갱신 스킵 (예외 피드백): {sync_ex}", "WARN")
-                        
-                        if posts_to_remove:
-                            with data_lock:
-                                all_keywords_data[combined_key] = [p for p in board_data if p['id'] not in posts_to_remove]
-                            has_changes = True
                     
                     try:
                         log_msg(f"      - 새 글 목록 모니터링 수집 쿼리 가동 중...", "DEBUG")

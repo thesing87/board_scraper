@@ -118,9 +118,21 @@ def generate_multiboard_html(all_keywords_data, output_file):
                         content_html += f"<p style='margin: 6px 0; line-height: 1.6;'>{block}</p>" 
                 
                 is_new = post.get('is_new', False)
-                card_class = "post-card new-post" if is_new else "post-card"
+                is_deleted = post.get('is_deleted', False)
+                
+                card_classes = ["post-card"]
+                if is_new:
+                    card_classes.append("new-post")
+                if is_deleted:
+                    card_classes.append("deleted-post")
+                card_class = " ".join(card_classes)
+                
                 new_badge = '<span class="new-badge">NEW</span>' if is_new else ''
-                sync_badge = '<span class="sync-badge">🔄 동기화중</span>' if post_idx < MAX_POSTS_TO_SYNC_COMMENTS else ""
+                deleted_badge = '<span class="deleted-badge">🗑️ 원문 삭제됨</span>' if is_deleted else ''
+                
+                sync_badge = ""
+                if not is_deleted and post_idx < MAX_POSTS_TO_SYNC_COMMENTS:
+                    sync_badge = '<span class="sync-badge">🔄 동기화중</span>'
                 
                 comments_html = ""
                 if post['comments']:
@@ -154,7 +166,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 board_content += f"""
                 <div class="{card_class}" id="post-{post['id']}" data-is-new="{str(is_new).lower()}" data-has-video="{has_video_val}">
                     <div class="post-header">
-                        <div class="post-title">{post['title']}{new_badge}{sync_badge}</div>
+                        <div class="post-title">{post['title']}{new_badge}{deleted_badge}{sync_badge}</div>
                         <div class="post-meta">
                             <span>✍️ {post['author']}</span>
                             <span>👁️ {post['views']}</span>
@@ -267,7 +279,9 @@ def generate_multiboard_html(all_keywords_data, output_file):
         
         .post-card {{ background: white; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); word-break: break-all; transition: border 0.2s ease, background-color 1s ease; }}
         .post-card.new-post {{ border: 2px solid #1877f2; }}
+        .post-card.deleted-post {{ opacity: 0.65; border: 1px dashed #721c24; background-color: #fdf3f3; }}
         .new-badge {{ display: inline-block; background: #1877f2; color: white; font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-left: 5px; }}
+        .deleted-badge {{ display: inline-block; background: #721c24; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 5px; font-weight: bold; }}
         .sync-badge {{ display: inline-block; background: #28a745; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 5px; }}
         .post-header {{ border-bottom: 1px solid #e4e6eb; padding-bottom: 8px; margin-bottom: 12px; }}
         .post-title {{ font-size: 16px; font-weight: bold; margin-bottom: 8px; color: #1877f2; line-height: 1.4; }}
@@ -690,7 +704,9 @@ def generate_multiboard_html(all_keywords_data, output_file):
             const cards = boardEl.querySelectorAll('.posts-container > .post-card');
             cards.forEach(card => {{
                 card.classList.remove('new-post');
-                card.style.border = 'none';
+                if (!card.classList.contains('deleted-post')) {{
+                    card.style.border = 'none';
+                }}
                 const badge = card.querySelector('.new-badge');
                 if (badge) badge.remove();
             }});
@@ -759,7 +775,9 @@ def generate_multiboard_html(all_keywords_data, output_file):
                     const id = card.id.replace('post-', '');
                     if (readIds.includes(id)) {{
                         card.classList.remove('new-post');
-                        card.style.border = 'none';
+                        if (!card.classList.contains('deleted-post')) {{
+                            card.style.border = 'none';
+                        }}
                         const badge = card.querySelector('.new-badge');
                         if (badge) badge.remove();
                     }}
