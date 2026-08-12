@@ -48,7 +48,7 @@ def load_board_config():
     log_msg(f"게시판 알림 설정 파일 로드 시도: {BOARD_CONFIG_FILE}", "DEBUG")
     if not os.path.exists(BOARD_CONFIG_FILE):
         log_msg("게시판 알림 설정 파일이 존재하지 않아 초기화를 진행합니다.", "INFO")
-        initial_config = {board: {"alert": True} for board in BOARD_MAP.keys()}
+        initial_config = {board: {"alert": True, "video_alert": True} for board in BOARD_MAP.keys()}
         with open(BOARD_CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(initial_config, f, ensure_ascii=False, indent=4)
         return initial_config
@@ -57,12 +57,17 @@ def load_board_config():
             config = json.load(f)
             for board in BOARD_MAP.keys():
                 if board not in config:
-                    config[board] = {"alert": True}
+                    config[board] = {"alert": True, "video_alert": True}
+                else:
+                    if "alert" not in config[board]:
+                        config[board]["alert"] = True
+                    if "video_alert" not in config[board]:
+                        config[board]["video_alert"] = True
             log_msg("게시판 알림 구성 정보 로드 성공", "DEBUG")
             return config
     except Exception as e:
         log_msg(f"⚠️ 게시판 설정 파일 로드 중 오류 발생: {e}", "ERROR")
-        return {board: {"alert": True} for board in BOARD_MAP.keys()}
+        return {board: {"alert": True, "video_alert": True} for board in BOARD_MAP.keys()}
 
 def save_board_config(config_data):
     log_msg("게시판 알림 환경 설정 파일 디스크 쓰기를 시도합니다.", "DEBUG")

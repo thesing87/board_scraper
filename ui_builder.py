@@ -195,20 +195,36 @@ def generate_multiboard_html(all_keywords_data, output_file):
 
     alert_toggles_html = ""
     for b_key, b_val in BOARD_MAP.items():
-        is_alert_on = board_alert_config.get(b_key, {}).get("alert", True)
+        b_cfg = board_alert_config.get(b_key, {})
+        is_alert_on = b_cfg.get("alert", True)
+        is_video_alert_on = b_cfg.get("video_alert", True)
+        
         checked_attr = "checked" if is_alert_on else ""
-        status_label = "🔔 알림 활성" if is_alert_on else "🔕 알림 꺼짐"
+        status_label = "🔔 일반 활성" if is_alert_on else "🔕 일반 꺼짐"
         status_class = "status-on" if is_alert_on else "status-off"
+
+        v_checked_attr = "checked" if is_video_alert_on else ""
+        v_status_label = "🎬 동영상 활성" if is_video_alert_on else "🎬 동영상 꺼짐"
+        v_status_class = "status-on" if is_video_alert_on else "status-off"
         
         alert_toggles_html += f"""
         <div class="toggle-item">
             <span class="toggle-label">🎯 {b_val}</span>
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <span class="toggle-status {status_class}">{status_label}</span>
-                <label class="switch">
-                    <input type="checkbox" {checked_attr} onchange="toggleBoardAlert('{b_key}', this)">
-                    <span class="slider round"></span>
-                </label>
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span class="toggle-status {status_class}">{status_label}</span>
+                    <label class="switch">
+                        <input type="checkbox" {checked_attr} onchange="toggleBoardAlert('{b_key}', 'alert', this)">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span class="toggle-status {v_status_class}">{v_status_label}</span>
+                    <label class="switch">
+                        <input type="checkbox" {v_checked_attr} onchange="toggleBoardAlert('{b_key}', 'video_alert', this)">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
             </div>
         </div>
         """
@@ -806,7 +822,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
         }}
 
-        function toggleBoardAlert(boardKey, checkboxElement) {{
+        function toggleBoardAlert(boardKey, alertType, checkboxElement) {{
             let pwd = document.getElementById('admin-pwd-input').value.trim();
             if (!pwd) {{ 
                 alert('알림 설정을 변경하려면 패널 우측의 관리자 암호를 먼저 입력해 주세요.'); 
@@ -816,6 +832,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
             
             const targetStatus = checkboxElement.checked;
             const apiUrl = '/api/toggle-alert?board=' + encodeURIComponent(boardKey) + 
+                           '&type=' + encodeURIComponent(alertType) + 
                            '&enabled=' + targetStatus + 
                            '&password=' + encodeURIComponent(pwd);
             

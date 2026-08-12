@@ -45,11 +45,14 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             try:
                 query_params = parse_qs(urlparse(self.path).query)
                 board = query_params.get('board', [''])[0].strip()
+                alert_type = query_params.get('type', ['alert'])[0].strip()
+                if alert_type not in ['alert', 'video_alert']:
+                    alert_type = 'alert'
                 enabled_str = query_params.get('enabled', ['true'])[0].strip()
                 enabled = enabled_str.lower() == 'true'
                 password = query_params.get('password', [''])[0].strip()
                 
-                log_msg(f"[API 서버] 알림 토글 API 호출됨 (Target Board: {board}, Enabled: {enabled})", "INFO")
+                log_msg(f"[API 서버] 알림 토글 API 호출됨 (Target Board: {board}, Type: {alert_type}, Enabled: {enabled})", "INFO")
                 
                 self.send_response(200)
                 self.send_header('Access-Control-Allow-Origin', '*')
@@ -72,12 +75,16 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 
                 with data_lock:
                     current_board_config = load_board_config()
-                    current_board_config[board]['alert'] = enabled
+                    if board not in current_board_config:
+                        current_board_config[board] = {"alert": True, "video_alert": True}
+                    current_board_config[board][alert_type] = enabled
                     save_board_config(current_board_config)
                     generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
                 
                 status_str = "켜짐" if enabled else "꺼짐"
-                msg = f"🔔 {BOARD_MAP[board]} 게시판의 알림이 {status_str} 상태로 변경되었습니다."
+                type_str = "동영상 알림" if alert_type == "video_alert" else "일반 알림"
+                icon_str = "🎬" if alert_type == "video_alert" else "🔔"
+                msg = f"{icon_str} {BOARD_MAP[board]} 게시판의 {type_str}이 {status_str} 상태로 변경되었습니다."
                 log_msg(f"[API 서버] {msg}", "INFO")
                 response_data = {'success': True, 'message': msg}
                 self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))

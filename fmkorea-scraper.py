@@ -209,10 +209,25 @@ def main():
                                 save_backup_data(all_keywords_data)
                                 
                                 has_video = len(post_data.get('videos', [])) > 0
-                                is_alert_enabled = board_alert_config.get(board, {}).get("alert", True)
+                                board_cfg = board_alert_config.get(board, {})
+                                is_alert_enabled = board_cfg.get("alert", True)
+                                is_video_alert_enabled = board_cfg.get("video_alert", True)
                                 
-                                if is_alert_enabled or has_video:
-                                    video_badge = " [🎬 동영상 포함 강제알림]" if (not is_alert_enabled and has_video) else ""
+                                should_send_alert = False
+                                video_badge = ""
+
+                                if has_video:
+                                    if is_video_alert_enabled:
+                                        should_send_alert = True
+                                        if not is_alert_enabled:
+                                            video_badge = " [🎬 동영상 알림]"
+                                    elif is_alert_enabled:
+                                        should_send_alert = True
+                                else:
+                                    if is_alert_enabled:
+                                        should_send_alert = True
+                                
+                                if should_send_alert:
                                     log_msg(f"   🚀 텔레그램 연동 채널 알림 발송을 개시합니다. (게시글 ID: {post_data['id']})", "INFO")
                                     telegram_text = (
                                         f"🔔 *[{board_name} - {keyword}]{video_badge} 실시간 새 글!*\n\n"
@@ -221,7 +236,7 @@ def main():
                                     )
                                     send_telegram_message(telegram_text)
                                 else:
-                                    log_msg(f"      🔕 [{board_name}] 알림 토글 비활성화 상태(동영상 요소 없음) - 텔레그램 발송을 안전하게 생략합니다.", "INFO")
+                                    log_msg(f"      🔕 [{board_name}] 알림 조건 미충족 (일반알림: {is_alert_enabled}, 동영상알림: {is_video_alert_enabled}, 동영상유무: {has_video}) - 텔레그램 발송 생략", "INFO")
                             except Exception as deep_ex:
                                 log_msg(f"      ⚠️ 새 글 상세 크롤링 처리 도중 예외로 인한 패스 스킵 피드백: {deep_ex}", "ERROR")
                         has_changes = True
