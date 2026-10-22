@@ -55,7 +55,7 @@ def main():
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-gpu')
     else:
-        DDNS_URL = "127.0.0.1:8081"
+        DDNS_URL = "http://127.0.0.1:8081"
 
     try:
         log_msg("Selenium 웹드라이버 시동 및 내부 크롬 프로세스 인스턴스 할당 시작", "DEBUG")
@@ -229,12 +229,30 @@ def main():
                                 
                                 if should_send_alert:
                                     log_msg(f"   🚀 텔레그램 연동 채널 알림 발송을 개시합니다. (게시글 ID: {post_data['id']})", "INFO")
+
+                                    base_url = (DDNS_URL or "").strip()
+                                    if base_url and not base_url.startswith(("http://", "https://")):
+                                        base_url = f"http://{base_url}"
+
+                                    board_post_url = f"{base_url}#post-{post_data['id']}" if base_url else ""
+                                    original_post_url = (post_data.get('link') or "").strip()
+                                    if original_post_url and not original_post_url.startswith(("http://", "https://")):
+                                        original_post_url = f"https://www.fmkorea.com{original_post_url if original_post_url.startswith('/') else '/' + original_post_url}"
+
+                                    # 모바일 화면에서 누르기 편한 큼직한 인라인 키보드 버튼 구성
+                                    keyboard = []
+                                    if board_post_url.startswith(("http://", "https://")):
+                                        keyboard.append([{"text": "📱 게시판에서 확인하기", "url": board_post_url}])
+                                    if original_post_url.startswith(("http://", "https://")):
+                                        keyboard.append([{"text": "🔗 원본글 보기 (에펨코리아)", "url": original_post_url}])
+
+                                    reply_markup = {"inline_keyboard": keyboard} if keyboard else None
+
                                     telegram_text = (
                                         f"🔔 *[{board_name} - {keyword}]{video_badge} 실시간 새 글!*\n\n"
-                                        f"📌 *제목:* {post_data['title']}\n\n"
-                                        f"📂 [게시판 확인]({DDNS_URL}#post-{post_data['id']})"
+                                        f"📌 *제목:* {post_data['title']}"
                                     )
-                                    send_telegram_message(telegram_text)
+                                    send_telegram_message(telegram_text, reply_markup=reply_markup)
                                 else:
                                     log_msg(f"      🔕 [{board_name}] 알림 조건 미충족 (일반알림: {is_alert_enabled}, 동영상알림: {is_video_alert_enabled}, 동영상유무: {has_video}) - 텔레그램 발송 생략", "INFO")
                             except Exception as deep_ex:

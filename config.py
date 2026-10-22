@@ -38,6 +38,9 @@ MAX_DATA_PER_KEYWORD = 100
 IS_LINUX = platform.system() == 'Linux'
 
 OUTPUT_DIR = os.environ.get('OUTPUT_DIR', 'output')
+if IS_LINUX and (OUTPUT_DIR == 'output' or os.path.exists('/output')):
+    OUTPUT_DIR = '/output'
+
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 HTML_OUTPUT_FILE = os.path.join(OUTPUT_DIR, 'index.html')
