@@ -7,6 +7,8 @@ services:
       - .env
     environment:
       - OUTPUT_DIR=/output
+      # 로그·화면 시각을 한국 시간으로 표시 (기본값은 UTC)
+      - TZ=Asia/Seoul
       # 상세 추적이 필요할 때만 DEBUG로 변경 (INFO: 새 글·삭제·오류·주기 요약만 출력)
       - LOG_LEVEL=INFO
     ports:
