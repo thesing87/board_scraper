@@ -18,7 +18,10 @@ def extract_post_id(link):
     if match_path: return match_path.group(1)
     return None
 
-DELETED_PAGE_PHRASES = ("삭제된 글입니다", "삭제된 문서입니다", "존재하지 않습니다", "존재하지 않는", "권한이 없습니다")
+class BlockedError(Exception):
+    """목록 페이지가 정상 게시판 화면이 아님 (접속 차단·보안 확인·점검 페이지 등으로 추정)"""
+
+DELETED_PAGE_PHRASES =("삭제된 글입니다", "삭제된 문서입니다", "존재하지 않습니다", "존재하지 않는", "권한이 없습니다")
 
 def parse_count(text):
     """'1,234'처럼 표시된 숫자 문자열을 정수로 변환 (숫자가 없으면 0)"""
@@ -36,6 +39,13 @@ def get_list_page_posts(driver, board, keyword, page=1):
     time.sleep(random.uniform(0.5, 1.2))
     
     soup = BeautifulSoup(driver.page_source, 'html.parser')
+    if not soup.select_one('table.bd_lst'):
+        # 검색 결과가 없을 때도 게시판 목록 틀(.bd_lst_wrp)과 안내 문구는 있음. 틀 자체가 없으면 정상 화면이 아님
+        if soup.select_one('.bd_lst_wrp') and '등록된 글이 없습니다' in soup.get_text():
+            log_msg(f"[수집] 목록 {board}/{keyword}: 0건 (검색 결과 없음)", "DEBUG")
+            return []
+        page_title = (driver.title or '').strip()[:60] or '제목 없음'
+        raise BlockedError(f"게시판 목록이 아닌 페이지 응답 (제목: {page_title})")
     posts = soup.select('table.bd_lst tbody tr:not(.notice)')
     
     post_list = []

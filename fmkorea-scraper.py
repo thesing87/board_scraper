@@ -29,7 +29,8 @@ from notifier import send_telegram_message
 from scraper import (
     get_list_page_posts,
     scrape_post_detail,
-    parse_count
+    parse_count,
+    BlockedError
 )
 from web_server import run_api_server
 
@@ -37,6 +38,8 @@ from web_server import run_api_server
 HEARTBEAT_SECONDS = 3600
 # 목록에서 사라진 글(삭제 의심)을 키워드당 한 주기에 확인하는 최대 개수
 DELETION_CHECKS_PER_KEYWORD = 3
+# 차단이 의심되면 대기 시간을 주기 x 2, x 4, x 8 ... 로 늘리되 이 값을 넘기지 않음
+BACKOFF_MAX_SECONDS = 3600
 
 try:
     if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
@@ -161,10 +164,13 @@ def main():
         heartbeat = {'since': time.time(), 'cycles': 0, 'new': 0, 'errors': 0}
         # 목록에서 빠졌지만 원문이 남아 있다고 확인된 글 (매 주기 다시 열지 않도록 기억)
         verified_present = set()
+        # 차단 의심이 연속된 횟수와 그에 따른 다음 주기까지의 대기 시간
+        block_streak = 0
+        next_wait = CHECK_INTERVAL
 
         while True:
             if not is_initial_run:
-                time.sleep(CHECK_INTERVAL)
+                time.sleep(next_wait)
 
             is_initial_run = False
 
@@ -178,10 +184,14 @@ def main():
             board_alert_config = load_board_config()
 
             cycle_started = time.time()
-            stats = {'keywords': 0, 'new': 0, 'updated': 0, 'deleted': 0, 'errors': 0, 'details': 0}
+            stats = {'keywords': 0, 'new': 0, 'updated': 0, 'deleted': 0, 'errors': 0, 'details': 0,
+                     'list_ok': 0, 'list_failed': 0}
+            blocked_reason = None
 
             for board, keywords in config_data.items():
                 board_name = BOARD_MAP.get(board, board)
+                if blocked_reason:
+                    break
 
                 for keyword in keywords:
                     stats['keywords'] += 1
@@ -194,8 +204,15 @@ def main():
                     # 목록을 먼저 읽어 새 글 알림을 가장 먼저 처리하고, 기존 글 갱신은 목록 값 비교로 변화가 있을 때만 수행
                     try:
                         new_post_list = get_list_page_posts(driver, board, keyword, page=1)
+                        stats['list_ok'] += 1
+                    except BlockedError as block_ex:
+                        # 차단이 의심되면 남은 키워드까지 요청을 이어가지 않고 이번 주기를 바로 중단
+                        stats['errors'] += 1
+                        blocked_reason = f"{target} {block_ex}"
+                        break
                     except Exception as list_ex:
                         stats['errors'] += 1
+                        stats['list_failed'] += 1
                         log_msg(f"[오류] {target} 목록 조회 실패: {short_err(list_ex)}", "WARN")
                         continue
 
@@ -290,6 +307,24 @@ def main():
                        f"삭제 {stats['deleted']}, 오류 {stats['errors']}, 상세 조회 {stats['details']}회 ({elapsed:.0f}초)")
             has_events = stats['new'] or stats['deleted'] or stats['errors']
             log_msg(f"[수집] 주기 완료: {summary}", "INFO" if has_events else "DEBUG")
+
+            # 차단 의심(정상 게시판이 아닌 응답, 또는 모든 목록 요청 실패) 시 대기 시간을 늘려 요청을 줄이고, 정상 응답이 오면 원래 주기로 복귀
+            if not blocked_reason and stats['list_failed'] and not stats['list_ok']:
+                blocked_reason = f"이번 주기의 목록 요청 {stats['list_failed']}건이 모두 실패"
+            if blocked_reason:
+                block_streak += 1
+                next_wait = min(CHECK_INTERVAL * (2 ** block_streak), BACKOFF_MAX_SECONDS)
+                log_msg(f"[차단 의심] {blocked_reason} → {next_wait // 60}분 {next_wait % 60}초 후 다시 확인 (연속 {block_streak}회)", "WARN")
+                if block_streak == 1:
+                    send_telegram_message(
+                        f"⚠️ 에펨코리아 접속 차단 의심\n\n{blocked_reason}\n\n"
+                        f"요청을 줄이기 위해 대기 시간을 늘립니다. 정상으로 돌아오면 다시 알려드립니다."
+                    )
+            elif block_streak:
+                log_msg(f"[복구] 정상 응답 확인 (차단 의심 {block_streak}회 후) → 원래 주기 {CHECK_INTERVAL}초로 복귀")
+                send_telegram_message(f"✅ 에펨코리아 접속이 정상으로 돌아왔습니다. (차단 의심 {block_streak}회 후 복구)")
+                block_streak = 0
+                next_wait = CHECK_INTERVAL
 
             heartbeat['cycles'] += 1
             heartbeat['new'] += stats['new']
