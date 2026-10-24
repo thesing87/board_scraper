@@ -15,7 +15,7 @@ def extract_post_id(link):
     path = urlparse(link).path
     match_path = re.search(r'/(\d+)', path)
     if match_path: return match_path.group(1)
-    return str(int(time.time()))
+    return None
 
 def get_list_page_posts(driver, board, keyword, page=1):
     encoded_keyword = quote(keyword)
@@ -56,6 +56,9 @@ def get_list_page_posts(driver, board, keyword, page=1):
             date = date_tag.text.strip() if date_tag else "날짜 모름"
             
             post_id = extract_post_id(link)
+            if not post_id:
+                log_msg(f"게시글 ID 추출 불가로 스킵 -> Link: {link}", "WARN")
+                continue
             post_list.append({'link': link, 'title': title, 'author': author, 'date': date, 'id': post_id})
             
     log_msg(f"[정찰조] 목록 파싱 결과: {len(post_list)}개의 게시글 발견 완료", "DEBUG")
@@ -84,14 +87,14 @@ def scrape_post_detail(driver, post_info):
     time.sleep(delay)
     
     page_source = driver.page_source
-    if "삭제된 문서입니다" in page_source or "권한이 없습니다" in page_source or "존재하지 않는" in page_source:
-        log_msg(f"🗑️ [원문 삭제 감지] 글 ID: {post_id}는 원문이 폭파되었거나 접근할 수 없습니다.", "WARN")
-        return None
-    
     detail_soup = BeautifulSoup(page_source, 'html.parser')
-    
+
     content_area = detail_soup.select_one('.xe_content')
     if not content_area:
+        # 본문이 있는 정상 글에서는 본문/댓글 속 문구로 인한 오탐을 막기 위해, 본문이 없을 때만 삭제 문구를 검사
+        if "삭제된 문서입니다" in page_source or "권한이 없습니다" in page_source or "존재하지 않는" in page_source:
+            log_msg(f"🗑️ [원문 삭제 감지] 글 ID: {post_id}는 원문이 폭파되었거나 접근할 수 없습니다.", "WARN")
+            return None
         raise Exception("본문 DOM 구조(.xe_content)를 찾을 수 없습니다. (서버 불안정 또는 일시적 로드 실패)")
     
     full_date_tag = detail_soup.select_one('.top_area .date, span.date.m_no')
@@ -176,9 +179,9 @@ def scrape_post_detail(driver, post_info):
         
         for iframe in content_area.select('iframe'):
             src = iframe.get('src')
-            video_list.append(src)
             if src:
                 if src.startswith('//'): src = 'https:' + src
+                video_list.append(src)
                 iframe['src'] = src
                 iframe['style'] = "width: 100%; max-width: 100%; border-radius: 6px; margin-top: 8px;"
 
@@ -215,8 +218,7 @@ def scrape_post_detail(driver, post_info):
             
         raw_html = content_area.decode_contents()
         raw_html = re.sub(r'<script.*?>.*?</script>', '', raw_html, flags=re.DOTALL)
-        raw_html = re.sub(r'<!--.*?-->', '', raw_html, flags=re.DOTALL) 
-        raw_html = raw_html.replace('\\', '')
+        raw_html = re.sub(r'<!--.*?-->', '', raw_html, flags=re.DOTALL)
         
         lines = raw_html.split('\n')
         empty_count = 0
@@ -262,7 +264,6 @@ def scrape_post_detail(driver, post_info):
             
             c_raw_text = c_content_area.decode_contents()
             c_raw_text = re.sub(r'<!--.*?-->', '', c_raw_text, flags=re.DOTALL)
-            c_raw_text = c_raw_text.replace('\\', '')
             
             c_lines = [line.strip() for line in c_raw_text.split('\n')]
             

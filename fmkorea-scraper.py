@@ -37,12 +37,7 @@ try:
 except Exception:
     pass
 
-def main():
-    global DDNS_URL
-    log_msg("백그라운드 API 제어용 서버 스레드 분리 가동 개시 준비", "DEBUG")
-    api_thread = threading.Thread(target=run_api_server, daemon=True)
-    api_thread.start()
-
+def create_driver():
     options = Options()
     options.page_load_strategy = 'eager'
     options.add_argument('--blink-settings=imagesEnabled=false')
@@ -54,13 +49,36 @@ def main():
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-gpu')
-    else:
+
+    log_msg("Selenium 웹드라이버 시동 및 내부 크롬 프로세스 인스턴스 할당 시작", "DEBUG")
+    driver = Chrome(options=options, service=services)
+    log_msg("Selenium 크롬 웹 드라이버 정상 준비 완료", "INFO")
+    return driver
+
+def ensure_driver_alive(driver):
+    """크롬 프로세스가 죽었으면(OOM 등) 드라이버를 새로 생성하여 반환"""
+    try:
+        driver.execute_script("return 1")
+        return driver
+    except Exception as health_err:
+        log_msg(f"⚠️ 크롬 드라이버 응답 없음 감지 -> 재생성 시도: {health_err}", "WARN")
+    try:
+        driver.quit()
+    except Exception:
+        pass
+    return create_driver()
+
+def main():
+    global DDNS_URL
+    log_msg("백그라운드 API 제어용 서버 스레드 분리 가동 개시 준비", "DEBUG")
+    api_thread = threading.Thread(target=run_api_server, daemon=True)
+    api_thread.start()
+
+    if not IS_LINUX:
         DDNS_URL = "http://127.0.0.1:8081"
 
     try:
-        log_msg("Selenium 웹드라이버 시동 및 내부 크롬 프로세스 인스턴스 할당 시작", "DEBUG")
-        driver = Chrome(options=options, service=services)
-        log_msg("Selenium 크롬 웹 드라이버 정상 준비 완료", "INFO")
+        driver = create_driver()
     except Exception as chrome_err:
         log_msg(f"❌ 크롬 웹 드라이버 엔진 실행 프로세스 도중 크리티컬 오류로 중단됨: {chrome_err}", "CRITICAL")
         sys.exit(1)
@@ -86,7 +104,6 @@ def main():
     log_msg("📡 메인 백그라운드 실시간 모니터링 감시 무한 루프 엔진을 가동합니다.", "INFO")
 
     try:
-        is_first_scan = {}
         is_initial_run = True
 
         while True:
@@ -95,6 +112,12 @@ def main():
                 time.sleep(CHECK_INTERVAL)
             
             is_initial_run = False
+
+            try:
+                driver = ensure_driver_alive(driver)
+            except Exception as restart_err:
+                log_msg(f"❌ 크롬 드라이버 재생성 실패, 다음 주기에 재시도합니다: {restart_err}", "ERROR")
+                continue
 
             with data_lock:
                 config_data = load_keywords_from_file()
@@ -155,36 +178,29 @@ def main():
                         log_msg(f"      ⚠️ [{board_name} - {keyword}] 목록 파싱 실패로 이번 주기 패스 처리: {list_ex}", "WARN")
                         continue
                     
-                    if combined_key not in is_first_scan:
-                        is_first_scan[combined_key] = False if board_data else True
-
                     new_posts = []
                     if board_data:
                         existing_ids = {post['id'] for post in board_data}
                         for p in new_post_list:
-                            if p['id'] in existing_ids: 
+                            if p['id'] in existing_ids:
                                 break
                             new_posts.append(p)
                     else:
-                        if is_first_scan[combined_key]:
-                            log_msg(f"   📦 [{board_name} - {keyword}] 최초 빌드: 리스트의 최신 글 1개만 베이스라인 데이터로 강제 적재합니다.", "INFO")
-                            if new_post_list:
-                                try:
-                                    first_post_info = new_post_list[0]
-                                    post_data = scrape_post_detail(driver, first_post_info)
-                                    if post_data:
-                                        post_data['is_new'] = False
-                                        with data_lock:
-                                            all_keywords_data[combined_key] = [post_data]
-                                        log_msg(f"   📦 [{board_name} - {keyword}] 최초 기준점 빌드 매핑 성공", "INFO")
-                                except Exception as e:
-                                    log_msg(f"      ⚠️ 베이스라인 최신 글 1개 데이터 수집 실패 예외 로그: {e}", "ERROR")
-                                    
-                            is_first_scan[combined_key] = False
-                            has_changes = True
-                            continue
-                        else:
-                            new_posts = new_post_list
+                        # 기준점이 없으면 목록 전체를 새 글로 취급해 알림이 폭주하므로, 성공할 때까지 매 주기 베이스라인 적재만 시도
+                        log_msg(f"   📦 [{board_name} - {keyword}] 최초 빌드: 리스트의 최신 글 1개만 베이스라인 데이터로 강제 적재합니다.", "INFO")
+                        if new_post_list:
+                            try:
+                                first_post_info = new_post_list[0]
+                                post_data = scrape_post_detail(driver, first_post_info)
+                                if post_data:
+                                    post_data['is_new'] = False
+                                    with data_lock:
+                                        all_keywords_data[combined_key] = [post_data]
+                                    log_msg(f"   📦 [{board_name} - {keyword}] 최초 기준점 빌드 매핑 성공", "INFO")
+                                    has_changes = True
+                            except Exception as e:
+                                log_msg(f"      ⚠️ 베이스라인 최신 글 1개 데이터 수집 실패 (다음 주기 재시도): {e}", "ERROR")
+                        continue
                     
                     if new_posts:
                         log_msg(f"   🆕 [{board_name}] 교차 검증을 거친 실시간 신규 새 글 {len(new_posts)}개 탐지 성공!", "INFO")
@@ -206,7 +222,7 @@ def main():
                                         all_keywords_data[combined_key] = all_keywords_data[combined_key][:MAX_DATA_PER_KEYWORD]
                                         
                                     generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
-                                save_backup_data(all_keywords_data)
+                                    save_backup_data(all_keywords_data)
                                 
                                 has_video = len(post_data.get('videos', [])) > 0
                                 board_cfg = board_alert_config.get(board, {})
@@ -263,7 +279,7 @@ def main():
                 log_msg("🔄 이번 주기 캐시 변경 내역 발생 확인 -> index.html 동적 렌더링 동기화 즉시 갱신 진행", "INFO")
                 with data_lock:
                     generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
-                save_backup_data(all_keywords_data)
+                    save_backup_data(all_keywords_data)
             else:
                 log_msg("🔍 이번 턴 실시간 모니터링 감시 주기 종료: 변경 발생 데이터 없음", "DEBUG")
 

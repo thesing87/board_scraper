@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from config import log_msg, BOARD_MAP, MAX_POSTS_TO_SYNC_COMMENTS
-from storage import load_keywords_from_file, load_board_config
+from storage import load_keywords_from_file, load_board_config, atomic_write_text
 
 def generate_multiboard_html(all_keywords_data, output_file):
     log_msg("HTML 정적 대시보드 파일 템플릿 컴파일 빌드를 시작합니다.", "DEBUG")
@@ -1076,8 +1076,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
 </html>
 """
     try:
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(html_content)
+        atomic_write_text(output_file, html_content)
         log_msg(f"HTML 빌드 및 index.html 디스크 파일 출력 완료 (총 키워드 조합: {len(flattened_keywords)}개)", "INFO")
     except Exception as e:
         log_msg(f"⚠️ HTML 템플릿 물리 저장 중 오류 발생: {e}", "ERROR")
