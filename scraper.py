@@ -18,6 +18,8 @@ def extract_post_id(link):
     if match_path: return match_path.group(1)
     return None
 
+DELETED_PAGE_PHRASES = ("삭제된 글입니다", "삭제된 문서입니다", "존재하지 않습니다", "존재하지 않는", "권한이 없습니다")
+
 def parse_count(text):
     """'1,234'처럼 표시된 숫자 문자열을 정수로 변환 (숫자가 없으면 0)"""
     digits = re.sub(r'[^\d]', '', str(text or ''))
@@ -93,7 +95,8 @@ def scrape_post_detail(driver, post_info):
     content_area = detail_soup.select_one('.xe_content')
     if not content_area:
         # 본문이 있는 정상 글에서는 본문/댓글 속 문구로 인한 오탐을 막기 위해, 본문이 없을 때만 삭제 문구를 검사
-        if "삭제된 문서입니다" in page_source or "권한이 없습니다" in page_source or "존재하지 않는" in page_source:
+        # 실제 삭제 글 페이지: 제목 "삭제된 글입니다.", 본문 "해당 문서가 존재하지 않습니다."
+        if any(phrase in page_source for phrase in DELETED_PAGE_PHRASES):
             return None
         raise Exception("본문(.xe_content) 없음 - 일시적 로드 실패 추정")
     
