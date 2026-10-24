@@ -2,45 +2,102 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>통합 멀티 키워드 미니 게시판</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>키워드 모니터</title>
     <link rel="stylesheet" href="/app.css">
     <script src="/app.js" defer></script>
 </head>
 <body>
-    <header class="top-nav-banner">
-        <div class="nav-container">
-            <a href="/" class="nav-logo">
-                <span class="icon">🏠</span> 실시간 모니터링 대시보드
-            </a>
-        </div>
-    </header>
-    <div class="container">
-        <button id="panel-toggle-trigger" class="panel-toggle-btn" data-action="toggle-admin-panel">⚙️ 실시간 모니터링 관리 패널 열기 ▼</button>
-
-        <div class="admin-panel" id="admin-panel-zone">
-            <div class="admin-title">🛠️ 키워드 실시간 모니터링 관리 패널</div>
-            <div class="admin-row">
-                <select id="board-select" class="admin-select"></select>
-                <input type="text" id="new-kw-input" class="admin-input" placeholder="추가할 키워드 입력" maxlength="50">
-                <input type="password" id="admin-pwd-input" class="admin-input admin-pwd-input" placeholder="관리자 암호">
-                <button class="admin-btn" data-action="add-keyword">➕ 등록</button>
+    <header class="topbar">
+        <div class="topbar-row">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+                </span>
+                <div class="brand-text">
+                    <span class="brand-name">키워드 모니터</span>
+                    <span class="status-pill" id="status-pill"><span class="status-dot"></span><span id="status-text">불러오는 중</span></span>
+                </div>
             </div>
-
-            <div class="admin-title admin-title-spaced">🔔 게시판별 텔레그램 알림 토글 제어 (관리자 암호 필요)</div>
-            <div class="alert-management-zone" id="alert-management-zone"></div>
+            <div class="topbar-actions">
+                <button class="icon-btn desktop-only" data-action="refresh" aria-label="새로고침">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"></path><path d="M21 4v5h-5"></path></svg>
+                </button>
+                <button class="btn btn-outline" data-action="open-settings" aria-label="관리">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path><circle cx="9" cy="6" r="2" fill="#FFFFFF"></circle><circle cx="15" cy="12" r="2" fill="#FFFFFF"></circle><circle cx="7" cy="18" r="2" fill="#FFFFFF"></circle></svg>
+                    <span class="desktop-only">관리</span>
+                </button>
+            </div>
         </div>
+        <nav class="chip-row mobile-only" id="chip-row" aria-label="키워드"></nav>
+    </header>
 
-        <div class="tab-container" id="tab-scroll-container"></div>
+    <div class="layout">
+        <aside class="sidebar desktop-only">
+            <div class="sidebar-head">
+                <span>키워드</span>
+                <button class="icon-btn small" data-action="open-settings" aria-label="키워드 추가">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+                </button>
+            </div>
+            <div id="keyword-groups"></div>
+            <div class="alert-summary">
+                <span class="alert-summary-title">텔레그램 알림</span>
+                <span class="alert-summary-text" id="alert-summary"></span>
+                <button class="link-btn" data-action="open-settings">알림 설정 변경</button>
+            </div>
+        </aside>
 
-        <div id="board-view">
-            <div class="post-card loading-state">⏳ 불러오는 중...</div>
-        </div>
+        <main class="feed-wrap">
+            <div class="feed" id="feed">
+                <div class="empty-card">불러오는 중...</div>
+            </div>
+        </main>
     </div>
 
-    <div class="floating-actions">
-        <button class="floating-refresh-btn" data-action="refresh" title="현재 키워드 즉시 새로고침">🔄</button>
-        <button id="floating-top-btn" class="scroll-top-btn" data-action="scroll-top" title="맨 위로 이동">▲</button>
+    <div class="floating">
+        <button class="fab fab-top" id="floating-top-btn" data-action="scroll-top" aria-label="맨 위로">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"></path></svg>
+        </button>
+        <button class="fab fab-refresh mobile-only" data-action="refresh" aria-label="새로고침">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"></path><path d="M21 4v5h-5"></path></svg>
+        </button>
+    </div>
+
+    <div class="settings-backdrop" id="settings" hidden>
+        <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+            <header class="settings-head">
+                <button class="icon-btn ghost" data-action="close-settings" aria-label="닫기">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                </button>
+                <h2 id="settings-title">관리</h2>
+            </header>
+            <div class="settings-body">
+                <section class="settings-card">
+                    <label for="admin-pwd-input" class="settings-label">관리자 암호</label>
+                    <input id="admin-pwd-input" type="password" class="input" autocomplete="current-password">
+                    <span class="settings-hint">키워드와 알림 설정을 바꿀 때 필요합니다.</span>
+                </section>
+
+                <section class="settings-card">
+                    <span class="settings-label">키워드 추가</span>
+                    <div class="add-row">
+                        <select id="board-select" class="input select" aria-label="게시판"></select>
+                        <input id="new-kw-input" class="input" aria-label="추가할 키워드" placeholder="키워드 입력" maxlength="50">
+                        <button class="btn btn-primary" data-action="add-keyword">추가</button>
+                    </div>
+                    <div class="keyword-tags" id="settings-keywords"></div>
+                </section>
+
+                <section class="settings-card">
+                    <div class="alert-head">
+                        <span class="settings-label">텔레그램 알림</span>
+                        <span class="alert-cols"><span>전체</span><span>동영상</span></span>
+                    </div>
+                    <div id="settings-alerts"></div>
+                </section>
+            </div>
+        </section>
     </div>
 </body>
 </html>

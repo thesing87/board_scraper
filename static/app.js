@@ -3,7 +3,6 @@
 // ==========================================
 // 상태 및 공용 유틸
 // ==========================================
-const SYNC_BADGE_TEXT = '🔄 동기화중';
 const READ_IDS_KEY = 'read_post_ids';
 const READ_IDS_LIMIT = 1500;
 
@@ -11,8 +10,16 @@ const app = {
     state: null,        // /api/state 응답
     activeKey: null,    // 현재 탭 "board::keyword"
     page: 1,
+    totalPages: 1,
     videoOnly: {},      // 탭별 동영상만 보기 여부
     highlightPostId: null
+};
+
+const ICONS = {
+    external: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"></path><path d="M10 14L20 4"></path><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"></path></svg>',
+    prev: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>',
+    next: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg>',
+    close: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>'
 };
 
 function esc(value) {
@@ -36,7 +43,7 @@ function getReadIds() {
 }
 
 function markTabRead(key) {
-    // 탭을 떠나거나 새로고침할 때, 그 탭의 새 글을 모두 읽음 처리 (기존 대시보드와 동일한 동작)
+    // 탭을 떠나거나 새로고침할 때, 그 탭의 새 글을 모두 읽음 처리
     const tab = findTab(key);
     if (!tab || tab.new_ids.length === 0) return;
     let ids = [];
@@ -52,8 +59,8 @@ function markTabRead(key) {
     }
 }
 
-function hasUnread(tab, readIds) {
-    return tab.new_ids.some(id => !readIds.has(id));
+function unreadCount(tab, readIds) {
+    return tab.new_ids.filter(id => !readIds.has(id)).length;
 }
 
 async function getJSON(url) {
@@ -72,163 +79,85 @@ async function postJSON(url, body) {
 }
 
 // ==========================================
-// 관리 패널
+// 상단 상태 / 키워드 내비게이션 (데스크톱 사이드바, 모바일 칩)
 // ==========================================
-function renderAdminPanel() {
-    const select = document.getElementById('board-select');
-    const prev = select.value;
-    select.innerHTML = app.state.boards.map(b => `<option value="${esc(b.key)}">${esc(b.name)}</option>`).join('');
-    if (prev) select.value = prev;
-
-    const zone = document.getElementById('alert-management-zone');
-    zone.innerHTML = app.state.boards.map(b => {
-        const cfg = app.state.board_config[b.key] || { alert: true, video_alert: true };
-        return `
-        <div class="toggle-item">
-            <span class="toggle-label">🎯 ${esc(b.name)}</span>
-            <div class="toggle-group">
-                ${renderAlertSwitch(b.key, 'alert', cfg.alert)}
-                ${renderAlertSwitch(b.key, 'video_alert', cfg.video_alert)}
-            </div>
-        </div>`;
-    }).join('');
-}
-
-function alertStatusText(type, on) {
-    if (type === 'video_alert') return on ? '🎬 동영상 활성' : '🎬 동영상 꺼짐';
-    return on ? '🔔 일반 활성' : '🔕 일반 꺼짐';
-}
-
-function renderAlertSwitch(board, type, on) {
-    return `
-        <div class="toggle-pair">
-            <span class="toggle-status ${on ? 'status-on' : 'status-off'}">${alertStatusText(type, on)}</span>
-            <label class="switch">
-                <input type="checkbox" data-action="toggle-alert" data-board="${esc(board)}" data-type="${type}" ${on ? 'checked' : ''}>
-                <span class="slider round"></span>
-            </label>
-        </div>`;
-}
-
-function setAdminPanelOpen(open) {
-    document.getElementById('admin-panel-zone').style.display = open ? 'flex' : 'none';
-    document.getElementById('panel-toggle-trigger').textContent = open
-        ? '⚙️ 실시간 모니터링 관리 패널 접기 ▲'
-        : '⚙️ 실시간 모니터링 관리 패널 열기 ▼';
-    storageSet(localStorage, 'admin_panel_open', open ? 'true' : 'false');
-}
-
-function adminPassword() {
-    return document.getElementById('admin-pwd-input').value.trim();
-}
-
-async function toggleBoardAlert(checkbox) {
-    const pwd = adminPassword();
-    const target = checkbox.checked;
-    if (!pwd) {
-        alert('알림 설정을 변경하려면 패널 우측의 관리자 암호를 먼저 입력해 주세요.');
-        checkbox.checked = !target;
+function renderStatus(ok) {
+    const pill = document.getElementById('status-pill');
+    const text = document.getElementById('status-text');
+    if (!ok) {
+        pill.classList.add('is-error');
+        text.textContent = '서버 연결 실패';
         return;
     }
-    const board = checkbox.dataset.board;
-    const type = checkbox.dataset.type;
-    try {
-        const data = await postJSON('/api/toggle-alert', { board: board, type: type, enabled: target, password: pwd });
-        alert(data.message);
-        if (data.success) {
-            app.state.board_config[board][type] = target;
-            const status = checkbox.closest('.toggle-pair').querySelector('.toggle-status');
-            status.textContent = alertStatusText(type, target);
-            status.className = 'toggle-status ' + (target ? 'status-on' : 'status-off');
-        } else {
-            checkbox.checked = !target;
-        }
-    } catch (e) {
-        alert('알림 상태 요청 중 오류가 발생했습니다.');
-        checkbox.checked = !target;
-    }
+    pill.classList.remove('is-error');
+    const time = (app.state.generated_at || '').slice(11, 16);
+    text.textContent = '수집 중 · ' + time + ' 업데이트';
 }
 
-async function manageKeyword(action, keyword, board, button) {
-    const pwd = adminPassword();
-    if (!keyword) { alert('키워드를 입력해 주세요.'); return; }
-    if (!pwd) { alert('인증 관리자 비밀번호를 입력해야 합니다.'); return; }
-    if (action === 'delete' && !confirm("'" + keyword + "' 키워드를 정말 삭제하시겠습니까?")) return;
-
-    if (button) button.disabled = true;
-    try {
-        const data = await postJSON('/api/keyword', { action: action, keyword: keyword, board: board, password: pwd });
-        alert(data.message);
-        if (data.success) {
-            if (action === 'add') {
-                document.getElementById('new-kw-input').value = '';
-                app.activeKey = board + '::' + keyword;
-                app.page = 1;
-            } else if (app.activeKey === board + '::' + keyword) {
-                app.activeKey = null;
-            }
-            await loadState();
-        }
-    } catch (e) {
-        alert('요청 중 오류가 발생했습니다.');
-    } finally {
-        if (button) button.disabled = false;
-    }
-}
-
-// ==========================================
-// 탭
-// ==========================================
-function renderTabs() {
+function renderNavigation() {
     const readIds = getReadIds();
-    const container = document.getElementById('tab-scroll-container');
-    container.innerHTML = app.state.tabs.map((tab, idx) => {
-        const key = tabKey(tab);
-        const active = key === app.activeKey;
-        const showDot = !active && hasUnread(tab, readIds);
-        const label = `[${tab.board_name}] ${tab.keyword} (${tab.total})`;
+    const tabs = app.state.tabs;
+
+    // 데스크톱: 게시판별로 묶은 키워드 목록 (게시판 순서는 처음 등장한 탭 순서)
+    const groups = [];
+    tabs.forEach((tab, idx) => {
+        let group = groups.find(g => g.board === tab.board);
+        if (!group) { group = { board: tab.board, name: tab.board_name, items: [] }; groups.push(group); }
+        group.items.push({ tab, idx });
+    });
+    document.getElementById('keyword-groups').innerHTML = groups.length ? groups.map(group => `
+        <nav class="kw-group" aria-label="${esc(group.name)}">
+            <span class="kw-group-name">${esc(group.name)}</span>
+            ${group.items.map(({ tab, idx }) => {
+                const active = tabKey(tab) === app.activeKey;
+                const unread = active ? 0 : unreadCount(tab, readIds);
+                return `
+                <button class="kw-item ${active ? 'active' : ''}" data-action="open-tab" data-index="${idx}" ${active ? 'aria-current="true"' : ''}>
+                    <span>${esc(tab.keyword)}</span>
+                    <span class="kw-side">
+                        ${unread ? `<span class="kw-unread" aria-label="안 읽은 새 글 ${unread}개">${unread}</span>` : ''}
+                        <span class="kw-count">${tab.total}</span>
+                    </span>
+                </button>`;
+            }).join('')}
+        </nav>`).join('') : '<span class="kw-group-name">등록된 키워드가 없습니다.</span>';
+
+    // 모바일: 가로로 넘기는 키워드 칩
+    document.getElementById('chip-row').innerHTML = tabs.map((tab, idx) => {
+        const active = tabKey(tab) === app.activeKey;
+        const hasUnread = !active && unreadCount(tab, readIds) > 0;
         return `
-        <div class="tab-wrapper">
-            <button class="tab-btn ${active ? 'active' : ''}" data-action="open-tab" data-index="${idx}"><span class="tab-dot ${showDot ? 'visible' : ''}">🔴 </span>${esc(label)}</button>
-            <button class="tab-del-btn" data-action="delete-keyword" data-index="${idx}" title="키워드 삭제">×</button>
-        </div>`;
+        <button class="chip ${active ? 'active' : ''}" data-action="open-tab" data-index="${idx}" ${active ? 'aria-current="true"' : ''}>
+            <span>${esc(tab.keyword)}</span>
+            <span class="chip-count">${tab.total}</span>
+            ${hasUnread ? '<span class="chip-dot" aria-label="안 읽은 새 글"></span>' : ''}
+        </button>`;
     }).join('');
+    const activeChip = document.querySelector('#chip-row .chip.active');
+    if (activeChip) activeChip.scrollIntoView({ block: 'nearest', inline: 'center' });
+
+    // 사이드바 하단 알림 요약
+    const summary = app.state.boards
+        .filter(b => groups.some(g => g.board === b.key))
+        .map(b => {
+            const cfg = app.state.board_config[b.key] || { alert: true, video_alert: true };
+            const mode = cfg.alert ? '전체 알림' : (cfg.video_alert ? '동영상 글만' : '알림 꺼짐');
+            return `${b.name} · ${mode}`;
+        });
+    document.getElementById('alert-summary').textContent = summary.length ? summary.join('\n') : '등록된 키워드가 없습니다.';
 }
 
 function openTab(key, page) {
     if (app.activeKey && app.activeKey !== key) markTabRead(app.activeKey);
     app.activeKey = key;
     app.page = page || 1;
-    renderTabs();
-    loadPosts();
+    renderNavigation();
+    loadPosts().then(() => window.scrollTo({ top: 0 }));
 }
 
 // ==========================================
-// 게시글 목록
+// 피드
 // ==========================================
-function renderPagination(withVideoToggle, page, totalPages, empty) {
-    const disabledPrev = empty || page <= 1 ? 'disabled' : '';
-    const disabledNext = empty || page >= totalPages ? 'disabled' : '';
-    const indicator = empty ? '0 / 0' : `${page} / ${totalPages}`;
-    const toggle = withVideoToggle ? `
-        <div class="video-toggle-zone">
-            <span class="video-toggle-label">🎬</span>
-            <label class="switch">
-                <input type="checkbox" class="video-only-checkbox" data-action="toggle-video-only" ${app.videoOnly[app.activeKey] ? 'checked' : ''}>
-                <span class="slider round"></span>
-            </label>
-        </div>` : '';
-    return `
-        <div class="pagination-control">
-            <button class="page-nav-btn" data-action="page" data-target="first" title="첫 페이지로" ${disabledPrev}>⏮️</button>
-            <button class="page-nav-btn" data-action="page" data-target="prev" ${disabledPrev}>◀</button>
-            <span class="page-indicator">${indicator}</span>
-            <button class="page-nav-btn" data-action="page" data-target="next" ${disabledNext}>▶</button>
-            <button class="page-nav-btn" data-action="page" data-target="last" title="마지막 페이지로" ${disabledNext}>⏭️</button>
-            ${toggle}
-        </div>`;
-}
-
 function renderContent(blocks) {
     return (blocks || []).map(block => {
         if (block === '') return '<div class="content-spacer"></div>';
@@ -245,62 +174,81 @@ function renderComments(post) {
     if (!post.comments || post.comments.length === 0) return '';
     const items = post.comments.map(c => {
         const body = (c.content || []).map(t => t ? `<p class="comment-line">${t}</p>` : '<br>').join('');
-        const replyIcon = c.is_reply ? '<span class="reply-icon">└</span>' : '';
         const isAuthor = c.author === post.author;
-        const author = isAuthor
-            ? `${replyIcon}<strong class="comment-author-op">${esc(c.author)} <span class="op-badge">작성자</span></strong>`
-            : `${replyIcon}<strong>${esc(c.author)}</strong>`;
         return `
-            <div class="comment ${c.is_reply ? 'comment-reply' : ''} ${isAuthor ? 'comment-by-op' : ''}">
+            <div class="comment ${c.is_reply ? 'reply' : ''}">
                 <div class="comment-meta">
-                    <div>${author} <span class="comment-date">${esc(c.date)}</span></div>
-                    <div class="comment-votes">👍 ${esc(c.votes)}</div>
+                    <span class="comment-author">${esc(c.author)}</span>
+                    ${isAuthor ? '<span class="op-badge">작성자</span>' : ''}
+                    <span>${esc(c.date)}</span>
+                    ${c.votes && c.votes !== '0' ? `<span class="comment-votes">추천 ${esc(c.votes)}</span>` : ''}
                 </div>
                 <div class="comment-body">${body}</div>
             </div>`;
     }).join('');
-    return `<div class="post-comments-section"><h3>💬 댓글 (${esc(post.comment_count)})</h3>${items}</div>`;
+    return `<section class="comments"><h3 class="comments-title">댓글 ${esc(post.comment_count || post.comments.length)}</h3>${items}</section>`;
 }
 
 function safeLink(url) {
     return /^https?:\/\//i.test(url || '') ? url : '#';
 }
 
-function renderPost(post, readIds) {
-    const isNew = post.is_new && !readIds.has(post.id);
+function renderPost(post, isUnread) {
     const classes = ['post-card'];
-    if (isNew) classes.push('new-post');
-    if (post.is_deleted) classes.push('deleted-post');
-    const badges =
-        (isNew ? '<span class="new-badge">NEW</span>' : '') +
-        (post.is_deleted ? '<span class="deleted-badge">🗑️ 원문 삭제됨</span>' : '') +
-        (post.is_syncing ? `<span class="sync-badge">${SYNC_BADGE_TEXT}</span>` : '');
+    if (post.is_deleted) classes.push('is-deleted');
+    const badges = [
+        isUnread ? '<span class="badge badge-new">NEW</span>' : '',
+        post.has_video ? '<span class="badge badge-video">동영상</span>' : '',
+        post.is_syncing && !post.is_deleted ? '<span class="badge badge-sync">댓글 추적 중</span>' : '',
+        post.is_deleted ? '<span class="badge badge-deleted">원문 삭제됨</span>' : ''
+    ].join('');
+    const link = esc(safeLink(post.link));
+    const votes = post.votes && post.votes !== '0' ? `<span>추천 ${esc(post.votes)}</span>` : '';
     return `
-        <div class="${classes.join(' ')}" id="post-${esc(post.id)}">
-            <div class="post-header">
-                <div class="post-title">${esc(post.title)}${badges}</div>
+        <article class="${classes.join(' ')}" id="post-${esc(post.id)}">
+            <div class="post-head">
+                ${badges ? `<div class="badges">${badges}</div>` : ''}
+                <div class="title-row">
+                    <h2 class="post-title">${esc(post.title)}</h2>
+                    <a class="btn-original top" href="${link}" target="_blank" rel="noopener noreferrer">원문 ${ICONS.external}</a>
+                </div>
                 <div class="post-meta">
-                    <span>✍️ ${esc(post.author)}</span>
-                    <span>👁️ ${esc(post.views)}</span>
-                    <span>👍 ${esc(post.votes)}</span>
-                    <span>🕒 ${esc(post.date)}</span>
+                    <span class="author">${esc(post.author)}</span>
+                    <span>${esc(post.date)}</span>
+                    <span>조회 ${esc(post.views)}</span>
+                    ${votes}
+                    <span>댓글 ${esc(post.comment_count)}</span>
                 </div>
             </div>
-            <div class="post-body">
-                <div class="post-content">${renderContent(post.content)}</div>
-                <div class="post-actions">
-                    <a href="${esc(safeLink(post.link))}" target="_blank" rel="noopener noreferrer" class="original-link-btn">🔗 에프엠코리아 원문</a>
-                </div>
-                ${renderComments(post)}
-            </div>
-        </div>`;
+            <div class="post-content">${renderContent(post.content)}</div>
+            ${renderComments(post)}
+            <a class="btn-original bottom" href="${link}" target="_blank" rel="noopener noreferrer">원문 보기 ${ICONS.external}</a>
+        </article>`;
+}
+
+function renderPagerMini(page, totalPages, empty) {
+    return `
+        <nav class="pager-mini" aria-label="페이지 이동">
+            <button class="icon-btn" data-action="page" data-target="prev" aria-label="이전 페이지" ${empty || page <= 1 ? 'disabled' : ''}>${ICONS.prev}</button>
+            <span class="pager-text">${empty ? '0 / 0' : `${page} / ${totalPages}`}</span>
+            <button class="icon-btn" data-action="page" data-target="next" aria-label="다음 페이지" ${empty || page >= totalPages ? 'disabled' : ''}>${ICONS.next}</button>
+        </nav>`;
+}
+
+function renderPager(page, totalPages) {
+    return `
+        <nav class="pager" aria-label="페이지 이동">
+            <button class="btn btn-outline" data-action="page" data-target="prev" ${page <= 1 ? 'disabled' : ''}>이전</button>
+            <span class="pager-text">${page} / ${totalPages}</span>
+            <button class="btn btn-primary" data-action="page" data-target="next" ${page >= totalPages ? 'disabled' : ''}>다음 페이지</button>
+        </nav>`;
 }
 
 async function loadPosts() {
-    const view = document.getElementById('board-view');
+    const feed = document.getElementById('feed');
     const tab = findTab(app.activeKey);
     if (!tab) {
-        view.innerHTML = '<div class="post-card empty-state">등록된 키워드가 없습니다. 관리 패널에서 키워드를 추가해 주세요.</div>';
+        feed.innerHTML = '<div class="empty-card">등록된 키워드가 없습니다. 관리에서 키워드를 추가해 주세요.</div>';
         return;
     }
     const requestedKey = app.activeKey;
@@ -310,38 +258,63 @@ async function loadPosts() {
     try {
         data = await getJSON('/api/posts?' + params.toString());
     } catch (e) {
-        view.innerHTML = '<div class="post-card empty-state">⚠️ 게시글을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</div>';
+        feed.innerHTML = '<div class="empty-card">게시글을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</div>';
         return;
     }
     if (requestedKey !== app.activeKey) return;  // 응답 도착 전에 다른 탭으로 이동한 경우
     app.page = data.page;
+    app.totalPages = data.total_pages;
     storageSet(sessionStorage, 'last_active_tab', app.activeKey);
     storageSet(sessionStorage, 'last_active_page', String(app.page));
 
     const readIds = getReadIds();
+    const unread = unreadCount(tab, readIds);
     const empty = data.total === 0;
-    let body;
+
+    let body = '';
     if (empty) {
         body = videoOnly
-            ? '<div class="post-card empty-state">🎥 동영상이 포함된 게시글이 없습니다.</div>'
-            : '<div class="post-card empty-state">수집된 게시글이 없습니다. 모니터링 중 새 글이 등록되면 수집을 시작합니다.</div>';
+            ? '<div class="empty-card">동영상이 포함된 게시글이 없습니다.</div>'
+            : '<div class="empty-card">수집된 게시글이 없습니다. 새 글이 등록되면 이곳에 표시됩니다.</div>';
     } else {
-        body = data.posts.map(p => renderPost(p, readIds)).join('');
+        let sawUnread = false;
+        let dividerShown = false;
+        data.posts.forEach(post => {
+            const isUnread = post.is_new && !readIds.has(post.id);
+            // 안 읽은 새 글 다음부터는 이미 본 글이라는 구분선을 한 번만 표시
+            if (!isUnread && sawUnread && !dividerShown) {
+                body += '<div class="new-divider" role="separator">여기까지 새 글</div>';
+                dividerShown = true;
+            }
+            if (isUnread) sawUnread = true;
+            body += renderPost(post, isUnread);
+        });
     }
 
-    view.innerHTML = `
-        <div class="update-info">🔄 업데이트: ${esc(app.state.generated_at)} | ${esc(tab.board_name)} 게시판 -> [${esc(tab.keyword)}] 총 ${tab.total}개 글</div>
-        ${renderPagination(true, data.page, data.total_pages, empty)}
-        <div class="posts-container">${body}</div>
-        ${renderPagination(false, data.page, data.total_pages, empty)}`;
+    feed.innerHTML = `
+        <div class="feed-head">
+            <div>
+                <h1 class="feed-title">${esc(tab.keyword)}</h1>
+                <span class="feed-sub">${esc(tab.board_name)} 게시판 · ${tab.total}개 글${unread ? ` · <strong>새 글 ${unread}</strong>` : ''}</span>
+            </div>
+            <div class="feed-tools">
+                <div class="segmented" role="group" aria-label="글 필터">
+                    <button data-action="set-filter" data-video="0" aria-pressed="${!videoOnly}">전체</button>
+                    <button data-action="set-filter" data-video="1" aria-pressed="${videoOnly}">동영상만</button>
+                </div>
+                ${renderPagerMini(data.page, data.total_pages, empty)}
+            </div>
+        </div>
+        ${body}
+        ${empty ? '' : renderPager(data.page, data.total_pages)}`;
 
     if (app.highlightPostId) {
         const target = document.getElementById('post-' + app.highlightPostId);
         app.highlightPostId = null;
         if (target) {
             setTimeout(() => {
-                const top = target.getBoundingClientRect().top + window.pageYOffset - 60;
-                window.scrollTo({ top: top, behavior: 'smooth' });
+                const offset = document.querySelector('.topbar').offsetHeight + 12;
+                window.scrollTo({ top: target.getBoundingClientRect().top + window.pageYOffset - offset, behavior: 'smooth' });
                 target.classList.add('highlight');
                 setTimeout(() => target.classList.remove('highlight'), 2500);
             }, 300);
@@ -350,16 +323,119 @@ async function loadPosts() {
 }
 
 function changePage(target) {
-    const indicator = document.querySelector('#board-view .page-indicator');
-    const totalPages = indicator ? parseInt(indicator.textContent.split('/')[1], 10) || 1 : 1;
-    if (target === 'first') app.page = 1;
-    else if (target === 'prev') app.page = Math.max(1, app.page - 1);
-    else if (target === 'next') app.page = Math.min(totalPages, app.page + 1);
-    else if (target === 'last') app.page = totalPages;
-    loadPosts().then(() => {
-        const offset = document.querySelector('.tab-container').offsetTop + 50;
-        window.scrollTo({ top: offset, behavior: 'smooth' });
-    });
+    if (target === 'prev') app.page = Math.max(1, app.page - 1);
+    else if (target === 'next') app.page = Math.min(app.totalPages, app.page + 1);
+    loadPosts().then(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+}
+
+// ==========================================
+// 관리 패널
+// ==========================================
+function alertSwitch(boardKey, type, on, label) {
+    return `
+        <label class="switch">
+            <input type="checkbox" data-action="toggle-alert" data-board="${esc(boardKey)}" data-type="${type}" aria-label="${esc(label)}" ${on ? 'checked' : ''}>
+            <span class="slider"></span>
+        </label>`;
+}
+
+function renderSettings() {
+    const select = document.getElementById('board-select');
+    const prev = select.value;
+    select.innerHTML = app.state.boards.map(b => `<option value="${esc(b.key)}">${esc(b.name)}</option>`).join('');
+    if (prev) select.value = prev;
+    else {
+        const active = findTab(app.activeKey);
+        if (active) select.value = active.board;
+    }
+
+    document.getElementById('settings-keywords').innerHTML = app.state.tabs.map((tab, idx) => `
+        <span class="kw-tag">
+            <span class="kw-tag-board">${esc(tab.board_name)}</span>${esc(tab.keyword)}
+            <button data-action="delete-keyword" data-index="${idx}" aria-label="${esc(tab.board_name + ' ' + tab.keyword)} 키워드 삭제">${ICONS.close}</button>
+        </span>`).join('');
+
+    document.getElementById('settings-alerts').innerHTML = app.state.boards.map(b => {
+        const cfg = app.state.board_config[b.key] || { alert: true, video_alert: true };
+        return `
+            <div class="alert-row">
+                <span class="alert-row-name">${esc(b.name)}</span>
+                <span class="alert-switches">
+                    ${alertSwitch(b.key, 'alert', cfg.alert, b.name + ' 전체 알림')}
+                    ${alertSwitch(b.key, 'video_alert', cfg.video_alert, b.name + ' 동영상 알림')}
+                </span>
+            </div>`;
+    }).join('');
+}
+
+function setSettingsOpen(open) {
+    const panel = document.getElementById('settings');
+    panel.hidden = !open;
+    document.body.style.overflow = open ? 'hidden' : '';
+    if (open) {
+        renderSettings();
+        const pwd = document.getElementById('admin-pwd-input');
+        (pwd.value ? document.getElementById('new-kw-input') : pwd).focus();
+    }
+}
+
+function adminPassword() {
+    return document.getElementById('admin-pwd-input').value.trim();
+}
+
+async function toggleBoardAlert(checkbox) {
+    const pwd = adminPassword();
+    const target = checkbox.checked;
+    if (!pwd) {
+        alert('알림 설정을 변경하려면 관리자 암호를 먼저 입력해 주세요.');
+        checkbox.checked = !target;
+        document.getElementById('admin-pwd-input').focus();
+        return;
+    }
+    const board = checkbox.dataset.board;
+    const type = checkbox.dataset.type;
+    try {
+        const data = await postJSON('/api/toggle-alert', { board: board, type: type, enabled: target, password: pwd });
+        if (data.success) {
+            app.state.board_config[board][type] = target;
+            renderNavigation();
+        } else {
+            alert(data.message);
+            checkbox.checked = !target;
+        }
+    } catch (e) {
+        alert('알림 상태 요청 중 오류가 발생했습니다.');
+        checkbox.checked = !target;
+    }
+}
+
+async function manageKeyword(action, keyword, board, button) {
+    const pwd = adminPassword();
+    if (!keyword) { alert('키워드를 입력해 주세요.'); return; }
+    if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return; }
+    if (action === 'delete' && !confirm("'" + keyword + "' 키워드를 정말 삭제하시겠습니까?")) return;
+
+    if (button) button.disabled = true;
+    try {
+        const data = await postJSON('/api/keyword', { action: action, keyword: keyword, board: board, password: pwd });
+        if (data.success) {
+            if (action === 'add') {
+                document.getElementById('new-kw-input').value = '';
+                app.activeKey = board + '::' + keyword;
+                app.page = 1;
+            } else if (app.activeKey === board + '::' + keyword) {
+                app.activeKey = null;
+            }
+            await loadState();
+            renderSettings();
+        } else {
+            alert(data.message);
+        }
+    } catch (e) {
+        alert('요청 중 오류가 발생했습니다.');
+    } finally {
+        if (button) button.disabled = false;
+    }
 }
 
 // ==========================================
@@ -367,18 +443,22 @@ function changePage(target) {
 // ==========================================
 async function loadState() {
     app.state = await getJSON('/api/state');
-    renderAdminPanel();
+    renderStatus(true);
     if (!findTab(app.activeKey)) {
         app.activeKey = app.state.tabs.length ? tabKey(app.state.tabs[0]) : null;
         app.page = 1;
     }
-    renderTabs();
+    renderNavigation();
     await loadPosts();
 }
 
 async function refreshCurrent() {
     if (app.activeKey) markTabRead(app.activeKey);
-    await loadState();
+    try {
+        await loadState();
+    } catch (e) {
+        renderStatus(false);
+    }
 }
 
 async function handlePostAnchor() {
@@ -403,17 +483,16 @@ async function handlePostAnchor() {
 }
 
 async function init() {
-    if (storageGet(localStorage, 'admin_panel_open', 'false') === 'true') setAdminPanelOpen(true);
-
     const savedTab = storageGet(sessionStorage, 'last_active_tab', null);
     const savedPage = parseInt(storageGet(sessionStorage, 'last_active_page', '1'), 10) || 1;
     try {
         app.state = await getJSON('/api/state');
     } catch (e) {
-        document.getElementById('board-view').innerHTML = '<div class="post-card empty-state">⚠️ 서버에 연결하지 못했습니다. 잠시 후 새로고침해 주세요.</div>';
+        renderStatus(false);
+        document.getElementById('feed').innerHTML = '<div class="empty-card">서버에 연결하지 못했습니다. 잠시 후 새로고침해 주세요.</div>';
         return;
     }
-    renderAdminPanel();
+    renderStatus(true);
     // 텔레그램 알림 링크(#post-ID)로 들어온 경우 해당 글이 있는 탭/페이지로 바로 이동
     if (await handlePostAnchor()) return;
     if (findTab(savedTab)) {
@@ -423,7 +502,7 @@ async function init() {
         app.activeKey = app.state.tabs.length ? tabKey(app.state.tabs[0]) : null;
         app.page = 1;
     }
-    renderTabs();
+    renderNavigation();
     loadPosts();
 }
 
@@ -431,6 +510,8 @@ async function init() {
 // 이벤트 연결 (인라인 핸들러 없이 위임 방식으로 처리하여 CSP를 엄격하게 유지)
 // ==========================================
 document.addEventListener('click', (e) => {
+    const backdrop = document.getElementById('settings');
+    if (e.target === backdrop) { setSettingsOpen(false); return; }
     const el = e.target.closest('[data-action]');
     if (!el || el.tagName === 'INPUT') return;
     const action = el.dataset.action;
@@ -444,9 +525,14 @@ document.addEventListener('click', (e) => {
         manageKeyword('add', document.getElementById('new-kw-input').value.trim(), document.getElementById('board-select').value, el);
     } else if (action === 'page') {
         changePage(el.dataset.target);
-    } else if (action === 'toggle-admin-panel') {
-        const panel = document.getElementById('admin-panel-zone');
-        setAdminPanelOpen(panel.style.display !== 'flex');
+    } else if (action === 'set-filter') {
+        app.videoOnly[app.activeKey] = el.dataset.video === '1';
+        app.page = 1;
+        loadPosts();
+    } else if (action === 'open-settings') {
+        setSettingsOpen(true);
+    } else if (action === 'close-settings') {
+        setSettingsOpen(false);
     } else if (action === 'refresh') {
         refreshCurrent();
     } else if (action === 'scroll-top') {
@@ -455,19 +541,14 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('change', (e) => {
-    const el = e.target;
-    if (el.dataset.action === 'toggle-alert') {
-        toggleBoardAlert(el);
-    } else if (el.dataset.action === 'toggle-video-only') {
-        app.videoOnly[app.activeKey] = el.checked;
-        app.page = 1;
-        loadPosts();
-    }
+    if (e.target.dataset.action === 'toggle-alert') toggleBoardAlert(e.target);
 });
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.target.id === 'new-kw-input') {
         document.querySelector('[data-action="add-keyword"]').click();
+    } else if (e.key === 'Escape' && !document.getElementById('settings').hidden) {
+        setSettingsOpen(false);
     }
 });
 
@@ -478,28 +559,7 @@ window.addEventListener('beforeunload', () => {
 window.addEventListener('hashchange', handlePostAnchor);
 
 window.addEventListener('scroll', () => {
-    document.getElementById('floating-top-btn').classList.toggle('visible', window.scrollY > 300);
-});
+    document.getElementById('floating-top-btn').classList.toggle('visible', window.scrollY > 400);
+}, { passive: true });
 
-document.addEventListener('DOMContentLoaded', () => {
-    // 마우스 드래그로 탭 목록 가로 스크롤
-    const slider = document.getElementById('tab-scroll-container');
-    let isDown = false, startX = 0, scrollLeft = 0;
-    slider.addEventListener('mousedown', (e) => {
-        isDown = true;
-        slider.classList.add('active');
-        startX = e.pageX - slider.offsetLeft;
-        scrollLeft = slider.scrollLeft;
-    });
-    ['mouseleave', 'mouseup'].forEach(ev => slider.addEventListener(ev, () => {
-        isDown = false;
-        slider.classList.remove('active');
-    }));
-    slider.addEventListener('mousemove', (e) => {
-        if (!isDown) return;
-        e.preventDefault();
-        slider.scrollLeft = scrollLeft - (e.pageX - slider.offsetLeft - startX) * 2;
-    });
-
-    init();
-});
+document.addEventListener('DOMContentLoaded', init);
