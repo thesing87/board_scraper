@@ -235,7 +235,10 @@ function renderContent(blocks) {
         // 본문 HTML은 서버에서 저장 시 허용 목록 기반으로 정화되어 있음
         if (/^<(img|video|div|iframe)/.test(block)) return block;
         return `<p class="content-line">${block}</p>`;
-    }).join('');
+    }).join('')
+        // 페이지는 no-referrer 정책이지만, 유튜브 임베드는 출처(Referer)가 없으면 '오류 153: 동영상 플레이어 구성 오류'를 냄.
+        // 이미지 핫링크 차단을 피하려고 페이지 정책은 유지하고 iframe에만 출처(도메인)를 보내도록 허용
+        .replace(/<iframe\b/gi, '<iframe referrerpolicy="strict-origin-when-cross-origin"');
 }
 
 function renderComments(post) {
