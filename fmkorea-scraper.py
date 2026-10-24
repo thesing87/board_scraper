@@ -28,6 +28,7 @@ from scraper import (
     get_list_page_posts,
     scrape_post_detail
 )
+from sanitize import sanitize_lines
 from ui_builder import generate_multiboard_html
 from web_server import run_api_server
 
@@ -84,6 +85,12 @@ def main():
         sys.exit(1)
 
     backup_data = load_backup_data()
+    # 정화 로직 도입 이전에 저장된 데이터도 안전하게 렌더링되도록 기동 시 1회 정화
+    for posts in backup_data.values():
+        for post in posts:
+            post['content'] = sanitize_lines(post.get('content', []))
+            for comment in post.get('comments', []):
+                comment['content'] = sanitize_lines(comment.get('content', []))
     with data_lock:
         config_data = load_keywords_from_file()
         for board, keywords in config_data.items():

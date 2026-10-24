@@ -30,7 +30,9 @@ CHECK_INTERVAL = int(os.environ.get('CHECK_INTERVAL', 90))
 MAX_POSTS_TO_SYNC_COMMENTS = int(os.environ.get('MAX_POSTS_TO_SYNC_COMMENTS', 3))
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin1234')
+# 미설정 또는 기본 예시값이면 관리 API가 비활성화됨 (web_server.py 참고)
+ADMIN_PASSWORD = (os.environ.get('ADMIN_PASSWORD') or '').strip()
+INSECURE_ADMIN_PASSWORDS = {'', 'admin1234'}
 DDNS_URL = os.environ.get('DDNS_URL')
 
 MAX_DATA_PER_KEYWORD = 100

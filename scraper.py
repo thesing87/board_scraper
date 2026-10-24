@@ -7,6 +7,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from config import log_msg
+from sanitize import sanitize_tree
 
 def extract_post_id(link):
     if not link: return "0"
@@ -210,7 +211,9 @@ def scrape_post_detail(driver, post_info):
             
         log_msg(f"본문 내 유효 첨부이미지 파싱 완료 -> 총 {img_count}개 정형화됨", "DEBUG")
 
-        for br in content_area.find_all("br"): 
+        sanitize_tree(content_area)
+
+        for br in content_area.find_all("br"):
             br.replace_with("\n")
             
         for block in content_area.find_all(['p', 'div', 'li', 'h1', 'h2', 'h3']): 
@@ -257,6 +260,7 @@ def scrape_post_detail(driver, post_info):
                     a_tag['style'] = "color: #1877f2; font-weight: bold; background-color: #e7f3ff; padding: 2px 6px; border-radius: 10px; text-decoration: none; margin-right: 5px; display: inline-block;"
                     if not a_tag.text.strip().startswith('@'): a_tag.string = f"@{a_tag.text.strip()}"
 
+            sanitize_tree(c_content_area)
             for br in c_content_area.find_all("br"): br.replace_with("\n")
             for block in c_content_area.find_all(['p', 'div', 'li']):
                 block.insert_after('\n')

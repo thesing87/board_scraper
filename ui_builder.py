@@ -1,7 +1,13 @@
 import json
+from html import escape
 from datetime import datetime
 from config import log_msg, BOARD_MAP, MAX_POSTS_TO_SYNC_COMMENTS
 from storage import load_keywords_from_file, load_board_config, atomic_write_text
+from sanitize import _is_safe_url
+
+def esc(value):
+    """수집/입력 데이터를 HTML 텍스트·속성에 안전하게 넣기 위한 이스케이프"""
+    return escape(str(value if value is not None else ''), quote=True)
 
 def generate_multiboard_html(all_keywords_data, output_file):
     log_msg("HTML 정적 대시보드 파일 템플릿 컴파일 빌드를 시작합니다.", "DEBUG")
@@ -51,7 +57,9 @@ def generate_multiboard_html(all_keywords_data, output_file):
         board_data = item['board_data']
         new_posts_count = item['new_posts_count']
         
-        board_name = BOARD_MAP.get(board, board)
+        board_name = esc(BOARD_MAP.get(board, board))
+        safe_keyword = esc(keyword)
+        js_delete_args = esc(f"{json.dumps(keyword)}, {json.dumps(board)}")
         active_class = "active" if global_idx == 0 else ""
         display_style = "block" if global_idx == 0 else "none"
         
@@ -59,12 +67,12 @@ def generate_multiboard_html(all_keywords_data, output_file):
         
         new_tag_in_tab = f'<span class="new-dot" id="dot-board-{global_idx}">🔴 </span>' if new_posts_count > 0 else f'<span class="new-dot" id="dot-board-{global_idx}" style="display:none;">🔴 </span>'
         
-        tab_clean_text = f"[{board_name}] {keyword} ({len(board_data)})"
+        tab_clean_text = f"[{board_name}] {safe_keyword} ({len(board_data)})"
         
         tabs_html += f"""
         <div class="tab-wrapper" data-board-id="board-{global_idx}">
             <button class="tab-btn {active_class}" data-tab-name="{tab_clean_text}" onclick="openTab(event, 'board-{global_idx}')">{new_tag_in_tab}{tab_clean_text}</button>
-            <button class="tab-del-btn" onclick="manageKeyword('delete', '{keyword}', '{board}')">×</button>
+            <button class="tab-del-btn" onclick="manageKeyword('delete', {js_delete_args})">×</button>
         </div>
         """
         
@@ -97,7 +105,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
 
         board_content = f"""
         <div id="board-{global_idx}" class="tab-content" style="display: {display_style};" data-current-page="1" data-tab-name="{tab_clean_text}">
-            <div class="update-info">🔄 업데이트: {now} | {board_name} 게시판 -> [{keyword}] 총 {len(board_data)}개 글</div>
+            <div class="update-info">🔄 업데이트: {now} | {board_name} 게시판 -> [{safe_keyword}] 총 {len(board_data)}개 글</div>
             
             {pagination_markup_up}
             
@@ -136,7 +144,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
                 
                 comments_html = ""
                 if post['comments']:
-                    comments_html += f'<div class="post-comments-section"><h3>💬 댓글 ({post["comment_count"]})</h3>'
+                    comments_html += f'<div class="post-comments-section"><h3>💬 댓글 ({esc(post["comment_count"])})</h3>'
                     for c in post['comments']:
                         c_content_html = "".join([f"<p style='margin: 3px 0;'>{t}</p>" if t else "<br>" for t in c['content']])
                         
@@ -146,38 +154,41 @@ def generate_multiboard_html(all_keywords_data, output_file):
                         
                         if c['author'] == post['author']:
                             bg_color = "#fff0f0"
-                            author_display = f'{reply_icon}<strong style="color: #ff4747;">{c["author"]} <span style="background-color: #ff4747; color: white; padding: 2px 5px; border-radius: 4px; font-size: 10px; margin-left: 3px; vertical-align: text-bottom;">작성자</span></strong>'
+                            author_display = f'{reply_icon}<strong style="color: #ff4747;">{esc(c["author"])} <span style="background-color: #ff4747; color: white; padding: 2px 5px; border-radius: 4px; font-size: 10px; margin-left: 3px; vertical-align: text-bottom;">작성자</span></strong>'
                         else:
                             bg_color = "#f8f9fa"
-                            author_display = f"{reply_icon}<strong>{c['author']}</strong>"
+                            author_display = f"{reply_icon}<strong>{esc(c['author'])}</strong>"
                         
                         comments_html += f"""
                         <div class="comment {indent_class}" style="background: {bg_color};">
                             <div class="comment-meta">
-                                <div>{author_display} <span style="margin-left:6px; font-size:11px; color:#90949c;">{c['date']}</span></div>
-                                <div style="color: #ff4747; font-weight: bold;">👍 {c['votes']}</div>
+                                <div>{author_display} <span style="margin-left:6px; font-size:11px; color:#90949c;">{esc(c['date'])}</span></div>
+                                <div style="color: #ff4747; font-weight: bold;">👍 {esc(c['votes'])}</div>
                             </div>
                             <div class="comment-body">{c_content_html}</div>
                         </div>
                         """
                     comments_html += '</div>'
                 
+                post_link = post.get('link') or ''
+                if not _is_safe_url(post_link):
+                    post_link = '#'
                 has_video_val = str(len(post.get('videos', [])) > 0).lower()
                 board_content += f"""
-                <div class="{card_class}" id="post-{post['id']}" data-is-new="{str(is_new).lower()}" data-has-video="{has_video_val}">
+                <div class="{card_class}" id="post-{esc(post['id'])}" data-is-new="{str(is_new).lower()}" data-has-video="{has_video_val}">
                     <div class="post-header">
-                        <div class="post-title">{post['title']}{new_badge}{deleted_badge}{sync_badge}</div>
+                        <div class="post-title">{esc(post['title'])}{new_badge}{deleted_badge}{sync_badge}</div>
                         <div class="post-meta">
-                            <span>✍️ {post['author']}</span>
-                            <span>👁️ {post['views']}</span>
-                            <span>👍 {post['votes']}</span>
-                            <span>🕒 {post['date']}</span>
+                            <span>✍️ {esc(post['author'])}</span>
+                            <span>👁️ {esc(post['views'])}</span>
+                            <span>👍 {esc(post['votes'])}</span>
+                            <span>🕒 {esc(post['date'])}</span>
                         </div>
                     </div>
                     <div class="post-body">
                         <div class="post-content">{content_html}</div>
                         <div style="margin-top: 15px; display: flex; gap: 10px;">
-                            <a href="{post['link']}" target="_blank" class="original-link-btn" onclick="event.stopPropagation();">🔗 에프엠코리아 원문</a>
+                            <a href="{esc(post_link)}" target="_blank" rel="noopener noreferrer" class="original-link-btn" onclick="event.stopPropagation();">🔗 에프엠코리아 원문</a>
                         </div>
                         {comments_html}
                     </div>
@@ -209,7 +220,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
         
         alert_toggles_html += f"""
         <div class="toggle-item">
-            <span class="toggle-label">🎯 {b_val}</span>
+            <span class="toggle-label">🎯 {esc(b_val)}</span>
             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                 <div style="display: flex; align-items: center; gap: 6px;">
                     <span class="toggle-status {status_class}">{status_label}</span>
@@ -831,14 +842,10 @@ def generate_multiboard_html(all_keywords_data, output_file):
             }}
             
             const targetStatus = checkboxElement.checked;
-            const apiUrl = '/api/toggle-alert?board=' + encodeURIComponent(boardKey) + 
-                           '&type=' + encodeURIComponent(alertType) + 
-                           '&enabled=' + targetStatus + 
-                           '&password=' + encodeURIComponent(pwd);
-            
-            fetch(apiUrl, {{
-                method: 'GET',
-                headers: {{ 'Accept': 'application/json' }}
+            fetch('/api/toggle-alert', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
+                body: JSON.stringify({{ board: boardKey, type: alertType, enabled: targetStatus, password: pwd }})
             }})
             .then(res => res.json())
             .then(data => {{
@@ -904,7 +911,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
                     }}
                 }} else {{
                     const postId = hash.replace('#post-', '');
-                    if (postId) {{
+                    if (/^\\d+$/.test(postId)) {{
                         window.location.replace('https://www.fmkorea.com/' + postId);
                     }}
                 }}
