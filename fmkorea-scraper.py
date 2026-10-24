@@ -18,17 +18,19 @@ from config import (
     data_lock
 )
 from storage import (
-    load_keywords_from_file,
+    init_db,
+    load_keywords,
     load_board_config,
-    load_backup_data,
-    save_backup_data
+    load_keyword_posts,
+    save_keyword_post,
+    update_post,
+    mark_post_deleted
 )
 from notifier import send_telegram_message
 from scraper import (
     get_list_page_posts,
     scrape_post_detail
 )
-from sanitize import sanitize_lines
 from ui_builder import generate_multiboard_html
 from web_server import run_api_server
 
@@ -84,25 +86,10 @@ def main():
         log_msg(f"❌ 크롬 웹 드라이버 엔진 실행 프로세스 도중 크리티컬 오류로 중단됨: {chrome_err}", "CRITICAL")
         sys.exit(1)
 
-    backup_data = load_backup_data()
-    # 정화 로직 도입 이전에 저장된 데이터도 안전하게 렌더링되도록 기동 시 1회 정화
-    for posts in backup_data.values():
-        for post in posts:
-            post['content'] = sanitize_lines(post.get('content', []))
-            for comment in post.get('comments', []):
-                comment['content'] = sanitize_lines(comment.get('content', []))
+    # DB 초기화(최초 1회 기존 JSON 데이터 이전 포함) 후, 화면 표시용으로 키워드별 최근 글만 메모리에 적재
+    init_db()
     with data_lock:
-        config_data = load_keywords_from_file()
-        for board, keywords in config_data.items():
-            for keyword in keywords:
-                combined_key = f"{board}::{keyword}"
-                
-                loaded_data = backup_data.get(combined_key, [])
-                if len(loaded_data) > MAX_DATA_PER_KEYWORD:
-                    loaded_data = loaded_data[:MAX_DATA_PER_KEYWORD]
-                    
-                all_keywords_data[combined_key] = loaded_data
-                log_msg(f"메모리 캐시 변수 초기 데이터 매핑 완료: {combined_key} (수집 누적 글: {len(all_keywords_data[combined_key])}개)", "DEBUG")
+        all_keywords_data.update(load_keyword_posts(MAX_DATA_PER_KEYWORD))
 
     with data_lock:
         generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
@@ -127,7 +114,7 @@ def main():
                 continue
 
             with data_lock:
-                config_data = load_keywords_from_file()
+                config_data = load_keywords()
                 board_alert_config = load_board_config()
                 
             log_msg("🔍 실시간 주기적 크롤링 스캔 작업 세션 개시", "INFO")
@@ -160,6 +147,7 @@ def main():
                                 if updated_post is None:
                                     log_msg(f"      [삭제 확정/보존] 글 ID: {old_post['id']}가 원문에서 유실되었습니다. 삭제하지 않고 보존 처리합니다.", "INFO")
                                     if not old_post.get('is_deleted', False):
+                                        mark_post_deleted(old_post['id'])
                                         with data_lock:
                                             old_post['is_deleted'] = True
                                         has_changes = True
@@ -172,6 +160,7 @@ def main():
                                     old_post['votes'] != updated_post['votes']):
                                     
                                     log_msg(f"      [변경 사항 감지] 글 ID: {old_post['id']} 메타/댓글 데이터 변경됨. 캐시 즉시 업데이트.", "INFO")
+                                    update_post(updated_post)
                                     with data_lock:
                                         board_data[idx] = updated_post
                                     has_changes = True
@@ -201,6 +190,7 @@ def main():
                                 post_data = scrape_post_detail(driver, first_post_info)
                                 if post_data:
                                     post_data['is_new'] = False
+                                    save_keyword_post(board, keyword, post_data, is_new=False)
                                     with data_lock:
                                         all_keywords_data[combined_key] = [post_data]
                                     log_msg(f"   📦 [{board_name} - {keyword}] 최초 기준점 빌드 매핑 성공", "INFO")
@@ -221,7 +211,8 @@ def main():
                                     continue
                                     
                                 post_data['is_new'] = True
-                                
+                                save_keyword_post(board, keyword, post_data, is_new=True)
+
                                 with data_lock:
                                     all_keywords_data[combined_key] = [post_data] + all_keywords_data[combined_key]
                                     
@@ -229,8 +220,7 @@ def main():
                                         all_keywords_data[combined_key] = all_keywords_data[combined_key][:MAX_DATA_PER_KEYWORD]
                                         
                                     generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
-                                    save_backup_data(all_keywords_data)
-                                
+
                                 has_video = len(post_data.get('videos', [])) > 0
                                 board_cfg = board_alert_config.get(board, {})
                                 is_alert_enabled = board_cfg.get("alert", True)
@@ -286,7 +276,6 @@ def main():
                 log_msg("🔄 이번 주기 캐시 변경 내역 발생 확인 -> index.html 동적 렌더링 동기화 즉시 갱신 진행", "INFO")
                 with data_lock:
                     generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
-                    save_backup_data(all_keywords_data)
             else:
                 log_msg("🔍 이번 턴 실시간 모니터링 감시 주기 종료: 변경 발생 데이터 없음", "DEBUG")
 

@@ -16,11 +16,9 @@ from config import (
     data_lock
 )
 from storage import (
-    load_board_config,
-    save_board_config,
-    load_keywords_from_file,
-    save_keywords_to_file,
-    save_backup_data
+    set_board_alert,
+    add_keyword,
+    remove_keyword
 )
 from ui_builder import generate_multiboard_html
 
@@ -182,11 +180,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 return
 
             with data_lock:
-                current_board_config = load_board_config()
-                if board not in current_board_config:
-                    current_board_config[board] = {"alert": True, "video_alert": True}
-                current_board_config[board][alert_type] = enabled
-                save_board_config(current_board_config)
+                set_board_alert(board, alert_type, enabled)
                 generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
 
             status_str = "켜짐" if enabled else "꺼짐"
@@ -230,28 +224,20 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 return
 
             with data_lock:
-                current_config = load_keywords_from_file()
-                if board not in current_config:
-                    current_config[board] = []
-
                 combined_key = f"{board}::{keyword}"
 
                 if action == 'add':
-                    if keyword in current_config[board]:
+                    if not add_keyword(board, keyword):
                         msg = '이미 존재하는 키워드입니다.'
                         log_msg(f"[API 서버] 키워드 중복 추가 생략 처리: {combined_key}", "WARN")
                     else:
-                        current_config[board].append(keyword)
-                        save_keywords_to_file(current_config)
                         if combined_key not in all_keywords_data:
                             all_keywords_data[combined_key] = []
                         msg = f'🎯 {BOARD_MAP.get(board, board)} -> [{keyword}] 추가되었습니다.'
                         log_msg(f"[API 서버] 신규 키워드 등록 완료: {combined_key}", "INFO")
 
                 else:
-                    if keyword in current_config[board]:
-                        current_config[board].remove(keyword)
-                        save_keywords_to_file(current_config)
+                    if remove_keyword(board, keyword):
                         if combined_key in all_keywords_data:
                             del all_keywords_data[combined_key]
                         msg = f'🗑️ {BOARD_MAP.get(board, board)} -> [{keyword}] 삭제되었습니다.'
@@ -261,7 +247,6 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                         log_msg(f"[API 서버] 삭제 거부 (존재하지 않는 키워드): {combined_key}", "WARN")
 
                 generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
-                save_backup_data(all_keywords_data)
 
             self._send_json(200, True, msg)
         except Exception as e:

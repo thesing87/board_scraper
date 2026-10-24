@@ -46,6 +46,8 @@ if IS_LINUX and (OUTPUT_DIR == 'output' or os.path.exists('/output')):
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 HTML_OUTPUT_FILE = os.path.join(OUTPUT_DIR, 'index.html')
+DB_FILE = os.path.join(OUTPUT_DIR, 'board.db')
+# 아래 JSON 파일들은 DB 도입 이전 저장 방식으로, 최초 기동 시 DB로 이전한 뒤 *.migrated로 이름이 바뀜
 JSON_BACKUP_FILE = os.path.join(OUTPUT_DIR, 'board_data_backup.json')
 KEYWORDS_FILE = os.path.join(OUTPUT_DIR, 'keywords_config.json')
 BOARD_CONFIG_FILE = os.path.join(OUTPUT_DIR, 'board_config.json')

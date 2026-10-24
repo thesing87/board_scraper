@@ -2,7 +2,7 @@ import json
 from html import escape
 from datetime import datetime
 from config import log_msg, BOARD_MAP, MAX_POSTS_TO_SYNC_COMMENTS
-from storage import load_keywords_from_file, load_board_config, atomic_write_text
+from storage import load_keywords, load_board_config, atomic_write_text
 from sanitize import _is_safe_url
 
 def esc(value):
@@ -15,7 +15,7 @@ def generate_multiboard_html(all_keywords_data, output_file):
     tabs_html = ""
     boards_html = ""
     
-    active_config = load_keywords_from_file()
+    active_config = load_keywords()
     board_alert_config = load_board_config()
     
     flattened_keywords = []
