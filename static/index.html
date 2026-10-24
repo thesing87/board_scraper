@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>통합 멀티 키워드 미니 게시판</title>
+    <link rel="stylesheet" href="/app.css">
+    <script src="/app.js" defer></script>
+</head>
+<body>
+    <header class="top-nav-banner">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <span class="icon">🏠</span> 실시간 모니터링 대시보드
+            </a>
+        </div>
+    </header>
+    <div class="container">
+        <button id="panel-toggle-trigger" class="panel-toggle-btn" data-action="toggle-admin-panel">⚙️ 실시간 모니터링 관리 패널 열기 ▼</button>
+
+        <div class="admin-panel" id="admin-panel-zone">
+            <div class="admin-title">🛠️ 키워드 실시간 모니터링 관리 패널</div>
+            <div class="admin-row">
+                <select id="board-select" class="admin-select"></select>
+                <input type="text" id="new-kw-input" class="admin-input" placeholder="추가할 키워드 입력" maxlength="50">
+                <input type="password" id="admin-pwd-input" class="admin-input admin-pwd-input" placeholder="관리자 암호">
+                <button class="admin-btn" data-action="add-keyword">➕ 등록</button>
+            </div>
+
+            <div class="admin-title admin-title-spaced">🔔 게시판별 텔레그램 알림 토글 제어 (관리자 암호 필요)</div>
+            <div class="alert-management-zone" id="alert-management-zone"></div>
+        </div>
+
+        <div class="tab-container" id="tab-scroll-container"></div>
+
+        <div id="board-view">
+            <div class="post-card loading-state">⏳ 불러오는 중...</div>
+        </div>
+    </div>
+
+    <div class="floating-actions">
+        <button class="floating-refresh-btn" data-action="refresh" title="현재 키워드 즉시 새로고침">🔄</button>
+        <button id="floating-top-btn" class="scroll-top-btn" data-action="scroll-top" title="맨 위로 이동">▲</button>
+    </div>
+</body>
+</html>

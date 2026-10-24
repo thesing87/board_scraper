@@ -3,27 +3,48 @@ import json
 import hmac
 import time
 import threading
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
+from urllib.parse import urlparse, parse_qs
 
 from config import (
     log_msg,
     ADMIN_PASSWORD,
     INSECURE_ADMIN_PASSWORDS,
     BOARD_MAP,
-    HTML_OUTPUT_FILE,
-    all_keywords_data,
-    data_lock
+    MAX_POSTS_TO_SYNC_COMMENTS
 )
 from storage import (
     set_board_alert,
     add_keyword,
-    remove_keyword
+    remove_keyword,
+    load_board_config,
+    list_keyword_tabs,
+    query_keyword_posts,
+    locate_post
 )
-from ui_builder import generate_multiboard_html
 
 MAX_BODY_BYTES = 10 * 1024
 MAX_KEYWORD_LENGTH = 50
+POSTS_PER_PAGE = 10
+# 탭의 '안 읽은 새 글' 표시 계산에 쓰는 키워드별 최근 글 범위
+NEW_POSTS_WINDOW = 100
+
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+STATIC_FILES = {
+    '/': ('index.html', 'text/html; charset=utf-8'),
+    '/index.html': ('index.html', 'text/html; charset=utf-8'),
+    '/app.js': ('app.js', 'application/javascript; charset=utf-8'),
+    '/app.css': ('app.css', 'text/css; charset=utf-8'),
+}
+
+# 본문 HTML은 저장 시 정화되지만, 스크립트는 같은 출처의 app.js만 실행되도록 브라우저 차원에서 한 번 더 제한
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src * data: blob:; media-src * data: blob:; frame-src https: http:; "
+    "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+)
 
 # 비밀번호 무차별 대입 방지: IP별로 일정 시간 내 실패 횟수를 넘기면 잠금
 AUTH_MAX_FAILURES = 5
@@ -67,17 +88,57 @@ def _clear_auth_failures(ip):
     with auth_lock:
         auth_failures.pop(ip, None)
 
+def build_state():
+    """대시보드 초기 화면 구성용 데이터: 탭 목록(정렬 포함), 게시판 목록, 알림 설정"""
+    tabs = list_keyword_tabs(NEW_POSTS_WINDOW)
+    for tab in tabs:
+        tab['board_name'] = BOARD_MAP.get(tab['board'], tab['board'])
+    # 새 글이 있는 탭 → 최신 글 날짜 → 글 수 순으로 정렬 (기존 대시보드와 동일)
+    tabs.sort(key=lambda t: (len(t['new_ids']) > 0, t['latest_date'], t['total']), reverse=True)
+    return {
+        'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'posts_per_page': POSTS_PER_PAGE,
+        'boards': [{'key': k, 'name': v} for k, v in BOARD_MAP.items()],
+        'board_config': load_board_config(),
+        'tabs': tabs
+    }
+
+def build_posts_page(board, keyword, page, video_only):
+    total, _ = query_keyword_posts(board, keyword, 0, 0, video_only)
+    total_pages = max(1, -(-total // POSTS_PER_PAGE))
+    page = min(max(1, page), total_pages)
+    _, posts = query_keyword_posts(board, keyword, (page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only)
+    # 메인 루프가 매 주기 댓글·추천을 다시 수집하는 상위 글 표시 (필터와 무관하게 키워드 전체 기준)
+    _, top_posts = query_keyword_posts(board, keyword, 0, MAX_POSTS_TO_SYNC_COMMENTS)
+    syncing_ids = {p['id'] for p in top_posts if not p.get('is_deleted')}
+    for post in posts:
+        post['has_video'] = len(post.get('videos', [])) > 0
+        post['is_syncing'] = post['id'] in syncing_ids
+        post.pop('images', None)
+    return {'page': page, 'total_pages': total_pages, 'total': total, 'posts': posts}
+
 class KeywordAPIServer(BaseHTTPRequestHandler):
     def log_message(self, format, *args): return
 
-    def _send_json(self, status, success, message):
-        body = json.dumps({'success': success, 'message': message}, ensure_ascii=False).encode('utf-8')
+    def _send_body(self, status, body, content_type, extra_headers=None):
         self.send_response(status)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))
-        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('X-Frame-Options', 'DENY')
+        self.send_header('Referrer-Policy', 'no-referrer')
+        for name, value in (extra_headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_data(self, status, data):
+        body = json.dumps(data, ensure_ascii=False).encode('utf-8')
+        self._send_body(status, body, 'application/json; charset=utf-8')
+
+    def _send_json(self, status, success, message):
+        self._send_data(status, {'success': success, 'message': message})
 
     def _read_json_body(self):
         content_length = int(self.headers.get('Content-Length', 0))
@@ -107,46 +168,51 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self):
-        pure_path = self.path.split('?')[0]
+        parsed = urlparse(self.path)
+        pure_path = parsed.path
+        query = parse_qs(parsed.query)
         log_msg(f"[API 서버] GET 요청 수신 -> Path: {pure_path}", "DEBUG")
 
-        if pure_path == '/' or pure_path == '/index.html':
-            try:
-                log_msg("[API 서버] 대시보드 메인 HTML 페이지 렌더링 응답 개시", "DEBUG")
-
-                if not os.path.exists(HTML_OUTPUT_FILE):
-                    self.send_response(503)
-                    self.end_headers()
-                    self.wfile.write("⏳ 대시보드 파일 초기 생성 중입니다. 잠시 후 새로고침 해주세요.".encode('utf-8'))
-                    return
-
-                with open(HTML_OUTPUT_FILE, 'rb') as f:
-                    content = f.read()
-
-                self.send_response(200)
-                self.send_header('Content-Type', 'text/html; charset=utf-8')
-                self.send_header('Content-Length', str(len(content)))
-                self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
-                self.send_header('Pragma', 'no-cache')
-                self.send_header('Expires', '0')
-                self.send_header('X-Content-Type-Options', 'nosniff')
-                self.send_header('X-Frame-Options', 'DENY')
-                self.send_header('Referrer-Policy', 'no-referrer')
-                self.end_headers()
-                self.wfile.write(content)
-            except (BrokenPipeError, ConnectionResetError):
-                log_msg("[API 서버] ℹ️ 전송 중 브라우저 연결 끊김 감지 (사용자 새로고침 혹은 창 닫음)", "INFO")
-                return
-            except Exception as e:
-                log_msg(f"⚠️ [API 서버] HTML 템플릿 반환 실패: {e}", "ERROR")
+        try:
+            if pure_path in STATIC_FILES:
+                self._serve_static(*STATIC_FILES[pure_path])
+            elif pure_path == '/api/state':
+                self._send_data(200, build_state())
+            elif pure_path == '/api/posts':
+                board = query.get('board', [''])[0]
+                keyword = query.get('keyword', [''])[0]
                 try:
-                    self.send_response(500)
-                    self.end_headers()
-                except Exception:
-                    pass
-        else:
-            self.send_response(404)
-            self.end_headers()
+                    page = int(query.get('page', ['1'])[0])
+                except ValueError:
+                    page = 1
+                video_only = query.get('video_only', ['0'])[0] in ('1', 'true')
+                self._send_data(200, build_posts_page(board, keyword, page, video_only))
+            elif pure_path == '/api/locate':
+                post_id = query.get('id', [''])[0]
+                location = locate_post(post_id) if post_id.isdigit() else None
+                if location is None:
+                    self._send_data(404, {'found': False})
+                else:
+                    location['page'] = location['index'] // POSTS_PER_PAGE + 1
+                    location['found'] = True
+                    self._send_data(200, location)
+            else:
+                self.send_response(404)
+                self.end_headers()
+        except (BrokenPipeError, ConnectionResetError):
+            log_msg("[API 서버] ℹ️ 전송 중 브라우저 연결 끊김 감지 (사용자 새로고침 혹은 창 닫음)", "INFO")
+        except Exception as e:
+            log_msg(f"⚠️ [API 서버] GET {pure_path} 처리 실패: {e}", "ERROR")
+            try:
+                self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
+            except Exception:
+                pass
+
+    def _serve_static(self, filename, content_type):
+        with open(os.path.join(STATIC_DIR, filename), 'rb') as f:
+            content = f.read()
+        extra = {'Content-Security-Policy': CONTENT_SECURITY_POLICY} if filename.endswith('.html') else None
+        self._send_body(200, content, content_type, extra)
 
     def do_POST(self):
         pure_path = self.path.split('?')[0]
@@ -179,9 +245,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
                 return
 
-            with data_lock:
-                set_board_alert(board, alert_type, enabled)
-                generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
+            set_board_alert(board, alert_type, enabled)
 
             status_str = "켜짐" if enabled else "꺼짐"
             type_str = "동영상 알림" if alert_type == "video_alert" else "일반 알림"
@@ -223,30 +287,21 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._send_json(400, False, f'❌ 키워드는 줄바꿈 없이 {MAX_KEYWORD_LENGTH}자 이하로 입력해 주세요.')
                 return
 
-            with data_lock:
-                combined_key = f"{board}::{keyword}"
-
-                if action == 'add':
-                    if not add_keyword(board, keyword):
-                        msg = '이미 존재하는 키워드입니다.'
-                        log_msg(f"[API 서버] 키워드 중복 추가 생략 처리: {combined_key}", "WARN")
-                    else:
-                        if combined_key not in all_keywords_data:
-                            all_keywords_data[combined_key] = []
-                        msg = f'🎯 {BOARD_MAP.get(board, board)} -> [{keyword}] 추가되었습니다.'
-                        log_msg(f"[API 서버] 신규 키워드 등록 완료: {combined_key}", "INFO")
-
+            combined_key = f"{board}::{keyword}"
+            if action == 'add':
+                if not add_keyword(board, keyword):
+                    msg = '이미 존재하는 키워드입니다.'
+                    log_msg(f"[API 서버] 키워드 중복 추가 생략 처리: {combined_key}", "WARN")
                 else:
-                    if remove_keyword(board, keyword):
-                        if combined_key in all_keywords_data:
-                            del all_keywords_data[combined_key]
-                        msg = f'🗑️ {BOARD_MAP.get(board, board)} -> [{keyword}] 삭제되었습니다.'
-                        log_msg(f"[API 서버] 키워드 영구 제거 완료: {combined_key}", "INFO")
-                    else:
-                        msg = '존재하지 않는 키워드입니다.'
-                        log_msg(f"[API 서버] 삭제 거부 (존재하지 않는 키워드): {combined_key}", "WARN")
-
-                generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
+                    msg = f'🎯 {BOARD_MAP.get(board, board)} -> [{keyword}] 추가되었습니다.'
+                    log_msg(f"[API 서버] 신규 키워드 등록 완료: {combined_key}", "INFO")
+            else:
+                if remove_keyword(board, keyword):
+                    msg = f'🗑️ {BOARD_MAP.get(board, board)} -> [{keyword}] 삭제되었습니다.'
+                    log_msg(f"[API 서버] 키워드 영구 제거 완료: {combined_key}", "INFO")
+                else:
+                    msg = '존재하지 않는 키워드입니다.'
+                    log_msg(f"[API 서버] 삭제 거부 (존재하지 않는 키워드): {combined_key}", "WARN")
 
             self._send_json(200, True, msg)
         except Exception as e:

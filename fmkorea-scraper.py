@@ -12,16 +12,13 @@ from config import (
     MAX_POSTS_TO_SYNC_COMMENTS,
     DDNS_URL,
     MAX_DATA_PER_KEYWORD,
-    IS_LINUX,
-    HTML_OUTPUT_FILE,
-    all_keywords_data,
-    data_lock
+    IS_LINUX
 )
 from storage import (
     init_db,
     load_keywords,
     load_board_config,
-    load_keyword_posts,
+    query_keyword_posts,
     save_keyword_post,
     update_post,
     mark_post_deleted
@@ -31,7 +28,6 @@ from scraper import (
     get_list_page_posts,
     scrape_post_detail
 )
-from ui_builder import generate_multiboard_html
 from web_server import run_api_server
 
 try:
@@ -86,15 +82,10 @@ def main():
         log_msg(f"❌ 크롬 웹 드라이버 엔진 실행 프로세스 도중 크리티컬 오류로 중단됨: {chrome_err}", "CRITICAL")
         sys.exit(1)
 
-    # DB 초기화(최초 1회 기존 JSON 데이터 이전 포함) 후, 화면 표시용으로 키워드별 최근 글만 메모리에 적재
+    # DB 초기화(최초 1회 기존 JSON 데이터 이전 포함). 대시보드는 웹서버가 DB에서 직접 조회하여 제공
     init_db()
-    with data_lock:
-        all_keywords_data.update(load_keyword_posts(MAX_DATA_PER_KEYWORD))
 
-    with data_lock:
-        generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
-
-    log_msg("🎉 통합 미니 게시판 시스템 초기화 완료 (기존 백업 데이터로 대시보드 복원 성공)", "INFO")
+    log_msg("🎉 통합 미니 게시판 시스템 초기화 완료", "INFO")
     log_msg("📡 메인 백그라운드 실시간 모니터링 감시 무한 루프 엔진을 가동합니다.", "INFO")
 
     try:
@@ -113,30 +104,26 @@ def main():
                 log_msg(f"❌ 크롬 드라이버 재생성 실패, 다음 주기에 재시도합니다: {restart_err}", "ERROR")
                 continue
 
-            with data_lock:
-                config_data = load_keywords()
-                board_alert_config = load_board_config()
-                
+            config_data = load_keywords()
+            board_alert_config = load_board_config()
+
             log_msg("🔍 실시간 주기적 크롤링 스캔 작업 세션 개시", "INFO")
             has_changes = False
-            
+
             for board, keywords in config_data.items():
                 board_name = BOARD_MAP.get(board, board)
                 
                 for keyword in keywords:
-                    combined_key = f"{board}::{keyword}"
                     log_msg(f"   ▶ 순회 작업 진행 타겟 -> [{board_name}] - 키워드: {keyword}", "DEBUG")
-                    
-                    with data_lock:
-                        if combined_key not in all_keywords_data:
-                            all_keywords_data[combined_key] = []
-                        board_data = all_keywords_data[combined_key]
-                    
+
+                    # 새 글 판별 기준이 되는 최근 수집 글 (최신순)
+                    _, board_data = query_keyword_posts(board, keyword, 0, MAX_DATA_PER_KEYWORD)
+
                     if board_data:
                         log_msg(f"      - 기존 캐시 데이터 갱신을 위한 상위 {MAX_POSTS_TO_SYNC_COMMENTS}개 타겟 딥 스캔 진입", "DEBUG")
                         posts_to_sync = board_data[:MAX_POSTS_TO_SYNC_COMMENTS]
                         
-                        for idx, old_post in enumerate(posts_to_sync):
+                        for old_post in posts_to_sync:
                             try:
                                 if old_post.get('is_deleted', False):
                                     continue
@@ -148,12 +135,8 @@ def main():
                                     log_msg(f"      [삭제 확정/보존] 글 ID: {old_post['id']}가 원문에서 유실되었습니다. 삭제하지 않고 보존 처리합니다.", "INFO")
                                     if not old_post.get('is_deleted', False):
                                         mark_post_deleted(old_post['id'])
-                                        with data_lock:
-                                            old_post['is_deleted'] = True
                                         has_changes = True
                                     continue
-                                
-                                updated_post['is_new'] = old_post.get('is_new', False) 
                                 
                                 if (old_post['comment_count'] != updated_post['comment_count'] or 
                                     len(old_post['comments']) != len(updated_post['comments']) or
@@ -161,8 +144,6 @@ def main():
                                     
                                     log_msg(f"      [변경 사항 감지] 글 ID: {old_post['id']} 메타/댓글 데이터 변경됨. 캐시 즉시 업데이트.", "INFO")
                                     update_post(updated_post)
-                                    with data_lock:
-                                        board_data[idx] = updated_post
                                     has_changes = True
                             except Exception as sync_ex:
                                 log_msg(f"      ⚠️ 기존 글 ID {old_post['id']} 백그라운드 갱신 스킵 (예외 피드백): {sync_ex}", "WARN")
@@ -189,10 +170,7 @@ def main():
                                 first_post_info = new_post_list[0]
                                 post_data = scrape_post_detail(driver, first_post_info)
                                 if post_data:
-                                    post_data['is_new'] = False
                                     save_keyword_post(board, keyword, post_data, is_new=False)
-                                    with data_lock:
-                                        all_keywords_data[combined_key] = [post_data]
                                     log_msg(f"   📦 [{board_name} - {keyword}] 최초 기준점 빌드 매핑 성공", "INFO")
                                     has_changes = True
                             except Exception as e:
@@ -210,16 +188,7 @@ def main():
                                 if post_data is None:
                                     continue
                                     
-                                post_data['is_new'] = True
                                 save_keyword_post(board, keyword, post_data, is_new=True)
-
-                                with data_lock:
-                                    all_keywords_data[combined_key] = [post_data] + all_keywords_data[combined_key]
-                                    
-                                    if len(all_keywords_data[combined_key]) > MAX_DATA_PER_KEYWORD:
-                                        all_keywords_data[combined_key] = all_keywords_data[combined_key][:MAX_DATA_PER_KEYWORD]
-                                        
-                                    generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
 
                                 has_video = len(post_data.get('videos', [])) > 0
                                 board_cfg = board_alert_config.get(board, {})
@@ -273,9 +242,7 @@ def main():
                         has_changes = True
             
             if has_changes:
-                log_msg("🔄 이번 주기 캐시 변경 내역 발생 확인 -> index.html 동적 렌더링 동기화 즉시 갱신 진행", "INFO")
-                with data_lock:
-                    generate_multiboard_html(all_keywords_data, HTML_OUTPUT_FILE)
+                log_msg("🔄 이번 주기 수집 데이터 변경 사항이 DB에 반영되었습니다.", "INFO")
             else:
                 log_msg("🔍 이번 턴 실시간 모니터링 감시 주기 종료: 변경 발생 데이터 없음", "DEBUG")
 

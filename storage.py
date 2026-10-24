@@ -1,7 +1,6 @@
 import os
 import json
 import sqlite3
-import tempfile
 import threading
 from contextlib import closing
 from datetime import datetime
@@ -19,23 +18,6 @@ SCHEMA_VERSION = 1
 
 _init_lock = threading.Lock()
 _initialized = False
-
-def atomic_write_text(path, text):
-    """임시 파일에 먼저 쓴 뒤 교체하여, 쓰기 도중 중단되어도 기존 파일이 깨지지 않도록 보장"""
-    dir_name = os.path.dirname(path) or '.'
-    fd, tmp_path = tempfile.mkstemp(dir=dir_name, prefix='.tmp_', suffix=os.path.basename(path))
-    try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, path)
-    except Exception:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-        raise
 
 # ==========================================
 # SQLite 연결 및 스키마
@@ -301,18 +283,58 @@ def _row_to_post(row):
         post['is_deleted'] = True
     return post
 
-def load_keyword_posts(limit_per_keyword):
-    """{"board::keyword": [post, ...(최신순)]} 형태로 등록된 키워드의 최근 글을 반환"""
-    result = {}
+_HAS_VIDEO_SQL = "p.videos_json != '[]'"
+
+def query_keyword_posts(board, keyword, offset=0, limit=10, video_only=False):
+    """키워드에 연결된 글을 최신순으로 조회하여 (전체 개수, 글 목록) 반환"""
+    where = "kp.board = ? AND kp.keyword = ?" + (f" AND {_HAS_VIDEO_SQL}" if video_only else "")
+    params = (board, keyword)
+    with _db() as conn:
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM keyword_posts kp JOIN posts p ON p.id = kp.post_id WHERE {where}", params
+        ).fetchone()[0]
+        rows = conn.execute(f"""
+            SELECT p.*, kp.is_new FROM keyword_posts kp
+            JOIN posts p ON p.id = kp.post_id
+            WHERE {where}
+            ORDER BY kp.rowid DESC LIMIT ? OFFSET ?
+        """, params + (limit, offset)).fetchall()
+    return total, [_row_to_post(r) for r in rows]
+
+def list_keyword_tabs(new_window=100):
+    """대시보드 탭 목록용 키워드별 요약 (글 수, 최근 new 글 ID, 최신 글 날짜)"""
+    tabs = []
     with _db() as conn:
         for kw in conn.execute("SELECT board, keyword FROM keywords ORDER BY rowid").fetchall():
-            rows = conn.execute("""
-                SELECT p.*, kp.is_new FROM keyword_posts kp
+            board, keyword = kw['board'], kw['keyword']
+            total = conn.execute(
+                "SELECT COUNT(*) FROM keyword_posts WHERE board = ? AND keyword = ?", (board, keyword)
+            ).fetchone()[0]
+            recent = conn.execute("""
+                SELECT kp.post_id, kp.is_new, p.date FROM keyword_posts kp
                 JOIN posts p ON p.id = kp.post_id
                 WHERE kp.board = ? AND kp.keyword = ?
                 ORDER BY kp.rowid DESC LIMIT ?
-            """, (kw['board'], kw['keyword'], limit_per_keyword)).fetchall()
-            result[f"{kw['board']}::{kw['keyword']}"] = [_row_to_post(r) for r in rows]
-    total = sum(len(v) for v in result.values())
-    log_msg(f"DB 게시글 로드 완료 (키워드 조합 {len(result)}개, 글 {total}건)", "INFO")
-    return result
+            """, (board, keyword, new_window)).fetchall()
+            tabs.append({
+                'board': board,
+                'keyword': keyword,
+                'total': total,
+                'new_ids': [r['post_id'] for r in recent if r['is_new']],
+                'latest_date': recent[0]['date'] if recent else ''
+            })
+    return tabs
+
+def locate_post(post_id):
+    """글이 연결된 키워드와 그 키워드 목록 안에서의 순번(0부터, 최신순)을 반환. 없으면 None"""
+    with _db() as conn:
+        link = conn.execute(
+            "SELECT rowid, board, keyword FROM keyword_posts WHERE post_id = ? ORDER BY rowid DESC LIMIT 1", (str(post_id),)
+        ).fetchone()
+        if not link:
+            return None
+        index = conn.execute(
+            "SELECT COUNT(*) FROM keyword_posts WHERE board = ? AND keyword = ? AND rowid > ?",
+            (link['board'], link['keyword'], link['rowid'])
+        ).fetchone()[0]
+    return {'board': link['board'], 'keyword': link['keyword'], 'index': index}

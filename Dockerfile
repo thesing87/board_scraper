@@ -18,6 +18,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY *.py ./
+COPY static ./static
 
 # 보안을 위해 이미지 기본 비특권 사용자(seluser, uid 1200 / gid 1201)로 실행
 # 호스트에 마운트하는 출력 폴더도 이 사용자에게 쓰기 권한이 있어야 함:
