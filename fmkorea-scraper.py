@@ -11,7 +11,6 @@ from config import (
     short_err,
     BOARD_MAP,
     CHECK_INTERVAL,
-    MAX_POSTS_TO_SYNC_COMMENTS,
     DDNS_URL,
     MAX_DATA_PER_KEYWORD,
     IS_LINUX
@@ -23,17 +22,21 @@ from storage import (
     query_keyword_posts,
     save_keyword_post,
     update_post,
+    update_list_stats,
     mark_post_deleted
 )
 from notifier import send_telegram_message
 from scraper import (
     get_list_page_posts,
-    scrape_post_detail
+    scrape_post_detail,
+    parse_count
 )
 from web_server import run_api_server
 
 # 변경이 없는 주기는 요약 로그를 남기지 않으므로, 살아있음을 알리는 상태 로그 간격
 HEARTBEAT_SECONDS = 3600
+# 목록에서 사라진 글(삭제 의심)을 키워드당 한 주기에 확인하는 최대 개수
+DELETION_CHECKS_PER_KEYWORD = 3
 
 try:
     if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
@@ -70,6 +73,66 @@ def ensure_driver_alive(driver):
         pass
     return create_driver()
 
+def sync_existing_posts(driver, target, list_posts, board_data, stats, verified_present):
+    """목록 페이지 값과 저장된 값을 비교해, 댓글 수가 바뀐 글만 상세 페이지를 다시 열어 갱신하고
+    목록에서 사라진 글은 삭제 여부를 확인. 상세 페이지 요청을 변화가 있을 때로만 줄이는 것이 목적"""
+    stored = {p['id']: p for p in board_data}
+    listed_ids = set()
+
+    for item in list_posts:
+        listed_ids.add(item['id'])
+        old = stored.get(item['id'])
+        if old is None or old.get('is_deleted'):
+            continue
+        prev = old.get('list_comment_count')
+        if prev is None:
+            # 목록 댓글 수가 아직 없는(이전 방식으로 저장된) 글은 상세 페이지 기준 댓글 수와 한 번 비교
+            prev = parse_count(old.get('comment_count'))
+
+        if item['list_comment_count'] != prev:
+            try:
+                stats['details'] += 1
+                updated = scrape_post_detail(driver, old)
+                if updated is None:
+                    mark_post_deleted(old['id'])
+                    stats['deleted'] += 1
+                    log_msg(f"[삭제] {target} #{old['id']} 원문 삭제됨 (보존 처리)")
+                    continue
+                updated['list_comment_count'] = item['list_comment_count']
+                update_post(updated)
+                stats['updated'] += 1
+                log_msg(f"[갱신] {target} #{old['id']} 댓글 {prev}→{item['list_comment_count']}, 추천 {updated['votes']}", "DEBUG")
+            except Exception as sync_ex:
+                stats['errors'] += 1
+                log_msg(f"[오류] {target} #{old['id']} 갱신 실패: {short_err(sync_ex)}", "WARN")
+        elif (old.get('list_comment_count') is None or
+              (item['list_views'] and item['list_views'] != old.get('views')) or
+              (item['list_votes'] and item['list_votes'] != old.get('votes'))):
+            # 댓글 변화가 없으면 조회·추천 수만 목록 값으로 반영 (상세 페이지 요청 없음)
+            update_list_stats(item['id'], item['list_views'], item['list_votes'], item['list_comment_count'])
+
+    # 목록에 있어야 할 범위(목록의 가장 오래된 글보다 최신)인데 목록에서 사라진 글은 삭제됐을 가능성이 있어 확인
+    if not list_posts:
+        return
+    oldest_listed = min(int(item['id']) for item in list_posts)
+    missing = [p for p in board_data
+               if not p.get('is_deleted') and p['id'] not in listed_ids
+               and int(p['id']) > oldest_listed and p['id'] not in verified_present]
+    for old in missing[:DELETION_CHECKS_PER_KEYWORD]:
+        try:
+            stats['details'] += 1
+            if scrape_post_detail(driver, old) is None:
+                mark_post_deleted(old['id'])
+                stats['deleted'] += 1
+                log_msg(f"[삭제] {target} #{old['id']} 원문 삭제됨 (보존 처리)")
+            else:
+                # 제목·본문 수정으로 검색에서 빠진 글 등. 이번 실행 중에는 다시 확인하지 않음
+                verified_present.add(old['id'])
+                log_msg(f"[수집] {target} #{old['id']} 목록에서 빠졌지만 원문은 존재", "DEBUG")
+        except Exception as check_ex:
+            stats['errors'] += 1
+            log_msg(f"[오류] {target} #{old['id']} 삭제 확인 실패: {short_err(check_ex)}", "WARN")
+
 def short_title(title, limit=40):
     title = (title or '').strip()
     return title if len(title) <= limit else title[:limit] + '…'
@@ -96,6 +159,8 @@ def main():
     try:
         is_initial_run = True
         heartbeat = {'since': time.time(), 'cycles': 0, 'new': 0, 'errors': 0}
+        # 목록에서 빠졌지만 원문이 남아 있다고 확인된 글 (매 주기 다시 열지 않도록 기억)
+        verified_present = set()
 
         while True:
             if not is_initial_run:
@@ -113,7 +178,7 @@ def main():
             board_alert_config = load_board_config()
 
             cycle_started = time.time()
-            stats = {'keywords': 0, 'new': 0, 'updated': 0, 'deleted': 0, 'errors': 0}
+            stats = {'keywords': 0, 'new': 0, 'updated': 0, 'deleted': 0, 'errors': 0, 'details': 0}
 
             for board, keywords in config_data.items():
                 board_name = BOARD_MAP.get(board, board)
@@ -126,29 +191,7 @@ def main():
                     # 새 글 판별 기준이 되는 최근 수집 글 (최신순)
                     _, board_data = query_keyword_posts(board, keyword, 0, MAX_DATA_PER_KEYWORD)
 
-                    # 상위 글은 매 주기 다시 열어 댓글·추천 수 변화와 원문 삭제 여부를 반영
-                    for old_post in board_data[:MAX_POSTS_TO_SYNC_COMMENTS]:
-                        if old_post.get('is_deleted', False):
-                            continue
-                        try:
-                            updated_post = scrape_post_detail(driver, old_post)
-
-                            if updated_post is None:
-                                mark_post_deleted(old_post['id'])
-                                stats['deleted'] += 1
-                                log_msg(f"[삭제] {target} #{old_post['id']} 원문 삭제됨 (보존 처리)")
-                                continue
-
-                            if (old_post['comment_count'] != updated_post['comment_count'] or
-                                len(old_post['comments']) != len(updated_post['comments']) or
-                                old_post['votes'] != updated_post['votes']):
-                                update_post(updated_post)
-                                stats['updated'] += 1
-                                log_msg(f"[갱신] {target} #{old_post['id']} 댓글 {updated_post['comment_count']}, 추천 {updated_post['votes']}", "DEBUG")
-                        except Exception as sync_ex:
-                            stats['errors'] += 1
-                            log_msg(f"[오류] {target} #{old_post['id']} 갱신 실패: {short_err(sync_ex)}", "WARN")
-
+                    # 목록을 먼저 읽어 새 글 알림을 가장 먼저 처리하고, 기존 글 갱신은 목록 값 비교로 변화가 있을 때만 수행
                     try:
                         new_post_list = get_list_page_posts(driver, board, keyword, page=1)
                     except Exception as list_ex:
@@ -160,8 +203,10 @@ def main():
                         # 기준점이 없으면 목록 전체를 새 글로 취급해 알림이 폭주하므로, 성공할 때까지 매 주기 최신 글 1개만 기준점으로 저장
                         if new_post_list:
                             try:
+                                stats['details'] += 1
                                 post_data = scrape_post_detail(driver, new_post_list[0])
                                 if post_data:
+                                    post_data['list_comment_count'] = new_post_list[0]['list_comment_count']
                                     save_keyword_post(board, keyword, post_data, is_new=False)
                                     log_msg(f"[기준점] {target} #{post_data['id']} 저장 (이후 새 글부터 알림)")
                             except Exception as e:
@@ -178,10 +223,12 @@ def main():
 
                     for post_info in reversed(new_posts):
                         try:
+                            stats['details'] += 1
                             post_data = scrape_post_detail(driver, post_info)
                             if post_data is None:
                                 continue
 
+                            post_data['list_comment_count'] = post_info['list_comment_count']
                             save_keyword_post(board, keyword, post_data, is_new=True)
                             stats['new'] += 1
 
@@ -235,10 +282,12 @@ def main():
                             stats['errors'] += 1
                             log_msg(f"[오류] {target} #{post_info['id']} 새 글 수집 실패: {short_err(deep_ex)}", "WARN")
 
+                    sync_existing_posts(driver, target, new_post_list, board_data, stats, verified_present)
+
             # 주기 요약: 변화나 오류가 있을 때만 INFO로 남기고, 조용한 주기는 1시간마다 상태 로그로 묶어서 보고
             elapsed = time.time() - cycle_started
             summary = (f"키워드 {stats['keywords']}개, 새 글 {stats['new']}, 갱신 {stats['updated']}, "
-                       f"삭제 {stats['deleted']}, 오류 {stats['errors']} ({elapsed:.0f}초)")
+                       f"삭제 {stats['deleted']}, 오류 {stats['errors']}, 상세 조회 {stats['details']}회 ({elapsed:.0f}초)")
             has_events = stats['new'] or stats['deleted'] or stats['errors']
             log_msg(f"[수집] 주기 완료: {summary}", "INFO" if has_events else "DEBUG")
 

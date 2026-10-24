@@ -14,7 +14,7 @@ from config import (
     ADMIN_PASSWORD,
     INSECURE_ADMIN_PASSWORDS,
     BOARD_MAP,
-    MAX_POSTS_TO_SYNC_COMMENTS
+    LIST_PAGE_SIZE
 )
 from storage import (
     set_board_alert,
@@ -109,13 +109,14 @@ def build_posts_page(board, keyword, page, video_only):
     total_pages = max(1, -(-total // POSTS_PER_PAGE))
     page = min(max(1, page), total_pages)
     _, posts = query_keyword_posts(board, keyword, (page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only)
-    # 메인 루프가 매 주기 댓글·추천을 다시 수집하는 상위 글 표시 (필터와 무관하게 키워드 전체 기준)
-    _, top_posts = query_keyword_posts(board, keyword, 0, MAX_POSTS_TO_SYNC_COMMENTS)
+    # 메인 루프가 매 주기 목록의 댓글 수로 변화를 감시하는 최근 글 표시 (필터와 무관하게 키워드 전체 기준)
+    _, top_posts = query_keyword_posts(board, keyword, 0, LIST_PAGE_SIZE)
     syncing_ids = {p['id'] for p in top_posts if not p.get('is_deleted')}
     for post in posts:
         post['has_video'] = len(post.get('videos', [])) > 0
         post['is_syncing'] = post['id'] in syncing_ids
         post.pop('images', None)
+        post.pop('list_comment_count', None)
     return {'page': page, 'total_pages': total_pages, 'total': total, 'posts': posts}
 
 class KeywordAPIServer(BaseHTTPRequestHandler):

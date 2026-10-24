@@ -66,7 +66,8 @@ BOARD_MAP = {
 }
 
 CHECK_INTERVAL = int(os.environ.get('CHECK_INTERVAL', 90))
-MAX_POSTS_TO_SYNC_COMMENTS = int(os.environ.get('MAX_POSTS_TO_SYNC_COMMENTS', 3))
+# 검색 목록 1페이지의 글 수. 이 범위의 글은 매 주기 목록의 댓글 수로 변화를 감시함 (대시보드 '동기화중' 배지 기준)
+LIST_PAGE_SIZE = 20
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 # 미설정 또는 기본 예시값이면 관리 API가 비활성화됨 (web_server.py 참고)

@@ -51,6 +51,7 @@ def _create_schema(conn):
             content_json   TEXT NOT NULL DEFAULT '[]',
             videos_json    TEXT NOT NULL DEFAULT '[]',
             comments_json  TEXT NOT NULL DEFAULT '[]',
+            list_comment_count INTEGER,
             is_deleted     INTEGER NOT NULL DEFAULT 0,
             created_at     TEXT NOT NULL,
             updated_at     TEXT NOT NULL
@@ -158,6 +159,14 @@ def _migrate_legacy_files(conn):
     log_msg(f"[DB] 기존 JSON 데이터 이전 완료: 키워드 {sum(len(v) for v in keywords_data.values())}개, 글 연결 {post_count}건")
     return [KEYWORDS_FILE, BOARD_CONFIG_FILE, JSON_BACKUP_FILE]
 
+def _add_missing_columns(conn):
+    """이미 만들어진 DB에 나중에 추가된 컬럼을 보충"""
+    columns = {row['name'] for row in conn.execute("PRAGMA table_info(posts)")}
+    if 'list_comment_count' not in columns:
+        # 목록 페이지에 표시된 댓글 수. 이 값이 바뀐 글만 상세 페이지를 다시 열어 댓글을 갱신함
+        conn.execute("ALTER TABLE posts ADD COLUMN list_comment_count INTEGER")
+        log_msg("[DB] posts.list_comment_count 컬럼 추가")
+
 def init_db():
     """스키마 생성 및 최초 1회 기존 데이터 이전. 여러 번 호출해도 안전"""
     global _initialized
@@ -167,6 +176,7 @@ def init_db():
         migrated_files = []
         with closing(_connect()) as conn:
             _create_schema(conn)
+            _add_missing_columns(conn)
             with conn:
                 if _get_meta(conn, 'schema_version') is None:
                     log_msg(f"[DB] 새 DB 생성: {DB_FILE}")
@@ -234,13 +244,15 @@ def _upsert_post(conn, post):
     now = _now()
     conn.execute("""
         INSERT INTO posts(id, title, author, date, views, votes, comment_count, link,
-                          content_json, videos_json, comments_json, created_at, updated_at)
-        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                          content_json, videos_json, comments_json, list_comment_count, created_at, updated_at)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title, author = excluded.author, date = excluded.date,
             views = excluded.views, votes = excluded.votes, comment_count = excluded.comment_count,
             link = excluded.link, content_json = excluded.content_json, videos_json = excluded.videos_json,
-            comments_json = excluded.comments_json, updated_at = excluded.updated_at
+            comments_json = excluded.comments_json,
+            list_comment_count = COALESCE(excluded.list_comment_count, posts.list_comment_count),
+            updated_at = excluded.updated_at
     """, (
         str(post['id']), post.get('title', ''), post.get('author', ''), post.get('date', ''),
         str(post.get('views', '0')), str(post.get('votes', '0')), str(post.get('comment_count', '0')),
@@ -248,6 +260,7 @@ def _upsert_post(conn, post):
         json.dumps(post.get('content', []), ensure_ascii=False),
         json.dumps(post.get('videos', []), ensure_ascii=False),
         json.dumps(post.get('comments', []), ensure_ascii=False),
+        post.get('list_comment_count'),
         now, now
     ))
 
@@ -268,6 +281,16 @@ def update_post(post):
     with _db() as conn, conn:
         _upsert_post(conn, post)
 
+def update_list_stats(post_id, views=None, votes=None, list_comment_count=None):
+    """상세 페이지를 열지 않고 목록 페이지 값(조회·추천·목록 댓글 수)만 반영. None인 값은 유지"""
+    with _db() as conn, conn:
+        conn.execute("""
+            UPDATE posts SET
+                views = COALESCE(?, views), votes = COALESCE(?, votes),
+                list_comment_count = COALESCE(?, list_comment_count)
+            WHERE id = ?
+        """, (views, votes, list_comment_count, str(post_id)))
+
 def mark_post_deleted(post_id):
     with _db() as conn, conn:
         conn.execute("UPDATE posts SET is_deleted = 1, updated_at = ? WHERE id = ?", (_now(), str(post_id)))
@@ -277,7 +300,8 @@ def _row_to_post(row):
         'id': row['id'], 'title': row['title'], 'author': row['author'], 'date': row['date'],
         'views': row['views'], 'votes': row['votes'], 'comment_count': row['comment_count'], 'link': row['link'],
         'content': json.loads(row['content_json']), 'images': [], 'videos': json.loads(row['videos_json']),
-        'comments': json.loads(row['comments_json']), 'is_new': bool(row['is_new'])
+        'comments': json.loads(row['comments_json']), 'is_new': bool(row['is_new']),
+        'list_comment_count': row['list_comment_count']
     }
     if row['is_deleted']:
         post['is_deleted'] = True

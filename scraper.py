@@ -18,6 +18,11 @@ def extract_post_id(link):
     if match_path: return match_path.group(1)
     return None
 
+def parse_count(text):
+    """'1,234'처럼 표시된 숫자 문자열을 정수로 변환 (숫자가 없으면 0)"""
+    digits = re.sub(r'[^\d]', '', str(text or ''))
+    return int(digits) if digits else 0
+
 def get_list_page_posts(driver, board, keyword, page=1):
     encoded_keyword = quote(keyword)
     list_url = f"https://www.fmkorea.com/index.php?mid={board}&search_target=title_content&search_keyword={encoded_keyword}&page={page}"
@@ -42,17 +47,27 @@ def get_list_page_posts(driver, board, keyword, page=1):
             reply_tag = title_tag.select_one('.replyNum')
             if reply_tag: reply_tag.extract()
             title = title_tag.text.strip()
-            
+
             author_tag = post.select_one('.author')
             author = author_tag.text.strip() if author_tag else "익명"
             date_tag = post.select_one('.time')
             date = date_tag.text.strip() if date_tag else "날짜 모름"
-            
+
             post_id = extract_post_id(link)
             if not post_id:
                 log_msg(f"[수집] 글 ID 추출 불가로 건너뜀: {link}", "WARN")
                 continue
-            post_list.append({'link': link, 'title': title, 'author': author, 'date': date, 'id': post_id})
+
+            # 목록 행에 있는 댓글·조회·추천 수. 댓글 수 변화로 상세 페이지를 다시 열지 판단함 (댓글 0개면 표시 없음)
+            reply_num = post.select_one('td.title .replyNum')
+            views_tag = post.select_one('td.m_no:not(.m_no_voted)')
+            votes_tag = post.select_one('td.m_no_voted')
+            post_list.append({
+                'link': link, 'title': title, 'author': author, 'date': date, 'id': post_id,
+                'list_comment_count': parse_count(reply_num.text) if reply_num else 0,
+                'list_views': views_tag.text.strip() if views_tag else None,
+                'list_votes': votes_tag.text.strip() if votes_tag else None,
+            })
 
     log_msg(f"[수집] 목록 {board}/{keyword}: {len(post_list)}건", "DEBUG")
     return post_list
