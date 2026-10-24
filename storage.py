@@ -97,7 +97,7 @@ def _read_legacy_json(path):
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception as e:
-        log_msg(f"⚠️ 기존 JSON 파일을 읽지 못해 이전을 건너뜁니다: {path} ({e})", "ERROR")
+        log_msg(f"[DB] 기존 JSON 읽기 실패로 이전 건너뜀: {os.path.basename(path)} ({e})", "ERROR")
         return None
 
 def _mark_legacy_migrated(path):
@@ -106,7 +106,7 @@ def _mark_legacy_migrated(path):
         try:
             os.replace(path, f"{path}.migrated")
         except OSError as e:
-            log_msg(f"⚠️ 이전 완료 파일 이름 변경 실패: {path} ({e})", "WARN")
+            log_msg(f"[DB] 이전 완료 파일 이름 변경 실패: {os.path.basename(path)} ({e})", "WARN")
 
 def _migrate_legacy_files(conn):
     """기존 JSON 저장 방식(keywords_config / board_config / board_data_backup)의 데이터를 DB로 1회 이전"""
@@ -114,7 +114,7 @@ def _migrate_legacy_files(conn):
 
     keywords_data = _read_legacy_json(KEYWORDS_FILE)
     if keywords_data is None:
-        log_msg("기존 키워드 파일이 없어 환경변수 기반으로 초기 키워드를 구성합니다.", "INFO")
+        log_msg("[DB] 기존 키워드 파일 없음 → 환경변수로 초기 키워드 구성")
         keywords_data = {}
         for board in BOARD_MAP.keys():
             env_str = os.environ.get(f'KEYWORDS_{board.upper()}', '')
@@ -155,7 +155,7 @@ def _migrate_legacy_files(conn):
     conn.execute("DELETE FROM keyword_posts WHERE (board, keyword) NOT IN (SELECT board, keyword FROM keywords)")
     conn.execute("DELETE FROM posts WHERE id NOT IN (SELECT post_id FROM keyword_posts)")
 
-    log_msg(f"📦 기존 JSON 데이터 DB 이전 완료 (키워드 {sum(len(v) for v in keywords_data.values())}개, 글 연결 {post_count}건)", "INFO")
+    log_msg(f"[DB] 기존 JSON 데이터 이전 완료: 키워드 {sum(len(v) for v in keywords_data.values())}개, 글 연결 {post_count}건")
     return [KEYWORDS_FILE, BOARD_CONFIG_FILE, JSON_BACKUP_FILE]
 
 def init_db():
@@ -169,7 +169,7 @@ def init_db():
             _create_schema(conn)
             with conn:
                 if _get_meta(conn, 'schema_version') is None:
-                    log_msg(f"신규 DB 초기화를 진행합니다: {DB_FILE}", "INFO")
+                    log_msg(f"[DB] 새 DB 생성: {DB_FILE}")
                     migrated_files = _migrate_legacy_files(conn)
                     _set_meta(conn, 'schema_version', SCHEMA_VERSION)
                 for board in BOARD_MAP.keys():

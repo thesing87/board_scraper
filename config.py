@@ -8,10 +8,23 @@ load_dotenv()
 # ==========================================
 # 커스텀 로그 함수
 # ==========================================
+LOG_LEVELS = {'DEBUG': 10, 'INFO': 20, 'WARN': 30, 'ERROR': 40, 'CRITICAL': 50}
+# 기본은 INFO. 상세 추적이 필요할 때만 환경변수 LOG_LEVEL=DEBUG로 실행
+LOG_LEVEL = LOG_LEVELS.get(os.environ.get('LOG_LEVEL', 'INFO').strip().upper(), LOG_LEVELS['INFO'])
+
 def log_msg(message, level="INFO"):
-    """모든 로그에 24시간 표기 방식의 현재 시간을 추가하여 출력하는 전역 로그 함수"""
+    """설정된 LOG_LEVEL 이상의 로그만 시간과 함께 출력"""
+    if LOG_LEVELS.get(level, LOG_LEVELS['INFO']) < LOG_LEVEL:
+        return
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    print(f"[{timestamp}] [{level}] {message}")
+    print(f"[{timestamp}] [{level:<5}] {message}", flush=True)
+
+def short_err(err, limit=150):
+    """Selenium 예외처럼 스택트레이스가 붙는 긴 오류 메시지를 첫 줄만 잘라서 반환"""
+    text = str(err).strip().splitlines()
+    first = text[0].strip() if text else type(err).__name__
+    first = first.removeprefix('Message:').strip() or type(err).__name__
+    return first if len(first) <= limit else first[:limit] + '…'
 
 # ==========================================
 # 게시판 정의 및 환경변수 로드

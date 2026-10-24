@@ -7,6 +7,8 @@ services:
       - .env
     environment:
       - OUTPUT_DIR=/output
+      # 상세 추적이 필요할 때만 DEBUG로 변경 (INFO: 새 글·삭제·오류·주기 요약만 출력)
+      - LOG_LEVEL=INFO
     ports:
       - "8082:8081"
     restart: unless-stopped

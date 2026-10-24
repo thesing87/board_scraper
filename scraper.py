@@ -21,20 +21,12 @@ def extract_post_id(link):
 def get_list_page_posts(driver, board, keyword, page=1):
     encoded_keyword = quote(keyword)
     list_url = f"https://www.fmkorea.com/index.php?mid={board}&search_target=title_content&search_keyword={encoded_keyword}&page={page}"
-    log_msg(f"[정찰조 Selenium] 목록 페이지 진입 시도 -> Board: {board}, Keyword: {keyword}", "DEBUG")
-    
-    try:
-        driver.get(list_url)
-        WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'table.bd_lst, body'))
-        )
-    except Exception as e:
-        log_msg(f"⚠️ 목록 페이지 브라우저 진입 에러: {e}", "ERROR")
-        return []
-        
-    delay = random.uniform(0.5, 1.2)
-    log_msg(f"목록 렌더링 대기용 지연 버퍼 구동: {delay:.2f}초", "DEBUG")
-    time.sleep(delay)
+    # 페이지 로드 실패는 호출한 쪽(메인 루프)에서 키워드 정보와 함께 한 번만 기록
+    driver.get(list_url)
+    WebDriverWait(driver, 5).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, 'table.bd_lst, body'))
+    )
+    time.sleep(random.uniform(0.5, 1.2))
     
     soup = BeautifulSoup(driver.page_source, 'html.parser')
     posts = soup.select('table.bd_lst tbody tr:not(.notice)')
@@ -58,11 +50,11 @@ def get_list_page_posts(driver, board, keyword, page=1):
             
             post_id = extract_post_id(link)
             if not post_id:
-                log_msg(f"게시글 ID 추출 불가로 스킵 -> Link: {link}", "WARN")
+                log_msg(f"[수집] 글 ID 추출 불가로 건너뜀: {link}", "WARN")
                 continue
             post_list.append({'link': link, 'title': title, 'author': author, 'date': date, 'id': post_id})
-            
-    log_msg(f"[정찰조] 목록 파싱 결과: {len(post_list)}개의 게시글 발견 완료", "DEBUG")
+
+    log_msg(f"[수집] 목록 {board}/{keyword}: {len(post_list)}건", "DEBUG")
     return post_list
 
 def scrape_post_detail(driver, post_info):
@@ -72,20 +64,13 @@ def scrape_post_detail(driver, post_info):
     date = post_info['date']
     post_id = post_info.get('id', extract_post_id(link))
     
-    log_msg(f"[타격대 Selenium] 본문 상세 스크래핑 진입 -> ID: {post_id} | Title: {title[:18]}...", "INFO")
-    
-    try:
-        driver.get(link)
-        WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, '.xe_content, .top_area, body'))
-        )
-    except Exception as drive_err:
-        log_msg(f"⚠️ 상세 페이지 브라우저 호출 오류: {drive_err}", "ERROR")
-        raise drive_err
-        
-    delay = random.uniform(0.5, 1.2)
-    log_msg(f"상세 로딩 보장용 지연 대기: {delay:.2f}초", "DEBUG")
-    time.sleep(delay)
+
+    # 페이지 로드 실패는 호출한 쪽(메인 루프)에서 키워드 정보와 함께 한 번만 기록
+    driver.get(link)
+    WebDriverWait(driver, 5).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, '.xe_content, .top_area, body'))
+    )
+    time.sleep(random.uniform(0.5, 1.2))
     
     page_source = driver.page_source
     detail_soup = BeautifulSoup(page_source, 'html.parser')
@@ -94,9 +79,8 @@ def scrape_post_detail(driver, post_info):
     if not content_area:
         # 본문이 있는 정상 글에서는 본문/댓글 속 문구로 인한 오탐을 막기 위해, 본문이 없을 때만 삭제 문구를 검사
         if "삭제된 문서입니다" in page_source or "권한이 없습니다" in page_source or "존재하지 않는" in page_source:
-            log_msg(f"🗑️ [원문 삭제 감지] 글 ID: {post_id}는 원문이 폭파되었거나 접근할 수 없습니다.", "WARN")
             return None
-        raise Exception("본문 DOM 구조(.xe_content)를 찾을 수 없습니다. (서버 불안정 또는 일시적 로드 실패)")
+        raise Exception("본문(.xe_content) 없음 - 일시적 로드 실패 추정")
     
     full_date_tag = detail_soup.select_one('.top_area .date, span.date.m_no')
     if full_date_tag and len(full_date_tag.text.strip()) > 5:
@@ -110,14 +94,12 @@ def scrape_post_detail(driver, post_info):
         if vote_span: votes = vote_span.find_next('b').text.strip()
         comment_span = detail_soup.find(string=re.compile('댓글'))
         if comment_span: comment_count = comment_span.find_next('b').text.strip()
-        log_msg(f"글 메타데이터 수집 완료 -> 조회: {views}, 추천: {votes}, 댓글 수: {comment_count}", "DEBUG")
     except Exception as meta_err:
-        log_msg(f"글 메타데이터 파싱 중 일부 누락/스킵: {meta_err}", "DEBUG")
+        log_msg(f"[수집] #{post_id} 조회/추천/댓글 수 일부 파싱 실패: {meta_err}", "DEBUG")
     
     paragraphs = []
     video_list = []
     if content_area:
-        log_msg(f"본문 태그 클리닝 및 미디어 구조화 시작 (ID: {post_id})", "DEBUG")
         for trash in content_area.select('.mejs__offscreen, .mejs__poster, .mejs__poster-img, .mejs__time-total, .mejs__currenttime, .mejs__duration, .mejs__controls, button, svg, ul, meta'):
             trash.extract()
             
@@ -209,7 +191,6 @@ def scrape_post_detail(driver, post_info):
             if 'loading' in img.attrs: del img['loading']
             img_count += 1
             
-        log_msg(f"본문 내 유효 첨부이미지 파싱 완료 -> 총 {img_count}개 정형화됨", "DEBUG")
 
         sanitize_tree(content_area)
 
@@ -242,7 +223,6 @@ def scrape_post_detail(driver, post_info):
     comment_items = detail_soup.select('.fdb_lst_ul > li.fdb_itm, ul#comment > li.fdb_itm, .fdb_lst > li.fdb_itm')
     if not comment_items: comment_items = detail_soup.select('.fdb_lst_ul > li')
 
-    log_msg(f"댓글 영역 스캔 시작 -> 파싱 대상 DOM 개수: {len(comment_items)}개", "DEBUG")
     for item in comment_items:
         c_author_tag = item.select_one('.meta a')
         c_author = c_author_tag.text.strip() if c_author_tag else "익명"
@@ -301,7 +281,7 @@ def scrape_post_detail(driver, post_info):
             'is_reply': is_reply
         })
     
-    log_msg(f"상세 글 스크래핑 완료 (정제 완료된 최종 댓글 개수: {len(comments)}개)", "INFO")
+    log_msg(f"[수집] 상세 #{post_id}: 이미지 {img_count}, 동영상 {len(video_list)}, 댓글 {len(comments)}", "DEBUG")
     return {
         'id': post_id, 'title': title, 'author': author, 'date': date, 'views': views, 'votes': votes,
         'comment_count': comment_count, 'link': link, 'content': paragraphs, 'images': [], 'videos': video_list, 'comments': comments

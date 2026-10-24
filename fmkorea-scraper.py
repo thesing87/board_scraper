@@ -1,12 +1,14 @@
 import time
 import sys
 import threading
+import traceback
 from selenium.webdriver import Chrome
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 
 from config import (
     log_msg,
+    short_err,
     BOARD_MAP,
     CHECK_INTERVAL,
     MAX_POSTS_TO_SYNC_COMMENTS,
@@ -30,6 +32,9 @@ from scraper import (
 )
 from web_server import run_api_server
 
+# 변경이 없는 주기는 요약 로그를 남기지 않으므로, 살아있음을 알리는 상태 로그 간격
+HEARTBEAT_SECONDS = 3600
+
 try:
     if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
         sys.stdout.reconfigure(encoding='utf-8')
@@ -43,15 +48,13 @@ def create_driver():
     options.add_argument('--disable-images')
     services = Service()
     if IS_LINUX:
-        log_msg("리눅스(Linux) 환경 감지로 인한 Headless 플래그 및 보호 우회 속성 강제 주입", "INFO")
         options.add_argument('--headless=new')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-gpu')
 
-    log_msg("Selenium 웹드라이버 시동 및 내부 크롬 프로세스 인스턴스 할당 시작", "DEBUG")
     driver = Chrome(options=options, service=services)
-    log_msg("Selenium 크롬 웹 드라이버 정상 준비 완료", "INFO")
+    log_msg(f"[시스템] 크롬 드라이버 준비 완료{' (headless)' if IS_LINUX else ''}")
     return driver
 
 def ensure_driver_alive(driver):
@@ -60,16 +63,19 @@ def ensure_driver_alive(driver):
         driver.execute_script("return 1")
         return driver
     except Exception as health_err:
-        log_msg(f"⚠️ 크롬 드라이버 응답 없음 감지 -> 재생성 시도: {health_err}", "WARN")
+        log_msg(f"[시스템] 크롬 응답 없음 → 재시작: {short_err(health_err)}", "WARN")
     try:
         driver.quit()
     except Exception:
         pass
     return create_driver()
 
+def short_title(title, limit=40):
+    title = (title or '').strip()
+    return title if len(title) <= limit else title[:limit] + '…'
+
 def main():
     global DDNS_URL
-    log_msg("백그라운드 API 제어용 서버 스레드 분리 가동 개시 준비", "DEBUG")
     api_thread = threading.Thread(target=run_api_server, daemon=True)
     api_thread.start()
 
@@ -79,184 +85,180 @@ def main():
     try:
         driver = create_driver()
     except Exception as chrome_err:
-        log_msg(f"❌ 크롬 웹 드라이버 엔진 실행 프로세스 도중 크리티컬 오류로 중단됨: {chrome_err}", "CRITICAL")
+        log_msg(f"[시스템] 크롬 드라이버 시작 실패로 종료: {short_err(chrome_err)}", "CRITICAL")
         sys.exit(1)
 
     # DB 초기화(최초 1회 기존 JSON 데이터 이전 포함). 대시보드는 웹서버가 DB에서 직접 조회하여 제공
     init_db()
 
-    log_msg("🎉 통합 미니 게시판 시스템 초기화 완료", "INFO")
-    log_msg("📡 메인 백그라운드 실시간 모니터링 감시 무한 루프 엔진을 가동합니다.", "INFO")
+    log_msg(f"[시스템] 모니터링 시작 (주기 {CHECK_INTERVAL}초)")
 
     try:
         is_initial_run = True
+        heartbeat = {'since': time.time(), 'cycles': 0, 'new': 0, 'errors': 0}
 
         while True:
             if not is_initial_run:
-                log_msg(f"⏳ 다음 실시간 스캔 쿼리 탐색 주기까지 {CHECK_INTERVAL}초 대기 프로세스 진행", "DEBUG")
                 time.sleep(CHECK_INTERVAL)
-            
+
             is_initial_run = False
 
             try:
                 driver = ensure_driver_alive(driver)
             except Exception as restart_err:
-                log_msg(f"❌ 크롬 드라이버 재생성 실패, 다음 주기에 재시도합니다: {restart_err}", "ERROR")
+                log_msg(f"[시스템] 크롬 재시작 실패, 다음 주기에 재시도: {short_err(restart_err)}", "ERROR")
                 continue
 
             config_data = load_keywords()
             board_alert_config = load_board_config()
 
-            log_msg("🔍 실시간 주기적 크롤링 스캔 작업 세션 개시", "INFO")
-            has_changes = False
+            cycle_started = time.time()
+            stats = {'keywords': 0, 'new': 0, 'updated': 0, 'deleted': 0, 'errors': 0}
 
             for board, keywords in config_data.items():
                 board_name = BOARD_MAP.get(board, board)
-                
+
                 for keyword in keywords:
-                    log_msg(f"   ▶ 순회 작업 진행 타겟 -> [{board_name}] - 키워드: {keyword}", "DEBUG")
+                    stats['keywords'] += 1
+                    target = f"{board_name}/{keyword}"
+                    log_msg(f"[수집] {target} 확인 중", "DEBUG")
 
                     # 새 글 판별 기준이 되는 최근 수집 글 (최신순)
                     _, board_data = query_keyword_posts(board, keyword, 0, MAX_DATA_PER_KEYWORD)
 
-                    if board_data:
-                        log_msg(f"      - 기존 캐시 데이터 갱신을 위한 상위 {MAX_POSTS_TO_SYNC_COMMENTS}개 타겟 딥 스캔 진입", "DEBUG")
-                        posts_to_sync = board_data[:MAX_POSTS_TO_SYNC_COMMENTS]
-                        
-                        for old_post in posts_to_sync:
-                            try:
-                                if old_post.get('is_deleted', False):
-                                    continue
-                                    
-                                log_msg(f"      [동기화 딥스캔] 글 ID: {old_post['id']} 상세 페이지 갱신 추적 시작", "DEBUG")
-                                updated_post = scrape_post_detail(driver, old_post)
-                                
-                                if updated_post is None:
-                                    log_msg(f"      [삭제 확정/보존] 글 ID: {old_post['id']}가 원문에서 유실되었습니다. 삭제하지 않고 보존 처리합니다.", "INFO")
-                                    if not old_post.get('is_deleted', False):
-                                        mark_post_deleted(old_post['id'])
-                                        has_changes = True
-                                    continue
-                                
-                                if (old_post['comment_count'] != updated_post['comment_count'] or 
-                                    len(old_post['comments']) != len(updated_post['comments']) or
-                                    old_post['votes'] != updated_post['votes']):
-                                    
-                                    log_msg(f"      [변경 사항 감지] 글 ID: {old_post['id']} 메타/댓글 데이터 변경됨. 캐시 즉시 업데이트.", "INFO")
-                                    update_post(updated_post)
-                                    has_changes = True
-                            except Exception as sync_ex:
-                                log_msg(f"      ⚠️ 기존 글 ID {old_post['id']} 백그라운드 갱신 스킵 (예외 피드백): {sync_ex}", "WARN")
-                    
+                    # 상위 글은 매 주기 다시 열어 댓글·추천 수 변화와 원문 삭제 여부를 반영
+                    for old_post in board_data[:MAX_POSTS_TO_SYNC_COMMENTS]:
+                        if old_post.get('is_deleted', False):
+                            continue
+                        try:
+                            updated_post = scrape_post_detail(driver, old_post)
+
+                            if updated_post is None:
+                                mark_post_deleted(old_post['id'])
+                                stats['deleted'] += 1
+                                log_msg(f"[삭제] {target} #{old_post['id']} 원문 삭제됨 (보존 처리)")
+                                continue
+
+                            if (old_post['comment_count'] != updated_post['comment_count'] or
+                                len(old_post['comments']) != len(updated_post['comments']) or
+                                old_post['votes'] != updated_post['votes']):
+                                update_post(updated_post)
+                                stats['updated'] += 1
+                                log_msg(f"[갱신] {target} #{old_post['id']} 댓글 {updated_post['comment_count']}, 추천 {updated_post['votes']}", "DEBUG")
+                        except Exception as sync_ex:
+                            stats['errors'] += 1
+                            log_msg(f"[오류] {target} #{old_post['id']} 갱신 실패: {short_err(sync_ex)}", "WARN")
+
                     try:
-                        log_msg("      - 새 글 목록 모니터링 수집 쿼리 가동 중...", "DEBUG")
                         new_post_list = get_list_page_posts(driver, board, keyword, page=1)
                     except Exception as list_ex:
-                        log_msg(f"      ⚠️ [{board_name} - {keyword}] 목록 파싱 실패로 이번 주기 패스 처리: {list_ex}", "WARN")
+                        stats['errors'] += 1
+                        log_msg(f"[오류] {target} 목록 조회 실패: {short_err(list_ex)}", "WARN")
                         continue
-                    
-                    new_posts = []
-                    if board_data:
-                        existing_ids = {post['id'] for post in board_data}
-                        for p in new_post_list:
-                            if p['id'] in existing_ids:
-                                break
-                            new_posts.append(p)
-                    else:
-                        # 기준점이 없으면 목록 전체를 새 글로 취급해 알림이 폭주하므로, 성공할 때까지 매 주기 베이스라인 적재만 시도
-                        log_msg(f"   📦 [{board_name} - {keyword}] 최초 빌드: 리스트의 최신 글 1개만 베이스라인 데이터로 강제 적재합니다.", "INFO")
+
+                    if not board_data:
+                        # 기준점이 없으면 목록 전체를 새 글로 취급해 알림이 폭주하므로, 성공할 때까지 매 주기 최신 글 1개만 기준점으로 저장
                         if new_post_list:
                             try:
-                                first_post_info = new_post_list[0]
-                                post_data = scrape_post_detail(driver, first_post_info)
+                                post_data = scrape_post_detail(driver, new_post_list[0])
                                 if post_data:
                                     save_keyword_post(board, keyword, post_data, is_new=False)
-                                    log_msg(f"   📦 [{board_name} - {keyword}] 최초 기준점 빌드 매핑 성공", "INFO")
-                                    has_changes = True
+                                    log_msg(f"[기준점] {target} #{post_data['id']} 저장 (이후 새 글부터 알림)")
                             except Exception as e:
-                                log_msg(f"      ⚠️ 베이스라인 최신 글 1개 데이터 수집 실패 (다음 주기 재시도): {e}", "ERROR")
+                                stats['errors'] += 1
+                                log_msg(f"[오류] {target} 기준점 수집 실패, 다음 주기 재시도: {short_err(e)}", "WARN")
                         continue
-                    
-                    if new_posts:
-                        log_msg(f"   🆕 [{board_name}] 교차 검증을 거친 실시간 신규 새 글 {len(new_posts)}개 탐지 성공!", "INFO")
-                            
-                        for post_info in reversed(new_posts):
-                            try:
-                                log_msg(f"   🆕 신규 글 상세 딥 크롤링 프로세스 전개 -> ID: {post_info['id']}", "INFO")
-                                post_data = scrape_post_detail(driver, post_info)
-                                
-                                if post_data is None:
-                                    continue
-                                    
-                                save_keyword_post(board, keyword, post_data, is_new=True)
 
-                                has_video = len(post_data.get('videos', [])) > 0
-                                board_cfg = board_alert_config.get(board, {})
-                                is_alert_enabled = board_cfg.get("alert", True)
-                                is_video_alert_enabled = board_cfg.get("video_alert", True)
-                                
-                                should_send_alert = False
-                                video_badge = ""
+                    existing_ids = {post['id'] for post in board_data}
+                    new_posts = []
+                    for p in new_post_list:
+                        if p['id'] in existing_ids:
+                            break
+                        new_posts.append(p)
 
-                                if has_video:
-                                    if is_video_alert_enabled:
-                                        should_send_alert = True
-                                        if not is_alert_enabled:
-                                            video_badge = " [🎬 동영상 알림]"
-                                    elif is_alert_enabled:
-                                        should_send_alert = True
-                                else:
-                                    if is_alert_enabled:
-                                        should_send_alert = True
-                                
-                                if should_send_alert:
-                                    log_msg(f"   🚀 텔레그램 연동 채널 알림 발송을 개시합니다. (게시글 ID: {post_data['id']})", "INFO")
+                    for post_info in reversed(new_posts):
+                        try:
+                            post_data = scrape_post_detail(driver, post_info)
+                            if post_data is None:
+                                continue
 
-                                    base_url = (DDNS_URL or "").strip()
-                                    if base_url and not base_url.startswith(("http://", "https://")):
-                                        base_url = f"http://{base_url}"
+                            save_keyword_post(board, keyword, post_data, is_new=True)
+                            stats['new'] += 1
 
-                                    board_post_url = f"{base_url}#post-{post_data['id']}" if base_url else ""
-                                    original_post_url = (post_data.get('link') or "").strip()
-                                    if original_post_url and not original_post_url.startswith(("http://", "https://")):
-                                        original_post_url = f"https://www.fmkorea.com{original_post_url if original_post_url.startswith('/') else '/' + original_post_url}"
+                            has_video = len(post_data.get('videos', [])) > 0
+                            board_cfg = board_alert_config.get(board, {})
+                            is_alert_enabled = board_cfg.get("alert", True)
+                            is_video_alert_enabled = board_cfg.get("video_alert", True)
 
-                                    # 모바일 화면에서 누르기 편한 큼직한 인라인 키보드 버튼 구성
-                                    keyboard = []
-                                    if board_post_url.startswith(("http://", "https://")):
-                                        keyboard.append([{"text": "📱 게시판에서 확인하기", "url": board_post_url}])
-                                    if original_post_url.startswith(("http://", "https://")):
-                                        keyboard.append([{"text": "🔗 원본글 보기 (에펨코리아)", "url": original_post_url}])
+                            should_send_alert = False
+                            video_badge = ""
 
-                                    reply_markup = {"inline_keyboard": keyboard} if keyboard else None
+                            if has_video:
+                                if is_video_alert_enabled:
+                                    should_send_alert = True
+                                    if not is_alert_enabled:
+                                        video_badge = " [🎬 동영상 알림]"
+                                elif is_alert_enabled:
+                                    should_send_alert = True
+                            else:
+                                if is_alert_enabled:
+                                    should_send_alert = True
 
-                                    telegram_text = (
-                                        f"🔔 *[{board_name} - {keyword}]{video_badge} 실시간 새 글!*\n\n"
-                                        f"📌 *제목:* {post_data['title']}"
-                                    )
-                                    send_telegram_message(telegram_text, reply_markup=reply_markup)
-                                else:
-                                    log_msg(f"      🔕 [{board_name}] 알림 조건 미충족 (일반알림: {is_alert_enabled}, 동영상알림: {is_video_alert_enabled}, 동영상유무: {has_video}) - 텔레그램 발송 생략", "INFO")
-                            except Exception as deep_ex:
-                                log_msg(f"      ⚠️ 새 글 상세 크롤링 처리 도중 예외로 인한 패스 스킵 피드백: {deep_ex}", "ERROR")
-                        has_changes = True
-            
-            if has_changes:
-                log_msg("🔄 이번 주기 수집 데이터 변경 사항이 DB에 반영되었습니다.", "INFO")
-            else:
-                log_msg("🔍 이번 턴 실시간 모니터링 감시 주기 종료: 변경 발생 데이터 없음", "DEBUG")
+                            alert_result = "알림 발송" if should_send_alert else "알림 꺼짐"
+                            log_msg(f"[새 글] {target} #{post_data['id']} {short_title(post_data['title'])}{' (동영상)' if has_video else ''} → {alert_result}")
+
+                            if should_send_alert:
+                                base_url = (DDNS_URL or "").strip()
+                                if base_url and not base_url.startswith(("http://", "https://")):
+                                    base_url = f"http://{base_url}"
+
+                                board_post_url = f"{base_url}#post-{post_data['id']}" if base_url else ""
+                                original_post_url = (post_data.get('link') or "").strip()
+                                if original_post_url and not original_post_url.startswith(("http://", "https://")):
+                                    original_post_url = f"https://www.fmkorea.com{original_post_url if original_post_url.startswith('/') else '/' + original_post_url}"
+
+                                # 모바일 화면에서 누르기 편한 큼직한 인라인 키보드 버튼 구성
+                                keyboard = []
+                                if board_post_url.startswith(("http://", "https://")):
+                                    keyboard.append([{"text": "📱 게시판에서 확인하기", "url": board_post_url}])
+                                if original_post_url.startswith(("http://", "https://")):
+                                    keyboard.append([{"text": "🔗 원본글 보기 (에펨코리아)", "url": original_post_url}])
+
+                                reply_markup = {"inline_keyboard": keyboard} if keyboard else None
+
+                                telegram_text = (
+                                    f"🔔 *[{board_name} - {keyword}]{video_badge} 실시간 새 글!*\n\n"
+                                    f"📌 *제목:* {post_data['title']}"
+                                )
+                                send_telegram_message(telegram_text, reply_markup=reply_markup)
+                        except Exception as deep_ex:
+                            stats['errors'] += 1
+                            log_msg(f"[오류] {target} #{post_info['id']} 새 글 수집 실패: {short_err(deep_ex)}", "WARN")
+
+            # 주기 요약: 변화나 오류가 있을 때만 INFO로 남기고, 조용한 주기는 1시간마다 상태 로그로 묶어서 보고
+            elapsed = time.time() - cycle_started
+            summary = (f"키워드 {stats['keywords']}개, 새 글 {stats['new']}, 갱신 {stats['updated']}, "
+                       f"삭제 {stats['deleted']}, 오류 {stats['errors']} ({elapsed:.0f}초)")
+            has_events = stats['new'] or stats['deleted'] or stats['errors']
+            log_msg(f"[수집] 주기 완료: {summary}", "INFO" if has_events else "DEBUG")
+
+            heartbeat['cycles'] += 1
+            heartbeat['new'] += stats['new']
+            heartbeat['errors'] += stats['errors']
+            if time.time() - heartbeat['since'] >= HEARTBEAT_SECONDS:
+                log_msg(f"[상태] 최근 1시간 정상 동작: 주기 {heartbeat['cycles']}회, 새 글 {heartbeat['new']}, 오류 {heartbeat['errors']}")
+                heartbeat = {'since': time.time(), 'cycles': 0, 'new': 0, 'errors': 0}
 
     except KeyboardInterrupt:
-        log_msg("⛔ 사용자의 KeyboardInterrupt 입력을 감지하여 실시간 모니터링 엔진 시스템을 안전하게 중단합니다.", "WARN")
+        log_msg("[시스템] 사용자 중단(Ctrl+C)으로 종료합니다.", "WARN")
     except Exception as e:
-        log_msg(f"🚨 크롤러 런타임 코어 루프 엔진 무너짐 치명적 시스템 에러 발생: {e}", "CRITICAL")
+        log_msg(f"[시스템] 메인 루프 비정상 종료: {short_err(e)}\n{traceback.format_exc()}", "CRITICAL")
     finally:
-        log_msg("최종 시스템 할당 리소스 및 메모리 웹 드라이버 인스턴스 반환 절차 개시", "INFO")
         try:
             driver.quit()
-            log_msg("Selenium 웹드라이버 엔진 종료 정상 완료", "INFO")
-        except Exception as ex:
-            log_msg(f"드라이버 인스턴스 해제 시도 실패 또는 이미 프로세스가 꺼져 있습니다: {ex}", "DEBUG")
+        except Exception:
+            pass
+        log_msg("[시스템] 종료 완료")
 
 if __name__ == "__main__":
     main()

@@ -10,6 +10,7 @@ from urllib.parse import urlparse, parse_qs
 
 from config import (
     log_msg,
+    short_err,
     ADMIN_PASSWORD,
     INSECURE_ADMIN_PASSWORDS,
     BOARD_MAP,
@@ -55,7 +56,7 @@ auth_lock = threading.Lock()
 
 ADMIN_API_ENABLED = ADMIN_PASSWORD not in INSECURE_ADMIN_PASSWORDS
 if not ADMIN_API_ENABLED:
-    log_msg("⚠️ ADMIN_PASSWORD가 설정되지 않았거나 기본 예시값입니다. 키워드/알림 관리 API를 비활성화합니다.", "WARN")
+    log_msg("[API] ADMIN_PASSWORD 미설정/기본값 - 관리 기능 비활성화", "WARN")
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     """요청마다 새로운 스레드를 독립 할당하여 동기 블로킹 및 접속 지연을 차단"""
@@ -82,7 +83,7 @@ def _record_auth_failure(ip):
         entry['count'] += 1
         if entry['count'] >= AUTH_MAX_FAILURES:
             entry['locked_until'] = now + AUTH_LOCKOUT_SECONDS
-            log_msg(f"[API 서버] 🚫 인증 실패 누적으로 {ip}를 {AUTH_LOCKOUT_SECONDS}초간 차단합니다.", "WARN")
+            log_msg(f"[API] 인증 {AUTH_MAX_FAILURES}회 실패 → {ip} {AUTH_LOCKOUT_SECONDS}초 차단", "WARN")
 
 def _clear_auth_failures(ip):
     with auth_lock:
@@ -156,12 +157,12 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_json(403, False, '❌ 서버에 ADMIN_PASSWORD가 설정되지 않아 관리 기능이 비활성화되어 있습니다.')
             return False
         if _is_locked_out(ip):
-            log_msg(f"[API 서버] 🚫 차단된 IP의 {action_name} 요청 거부: {ip}", "WARN")
+            log_msg(f"[API] 차단 중인 IP 요청 거부: {ip} ({action_name})", "WARN")
             self._send_json(429, False, '❌ 인증 실패가 반복되어 잠시 차단되었습니다. 10분 후 다시 시도해 주세요.')
             return False
         if not isinstance(password, str) or not hmac.compare_digest(password.strip().encode('utf-8'), ADMIN_PASSWORD.encode('utf-8')):
             _record_auth_failure(ip)
-            log_msg(f"[API 서버] ❌ 비밀번호 불일치로 {action_name} 작업이 거부되었습니다. (IP: {ip})", "WARN")
+            log_msg(f"[API] 비밀번호 불일치: {ip} ({action_name})", "WARN")
             self._send_json(401, False, '❌ 인증 비밀번호가 일치하지 않습니다.')
             return False
         _clear_auth_failures(ip)
@@ -171,7 +172,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         pure_path = parsed.path
         query = parse_qs(parsed.query)
-        log_msg(f"[API 서버] GET 요청 수신 -> Path: {pure_path}", "DEBUG")
+        log_msg(f"[API] GET {pure_path}", "DEBUG")
 
         try:
             if pure_path in STATIC_FILES:
@@ -200,9 +201,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self.send_response(404)
                 self.end_headers()
         except (BrokenPipeError, ConnectionResetError):
-            log_msg("[API 서버] ℹ️ 전송 중 브라우저 연결 끊김 감지 (사용자 새로고침 혹은 창 닫음)", "INFO")
+            log_msg("[API] 응답 중 브라우저 연결 끊김", "DEBUG")
         except Exception as e:
-            log_msg(f"⚠️ [API 서버] GET {pure_path} 처리 실패: {e}", "ERROR")
+            log_msg(f"[API] GET {pure_path} 오류: {short_err(e)}", "ERROR")
             try:
                 self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
             except Exception:
@@ -216,7 +217,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
 
     def do_POST(self):
         pure_path = self.path.split('?')[0]
-        log_msg(f"[API 서버] POST 요청 수신 -> Path: {pure_path}", "DEBUG")
+        log_msg(f"[API] POST {pure_path}", "DEBUG")
 
         if pure_path == '/api/toggle-alert':
             self._handle_toggle_alert()
@@ -235,13 +236,12 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 alert_type = 'alert'
             enabled = params.get('enabled') is True
 
-            log_msg(f"[API 서버] 알림 토글 API 호출됨 (Target Board: {board}, Type: {alert_type}, Enabled: {enabled})", "INFO")
 
             if not self._authorize(params.get('password', ''), '알림 토글'):
                 return
 
             if board not in BOARD_MAP:
-                log_msg(f"[API 서버] ❌ 유효하지 않은 게시판 인자 전달됨: {board}", "WARN")
+                log_msg(f"[API] 잘못된 게시판 요청: {board}", "WARN")
                 self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
                 return
 
@@ -251,10 +251,10 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             type_str = "동영상 알림" if alert_type == "video_alert" else "일반 알림"
             icon_str = "🎬" if alert_type == "video_alert" else "🔔"
             msg = f"{icon_str} {BOARD_MAP[board]} 게시판의 {type_str}이 {status_str} 상태로 변경되었습니다."
-            log_msg(f"[API 서버] {msg}", "INFO")
+            log_msg(f"[API] 알림 설정 변경: {BOARD_MAP[board]} {type_str} {status_str}")
             self._send_json(200, True, msg)
         except Exception as e:
-            log_msg(f"⚠️ [API 서버] 알림 토글 API 내부 크리티컬 에러 발생: {e}", "ERROR")
+            log_msg(f"[API] 알림 설정 처리 오류: {short_err(e)}", "ERROR")
             try:
                 self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
             except Exception:
@@ -267,7 +267,6 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             keyword = str(params.get('keyword', '')).strip()
             board = str(params.get('board', 'car')).strip()
 
-            log_msg(f"[API 서버] 키워드 제어 요청 수신 (Action: {action}, Board: {board}, Keyword: {keyword[:MAX_KEYWORD_LENGTH]})", "INFO")
 
             if not self._authorize(params.get('password', ''), '키워드 매니징'):
                 return
@@ -276,11 +275,11 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._send_json(400, False, '❌ 지원하지 않는 작업입니다.')
                 return
             if board not in BOARD_MAP:
-                log_msg(f"[API 서버] ❌ 유효하지 않은 게시판 인자 전달됨: {board}", "WARN")
+                log_msg(f"[API] 잘못된 게시판 요청: {board}", "WARN")
                 self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
                 return
             if not keyword:
-                log_msg("[API 서버] 공백 키워드 수신으로 요청을 무시합니다.", "WARN")
+                log_msg("[API] 빈 키워드 요청 무시", "DEBUG")
                 self._send_json(400, False, '❌ 키워드를 입력해 주세요.')
                 return
             if len(keyword) > MAX_KEYWORD_LENGTH or any(ch in keyword for ch in '\r\n\t'):
@@ -291,21 +290,21 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             if action == 'add':
                 if not add_keyword(board, keyword):
                     msg = '이미 존재하는 키워드입니다.'
-                    log_msg(f"[API 서버] 키워드 중복 추가 생략 처리: {combined_key}", "WARN")
+                    log_msg(f"[API] 이미 있는 키워드: {combined_key}", "DEBUG")
                 else:
                     msg = f'🎯 {BOARD_MAP.get(board, board)} -> [{keyword}] 추가되었습니다.'
-                    log_msg(f"[API 서버] 신규 키워드 등록 완료: {combined_key}", "INFO")
+                    log_msg(f"[API] 키워드 추가: {BOARD_MAP[board]}/{keyword}")
             else:
                 if remove_keyword(board, keyword):
                     msg = f'🗑️ {BOARD_MAP.get(board, board)} -> [{keyword}] 삭제되었습니다.'
-                    log_msg(f"[API 서버] 키워드 영구 제거 완료: {combined_key}", "INFO")
+                    log_msg(f"[API] 키워드 삭제: {BOARD_MAP[board]}/{keyword}")
                 else:
                     msg = '존재하지 않는 키워드입니다.'
-                    log_msg(f"[API 서버] 삭제 거부 (존재하지 않는 키워드): {combined_key}", "WARN")
+                    log_msg(f"[API] 없는 키워드 삭제 요청: {combined_key}", "DEBUG")
 
             self._send_json(200, True, msg)
         except Exception as e:
-            log_msg(f"⚠️ [API 서버] 키워드 포스트 제어 에러 발생: {e}", "ERROR")
+            log_msg(f"[API] 키워드 처리 오류: {short_err(e)}", "ERROR")
             try:
                 self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
             except Exception:
@@ -314,5 +313,5 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
 def run_api_server():
     server_address = ('', 8081)
     httpd = ThreadedHTTPServer(server_address, KeywordAPIServer)
-    log_msg("🌐 [API 서버] 비블로킹 멀티스레드 제어 웹서버가 8081포트에서 정식 가동되었습니다.", "INFO")
+    log_msg("[API] 웹서버 시작 (포트 8081)")
     httpd.serve_forever()
