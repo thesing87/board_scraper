@@ -149,7 +149,7 @@ def main():
                                 log_msg(f"      ⚠️ 기존 글 ID {old_post['id']} 백그라운드 갱신 스킵 (예외 피드백): {sync_ex}", "WARN")
                     
                     try:
-                        log_msg(f"      - 새 글 목록 모니터링 수집 쿼리 가동 중...", "DEBUG")
+                        log_msg("      - 새 글 목록 모니터링 수집 쿼리 가동 중...", "DEBUG")
                         new_post_list = get_list_page_posts(driver, board, keyword, page=1)
                     except Exception as list_ex:
                         log_msg(f"      ⚠️ [{board_name} - {keyword}] 목록 파싱 실패로 이번 주기 패스 처리: {list_ex}", "WARN")
