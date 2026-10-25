@@ -37,14 +37,14 @@
                 </button>
             </div>
         </div>
-        <nav class="chip-row mobile-only" id="chip-row" aria-label="키워드"></nav>
+        <nav class="chip-row mobile-only" id="chip-row" aria-label="게시판"></nav>
     </header>
 
     <div class="layout">
         <aside class="sidebar desktop-only">
             <div class="sidebar-head">
-                <span>키워드</span>
-                <button class="icon-btn small" data-action="open-settings" aria-label="키워드 추가">
+                <span>게시판</span>
+                <button class="icon-btn small" data-action="open-settings" aria-label="게시판 만들기">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
                 </button>
             </div>
@@ -87,24 +87,19 @@
                 <section class="settings-card">
                     <label for="admin-pwd-input" class="settings-label">관리자 암호</label>
                     <input id="admin-pwd-input" type="password" class="input" autocomplete="current-password">
-                    <span class="settings-hint">키워드와 알림 설정을 바꿀 때 필요합니다.</span>
+                    <span class="settings-hint">게시판과 알림 설정을 바꿀 때 필요합니다.</span>
                 </section>
 
                 <section class="settings-card">
-                    <span class="settings-label">키워드 추가</span>
+                    <span class="settings-label" id="group-form-title">게시판 만들기</span>
+                    <span class="settings-hint">게시판에 키워드를 등록하면 그 키워드들의 글을 중복 없이 모아 보여줍니다.</span>
+                    <input id="group-name-input" class="input" placeholder="게시판 이름 (예: 싼타페)" maxlength="30" aria-label="게시판 이름">
                     <div class="add-row">
-                        <select id="board-select" class="input select" aria-label="게시판"></select>
-                        <input id="new-kw-input" class="input" aria-label="추가할 키워드" placeholder="키워드 입력" maxlength="50">
-                        <button class="btn btn-primary" data-action="add-keyword">추가</button>
+                        <select id="group-board-select" class="input select" aria-label="카테고리"></select>
+                        <input id="group-kw-input" class="input" aria-label="등록할 키워드" placeholder="키워드 입력" maxlength="50">
+                        <button class="btn btn-outline" data-action="add-draft-keyword">추가</button>
                     </div>
-                    <div class="keyword-tags" id="settings-keywords"></div>
-                </section>
-
-                <section class="settings-card">
-                    <span class="settings-label" id="group-form-title">묶음 게시판 만들기</span>
-                    <span class="settings-hint">여러 키워드의 글을 중복 없이 하나의 게시판으로 모아 봅니다.</span>
-                    <input id="group-name-input" class="input" placeholder="게시판 이름 (예: 싼타페 모음)" maxlength="30" aria-label="게시판 이름">
-                    <div class="group-picker" id="group-picker" role="group" aria-label="묶을 키워드 선택"></div>
+                    <div class="keyword-tags" id="group-keywords" aria-label="등록한 키워드"></div>
                     <div class="group-form-actions">
                         <button class="btn btn-primary" data-action="save-group" id="group-save-btn">만들기</button>
                         <button class="btn btn-outline" data-action="cancel-group-edit" id="group-cancel-btn" hidden>취소</button>

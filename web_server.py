@@ -18,17 +18,13 @@ from config import (
 )
 from storage import (
     set_board_alert,
-    add_keyword,
-    remove_keyword,
     load_board_config,
-    list_keyword_tabs,
-    query_keyword_posts,
     query_all_posts,
-    count_all_posts,
     recent_post_ids,
     mark_posts_read,
     locate_post,
     list_groups,
+    feed_summary,
     save_group,
     delete_group
 )
@@ -101,15 +97,7 @@ def _clear_auth_failures(ip):
         auth_failures.pop(ip, None)
 
 def build_state():
-    """대시보드 초기 화면 구성용 데이터: 탭 목록(정렬 포함), 게시판 목록, 알림 설정"""
-    tabs = list_keyword_tabs(NEW_POSTS_WINDOW)
-    for tab in tabs:
-        tab['board_name'] = BOARD_MAP.get(tab['board'], tab['board'])
-    # 안 읽은 새 글이 있는 탭 → 최신 글 날짜 → 글 수 순으로 정렬
-    tabs.sort(key=lambda t: (len(t['unread_ids']) > 0, t['latest_date'], t['total']), reverse=True)
-    all_unread = []
-    for tab in tabs:
-        all_unread.extend(i for i in tab['unread_ids'] if i not in all_unread)
+    """대시보드 초기 화면 구성용 데이터: 게시판 목록, 통합 피드 요약, 카테고리(에펨코리아 게시판), 알림 설정"""
     groups = list_groups(NEW_POSTS_WINDOW)
     for group in groups:
         for member in group['members']:
@@ -119,28 +107,21 @@ def build_state():
         'posts_per_page': POSTS_PER_PAGE,
         'boards': [{'key': k, 'name': v} for k, v in BOARD_MAP.items()],
         'board_config': load_board_config(),
-        # 모든 키워드를 합친 통합 피드 요약 (같은 글은 한 번만 셈)
-        'all': {'total': count_all_posts(), 'unread_ids': all_unread},
-        # 사용자가 만든 묶음 게시판 (여러 키워드를 중복 없이 한 피드로)
-        'groups': groups,
-        'tabs': tabs
+        # 모든 게시판을 합친 통합 피드 요약 (같은 글은 한 번만 셈)
+        'all': feed_summary(NEW_POSTS_WINDOW),
+        # 사용자가 만든 게시판 (등록한 키워드의 글을 중복 없이 한 피드로)
+        'groups': groups
     }
 
-def build_posts_page(board, keyword, page, video_only, scope_all=False, query='', group_id=None):
-    if scope_all or query or group_id is not None:
-        # 통합 피드·검색·묶음 게시판: 여러 키워드의 글을 중복 없이
-        total, _ = query_all_posts(0, 0, video_only, query, group_id)
-        total_pages = max(1, -(-total // POSTS_PER_PAGE))
-        page = min(max(1, page), total_pages)
-        _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id)
-        for post in posts:
-            for link in post.get('keywords', []):
-                link['board_name'] = BOARD_MAP.get(link['board'], link['board'])
-    else:
-        total, _ = query_keyword_posts(board, keyword, 0, 0, video_only)
-        total_pages = max(1, -(-total // POSTS_PER_PAGE))
-        page = min(max(1, page), total_pages)
-        _, posts = query_keyword_posts(board, keyword, (page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only)
+def build_posts_page(page, video_only, query='', group_id=None):
+    """통합 피드(group_id 없음)·게시판·검색: 여러 키워드의 글을 중복 없이"""
+    total, _ = query_all_posts(0, 0, video_only, query, group_id)
+    total_pages = max(1, -(-total // POSTS_PER_PAGE))
+    page = min(max(1, page), total_pages)
+    _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id)
+    for post in posts:
+        for link in post.get('keywords', []):
+            link['board_name'] = BOARD_MAP.get(link['board'], link['board'])
     # 메인 루프가 매 주기 목록의 댓글 수로 변화를 감시하는 최근 글 표시 (필터와 무관하게 키워드 전체 기준)
     syncing_ids = recent_post_ids(LIST_PAGE_SIZE)
     for post in posts:
@@ -212,18 +193,15 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             elif pure_path == '/api/state':
                 self._send_data(200, build_state())
             elif pure_path == '/api/posts':
-                board = query.get('board', [''])[0]
-                keyword = query.get('keyword', [''])[0]
                 try:
                     page = int(query.get('page', ['1'])[0])
                 except ValueError:
                     page = 1
                 video_only = query.get('video_only', ['0'])[0] in ('1', 'true')
-                scope = query.get('scope', [''])[0]
                 search = query.get('q', [''])[0].strip()[:MAX_QUERY_LENGTH]
                 group_param = query.get('group', [''])[0]
-                group_id = int(group_param) if scope == 'group' and group_param.isdigit() else None
-                self._send_data(200, build_posts_page(board, keyword, page, video_only, scope == 'all', search, group_id))
+                group_id = int(group_param) if group_param.isdigit() and not search else None
+                self._send_data(200, build_posts_page(page, video_only, search, group_id))
             elif pure_path == '/api/locate':
                 post_id = query.get('id', [''])[0]
                 location = locate_post(post_id) if post_id.isdigit() else None
@@ -236,7 +214,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             log_msg("[API] 응답 중 브라우저 연결 끊김", "DEBUG")
         except Exception as e:
             log_msg(f"[API] GET {pure_path} 오류: {short_err(e)}", "ERROR")
@@ -257,8 +235,6 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
 
         if pure_path == '/api/toggle-alert':
             self._handle_toggle_alert()
-        elif pure_path == '/api/keyword':
-            self._handle_keyword()
         elif pure_path == '/api/read':
             self._handle_read()
         elif pure_path == '/api/group':
@@ -268,18 +244,19 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self.end_headers()
 
     def _handle_group(self):
-        """묶음 게시판 만들기·수정·삭제 (관리자 암호 필요)"""
+        """게시판 만들기·수정·삭제 (관리자 암호 필요). 키워드는 게시판에 등록하는 방식으로만 관리"""
         try:
             params = self._read_json_body()
-            if not self._authorize(params.get('password', ''), '묶음 게시판'):
+            if not self._authorize(params.get('password', ''), '게시판 관리'):
                 return
             action = params.get('action')
             if action == 'delete':
                 group_id = params.get('id')
-                if not isinstance(group_id, int) or not delete_group(group_id):
+                dropped = delete_group(group_id) if isinstance(group_id, int) else None
+                if dropped is None:
                     self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
                     return
-                log_msg(f"[API] 묶음 게시판 삭제: #{group_id}")
+                log_msg(f"[API] 게시판 삭제: #{group_id}{self._dropped_text(dropped)}")
                 self._send_json(200, True, '🗑️ 게시판을 삭제했습니다.')
                 return
             if action not in ('create', 'update'):
@@ -292,26 +269,38 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 return
             if (not isinstance(members, list) or not members or len(members) > MAX_GROUP_MEMBERS
                     or not all(isinstance(m, dict) and isinstance(m.get('board'), str) and isinstance(m.get('keyword'), str) for m in members)):
-                self._send_json(400, False, '❌ 묶을 키워드를 하나 이상 선택해 주세요.')
+                self._send_json(400, False, f'❌ 키워드를 1~{MAX_GROUP_MEMBERS}개 등록해 주세요.')
                 return
+            members = [{'board': m['board'].strip(), 'keyword': m['keyword'].strip()} for m in members]
+            for m in members:
+                if m['board'] not in BOARD_MAP:
+                    self._send_json(400, False, '❌ 존재하지 않는 카테고리입니다.')
+                    return
+                if not m['keyword'] or len(m['keyword']) > MAX_KEYWORD_LENGTH or any(ch in m['keyword'] for ch in '\r\n\t'):
+                    self._send_json(400, False, f'❌ 키워드는 줄바꿈 없이 {MAX_KEYWORD_LENGTH}자 이하로 입력해 주세요.')
+                    return
             group_id = params.get('id') if action == 'update' else None
             if action == 'update' and not isinstance(group_id, int):
                 self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
                 return
             try:
-                saved_id = save_group(group_id, name, members)
+                saved_id, dropped = save_group(group_id, name, members)
             except ValueError as ve:
                 self._send_json(400, False, f'❌ {ve}')
                 return
-            log_msg(f"[API] 묶음 게시판 {'추가' if action == 'create' else '수정'}: {name} (키워드 {len(members)}개)")
+            log_msg(f"[API] 게시판 {'추가' if action == 'create' else '수정'}: {name} (키워드 {len(members)}개){self._dropped_text(dropped)}")
             self._send_data(200, {'success': True, 'id': saved_id,
                                   'message': f"📚 '{name}' 게시판을 {'만들었' if action == 'create' else '수정했'}습니다."})
         except Exception as e:
-            log_msg(f"[API] 묶음 게시판 처리 오류: {short_err(e)}", "ERROR")
+            log_msg(f"[API] 게시판 처리 오류: {short_err(e)}", "ERROR")
             try:
                 self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
             except Exception:
                 pass
+
+    @staticmethod
+    def _dropped_text(dropped):
+        return f" / 수집 중단 키워드: {', '.join(f'{BOARD_MAP.get(b, b)}/{k}' for b, k in dropped)}" if dropped else ''
 
     def _handle_read(self):
         """화면에서 읽은 글 기록 (기기 간 공유). 읽음 표시는 민감 정보가 아니라 관리자 암호 없이 허용"""
@@ -359,56 +348,6 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_json(200, True, msg)
         except Exception as e:
             log_msg(f"[API] 알림 설정 처리 오류: {short_err(e)}", "ERROR")
-            try:
-                self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
-            except Exception:
-                pass
-
-    def _handle_keyword(self):
-        try:
-            params = self._read_json_body()
-            action = params.get('action')
-            keyword = str(params.get('keyword', '')).strip()
-            board = str(params.get('board', 'car')).strip()
-
-
-            if not self._authorize(params.get('password', ''), '키워드 매니징'):
-                return
-
-            if action not in ('add', 'delete'):
-                self._send_json(400, False, '❌ 지원하지 않는 작업입니다.')
-                return
-            if board not in BOARD_MAP:
-                log_msg(f"[API] 잘못된 게시판 요청: {board}", "WARN")
-                self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
-                return
-            if not keyword:
-                log_msg("[API] 빈 키워드 요청 무시", "DEBUG")
-                self._send_json(400, False, '❌ 키워드를 입력해 주세요.')
-                return
-            if len(keyword) > MAX_KEYWORD_LENGTH or any(ch in keyword for ch in '\r\n\t'):
-                self._send_json(400, False, f'❌ 키워드는 줄바꿈 없이 {MAX_KEYWORD_LENGTH}자 이하로 입력해 주세요.')
-                return
-
-            combined_key = f"{board}::{keyword}"
-            if action == 'add':
-                if not add_keyword(board, keyword):
-                    msg = '이미 존재하는 키워드입니다.'
-                    log_msg(f"[API] 이미 있는 키워드: {combined_key}", "DEBUG")
-                else:
-                    msg = f'🎯 {BOARD_MAP.get(board, board)} -> [{keyword}] 추가되었습니다.'
-                    log_msg(f"[API] 키워드 추가: {BOARD_MAP[board]}/{keyword}")
-            else:
-                if remove_keyword(board, keyword):
-                    msg = f'🗑️ {BOARD_MAP.get(board, board)} -> [{keyword}] 삭제되었습니다.'
-                    log_msg(f"[API] 키워드 삭제: {BOARD_MAP[board]}/{keyword}")
-                else:
-                    msg = '존재하지 않는 키워드입니다.'
-                    log_msg(f"[API] 없는 키워드 삭제 요청: {combined_key}", "DEBUG")
-
-            self._send_json(200, True, msg)
-        except Exception as e:
-            log_msg(f"[API] 키워드 처리 오류: {short_err(e)}", "ERROR")
             try:
                 self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
             except Exception:

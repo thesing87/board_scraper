@@ -276,7 +276,7 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .settings-hint { font-size: 12px; color: var(--muted); }
 .add-row { display: flex; gap: 8px; }
 .add-row .select { flex: 0 0 100px; }
-.add-row #new-kw-input { flex: 1 1 auto; }
+.add-row #group-kw-input { flex: 1 1 auto; }
 .add-row .btn { flex: 0 0 auto; height: 44px; border-radius: 10px; padding: 0 16px; white-space: nowrap; }
 .keyword-tags { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
 .kw-tag { height: 32px; padding: 0 4px 0 12px; border-radius: 999px; background: #F3F4F6; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text-body); }
@@ -284,13 +284,6 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .kw-tag button { width: 28px; height: 28px; border: none; border-radius: 50%; background: transparent; color: var(--text-3); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .kw-tag button:hover { background: #E5E7EB; }
 /* 묶음 게시판 만들기: 키워드를 눌러서 고르는 선택 목록과 만든 게시판 목록 */
-.group-picker { display: flex; flex-wrap: wrap; gap: 6px; }
-.pick { position: relative; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text-body); cursor: pointer; user-select: none; }
-.pick input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
-.pick:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
-.pick-board { color: var(--muted); font-size: 12px; }
-.pick.checked { border-color: var(--accent); background: var(--accent-weak); color: var(--accent); font-weight: 700; }
-.pick.checked .pick-board { color: var(--accent); }
 .group-form-actions { display: flex; gap: 8px; }
 .group-form-actions .btn { height: 40px; border-radius: 10px; padding: 0 18px; }
 .group-list { display: flex; flex-direction: column; }
@@ -301,7 +294,6 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .group-row-name { font-size: 14px; font-weight: 700; }
 .group-row-members { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .btn-danger { color: var(--danger-text); }
-.chip.chip-group:not(.active) { border-color: #C7D7FB; background: var(--accent-weak); color: var(--accent); }
 
 .alert-head { display: flex; align-items: center; justify-content: space-between; }
 .alert-cols { display: flex; gap: 12px; font-size: 11px; color: var(--muted); }

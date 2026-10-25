@@ -3,13 +3,13 @@
 // ==========================================
 // 상태 및 공용 유틸
 // ==========================================
-const ALL_KEY = '__all__';            // 모든 키워드를 합친 통합 피드
+const ALL_KEY = '__all__';            // 모든 게시판을 합친 통합 피드
 const POLL_INTERVAL_MS = 60 * 1000;   // 새 글 확인 주기
 const LEGACY_READ_IDS_KEY = 'read_post_ids';
 
 const app = {
     state: null,          // /api/state 응답
-    activeKey: ALL_KEY,   // 현재 보기: ALL_KEY 또는 "board::keyword"
+    activeKey: ALL_KEY,   // 현재 보기: ALL_KEY 또는 "group:<게시판 ID>"
     searchQuery: '',      // 검색 중이면 검색어
     page: 1,
     totalPages: 1,
@@ -34,19 +34,20 @@ function esc(value) {
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-function tabKey(tab) { return tab.board + '::' + tab.keyword; }
 function groupKey(group) { return 'group:' + group.id; }
-function findTab(key) { return app.state ? app.state.tabs.find(t => tabKey(t) === key) : null; }
+function memberKey(m) { return m.board + '::' + m.keyword; }
+function boardName(key) {
+    const board = app.state ? app.state.boards.find(b => b.key === key) : null;
+    return board ? board.name : key;
+}
 function findGroup(key) { return app.state ? (app.state.groups || []).find(g => groupKey(g) === key) : null; }
 function isAllView() { return app.activeKey === ALL_KEY; }
-function isGroupView() { return String(app.activeKey).startsWith('group:'); }
-function isKnownView(key) { return key === ALL_KEY || !!findTab(key) || !!findGroup(key); }
+function isKnownView(key) { return key === ALL_KEY || !!findGroup(key); }
 
-// 현재 보기(통합·묶음 게시판·키워드)의 요약: 글 수, 안 읽은 새 글 ID
+// 현재 보기(통합 피드·게시판)의 요약: 글 수, 안 읽은 새 글 ID
 function viewSummary(key) {
     if (!app.state) return null;
-    if (key === ALL_KEY) return { total: app.state.all.total, unread_ids: app.state.all.unread_ids };
-    return findGroup(key) || findTab(key);
+    return key === ALL_KEY ? app.state.all : findGroup(key);
 }
 
 function storageGet(store, key, fallback) {
@@ -81,7 +82,6 @@ function forgetUnread(ids) {
     // 서버 응답을 기다리지 않고 화면의 안 읽은 수부터 줄임
     if (!app.state) return;
     const set = new Set(ids);
-    app.state.tabs.forEach(t => { t.unread_ids = t.unread_ids.filter(id => !set.has(id)); });
     (app.state.groups || []).forEach(g => { g.unread_ids = g.unread_ids.filter(id => !set.has(id)); });
     app.state.all.unread_ids = app.state.all.unread_ids.filter(id => !set.has(id));
 }
@@ -181,50 +181,36 @@ function navItem(label, count, unread, active, attrs) {
 
 function renderNavigation() {
     if (!app.state) return;
-    const tabs = app.state.tabs;
     const searching = !!app.searchQuery;
-
-    // 데스크톱: 통합 피드 + 게시판별로 묶은 키워드 목록
-    const groups = [];
-    tabs.forEach((tab, idx) => {
-        let group = groups.find(g => g.board === tab.board);
-        if (!group) { group = { board: tab.board, name: tab.board_name, items: [] }; groups.push(group); }
-        group.items.push({ tab, idx });
-    });
+    const groups = app.state.groups || [];
     const allActive = !searching && isAllView();
-    const allItem = `<nav class="kw-group" aria-label="통합">${navItem('전체', app.state.all.total, app.state.all.unread_ids.length, allActive, 'data-action="open-all"')}</nav>`;
-    // 사용자가 만든 묶음 게시판
-    const myGroups = app.state.groups || [];
-    const groupItems = myGroups.length ? `
-        <nav class="kw-group" aria-label="내 게시판">
-            <span class="kw-group-name">내 게시판</span>
-            ${myGroups.map(g => navItem(esc(g.name), g.total, g.unread_ids.length,
-                !searching && groupKey(g) === app.activeKey, `data-action="open-group" data-group-id="${g.id}"`)).join('')}
-        </nav>` : '';
-    document.getElementById('keyword-groups').innerHTML = allItem + groupItems + (groups.length ? groups.map(group => `
-        <nav class="kw-group" aria-label="${esc(group.name)}">
-            <span class="kw-group-name">${esc(group.name)}</span>
-            ${group.items.map(({ tab, idx }) => navItem(esc(tab.keyword), tab.total, tab.unread_ids.length,
-                !searching && tabKey(tab) === app.activeKey, `data-action="open-tab" data-index="${idx}"`)).join('')}
-        </nav>`).join('') : '<span class="kw-group-name">등록된 키워드가 없습니다.</span>');
+    const isActive = g => !searching && groupKey(g) === app.activeKey;
+
+    // 데스크톱: 통합 피드 + 사용자가 만든 게시판
+    document.getElementById('keyword-groups').innerHTML = `
+        <nav class="kw-group" aria-label="통합">${navItem('전체', app.state.all.total, app.state.all.unread_ids.length, allActive, 'data-action="open-all"')}</nav>
+        <nav class="kw-group" aria-label="게시판">
+            ${groups.length ? groups.map(g => navItem(esc(g.name), g.total, g.unread_ids.length, isActive(g),
+                `data-action="open-group" data-group-id="${g.id}"`)).join('')
+                : '<span class="kw-group-name">게시판이 없습니다. 관리에서 만들어 주세요.</span>'}
+        </nav>`;
 
     // 모바일: 가로로 넘기는 칩 (맨 앞이 통합 피드)
-    const chip = (label, count, hasUnread, active, attrs, extraClass) => `
-        <button class="chip ${extraClass || ''} ${active ? 'active' : ''}" ${attrs} ${active ? 'aria-current="true"' : ''}>
+    const chip = (label, count, hasUnread, active, attrs) => `
+        <button class="chip ${active ? 'active' : ''}" ${attrs} ${active ? 'aria-current="true"' : ''}>
             <span>${label}</span>
             <span class="chip-count">${count}</span>
             ${hasUnread ? '<span class="chip-dot" aria-label="안 읽은 새 글"></span>' : ''}
         </button>`;
     document.getElementById('chip-row').innerHTML =
         chip('전체', app.state.all.total, app.state.all.unread_ids.length > 0, allActive, 'data-action="open-all"') +
-        myGroups.map(g => chip(esc(g.name), g.total, g.unread_ids.length > 0, !searching && groupKey(g) === app.activeKey,
-            `data-action="open-group" data-group-id="${g.id}"`, 'chip-group')).join('') +
-        tabs.map((tab, idx) => chip(esc(tab.keyword), tab.total, tab.unread_ids.length > 0,
-            !searching && tabKey(tab) === app.activeKey, `data-action="open-tab" data-index="${idx}"`)).join('');
+        groups.map(g => chip(esc(g.name), g.total, g.unread_ids.length > 0, isActive(g),
+            `data-action="open-group" data-group-id="${g.id}"`)).join('');
 
-    // 사이드바 하단 알림 요약
+    // 사이드바 하단 알림 요약 (게시판에 키워드가 등록된 카테고리만)
+    const used = new Set(groups.flatMap(g => g.members.map(m => m.board)));
     const summary = app.state.boards
-        .filter(b => groups.some(g => g.board === b.key))
+        .filter(b => used.has(b.key))
         .map(b => {
             const cfg = app.state.board_config[b.key] || { alert: true, video_alert: true };
             const mode = cfg.alert ? '전체 알림' : (cfg.video_alert ? '동영상 글만' : '알림 꺼짐');
@@ -334,8 +320,9 @@ function renderPost(post, isUnread) {
         post.is_syncing && !post.is_deleted ? '<span class="badge badge-sync">댓글 추적 중</span>' : '',
         post.is_deleted ? '<span class="badge badge-deleted">원문 삭제됨</span>' : ''
     ].join('');
-    // 통합 피드·묶음 게시판·검색에서는 어느 키워드로 모인 글인지 표시
-    const keywordTags = (post.keywords && (isAllView() || isGroupView() || app.searchQuery))
+    // 통합 피드·검색·키워드가 여러 개인 게시판에서는 어느 키워드로 모인 글인지 표시
+    const group = findGroup(app.activeKey);
+    const keywordTags = (post.keywords && (isAllView() || app.searchQuery || (group && group.members.length > 1)))
         ? post.keywords.map(k => `<span class="kw-chip">${esc(k.board_name)} · ${esc(k.keyword)}</span>`).join('')
         : '';
     const link = esc(safeLink(post.link));
@@ -394,14 +381,12 @@ function renderPager(page, totalPages) {
 }
 
 function feedSubText(total) {
-    if (app.searchQuery) return `모든 키워드에서 ${total}건`;
+    if (app.searchQuery) return `모든 게시판에서 ${total}건`;
     const summary = viewSummary(app.activeKey);
     if (!summary) return '';
     const unread = summary.unread_ids.length;
     const group = findGroup(app.activeKey);
-    const label = isAllView() ? '모든 키워드'
-        : group ? `묶음 게시판 · ${group.members.map(m => esc(m.keyword)).join(', ')}`
-        : `${esc(findTab(app.activeKey).board_name)} 게시판`;
+    const label = group ? `키워드 ${group.members.map(m => esc(m.keyword)).join(', ')}` : '모든 게시판';
     return `${label} · ${summary.total}개 글${unread ? ` · <strong>새 글 ${unread}</strong>` : ''}`;
 }
 
@@ -418,19 +403,12 @@ async function loadPosts() {
     const feed = document.getElementById('feed');
     hideNewBanner();
     const searching = !!app.searchQuery;
-    const tab = isAllView() ? null : findTab(app.activeKey);
     const group = findGroup(app.activeKey);
-    if (!searching && !isAllView() && !tab && !group) {
-        feed.innerHTML = '<div class="empty-card">등록된 키워드가 없습니다. 관리에서 키워드를 추가해 주세요.</div>';
-        return;
-    }
     const viewKey = searching ? 'search:' + app.searchQuery : app.activeKey;
     const videoOnly = !!app.videoOnly[app.activeKey];
     const params = new URLSearchParams({ page: app.page, video_only: videoOnly ? '1' : '0' });
     if (searching) params.set('q', app.searchQuery);
-    else if (isAllView()) params.set('scope', 'all');
-    else if (group) { params.set('scope', 'group'); params.set('group', group.id); }
-    else { params.set('board', tab.board); params.set('keyword', tab.keyword); }
+    else if (group) params.set('group', group.id);
 
     let data;
     try {
@@ -453,7 +431,9 @@ async function loadPosts() {
     const empty = data.total === 0;
     let body = '';
     if (empty) {
-        body = searching ? `<div class="empty-card">'${esc(app.searchQuery)}'에 해당하는 글이 없습니다.</div>`
+        body = !searching && !(app.state.groups || []).length
+            ? '<div class="empty-card">게시판이 없습니다. 관리에서 게시판을 만들고 키워드를 등록해 주세요.</div>'
+            : searching ? `<div class="empty-card">'${esc(app.searchQuery)}'에 해당하는 글이 없습니다.</div>`
             : videoOnly ? '<div class="empty-card">동영상이 포함된 게시글이 없습니다.</div>'
             : '<div class="empty-card">수집된 게시글이 없습니다. 새 글이 등록되면 이곳에 표시됩니다.</div>';
     } else {
@@ -471,7 +451,7 @@ async function loadPosts() {
         });
     }
 
-    const title = searching ? `검색: ${esc(app.searchQuery)}` : isAllView() ? '전체' : group ? esc(group.name) : esc(tab.keyword);
+    const title = searching ? `검색: ${esc(app.searchQuery)}` : group ? esc(group.name) : '전체';
     const headActions = searching
         ? '<button class="btn btn-outline btn-small" data-action="clear-search">검색 닫기</button>'
         : `<button class="btn btn-outline btn-small" data-action="mark-all-read" ${summary && summary.unread_ids.length ? '' : 'hidden'}>모두 읽음</button>`;
@@ -600,20 +580,10 @@ function alertSwitch(boardKey, type, on, label) {
 }
 
 function renderSettings() {
-    const select = document.getElementById('board-select');
+    const select = document.getElementById('group-board-select');
     const prev = select.value;
     select.innerHTML = app.state.boards.map(b => `<option value="${esc(b.key)}">${esc(b.name)}</option>`).join('');
     if (prev) select.value = prev;
-    else {
-        const active = findTab(app.activeKey);
-        if (active) select.value = active.board;
-    }
-
-    document.getElementById('settings-keywords').innerHTML = app.state.tabs.map((tab, idx) => `
-        <span class="kw-tag">
-            <span class="kw-tag-board">${esc(tab.board_name)}</span>${esc(tab.keyword)}
-            <button data-action="delete-keyword" data-index="${idx}" aria-label="${esc(tab.board_name + ' ' + tab.keyword)} 키워드 삭제">${ICONS.close}</button>
-        </span>`).join('');
 
     renderGroupSettings();
 
@@ -630,28 +600,25 @@ function renderSettings() {
     }).join('');
 }
 
-// ---------- 묶음 게시판 만들기·수정·삭제 ----------
+// ---------- 게시판 만들기·수정·삭제 (키워드는 게시판에 등록) ----------
 function renderGroupSettings() {
     const editing = (app.state.groups || []).find(g => g.id === app.editingGroupId) || null;
     if (!editing) app.editingGroupId = null;
-    const selected = new Set(app.groupDraft || (editing ? editing.members.map(m => m.board + '::' + m.keyword) : []));
+    if (app.groupDraft === undefined) app.groupDraft = editing ? editing.members.map(m => ({ board: m.board, keyword: m.keyword })) : [];
 
-    document.getElementById('group-form-title').textContent = editing ? `'${editing.name}' 게시판 수정` : '묶음 게시판 만들기';
+    document.getElementById('group-form-title').textContent = editing ? `'${editing.name}' 게시판 수정` : '게시판 만들기';
     document.getElementById('group-save-btn').textContent = editing ? '저장' : '만들기';
     document.getElementById('group-cancel-btn').hidden = !editing;
     const nameInput = document.getElementById('group-name-input');
     if (app.groupNameDraft !== undefined) nameInput.value = app.groupNameDraft;
     else nameInput.value = editing ? editing.name : '';
 
-    // 등록된 키워드를 눌러서 고르는 선택 목록 (게시판 이름과 함께 표시)
-    document.getElementById('group-picker').innerHTML = app.state.tabs.length ? app.state.tabs.map(tab => {
-        const key = tabKey(tab);
-        return `
-            <label class="pick ${selected.has(key) ? 'checked' : ''}">
-                <input type="checkbox" data-action="pick-group-keyword" value="${esc(key)}" ${selected.has(key) ? 'checked' : ''}>
-                <span class="pick-board">${esc(tab.board_name)}</span>${esc(tab.keyword)}
-            </label>`;
-    }).join('') : '<span class="settings-hint">먼저 위에서 키워드를 추가해 주세요.</span>';
+    // 이 게시판에 등록할 키워드 (카테고리와 함께 표시)
+    document.getElementById('group-keywords').innerHTML = app.groupDraft.length ? app.groupDraft.map((m, idx) => `
+        <span class="kw-tag">
+            <span class="kw-tag-board">${esc(boardName(m.board))}</span>${esc(m.keyword)}
+            <button data-action="remove-draft-keyword" data-index="${idx}" aria-label="${esc(boardName(m.board) + ' ' + m.keyword)} 키워드 빼기">${ICONS.close}</button>
+        </span>`).join('') : '<span class="settings-hint">아직 등록한 키워드가 없습니다.</span>';
 
     const groups = app.state.groups || [];
     document.getElementById('settings-groups').innerHTML = groups.length ? groups.map(g => `
@@ -662,28 +629,53 @@ function renderGroupSettings() {
             </div>
             <button class="btn btn-outline btn-small" data-action="edit-group" data-group-id="${g.id}">수정</button>
             <button class="btn btn-outline btn-small btn-danger" data-action="delete-group" data-group-id="${g.id}">삭제</button>
-        </div>`).join('') : '';
+        </div>`).join('') : '<span class="settings-hint">만든 게시판이 없습니다.</span>';
+}
+
+function addDraftKeyword() {
+    const input = document.getElementById('group-kw-input');
+    const keyword = input.value.trim();
+    const board = document.getElementById('group-board-select').value;
+    if (!keyword) { input.focus(); return; }
+    if (app.groupDraft.some(m => m.board === board && m.keyword === keyword)) {
+        alert('이미 등록한 키워드입니다.');
+        return;
+    }
+    app.groupDraft.push({ board: board, keyword: keyword });
+    input.value = '';
+    renderGroupSettings();
+    input.focus();
 }
 
 function resetGroupForm() {
     app.editingGroupId = null;
     app.groupDraft = undefined;
     app.groupNameDraft = undefined;
+    document.getElementById('group-kw-input').value = '';
     renderGroupSettings();
+}
+
+// 다른 게시판에 없는 키워드는 게시판에서 빠지면 수집을 멈추고 모은 글도 삭제됨
+function droppedKeywords(groupId, keepMembers) {
+    const keep = new Set(keepMembers.map(memberKey));
+    const others = new Set((app.state.groups || []).filter(g => g.id !== groupId).flatMap(g => g.members.map(memberKey)));
+    const group = (app.state.groups || []).find(g => g.id === groupId);
+    return group ? group.members.filter(m => !keep.has(memberKey(m)) && !others.has(memberKey(m))) : [];
 }
 
 async function saveGroup(button) {
     const pwd = adminPassword();
     const name = document.getElementById('group-name-input').value.trim();
-    const members = [...document.querySelectorAll('#group-picker input:checked')].map(cb => {
-        const [board, ...rest] = cb.value.split('::');
-        return { board: board, keyword: rest.join('::') };
-    });
+    // 입력만 하고 '추가'를 누르지 않은 키워드도 함께 등록
+    if (document.getElementById('group-kw-input').value.trim()) addDraftKeyword();
+    const members = app.groupDraft.slice();
     if (!name) { alert('게시판 이름을 입력해 주세요.'); document.getElementById('group-name-input').focus(); return; }
-    if (members.length === 0) { alert('묶을 키워드를 하나 이상 선택해 주세요.'); return; }
+    if (members.length === 0) { alert('키워드를 하나 이상 등록해 주세요.'); document.getElementById('group-kw-input').focus(); return; }
     if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return; }
 
     const editingId = app.editingGroupId;
+    const dropped = editingId ? droppedKeywords(editingId, members) : [];
+    if (dropped.length && !confirm(`뺀 키워드 ${dropped.map(m => m.keyword).join(', ')}는 수집을 멈추고 모은 글도 삭제됩니다. 저장할까요?`)) return;
     button.disabled = true;
     try {
         const data = await postJSON('/api/group', {
@@ -710,7 +702,9 @@ async function deleteGroup(groupId, button) {
     if (!group) return;
     const pwd = adminPassword();
     if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return; }
-    if (!confirm(`'${group.name}' 게시판을 삭제할까요?\n(묶인 키워드와 수집한 글은 그대로 남습니다)`)) return;
+    const dropped = droppedKeywords(groupId, []);
+    const note = dropped.length ? `\n(키워드 ${dropped.map(m => m.keyword).join(', ')}는 수집을 멈추고 모은 글도 삭제됩니다)` : '';
+    if (!confirm(`'${group.name}' 게시판을 삭제할까요?${note}`)) return;
     button.disabled = true;
     try {
         const data = await postJSON('/api/group', { action: 'delete', id: groupId, password: pwd });
@@ -733,7 +727,7 @@ function setSettingsOpen(open) {
     if (open) {
         renderSettings();
         const pwd = document.getElementById('admin-pwd-input');
-        (pwd.value ? document.getElementById('new-kw-input') : pwd).focus();
+        (pwd.value ? document.getElementById('group-name-input') : pwd).focus();
     }
 }
 
@@ -764,36 +758,6 @@ async function toggleBoardAlert(checkbox) {
     } catch (e) {
         alert('알림 상태 요청 중 오류가 발생했습니다.');
         checkbox.checked = !target;
-    }
-}
-
-async function manageKeyword(action, keyword, board, button) {
-    const pwd = adminPassword();
-    if (!keyword) { alert('키워드를 입력해 주세요.'); return; }
-    if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return; }
-    if (action === 'delete' && !confirm("'" + keyword + "' 키워드를 정말 삭제하시겠습니까?")) return;
-
-    if (button) button.disabled = true;
-    try {
-        const data = await postJSON('/api/keyword', { action: action, keyword: keyword, board: board, password: pwd });
-        if (data.success) {
-            if (action === 'add') {
-                document.getElementById('new-kw-input').value = '';
-                app.activeKey = board + '::' + keyword;
-                app.page = 1;
-            } else if (app.activeKey === board + '::' + keyword) {
-                app.activeKey = ALL_KEY;
-            }
-            app.searchQuery = '';
-            await loadState();
-            renderSettings();
-        } else {
-            alert(data.message);
-        }
-    } catch (e) {
-        alert('요청 중 오류가 발생했습니다.');
-    } finally {
-        if (button) button.disabled = false;
     }
 }
 
@@ -834,7 +798,7 @@ async function handlePostAnchor() {
         window.location.replace('https://www.fmkorea.com/' + postId);
         return true;
     }
-    const key = loc.board + '::' + loc.keyword;
+    const key = loc.group ? 'group:' + loc.group : ALL_KEY;
     app.videoOnly[key] = false;
     app.highlightPostId = postId;
     openView(key, loc.page);
@@ -877,10 +841,7 @@ document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-action]');
     if (!el || el.tagName === 'INPUT') return;
     const action = el.dataset.action;
-    if (action === 'open-tab') {
-        const tab = app.state.tabs[Number(el.dataset.index)];
-        if (tab) openView(tabKey(tab), 1);
-    } else if (action === 'open-all') {
+    if (action === 'open-all') {
         openView(ALL_KEY, 1);
     } else if (action === 'open-group') {
         openView('group:' + el.dataset.groupId, 1);
@@ -892,15 +853,15 @@ document.addEventListener('click', (e) => {
         app.groupNameDraft = undefined;
         renderGroupSettings();
         document.getElementById('group-name-input').focus();
+    } else if (action === 'add-draft-keyword') {
+        addDraftKeyword();
+    } else if (action === 'remove-draft-keyword') {
+        app.groupDraft.splice(Number(el.dataset.index), 1);
+        renderGroupSettings();
     } else if (action === 'cancel-group-edit') {
         resetGroupForm();
     } else if (action === 'delete-group') {
         deleteGroup(Number(el.dataset.groupId), el);
-    } else if (action === 'delete-keyword') {
-        const tab = app.state.tabs[Number(el.dataset.index)];
-        if (tab) manageKeyword('delete', tab.keyword, tab.board, el);
-    } else if (action === 'add-keyword') {
-        manageKeyword('add', document.getElementById('new-kw-input').value.trim(), document.getElementById('board-select').value, el);
     } else if (action === 'page') {
         changePage(el.dataset.target);
     } else if (action === 'set-filter') {
@@ -931,11 +892,6 @@ document.addEventListener('click', (e) => {
 document.addEventListener('change', (e) => {
     if (e.target.dataset.action === 'toggle-alert') toggleBoardAlert(e.target);
     else if (e.target.dataset.action === 'go-page') changePage(e.target.value);
-    else if (e.target.dataset.action === 'pick-group-keyword') {
-        // 선택 상태를 기억해 두어 관리 패널이 다시 그려져도 유지
-        e.target.closest('.pick').classList.toggle('checked', e.target.checked);
-        app.groupDraft = [...document.querySelectorAll('#group-picker input:checked')].map(cb => cb.value);
-    }
 });
 
 document.addEventListener('input', (e) => {
@@ -951,8 +907,9 @@ document.addEventListener('submit', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && e.target.id === 'new-kw-input') {
-        document.querySelector('[data-action="add-keyword"]').click();
+    if (e.key === 'Enter' && e.target.id === 'group-kw-input') {
+        e.preventDefault();
+        addDraftKeyword();
     } else if (e.key === 'Escape' && !document.getElementById('settings').hidden) {
         setSettingsOpen(false);
     } else if (e.key === 'Escape' && e.target.id === 'search-input' && app.searchQuery) {

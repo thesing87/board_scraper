@@ -221,6 +221,7 @@ def init_db():
                 for board in BOARD_MAP.keys():
                     conn.execute("INSERT OR IGNORE INTO board_config(board) VALUES(?)", (board,))
                 _backfill_search_text(conn)
+                _migrate_keywords_to_boards(conn)
         # 커밋이 끝난 뒤에만 기존 파일을 정리하여, 이전 도중 실패하면 다음 기동 시 다시 시도
         for path in migrated_files:
             _mark_legacy_migrated(path)
@@ -231,7 +232,7 @@ def _db():
     return closing(_connect())
 
 # ==========================================
-# 키워드
+# 키워드 (게시판에 등록된 키워드가 곧 수집 대상. 직접 추가·삭제하지 않고 게시판 저장 시 자동 정리)
 # ==========================================
 def load_keywords():
     """{board: [keyword, ...]} 형태로 등록 순서대로 반환"""
@@ -241,29 +242,77 @@ def load_keywords():
             result.setdefault(row['board'], []).append(row['keyword'])
     return result
 
-def add_keyword(board, keyword):
-    """추가되면 True, 이미 있으면 False"""
-    with _db() as conn, conn:
-        cur = conn.execute("INSERT OR IGNORE INTO keywords(board, keyword) VALUES(?, ?)", (board, keyword))
-        return cur.rowcount > 0
-
-def remove_keyword(board, keyword):
-    """키워드와 그 수집 데이터 연결을 삭제하고, 어느 키워드에도 속하지 않게 된 글을 정리. 삭제되면 True"""
-    with _db() as conn, conn:
-        cur = conn.execute("DELETE FROM keywords WHERE board = ? AND keyword = ?", (board, keyword))
-        if cur.rowcount == 0:
-            return False
+def _drop_orphan_keywords(conn):
+    """어느 게시판에도 속하지 않게 된 키워드와 그 수집 데이터를 삭제하고 삭제한 (board, keyword) 목록 반환"""
+    orphans = [(r['board'], r['keyword']) for r in conn.execute("""
+        SELECT board, keyword FROM keywords
+        WHERE (board, keyword) NOT IN (SELECT board, keyword FROM keyword_group_members)
+    """).fetchall()]
+    for board, keyword in orphans:
+        conn.execute("DELETE FROM keywords WHERE board = ? AND keyword = ?", (board, keyword))
         conn.execute("DELETE FROM keyword_posts WHERE board = ? AND keyword = ?", (board, keyword))
-        conn.execute("DELETE FROM keyword_group_members WHERE board = ? AND keyword = ?", (board, keyword))
+    if orphans:
         conn.execute("DELETE FROM posts WHERE id NOT IN (SELECT post_id FROM keyword_posts)")
         conn.execute("DELETE FROM read_posts WHERE post_id NOT IN (SELECT id FROM posts)")
-        return True
+    return orphans
+
+def _migrate_keywords_to_boards(conn):
+    """게시판에 속하지 않은 기존 키워드마다 키워드 이름의 게시판을 만들어 1회 이전"""
+    if _get_meta(conn, 'keyword_boards_migrated'):
+        return
+    loose = conn.execute("""
+        SELECT board, keyword FROM keywords
+        WHERE (board, keyword) NOT IN (SELECT board, keyword FROM keyword_group_members)
+        ORDER BY rowid
+    """).fetchall()
+    for row in loose:
+        name = row['keyword']
+        if conn.execute("SELECT 1 FROM keyword_groups WHERE name = ?", (name,)).fetchone():
+            name = f"{row['keyword']} ({BOARD_MAP.get(row['board'], row['board'])})"
+        group_id = conn.execute("INSERT INTO keyword_groups(name, created_at) VALUES(?, ?)", (name, _now())).lastrowid
+        conn.execute("INSERT INTO keyword_group_members(group_id, board, keyword) VALUES(?, ?, ?)",
+                     (group_id, row['board'], row['keyword']))
+    _set_meta(conn, 'keyword_boards_migrated', '1')
+    if loose:
+        log_msg(f"[DB] 키워드 {len(loose)}개를 같은 이름의 게시판으로 이전")
 
 # ==========================================
-# 묶음 게시판 (여러 키워드를 하나의 피드로)
+# 게시판 (하나 이상의 키워드 글을 중복 없이 한 피드로)
 # ==========================================
+def _feed_from(group_id=None):
+    """피드 글 연결의 FROM 절과 파라미터. group_id가 없으면 모든 게시판(등록 키워드 전체)"""
+    sql = """
+        FROM keyword_posts kp
+        JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword
+    """
+    if group_id is None:
+        return sql, ()
+    return sql + "JOIN keyword_group_members gm ON gm.board = kp.board AND gm.keyword = kp.keyword AND gm.group_id = ?\n", (group_id,)
+
+def _feed_summary(conn, new_window, group_id=None):
+    """중복 제거한 글 수, 최근 new_window개 중 안 읽은 새 글 ID, 최신 글 날짜"""
+    base, params = _feed_from(group_id)
+    total = conn.execute(f"SELECT COUNT(DISTINCT kp.post_id) {base}", params).fetchone()[0]
+    recent = conn.execute(f"""
+        SELECT kp.post_id, MAX(kp.is_new) AS is_new, MAX(kp.rowid) AS last_rowid, p.date, rp.read_at
+        {base}
+        JOIN posts p ON p.id = kp.post_id
+        LEFT JOIN read_posts rp ON rp.post_id = kp.post_id
+        GROUP BY kp.post_id ORDER BY last_rowid DESC LIMIT ?
+    """, params + (new_window,)).fetchall()
+    return {
+        'total': total,
+        'unread_ids': [r['post_id'] for r in recent if r['is_new'] and not r['read_at']],
+        'latest_date': recent[0]['date'] if recent else ''
+    }
+
+def feed_summary(new_window=100):
+    """모든 게시판을 합친 통합 피드 요약"""
+    with _db() as conn:
+        return _feed_summary(conn, new_window)
+
 def list_groups(new_window=100):
-    """묶음 게시판 목록: 구성 키워드, 중복 제거한 글 수, 안 읽은 새 글 ID, 최신 글 날짜"""
+    """게시판 목록: 등록 키워드, 중복 제거한 글 수, 안 읽은 새 글 ID, 최신 글 날짜"""
     groups = []
     with _db() as conn:
         for g in conn.execute("SELECT id, name FROM keyword_groups ORDER BY id").fetchall():
@@ -272,37 +321,18 @@ def list_groups(new_window=100):
                 JOIN keywords k ON k.board = m.board AND k.keyword = m.keyword
                 WHERE m.group_id = ? ORDER BY k.rowid
             """, (g['id'],))]
-            member_join = """
-                FROM keyword_posts kp
-                JOIN keyword_group_members m ON m.board = kp.board AND m.keyword = kp.keyword AND m.group_id = ?
-                JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword
-            """
-            total = conn.execute(f"SELECT COUNT(DISTINCT kp.post_id) {member_join}", (g['id'],)).fetchone()[0]
-            recent = conn.execute(f"""
-                SELECT kp.post_id, MAX(kp.is_new) AS is_new, MAX(kp.rowid) AS last_rowid, p.date, rp.read_at
-                {member_join}
-                JOIN posts p ON p.id = kp.post_id
-                LEFT JOIN read_posts rp ON rp.post_id = kp.post_id
-                GROUP BY kp.post_id ORDER BY last_rowid DESC LIMIT ?
-            """, (g['id'], new_window)).fetchall()
-            groups.append({
-                'id': g['id'],
-                'name': g['name'],
-                'members': members,
-                'total': total,
-                'unread_ids': [r['post_id'] for r in recent if r['is_new'] and not r['read_at']],
-                'latest_date': recent[0]['date'] if recent else ''
-            })
+            groups.append({'id': g['id'], 'name': g['name'], 'members': members,
+                           **_feed_summary(conn, new_window, g['id'])})
     return groups
 
 def save_group(group_id, name, members):
-    """묶음 게시판 생성(group_id=None) 또는 수정. 등록된 키워드만 구성원으로 저장하고 게시판 ID 반환.
-    이름 중복이면 ValueError"""
+    """게시판 생성(group_id=None) 또는 수정. 새 키워드는 수집 대상으로 등록하고,
+    어느 게시판에도 남지 않은 키워드는 수집 데이터와 함께 삭제. (게시판 ID, 삭제된 키워드 목록) 반환.
+    이름 중복 등은 ValueError"""
+    pairs = list(dict.fromkeys((m['board'], m['keyword']) for m in members))
+    if not pairs:
+        raise ValueError('키워드를 하나 이상 등록해 주세요.')
     with _db() as conn, conn:
-        valid = [(m['board'], m['keyword']) for m in members
-                 if conn.execute("SELECT 1 FROM keywords WHERE board = ? AND keyword = ?", (m['board'], m['keyword'])).fetchone()]
-        if not valid:
-            raise ValueError('등록된 키워드를 하나 이상 선택해 주세요.')
         clash = conn.execute("SELECT id FROM keyword_groups WHERE name = ? AND id != ?", (name, group_id or -1)).fetchone()
         if clash:
             raise ValueError('같은 이름의 게시판이 이미 있습니다.')
@@ -313,15 +343,19 @@ def save_group(group_id, name, members):
                 raise ValueError('존재하지 않는 게시판입니다.')
             conn.execute("UPDATE keyword_groups SET name = ? WHERE id = ?", (name, group_id))
             conn.execute("DELETE FROM keyword_group_members WHERE group_id = ?", (group_id,))
+        conn.executemany("INSERT OR IGNORE INTO keywords(board, keyword) VALUES(?, ?)", pairs)
         conn.executemany("INSERT OR IGNORE INTO keyword_group_members(group_id, board, keyword) VALUES(?, ?, ?)",
-                         [(group_id, b, k) for b, k in valid])
-        return group_id
+                         [(group_id, b, k) for b, k in pairs])
+        return group_id, _drop_orphan_keywords(conn)
 
 def delete_group(group_id):
-    """묶음 게시판만 삭제 (구성 키워드와 수집한 글은 그대로). 삭제되면 True"""
+    """게시판 삭제. 다른 게시판에 없는 키워드는 수집 데이터와 함께 삭제.
+    삭제된 키워드 목록 반환, 없는 게시판이면 None"""
     with _db() as conn, conn:
         conn.execute("DELETE FROM keyword_group_members WHERE group_id = ?", (group_id,))
-        return conn.execute("DELETE FROM keyword_groups WHERE id = ?", (group_id,)).rowcount > 0
+        if conn.execute("DELETE FROM keyword_groups WHERE id = ?", (group_id,)).rowcount == 0:
+            return None
+        return _drop_orphan_keywords(conn)
 
 def post_exists(post_id):
     """다른 키워드로 이미 수집된 글인지 (같은 글 중복 알림 방지용)"""
@@ -483,30 +517,26 @@ def query_keyword_posts(board, keyword, offset=0, limit=10, video_only=False):
     return total, [_row_to_post(r) for r in rows]
 
 def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=None):
-    """모든 등록 키워드의 글을 한 번씩만(중복 제거) 최신 수집순으로 조회.
-    query가 있으면 검색 결과, group_id가 있으면 그 묶음 게시판의 구성 키워드만"""
+    """게시판에 등록된 키워드의 글을 한 번씩만(중복 제거) 최신 수집순으로 조회.
+    group_id가 있으면 그 게시판만, query가 있으면 검색 결과"""
     search_sql, search_params = _search_conditions(query)
-    group_join = ''
-    if group_id is not None:
-        group_join = "JOIN keyword_group_members gm ON gm.board = kp.board AND gm.keyword = kp.keyword AND gm.group_id = ?"
-        search_params = (group_id,) + search_params
+    feed_sql, params = _feed_from(group_id)
+    params += search_params
     base = f"""
-        FROM keyword_posts kp
-        JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword
-        {group_join}
+        {feed_sql}
         JOIN posts p ON p.id = kp.post_id
         LEFT JOIN read_posts rp ON rp.post_id = p.id
         WHERE 1 = 1 {f'AND {_HAS_VIDEO_SQL}' if video_only else ''} {search_sql}
     """
     with _db() as conn:
-        total = conn.execute(f"SELECT COUNT(DISTINCT p.id) {base}", search_params).fetchone()[0]
+        total = conn.execute(f"SELECT COUNT(DISTINCT p.id) {base}", params).fetchone()[0]
         rows = conn.execute(f"""
             SELECT p.*, rp.read_at, MAX(kp.is_new) AS is_new, MAX(kp.rowid) AS last_rowid,
                    GROUP_CONCAT(kp.board || char(31) || kp.keyword, char(30)) AS keyword_links
             {base}
             GROUP BY p.id
             ORDER BY last_rowid DESC LIMIT ? OFFSET ?
-        """, search_params + (limit, offset)).fetchall()
+        """, params + (limit, offset)).fetchall()
     return total, [_row_to_post(r) for r in rows]
 
 def recent_post_ids(limit_per_keyword):
@@ -518,38 +548,6 @@ def recent_post_ids(limit_per_keyword):
                 "SELECT post_id FROM keyword_posts WHERE board = ? AND keyword = ? ORDER BY rowid DESC LIMIT ?",
                 (kw['board'], kw['keyword'], limit_per_keyword)))
     return ids
-
-def list_keyword_tabs(new_window=100):
-    """대시보드 탭 목록용 키워드별 요약 (글 수, 아직 안 읽은 새 글 ID, 최신 글 날짜)"""
-    tabs = []
-    with _db() as conn:
-        for kw in conn.execute("SELECT board, keyword FROM keywords ORDER BY rowid").fetchall():
-            board, keyword = kw['board'], kw['keyword']
-            total = conn.execute(
-                "SELECT COUNT(*) FROM keyword_posts WHERE board = ? AND keyword = ?", (board, keyword)
-            ).fetchone()[0]
-            recent = conn.execute("""
-                SELECT kp.post_id, kp.is_new, p.date, rp.read_at FROM keyword_posts kp
-                JOIN posts p ON p.id = kp.post_id
-                LEFT JOIN read_posts rp ON rp.post_id = p.id
-                WHERE kp.board = ? AND kp.keyword = ?
-                ORDER BY kp.rowid DESC LIMIT ?
-            """, (board, keyword, new_window)).fetchall()
-            tabs.append({
-                'board': board,
-                'keyword': keyword,
-                'total': total,
-                'unread_ids': [r['post_id'] for r in recent if r['is_new'] and not r['read_at']],
-                'latest_date': recent[0]['date'] if recent else ''
-            })
-    return tabs
-
-def count_all_posts():
-    with _db() as conn:
-        return conn.execute("""
-            SELECT COUNT(DISTINCT kp.post_id) FROM keyword_posts kp
-            JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword
-        """).fetchone()[0]
 
 def fix_stored_x_embeds():
     """이미 저장된 글 중 X(트위터) '링크 자동 변환 중' 임시 상자가 남은 글을 트윗 카드로 1회 변환"""
@@ -592,15 +590,21 @@ def mark_posts_read(post_ids):
     return len(ids)
 
 def locate_post(post_id):
-    """글이 연결된 키워드와 그 키워드 목록 안에서의 순번(0부터, 최신순)을 반환. 없으면 None"""
+    """글이 속한 첫 게시판과 그 게시판 피드 안에서의 순번(0부터, 최신순)을 반환.
+    게시판이 없으면 group은 None(통합 피드 기준). 수집되지 않은 글이면 None"""
+    post_id = str(post_id)
     with _db() as conn:
-        link = conn.execute(
-            "SELECT rowid, board, keyword FROM keyword_posts WHERE post_id = ? ORDER BY rowid DESC LIMIT 1", (str(post_id),)
-        ).fetchone()
-        if not link:
+        group_id = conn.execute("""
+            SELECT MIN(gm.group_id) FROM keyword_posts kp
+            JOIN keyword_group_members gm ON gm.board = kp.board AND gm.keyword = kp.keyword
+            WHERE kp.post_id = ?
+        """, (post_id,)).fetchone()[0]
+        base, params = _feed_from(group_id)
+        last = conn.execute(f"SELECT MAX(kp.rowid) {base} WHERE kp.post_id = ?", params + (post_id,)).fetchone()[0]
+        if last is None:
             return None
-        index = conn.execute(
-            "SELECT COUNT(*) FROM keyword_posts WHERE board = ? AND keyword = ? AND rowid > ?",
-            (link['board'], link['keyword'], link['rowid'])
-        ).fetchone()[0]
-    return {'board': link['board'], 'keyword': link['keyword'], 'index': index}
+        index = conn.execute(f"""
+            SELECT COUNT(*) FROM (SELECT MAX(kp.rowid) AS last_rowid {base} GROUP BY kp.post_id)
+            WHERE last_rowid > ?
+        """, params + (last,)).fetchone()[0]
+    return {'group': group_id, 'index': index}
