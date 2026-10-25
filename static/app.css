@@ -182,6 +182,9 @@ a { color: var(--accent-ink); }
 .comment-votes { margin-left: auto; }
 .comment-body { font-size: 14px; line-height: 1.6; color: var(--text-body); }
 .comment-line { margin: 0; }
+/* 댓글 없는 글의 빈 댓글 칸: 2단 배치(넓은 화면)에서만 자리를 차지하고, 그 외에는 숨김 */
+.comments.is-empty { display: none; }
+.comments-empty { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
 .comment-body { overflow-wrap: anywhere; }
 .comment-body img, .comment-body video, .comment-body iframe { max-width: 100%; height: auto; }
 /* 수집 시 붙은 @멘션 링크 인라인 스타일을 피드 디자인에 맞게 덮어씀 */
@@ -204,6 +207,7 @@ a { color: var(--accent-ink); }
         /* 댓글이 길면 오른쪽 칸 안에서 따로 스크롤하고, 본문을 내려도 화면에 붙어 있도록 고정 */
         position: sticky; top: 72px; max-height: calc(100vh - 96px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
     }
+    .post-card.has-comments > .comments.is-empty { display: flex; }
     /* 좁은 칸에서는 답글 들여쓰기를 줄여 답글 글자 영역도 넓게 */
     .post-card.has-comments > .comments .comment.reply { margin-left: 18px; padding: 10px; }
     .post-content { font-size: 16px; }

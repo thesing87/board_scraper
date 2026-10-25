@@ -178,7 +178,10 @@ function avatarTone(name) {
 }
 
 function renderComments(post) {
-    if (!post.comments || post.comments.length === 0) return '';
+    if (!post.comments || post.comments.length === 0) {
+        // 넓은 화면의 2단 배치에서 오른쪽 댓글 자리를 유지하기 위한 빈 댓글 칸 (좁은 화면에서는 CSS로 숨김)
+        return '<section class="comments is-empty"><h3 class="comments-title">댓글 0</h3><p class="comments-empty">아직 댓글이 없습니다.</p></section>';
+    }
     const items = post.comments.map(c => {
         const body = (c.content || []).map(t => t ? `<p class="comment-line">${t}</p>` : '<br>').join('');
         const isAuthor = c.author === post.author;
@@ -209,8 +212,8 @@ function safeLink(url) {
 function renderPost(post, isUnread) {
     const classes = ['post-card'];
     if (post.is_deleted) classes.push('is-deleted');
-    // 넓은 화면에서는 댓글이 있는 글만 본문·댓글 2단으로 나눔
-    if (post.comments && post.comments.length) classes.push('has-comments');
+    // 넓은 화면에서는 댓글 유무와 관계없이 모든 글을 본문·댓글 2단으로 나눔
+    classes.push('has-comments');
     const badges = [
         isUnread ? '<span class="badge badge-new">NEW</span>' : '',
         post.has_video ? '<span class="badge badge-video">동영상</span>' : '',
