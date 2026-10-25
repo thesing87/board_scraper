@@ -157,10 +157,24 @@ a { color: var(--accent-ink); }
 .post-content a { color: var(--accent-ink) !important; font-weight: inherit !important; }
 
 /* 댓글: 항상 모두 펼쳐서 표시 */
-.comments { border-top: 1px solid var(--divider); padding-top: 14px; display: flex; flex-direction: column; gap: 12px; }
-.comments-title { margin: 0; font-size: 13px; font-weight: 700; }
-.comment { display: flex; flex-direction: column; gap: 3px; }
-.comment.reply { margin-left: 14px; padding-left: 12px; border-left: 2px solid var(--border); }
+.comments { border-top: 1px solid var(--divider); padding-top: 14px; display: flex; flex-direction: column; }
+.comments-title { margin: 0 0 4px; font-size: 13px; font-weight: 700; }
+/* 댓글 하나하나가 구분되도록: 원댓글 사이 구분선 + 프로필 원 + 답글은 회색 상자로 묶음 */
+.comment { display: flex; align-items: flex-start; gap: 10px; padding: 12px 0; border-top: 1px solid #E9EBEF; }
+.comments-title + .comment { border-top: none; padding-top: 6px; }
+.comment.reply { margin: 0 0 8px 40px; padding: 10px 12px; border-top: none; border-radius: 10px; background: #F5F6F8; }
+.comment.reply + .comment.reply { margin-top: -2px; }
+.comment.by-author:not(.reply) { background: #F5F8FF; margin: 0 -10px; padding: 12px 10px; border-radius: 10px; }
+.comment.reply.by-author { background: #EEF3FE; }
+.comment-avatar { flex: 0 0 30px; width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; line-height: 1; }
+.comment.reply .comment-avatar { flex-basis: 24px; width: 24px; height: 24px; font-size: 11px; }
+.av-0 { background: #E0E7FF; color: #3730A3; }
+.av-1 { background: #FCE7F3; color: #9D174D; }
+.av-2 { background: #DCFCE7; color: #166534; }
+.av-3 { background: #FEF3C7; color: #92400E; }
+.av-4 { background: #E0F2FE; color: #075985; }
+.av-5 { background: #EDE9FE; color: #5B21B6; }
+.comment-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .comment-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
 .comment-author { font-size: 13px; font-weight: 500; color: var(--text); }
 .op-badge { padding: 1px 5px; border-radius: 4px; background: var(--accent); color: #FFFFFF; font-size: 10px; font-weight: 700; }
@@ -240,6 +254,8 @@ a { color: var(--accent-ink); }
     .title-row .btn-original { display: none; }
     .btn-original.bottom { display: flex; }
     .post-meta { gap: 10px; font-size: 12px; }
+    .comment.reply { margin-left: 24px; }
+    .comment.by-author:not(.reply) { margin: 0 -8px; padding: 12px 8px; }
     .new-divider { padding: 2px 6px; }
     .pager { justify-content: space-between; padding: 6px 6px 0; }
     .pager .btn { height: 44px; padding: 0 18px; font-size: 14px; }

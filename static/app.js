@@ -170,20 +170,33 @@ function renderContent(blocks) {
         .replace(/<iframe\b/gi, '<iframe referrerpolicy="strict-origin-when-cross-origin"');
 }
 
+function avatarTone(name) {
+    // 같은 닉네임은 항상 같은 색이 되도록 이름으로 6가지 색 중 하나를 고정 선택
+    let hash = 0;
+    for (const ch of String(name || '')) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
+    return hash % 6;
+}
+
 function renderComments(post) {
     if (!post.comments || post.comments.length === 0) return '';
     const items = post.comments.map(c => {
         const body = (c.content || []).map(t => t ? `<p class="comment-line">${t}</p>` : '<br>').join('');
         const isAuthor = c.author === post.author;
+        const classes = ['comment'];
+        if (c.is_reply) classes.push('reply');
+        if (isAuthor) classes.push('by-author');
         return `
-            <div class="comment ${c.is_reply ? 'reply' : ''}">
-                <div class="comment-meta">
-                    <span class="comment-author">${esc(c.author)}</span>
-                    ${isAuthor ? '<span class="op-badge">작성자</span>' : ''}
-                    <span>${esc(c.date)}</span>
-                    ${c.votes && c.votes !== '0' ? `<span class="comment-votes">추천 ${esc(c.votes)}</span>` : ''}
+            <div class="${classes.join(' ')}">
+                <span class="comment-avatar av-${avatarTone(c.author)}" aria-hidden="true">${esc(Array.from(c.author || '?')[0])}</span>
+                <div class="comment-main">
+                    <div class="comment-meta">
+                        <span class="comment-author">${esc(c.author)}</span>
+                        ${isAuthor ? '<span class="op-badge">작성자</span>' : ''}
+                        <span>${esc(c.date)}</span>
+                        ${c.votes && c.votes !== '0' ? `<span class="comment-votes">추천 ${esc(c.votes)}</span>` : ''}
+                    </div>
+                    <div class="comment-body">${body}</div>
                 </div>
-                <div class="comment-body">${body}</div>
             </div>`;
     }).join('');
     return `<section class="comments"><h3 class="comments-title">댓글 ${esc(post.comment_count || post.comments.length)}</h3>${items}</section>`;
