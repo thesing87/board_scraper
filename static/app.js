@@ -831,7 +831,20 @@ async function init() {
 // ==========================================
 // 이벤트 연결 (인라인 핸들러 없이 위임 방식으로 처리하여 CSP를 엄격하게 유지)
 // ==========================================
+// 에펨코리아 동영상 썸네일에는 가운데 재생 버튼이 그림으로 들어 있어 눌러도 반응이 없으므로,
+// 멈춘 동영상의 화면 부분(아래쪽 컨트롤 막대 제외)을 누르면 재생. 기본 동작은 막아 두 번 토글되지 않게 함
+const VIDEO_CONTROLS_HEIGHT = 56;
+function handleVideoClick(e) {
+    const video = e.target;
+    if (video.tagName !== 'VIDEO' || !video.closest('.post-content, .comment-body') || !video.paused) return false;
+    if (e.clientY > video.getBoundingClientRect().bottom - VIDEO_CONTROLS_HEIGHT) return false;
+    e.preventDefault();
+    video.play().catch(() => {});
+    return true;
+}
+
 document.addEventListener('click', (e) => {
+    if (handleVideoClick(e)) return;
     const backdrop = document.getElementById('settings');
     if (e.target === backdrop) { setSettingsOpen(false); return; }
     const el = e.target.closest('[data-action]');
