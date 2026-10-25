@@ -1,5 +1,7 @@
 import os
+import re
 import json
+import html
 import sqlite3
 import threading
 from contextlib import closing
@@ -52,9 +54,16 @@ def _create_schema(conn):
             videos_json    TEXT NOT NULL DEFAULT '[]',
             comments_json  TEXT NOT NULL DEFAULT '[]',
             list_comment_count INTEGER,
+            search_text    TEXT,
             is_deleted     INTEGER NOT NULL DEFAULT 0,
             created_at     TEXT NOT NULL,
             updated_at     TEXT NOT NULL
+        );
+
+        -- 대시보드 읽음 기록 (PC·휴대폰 어디서 읽어도 공유). read_at 이후 달린 댓글을 '새 댓글'로 표시
+        CREATE TABLE IF NOT EXISTS read_posts (
+            post_id  TEXT PRIMARY KEY,
+            read_at  TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS keywords (
@@ -73,6 +82,7 @@ def _create_schema(conn):
             UNIQUE (board, keyword, post_id)
         );
         CREATE INDEX IF NOT EXISTS idx_keyword_posts_post ON keyword_posts(post_id);
+        CREATE INDEX IF NOT EXISTS idx_keyword_posts_keyword ON keyword_posts(board, keyword);
 
         CREATE TABLE IF NOT EXISTS board_config (
             board        TEXT PRIMARY KEY,
@@ -166,6 +176,19 @@ def _add_missing_columns(conn):
         # 목록 페이지에 표시된 댓글 수. 이 값이 바뀐 글만 상세 페이지를 다시 열어 댓글을 갱신함
         conn.execute("ALTER TABLE posts ADD COLUMN list_comment_count INTEGER")
         log_msg("[DB] posts.list_comment_count 컬럼 추가")
+    if 'search_text' not in columns:
+        # 제목·본문·댓글의 태그를 뺀 텍스트 (대시보드 검색용)
+        conn.execute("ALTER TABLE posts ADD COLUMN search_text TEXT")
+        log_msg("[DB] posts.search_text 컬럼 추가")
+
+def _backfill_search_text(conn):
+    """검색 텍스트가 없는 기존 글을 1회 채움"""
+    rows = conn.execute("SELECT id, title, content_json, comments_json FROM posts WHERE search_text IS NULL").fetchall()
+    for row in rows:
+        post = {'title': row['title'], 'content': json.loads(row['content_json']), 'comments': json.loads(row['comments_json'])}
+        conn.execute("UPDATE posts SET search_text = ? WHERE id = ?", (_search_text(post), row['id']))
+    if rows:
+        log_msg(f"[DB] 검색 텍스트 생성: 글 {len(rows)}건")
 
 def init_db():
     """스키마 생성 및 최초 1회 기존 데이터 이전. 여러 번 호출해도 안전"""
@@ -184,6 +207,7 @@ def init_db():
                     _set_meta(conn, 'schema_version', SCHEMA_VERSION)
                 for board in BOARD_MAP.keys():
                     conn.execute("INSERT OR IGNORE INTO board_config(board) VALUES(?)", (board,))
+                _backfill_search_text(conn)
         # 커밋이 끝난 뒤에만 기존 파일을 정리하여, 이전 도중 실패하면 다음 기동 시 다시 시도
         for path in migrated_files:
             _mark_legacy_migrated(path)
@@ -218,6 +242,7 @@ def remove_keyword(board, keyword):
             return False
         conn.execute("DELETE FROM keyword_posts WHERE board = ? AND keyword = ?", (board, keyword))
         conn.execute("DELETE FROM posts WHERE id NOT IN (SELECT post_id FROM keyword_posts)")
+        conn.execute("DELETE FROM read_posts WHERE post_id NOT IN (SELECT id FROM posts)")
         return True
 
 # ==========================================
@@ -240,18 +265,53 @@ def set_board_alert(board, alert_type, enabled):
 # ==========================================
 # 게시글
 # ==========================================
+_TAG_RE = re.compile(r'<[^>]+>')
+
+def _plain_text(lines):
+    return html.unescape(_TAG_RE.sub(' ', ' '.join(lines or []))).strip()
+
+def _comment_key(comment):
+    # 댓글 날짜는 '3 시간 전'처럼 상대 표기라 매번 바뀌므로 작성자와 내용으로 같은 댓글인지 판별
+    return comment.get('author', '') + '\x1f' + ' '.join(_plain_text(comment.get('content')).split())
+
+def _search_text(post):
+    parts = [post.get('title', ''), _plain_text(post.get('content'))]
+    for comment in post.get('comments', []):
+        parts.append(comment.get('author', ''))
+        parts.append(_plain_text(comment.get('content')))
+    return ' '.join(' '.join(parts).split()).lower()
+
+def _carry_comment_first_seen(old_comments, new_comments, now):
+    """다시 수집한 댓글에 처음 수집된 시각(first_seen)을 이어붙임. 이전에 없던 댓글만 지금 시각이 됨
+    (first_seen이 없는 예전 댓글은 '예전부터 있던 댓글'로 남겨 새 댓글로 표시되지 않게 함)"""
+    remaining = {}
+    for c in old_comments:
+        remaining.setdefault(_comment_key(c), []).append(c.get('first_seen'))
+    for c in new_comments:
+        seen = remaining.get(_comment_key(c))
+        c['first_seen'] = seen.pop(0) if seen else now
+    return new_comments
+
 def _upsert_post(conn, post):
     now = _now()
+    existing = conn.execute("SELECT comments_json FROM posts WHERE id = ?", (str(post['id']),)).fetchone()
+    comments = [dict(c) for c in post.get('comments', [])]
+    if existing:
+        _carry_comment_first_seen(json.loads(existing['comments_json']), comments, now)
+    else:
+        for c in comments:
+            c.setdefault('first_seen', now)
     conn.execute("""
         INSERT INTO posts(id, title, author, date, views, votes, comment_count, link,
-                          content_json, videos_json, comments_json, list_comment_count, created_at, updated_at)
-        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                          content_json, videos_json, comments_json, list_comment_count, search_text, created_at, updated_at)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title, author = excluded.author, date = excluded.date,
             views = excluded.views, votes = excluded.votes, comment_count = excluded.comment_count,
             link = excluded.link, content_json = excluded.content_json, videos_json = excluded.videos_json,
             comments_json = excluded.comments_json,
             list_comment_count = COALESCE(excluded.list_comment_count, posts.list_comment_count),
+            search_text = excluded.search_text,
             updated_at = excluded.updated_at
     """, (
         str(post['id']), post.get('title', ''), post.get('author', ''), post.get('date', ''),
@@ -259,8 +319,9 @@ def _upsert_post(conn, post):
         post.get('link', ''),
         json.dumps(post.get('content', []), ensure_ascii=False),
         json.dumps(post.get('videos', []), ensure_ascii=False),
-        json.dumps(post.get('comments', []), ensure_ascii=False),
+        json.dumps(comments, ensure_ascii=False),
         post.get('list_comment_count'),
+        _search_text(dict(post, comments=comments)),
         now, now
     ))
 
@@ -296,18 +357,30 @@ def mark_post_deleted(post_id):
         conn.execute("UPDATE posts SET is_deleted = 1, updated_at = ? WHERE id = ?", (_now(), str(post_id)))
 
 def _row_to_post(row):
+    keys = row.keys()
     post = {
         'id': row['id'], 'title': row['title'], 'author': row['author'], 'date': row['date'],
         'views': row['views'], 'votes': row['votes'], 'comment_count': row['comment_count'], 'link': row['link'],
         'content': json.loads(row['content_json']), 'images': [], 'videos': json.loads(row['videos_json']),
         'comments': json.loads(row['comments_json']), 'is_new': bool(row['is_new']),
-        'list_comment_count': row['list_comment_count']
+        'list_comment_count': row['list_comment_count'],
+        'read_at': row['read_at'] if 'read_at' in keys else None
     }
+    if 'keyword_links' in keys and row['keyword_links']:
+        # 통합 피드: 이 글이 걸린 키워드 목록 [{board, keyword}]
+        post['keywords'] = [dict(zip(('board', 'keyword'), link.split('\x1f', 1))) for link in row['keyword_links'].split('\x1e')]
     if row['is_deleted']:
         post['is_deleted'] = True
     return post
 
 _HAS_VIDEO_SQL = "p.videos_json != '[]'"
+
+def _search_conditions(query):
+    """검색어를 공백으로 나눠 모든 단어가 포함된 글만 (대소문자 무시, LIKE 특수문자 이스케이프)"""
+    terms = [t for t in (query or '').lower().split() if t][:5]
+    sql = ''.join(" AND p.search_text LIKE ? ESCAPE '\\'" for _ in terms)
+    params = tuple('%' + t.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%' for t in terms)
+    return sql, params
 
 def query_keyword_posts(board, keyword, offset=0, limit=10, video_only=False):
     """키워드에 연결된 글을 최신순으로 조회하여 (전체 개수, 글 목록) 반환"""
@@ -318,15 +391,47 @@ def query_keyword_posts(board, keyword, offset=0, limit=10, video_only=False):
             f"SELECT COUNT(*) FROM keyword_posts kp JOIN posts p ON p.id = kp.post_id WHERE {where}", params
         ).fetchone()[0]
         rows = conn.execute(f"""
-            SELECT p.*, kp.is_new FROM keyword_posts kp
+            SELECT p.*, kp.is_new, rp.read_at FROM keyword_posts kp
             JOIN posts p ON p.id = kp.post_id
+            LEFT JOIN read_posts rp ON rp.post_id = p.id
             WHERE {where}
             ORDER BY kp.rowid DESC LIMIT ? OFFSET ?
         """, params + (limit, offset)).fetchall()
     return total, [_row_to_post(r) for r in rows]
 
+def query_all_posts(offset=0, limit=10, video_only=False, query=None):
+    """모든 등록 키워드의 글을 한 번씩만(중복 제거) 최신 수집순으로 조회. query가 있으면 검색 결과"""
+    search_sql, search_params = _search_conditions(query)
+    base = f"""
+        FROM keyword_posts kp
+        JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword
+        JOIN posts p ON p.id = kp.post_id
+        LEFT JOIN read_posts rp ON rp.post_id = p.id
+        WHERE 1 = 1 {f'AND {_HAS_VIDEO_SQL}' if video_only else ''} {search_sql}
+    """
+    with _db() as conn:
+        total = conn.execute(f"SELECT COUNT(DISTINCT p.id) {base}", search_params).fetchone()[0]
+        rows = conn.execute(f"""
+            SELECT p.*, rp.read_at, MAX(kp.is_new) AS is_new, MAX(kp.rowid) AS last_rowid,
+                   GROUP_CONCAT(kp.board || char(31) || kp.keyword, char(30)) AS keyword_links
+            {base}
+            GROUP BY p.id
+            ORDER BY last_rowid DESC LIMIT ? OFFSET ?
+        """, search_params + (limit, offset)).fetchall()
+    return total, [_row_to_post(r) for r in rows]
+
+def recent_post_ids(limit_per_keyword):
+    """키워드별 최근 글 ID 집합 (메인 루프가 목록의 댓글 수로 매 주기 변화를 감시하는 범위)"""
+    ids = set()
+    with _db() as conn:
+        for kw in conn.execute("SELECT board, keyword FROM keywords").fetchall():
+            ids.update(r['post_id'] for r in conn.execute(
+                "SELECT post_id FROM keyword_posts WHERE board = ? AND keyword = ? ORDER BY rowid DESC LIMIT ?",
+                (kw['board'], kw['keyword'], limit_per_keyword)))
+    return ids
+
 def list_keyword_tabs(new_window=100):
-    """대시보드 탭 목록용 키워드별 요약 (글 수, 최근 new 글 ID, 최신 글 날짜)"""
+    """대시보드 탭 목록용 키워드별 요약 (글 수, 아직 안 읽은 새 글 ID, 최신 글 날짜)"""
     tabs = []
     with _db() as conn:
         for kw in conn.execute("SELECT board, keyword FROM keywords ORDER BY rowid").fetchall():
@@ -335,8 +440,9 @@ def list_keyword_tabs(new_window=100):
                 "SELECT COUNT(*) FROM keyword_posts WHERE board = ? AND keyword = ?", (board, keyword)
             ).fetchone()[0]
             recent = conn.execute("""
-                SELECT kp.post_id, kp.is_new, p.date FROM keyword_posts kp
+                SELECT kp.post_id, kp.is_new, p.date, rp.read_at FROM keyword_posts kp
                 JOIN posts p ON p.id = kp.post_id
+                LEFT JOIN read_posts rp ON rp.post_id = p.id
                 WHERE kp.board = ? AND kp.keyword = ?
                 ORDER BY kp.rowid DESC LIMIT ?
             """, (board, keyword, new_window)).fetchall()
@@ -344,10 +450,30 @@ def list_keyword_tabs(new_window=100):
                 'board': board,
                 'keyword': keyword,
                 'total': total,
-                'new_ids': [r['post_id'] for r in recent if r['is_new']],
+                'unread_ids': [r['post_id'] for r in recent if r['is_new'] and not r['read_at']],
                 'latest_date': recent[0]['date'] if recent else ''
             })
     return tabs
+
+def count_all_posts():
+    with _db() as conn:
+        return conn.execute("""
+            SELECT COUNT(DISTINCT kp.post_id) FROM keyword_posts kp
+            JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword
+        """).fetchone()[0]
+
+def mark_posts_read(post_ids):
+    """읽음 기록 저장. 이미 읽은 글은 읽은 시각을 갱신(그 이후 달린 댓글만 '새 댓글'이 되도록)"""
+    ids = [str(i) for i in post_ids if str(i).isdigit()]
+    if not ids:
+        return 0
+    now = _now()
+    with _db() as conn, conn:
+        conn.executemany(
+            "INSERT INTO read_posts(post_id, read_at) VALUES(?, ?) ON CONFLICT(post_id) DO UPDATE SET read_at = excluded.read_at",
+            [(i, now) for i in ids]
+        )
+    return len(ids)
 
 def locate_post(post_id):
     """글이 연결된 키워드와 그 키워드 목록 안에서의 순번(0부터, 최신순)을 반환. 없으면 None"""

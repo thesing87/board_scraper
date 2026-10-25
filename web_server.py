@@ -23,10 +23,16 @@ from storage import (
     load_board_config,
     list_keyword_tabs,
     query_keyword_posts,
+    query_all_posts,
+    count_all_posts,
+    recent_post_ids,
+    mark_posts_read,
     locate_post
 )
 
 MAX_BODY_BYTES = 10 * 1024
+MAX_READ_IDS = 500
+MAX_QUERY_LENGTH = 50
 MAX_KEYWORD_LENGTH = 50
 POSTS_PER_PAGE = 10
 # 탭의 '안 읽은 새 글' 표시 계산에 쓰는 키워드별 최근 글 범위
@@ -94,24 +100,38 @@ def build_state():
     tabs = list_keyword_tabs(NEW_POSTS_WINDOW)
     for tab in tabs:
         tab['board_name'] = BOARD_MAP.get(tab['board'], tab['board'])
-    # 새 글이 있는 탭 → 최신 글 날짜 → 글 수 순으로 정렬 (기존 대시보드와 동일)
-    tabs.sort(key=lambda t: (len(t['new_ids']) > 0, t['latest_date'], t['total']), reverse=True)
+    # 안 읽은 새 글이 있는 탭 → 최신 글 날짜 → 글 수 순으로 정렬
+    tabs.sort(key=lambda t: (len(t['unread_ids']) > 0, t['latest_date'], t['total']), reverse=True)
+    all_unread = []
+    for tab in tabs:
+        all_unread.extend(i for i in tab['unread_ids'] if i not in all_unread)
     return {
         'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'posts_per_page': POSTS_PER_PAGE,
         'boards': [{'key': k, 'name': v} for k, v in BOARD_MAP.items()],
         'board_config': load_board_config(),
+        # 모든 키워드를 합친 통합 피드 요약 (같은 글은 한 번만 셈)
+        'all': {'total': count_all_posts(), 'unread_ids': all_unread},
         'tabs': tabs
     }
 
-def build_posts_page(board, keyword, page, video_only):
-    total, _ = query_keyword_posts(board, keyword, 0, 0, video_only)
-    total_pages = max(1, -(-total // POSTS_PER_PAGE))
-    page = min(max(1, page), total_pages)
-    _, posts = query_keyword_posts(board, keyword, (page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only)
+def build_posts_page(board, keyword, page, video_only, scope_all=False, query=''):
+    if scope_all or query:
+        # 통합 피드 또는 검색: 모든 키워드의 글을 중복 없이
+        total, _ = query_all_posts(0, 0, video_only, query)
+        total_pages = max(1, -(-total // POSTS_PER_PAGE))
+        page = min(max(1, page), total_pages)
+        _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query)
+        for post in posts:
+            for link in post.get('keywords', []):
+                link['board_name'] = BOARD_MAP.get(link['board'], link['board'])
+    else:
+        total, _ = query_keyword_posts(board, keyword, 0, 0, video_only)
+        total_pages = max(1, -(-total // POSTS_PER_PAGE))
+        page = min(max(1, page), total_pages)
+        _, posts = query_keyword_posts(board, keyword, (page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only)
     # 메인 루프가 매 주기 목록의 댓글 수로 변화를 감시하는 최근 글 표시 (필터와 무관하게 키워드 전체 기준)
-    _, top_posts = query_keyword_posts(board, keyword, 0, LIST_PAGE_SIZE)
-    syncing_ids = {p['id'] for p in top_posts if not p.get('is_deleted')}
+    syncing_ids = recent_post_ids(LIST_PAGE_SIZE)
     for post in posts:
         post['has_video'] = len(post.get('videos', [])) > 0
         post['is_syncing'] = post['id'] in syncing_ids
@@ -188,7 +208,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 except ValueError:
                     page = 1
                 video_only = query.get('video_only', ['0'])[0] in ('1', 'true')
-                self._send_data(200, build_posts_page(board, keyword, page, video_only))
+                scope_all = query.get('scope', [''])[0] == 'all'
+                search = query.get('q', [''])[0].strip()[:MAX_QUERY_LENGTH]
+                self._send_data(200, build_posts_page(board, keyword, page, video_only, scope_all, search))
             elif pure_path == '/api/locate':
                 post_id = query.get('id', [''])[0]
                 location = locate_post(post_id) if post_id.isdigit() else None
@@ -224,9 +246,29 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._handle_toggle_alert()
         elif pure_path == '/api/keyword':
             self._handle_keyword()
+        elif pure_path == '/api/read':
+            self._handle_read()
         else:
             self.send_response(404)
             self.end_headers()
+
+    def _handle_read(self):
+        """화면에서 읽은 글 기록 (기기 간 공유). 읽음 표시는 민감 정보가 아니라 관리자 암호 없이 허용"""
+        try:
+            params = self._read_json_body()
+            ids = params.get('ids')
+            if not isinstance(ids, list) or len(ids) > MAX_READ_IDS:
+                self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                return
+            count = mark_posts_read(ids)
+            log_msg(f"[API] 읽음 기록 {count}건", "DEBUG")
+            self._send_data(200, {'success': True, 'count': count})
+        except Exception as e:
+            log_msg(f"[API] 읽음 기록 오류: {short_err(e)}", "ERROR")
+            try:
+                self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
+            except Exception:
+                pass
 
     def _handle_toggle_alert(self):
         try:
