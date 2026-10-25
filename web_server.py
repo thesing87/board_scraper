@@ -17,8 +17,7 @@ from config import (
     LIST_PAGE_SIZE
 )
 from storage import (
-    set_board_alert,
-    load_board_config,
+    set_group_alert,
     query_all_posts,
     recent_post_ids,
     mark_posts_read,
@@ -97,7 +96,7 @@ def _clear_auth_failures(ip):
         auth_failures.pop(ip, None)
 
 def build_state():
-    """대시보드 초기 화면 구성용 데이터: 게시판 목록, 통합 피드 요약, 카테고리(에펨코리아 게시판), 알림 설정"""
+    """대시보드 초기 화면 구성용 데이터: 게시판 목록(알림 설정 포함), 통합 피드 요약, 카테고리(에펨코리아 게시판)"""
     groups = list_groups(NEW_POSTS_WINDOW)
     for group in groups:
         for member in group['members']:
@@ -106,7 +105,6 @@ def build_state():
         'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'posts_per_page': POSTS_PER_PAGE,
         'boards': [{'key': k, 'name': v} for k, v in BOARD_MAP.items()],
-        'board_config': load_board_config(),
         # 모든 게시판을 합친 통합 피드 요약 (같은 글은 한 번만 셈)
         'all': feed_summary(NEW_POSTS_WINDOW),
         # 사용자가 만든 게시판 (등록한 키워드의 글을 중복 없이 한 피드로)
@@ -321,31 +319,26 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 pass
 
     def _handle_toggle_alert(self):
+        """게시판별 텔레그램 알림 켜기·끄기 (관리자 암호 필요)"""
         try:
             params = self._read_json_body()
-            board = str(params.get('board', '')).strip()
-            alert_type = str(params.get('type', 'alert')).strip()
-            if alert_type not in ['alert', 'video_alert']:
-                alert_type = 'alert'
+            group_id = params.get('group')
+            alert_type = params.get('type')
             enabled = params.get('enabled') is True
-
-
             if not self._authorize(params.get('password', ''), '알림 토글'):
                 return
-
-            if board not in BOARD_MAP:
-                log_msg(f"[API] 잘못된 게시판 요청: {board}", "WARN")
+            if alert_type not in ('alert', 'video_alert') or not isinstance(group_id, int):
+                self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                return
+            name = set_group_alert(group_id, alert_type, enabled)
+            if name is None:
                 self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
                 return
-
-            set_board_alert(board, alert_type, enabled)
-
             status_str = "켜짐" if enabled else "꺼짐"
-            type_str = "동영상 알림" if alert_type == "video_alert" else "일반 알림"
+            type_str = "동영상 알림" if alert_type == "video_alert" else "전체 알림"
             icon_str = "🎬" if alert_type == "video_alert" else "🔔"
-            msg = f"{icon_str} {BOARD_MAP[board]} 게시판의 {type_str}이 {status_str} 상태로 변경되었습니다."
-            log_msg(f"[API] 알림 설정 변경: {BOARD_MAP[board]} {type_str} {status_str}")
-            self._send_json(200, True, msg)
+            log_msg(f"[API] 알림 설정 변경: {name} {type_str} {status_str}")
+            self._send_json(200, True, f"{icon_str} '{name}' 게시판의 {type_str}이 {status_str} 상태로 변경되었습니다.")
         except Exception as e:
             log_msg(f"[API] 알림 설정 처리 오류: {short_err(e)}", "ERROR")
             try:

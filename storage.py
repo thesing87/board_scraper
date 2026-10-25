@@ -15,7 +15,6 @@ from config import (
     BOARD_MAP
 )
 
-DEFAULT_BOARD_ALERT = {"alert": True, "video_alert": True}
 SCHEMA_VERSION = 1
 
 _init_lock = threading.Lock()
@@ -84,11 +83,13 @@ def _create_schema(conn):
         CREATE INDEX IF NOT EXISTS idx_keyword_posts_post ON keyword_posts(post_id);
         CREATE INDEX IF NOT EXISTS idx_keyword_posts_keyword ON keyword_posts(board, keyword);
 
-        -- 사용자가 만든 묶음 게시판: 여러 키워드의 글을 중복 없이 한 피드로
+        -- 사용자가 만든 게시판: 등록한 키워드의 글을 중복 없이 한 피드로
         CREATE TABLE IF NOT EXISTS keyword_groups (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             name        TEXT NOT NULL UNIQUE,
-            created_at  TEXT NOT NULL
+            created_at  TEXT NOT NULL,
+            alert       INTEGER NOT NULL DEFAULT 1,   -- 새 글 텔레그램 알림
+            video_alert INTEGER NOT NULL DEFAULT 1    -- 동영상 글 알림 (alert가 꺼져 있어도 동영상 글은 알림)
         );
         CREATE TABLE IF NOT EXISTS keyword_group_members (
             group_id  INTEGER NOT NULL REFERENCES keyword_groups(id) ON DELETE CASCADE,
@@ -97,6 +98,7 @@ def _create_schema(conn):
             PRIMARY KEY (group_id, board, keyword)
         );
 
+        -- 예전 카테고리별 알림 설정. 게시판별 알림으로 옮길 때 초기값으로만 사용
         CREATE TABLE IF NOT EXISTS board_config (
             board        TEXT PRIMARY KEY,
             alert        INTEGER NOT NULL DEFAULT 1,
@@ -193,6 +195,19 @@ def _add_missing_columns(conn):
         # 제목·본문·댓글의 태그를 뺀 텍스트 (대시보드 검색용)
         conn.execute("ALTER TABLE posts ADD COLUMN search_text TEXT")
         log_msg("[DB] posts.search_text 컬럼 추가")
+    group_columns = {row['name'] for row in conn.execute("PRAGMA table_info(keyword_groups)")}
+    if 'alert' not in group_columns:
+        # 알림을 게시판별로 설정. 초기값은 등록 키워드 카테고리의 예전 알림 설정 (하나라도 켜져 있으면 켬)
+        with conn:
+            for column in ('alert', 'video_alert'):
+                conn.execute(f"ALTER TABLE keyword_groups ADD COLUMN {column} INTEGER NOT NULL DEFAULT 1")
+                conn.execute(f"""
+                    UPDATE keyword_groups SET {column} = COALESCE((
+                        SELECT MAX(bc.{column}) FROM keyword_group_members m
+                        JOIN board_config bc ON bc.board = m.board WHERE m.group_id = keyword_groups.id
+                    ), 1)
+                """)
+        log_msg("[DB] 게시판별 알림 설정 컬럼 추가")
 
 def _backfill_search_text(conn):
     """검색 텍스트가 없는 기존 글을 1회 채움"""
@@ -269,7 +284,10 @@ def _migrate_keywords_to_boards(conn):
         name = row['keyword']
         if conn.execute("SELECT 1 FROM keyword_groups WHERE name = ?", (name,)).fetchone():
             name = f"{row['keyword']} ({BOARD_MAP.get(row['board'], row['board'])})"
-        group_id = conn.execute("INSERT INTO keyword_groups(name, created_at) VALUES(?, ?)", (name, _now())).lastrowid
+        # 알림은 그 키워드 카테고리의 예전 설정을 이어받음
+        cfg = conn.execute("SELECT alert, video_alert FROM board_config WHERE board = ?", (row['board'],)).fetchone()
+        group_id = conn.execute("INSERT INTO keyword_groups(name, created_at, alert, video_alert) VALUES(?, ?, ?, ?)",
+                                (name, _now(), cfg['alert'] if cfg else 1, cfg['video_alert'] if cfg else 1)).lastrowid
         conn.execute("INSERT INTO keyword_group_members(group_id, board, keyword) VALUES(?, ?, ?)",
                      (group_id, row['board'], row['keyword']))
     _set_meta(conn, 'keyword_boards_migrated', '1')
@@ -312,16 +330,17 @@ def feed_summary(new_window=100):
         return _feed_summary(conn, new_window)
 
 def list_groups(new_window=100):
-    """게시판 목록: 등록 키워드, 중복 제거한 글 수, 안 읽은 새 글 ID, 최신 글 날짜"""
+    """게시판 목록: 등록 키워드, 알림 설정, 중복 제거한 글 수, 안 읽은 새 글 ID, 최신 글 날짜"""
     groups = []
     with _db() as conn:
-        for g in conn.execute("SELECT id, name FROM keyword_groups ORDER BY id").fetchall():
+        for g in conn.execute("SELECT id, name, alert, video_alert FROM keyword_groups ORDER BY id").fetchall():
             members = [dict(board=r['board'], keyword=r['keyword']) for r in conn.execute("""
                 SELECT m.board, m.keyword FROM keyword_group_members m
                 JOIN keywords k ON k.board = m.board AND k.keyword = m.keyword
                 WHERE m.group_id = ? ORDER BY k.rowid
             """, (g['id'],))]
             groups.append({'id': g['id'], 'name': g['name'], 'members': members,
+                           'alert': bool(g['alert']), 'video_alert': bool(g['video_alert']),
                            **_feed_summary(conn, new_window, g['id'])})
     return groups
 
@@ -365,19 +384,28 @@ def post_exists(post_id):
 # ==========================================
 # 게시판 알림 설정
 # ==========================================
-def load_board_config():
-    config = {board: dict(DEFAULT_BOARD_ALERT) for board in BOARD_MAP.keys()}
+def load_alert_targets():
+    """{(board, keyword): [{'name', 'alert', 'video_alert'}, ...]} 키워드가 등록된 게시판들의 알림 설정"""
+    targets = {}
     with _db() as conn:
-        for row in conn.execute("SELECT board, alert, video_alert FROM board_config"):
-            config[row['board']] = {"alert": bool(row['alert']), "video_alert": bool(row['video_alert'])}
-    return config
+        for row in conn.execute("""
+            SELECT m.board, m.keyword, g.name, g.alert, g.video_alert FROM keyword_group_members m
+            JOIN keyword_groups g ON g.id = m.group_id ORDER BY g.id
+        """):
+            targets.setdefault((row['board'], row['keyword']), []).append(
+                {'name': row['name'], 'alert': bool(row['alert']), 'video_alert': bool(row['video_alert'])})
+    return targets
 
-def set_board_alert(board, alert_type, enabled):
+def set_group_alert(group_id, alert_type, enabled):
+    """게시판 알림 켜기·끄기. 게시판 이름 반환, 없는 게시판이면 None"""
     if alert_type not in ('alert', 'video_alert'):
         raise ValueError(f"지원하지 않는 알림 종류: {alert_type}")
     with _db() as conn, conn:
-        conn.execute("INSERT OR IGNORE INTO board_config(board) VALUES(?)", (board,))
-        conn.execute(f"UPDATE board_config SET {alert_type} = ? WHERE board = ?", (int(bool(enabled)), board))
+        row = conn.execute("SELECT name FROM keyword_groups WHERE id = ?", (group_id,)).fetchone()
+        if not row:
+            return None
+        conn.execute(f"UPDATE keyword_groups SET {alert_type} = ? WHERE id = ?", (int(bool(enabled)), group_id))
+        return row['name']
 
 # ==========================================
 # 게시글

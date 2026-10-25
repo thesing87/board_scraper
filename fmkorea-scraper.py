@@ -18,7 +18,7 @@ from config import (
 from storage import (
     init_db,
     load_keywords,
-    load_board_config,
+    load_alert_targets,
     query_keyword_posts,
     save_keyword_post,
     update_post,
@@ -187,7 +187,7 @@ def main():
                 continue
 
             config_data = load_keywords()
-            board_alert_config = load_board_config()
+            alert_targets = load_alert_targets()
 
             cycle_started = time.time()
             stats = {'keywords': 0, 'new': 0, 'updated': 0, 'deleted': 0, 'errors': 0, 'details': 0,
@@ -261,23 +261,14 @@ def main():
                             stats['new'] += 1
 
                             has_video = len(post_data.get('videos', [])) > 0
-                            board_cfg = board_alert_config.get(board, {})
-                            is_alert_enabled = board_cfg.get("alert", True)
-                            is_video_alert_enabled = board_cfg.get("video_alert", True)
-
-                            should_send_alert = False
-                            video_badge = ""
-
-                            if has_video:
-                                if is_video_alert_enabled:
-                                    should_send_alert = True
-                                    if not is_alert_enabled:
-                                        video_badge = " [🎬 동영상 알림]"
-                                elif is_alert_enabled:
-                                    should_send_alert = True
-                            else:
-                                if is_alert_enabled:
-                                    should_send_alert = True
+                            # 키워드가 등록된 게시판 중 하나라도 이 글의 알림을 원하면 발송
+                            # (전체 알림이 켜져 있거나, 동영상 글이고 동영상 알림이 켜져 있으면)
+                            targets = alert_targets.get((board, keyword), [])
+                            full_alert = [t['name'] for t in targets if t['alert']]
+                            video_only = [t['name'] for t in targets if has_video and t['video_alert'] and not t['alert']]
+                            alert_boards = full_alert + video_only
+                            should_send_alert = bool(alert_boards)
+                            video_badge = " [🎬 동영상 알림]" if should_send_alert and not full_alert else ""
 
                             alert_result = "알림 발송" if should_send_alert else "알림 꺼짐"
                             log_msg(f"[새 글] {target} #{post_data['id']} {short_title(post_data['title'])}{' (동영상)' if has_video else ''} → {alert_result}")
@@ -301,8 +292,11 @@ def main():
 
                                 reply_markup = {"inline_keyboard": keyboard} if keyboard else None
 
+                                label = ', '.join(alert_boards)
+                                if alert_boards != [keyword]:
+                                    label += f" - {keyword}"
                                 telegram_text = (
-                                    f"🔔 *[{board_name} - {keyword}]{video_badge} 실시간 새 글!*\n\n"
+                                    f"🔔 *[{label}]{video_badge} 실시간 새 글!*\n\n"
                                     f"📌 *제목:* {post_data['title']}"
                                 )
                                 send_telegram_message(telegram_text, reply_markup=reply_markup)

@@ -207,16 +207,13 @@ function renderNavigation() {
         groups.map(g => chip(esc(g.name), g.total, g.unread_ids.length > 0, isActive(g),
             `data-action="open-group" data-group-id="${g.id}"`)).join('');
 
-    // 사이드바 하단 알림 요약 (게시판에 키워드가 등록된 카테고리만)
-    const used = new Set(groups.flatMap(g => g.members.map(m => m.board)));
-    const summary = app.state.boards
-        .filter(b => used.has(b.key))
-        .map(b => {
-            const cfg = app.state.board_config[b.key] || { alert: true, video_alert: true };
-            const mode = cfg.alert ? '전체 알림' : (cfg.video_alert ? '동영상 글만' : '알림 꺼짐');
-            return `${b.name} · ${mode}`;
-        });
-    document.getElementById('alert-summary').textContent = summary.length ? summary.join('\n') : '등록된 키워드가 없습니다.';
+    // 사이드바 하단 알림 요약 (게시판별)
+    const summary = groups.map(g => `${g.name} · ${alertMode(g)}`);
+    document.getElementById('alert-summary').textContent = summary.length ? summary.join('\n') : '게시판이 없습니다.';
+}
+
+function alertMode(group) {
+    return group.alert ? '전체 알림' : (group.video_alert ? '동영상 글만' : '알림 꺼짐');
 }
 
 function scrollActiveChipIntoView() {
@@ -571,10 +568,10 @@ async function showNewPosts() {
 // ==========================================
 // 관리 패널
 // ==========================================
-function alertSwitch(boardKey, type, on, label) {
+function alertSwitch(groupId, type, on, label) {
     return `
         <label class="switch">
-            <input type="checkbox" data-action="toggle-alert" data-board="${esc(boardKey)}" data-type="${type}" aria-label="${esc(label)}" ${on ? 'checked' : ''}>
+            <input type="checkbox" data-action="toggle-alert" data-group-id="${groupId}" data-type="${type}" aria-label="${esc(label)}" ${on ? 'checked' : ''}>
             <span class="slider"></span>
         </label>`;
 }
@@ -587,17 +584,15 @@ function renderSettings() {
 
     renderGroupSettings();
 
-    document.getElementById('settings-alerts').innerHTML = app.state.boards.map(b => {
-        const cfg = app.state.board_config[b.key] || { alert: true, video_alert: true };
-        return `
-            <div class="alert-row">
-                <span class="alert-row-name">${esc(b.name)}</span>
-                <span class="alert-switches">
-                    ${alertSwitch(b.key, 'alert', cfg.alert, b.name + ' 전체 알림')}
-                    ${alertSwitch(b.key, 'video_alert', cfg.video_alert, b.name + ' 동영상 알림')}
-                </span>
-            </div>`;
-    }).join('');
+    const groups = app.state.groups || [];
+    document.getElementById('settings-alerts').innerHTML = groups.length ? groups.map(g => `
+        <div class="alert-row">
+            <span class="alert-row-name">${esc(g.name)}</span>
+            <span class="alert-switches">
+                ${alertSwitch(g.id, 'alert', g.alert, g.name + ' 전체 알림')}
+                ${alertSwitch(g.id, 'video_alert', g.video_alert, g.name + ' 동영상 알림')}
+            </span>
+        </div>`).join('') : '<span class="settings-hint">게시판을 만들면 게시판별로 알림을 설정할 수 있습니다.</span>';
 }
 
 // ---------- 게시판 만들기·수정·삭제 (키워드는 게시판에 등록) ----------
@@ -735,7 +730,7 @@ function adminPassword() {
     return document.getElementById('admin-pwd-input').value.trim();
 }
 
-async function toggleBoardAlert(checkbox) {
+async function toggleGroupAlert(checkbox) {
     const pwd = adminPassword();
     const target = checkbox.checked;
     if (!pwd) {
@@ -744,12 +739,13 @@ async function toggleBoardAlert(checkbox) {
         document.getElementById('admin-pwd-input').focus();
         return;
     }
-    const board = checkbox.dataset.board;
+    const groupId = Number(checkbox.dataset.groupId);
     const type = checkbox.dataset.type;
     try {
-        const data = await postJSON('/api/toggle-alert', { board: board, type: type, enabled: target, password: pwd });
+        const data = await postJSON('/api/toggle-alert', { group: groupId, type: type, enabled: target, password: pwd });
+        const group = (app.state.groups || []).find(g => g.id === groupId);
         if (data.success) {
-            app.state.board_config[board][type] = target;
+            if (group) group[type] = target;
             renderNavigation();
         } else {
             alert(data.message);
@@ -890,7 +886,7 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('change', (e) => {
-    if (e.target.dataset.action === 'toggle-alert') toggleBoardAlert(e.target);
+    if (e.target.dataset.action === 'toggle-alert') toggleGroupAlert(e.target);
     else if (e.target.dataset.action === 'go-page') changePage(e.target.value);
 });
 
