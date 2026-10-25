@@ -81,8 +81,14 @@ def find_thumbnail(content_lines):
             return _absolute(match.group(1))
     return ''
 
+def _count(value):
+    """조회·댓글 수를 천 단위 쉼표로 (숫자가 아니면 그대로)"""
+    digits = str(value or 0).replace(',', '').strip()
+    return f"{int(digits):,}" if digits.isdigit() else str(value)
+
 def build_post_alert(post, boards, keyword, board_name):
-    """알림 본문(HTML): 게시판·시각 머리글, 굵은 제목, 본문 미리보기, 키워드·카테고리·작성자·조회·댓글 한 줄"""
+    """알림 본문(HTML): 게시판·시각 머리글 / 굵은 제목 / 인용 상자에 본문 미리보기 /
+    키워드·카테고리 한 줄, 작성자·조회·댓글 한 줄"""
     esc = html.escape
     has_video = bool(post.get('videos'))
     header = f"{'🎬' if has_video else '🔔'} <b>{esc(', '.join(boards))}</b>"
@@ -90,18 +96,20 @@ def build_post_alert(post, boards, keyword, board_name):
         header += " · 동영상"
     header += f" · {datetime.now().strftime('%H:%M')}"
 
-    lines = [header, f"<b>{esc(post.get('title', ''))}</b>"]
+    # 인용 상자(blockquote)는 앞뒤 줄바꿈을 따로 넣지 않아도 제목·정보와 떨어져 보임
+    body = f"{header}\n\n<b>{esc(post.get('title', ''))}</b>\n"
     preview = _plain_text(post.get('content'))
     if preview:
         if len(preview) > PREVIEW_LENGTH:
             preview = preview[:PREVIEW_LENGTH].rstrip() + '…'
-        lines.append(esc(preview))
-    info = [f"🔎 {esc(keyword)}", esc(board_name)]
+        body += f"<blockquote>{esc(preview)}</blockquote>"
+    else:
+        body += "\n"
+    stats = []
     if post.get('author'):
-        info.append(esc(post['author']))
-    info += [f"조회 {esc(str(post.get('views', 0)))}", f"댓글 {esc(str(post.get('comment_count', 0)))}"]
-    lines += ['', ' · '.join(info)]
-    return '\n'.join(lines)
+        stats.append(f"👤 {esc(post['author'])}")
+    stats += [f"👁 {_count(post.get('views'))}", f"💬 {_count(post.get('comment_count'))}"]
+    return body + f"🏷 {esc(keyword)} · {esc(board_name)}\n" + '   '.join(stats)
 
 def send_post_alert(post, boards, keyword, board_name, dashboard_url='', original_url=''):
     """새 글 알림 발송. 썸네일이 있으면 사진+설명으로, 사진 발송이 안 되면 글로 대신 보냄"""
@@ -126,5 +134,6 @@ def send_post_alert(post, boards, keyword, board_name, dashboard_url='', origina
         return
     # HTML 파싱 실패 등에 대비해 서식 없는 글로 한 번 더 시도
     fallback = {k: v for k, v in base.items() if k != "parse_mode"}
-    if not _call("sendMessage", {**fallback, "text": html.unescape(_TAG_RE.sub('', text))}):
+    plain = html.unescape(_TAG_RE.sub('', text.replace('</blockquote>', '\n')))
+    if not _call("sendMessage", {**fallback, "text": plain}):
         log_msg("[알림] 텔레그램 새 글 알림 발송 실패", "ERROR")
