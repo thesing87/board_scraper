@@ -544,17 +544,26 @@ def query_keyword_posts(board, keyword, offset=0, limit=10, video_only=False):
         """, params + (limit, offset)).fetchall()
     return total, [_row_to_post(r) for r in rows]
 
-def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=None):
+# 안 읽은 새 글: 새 글로 수집됐고 아직 읽음 기록이 없는 글
+_UNREAD_SQL = "kp.is_new = 1 AND rp.read_at IS NULL"
+
+def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=None, unread_since=None):
     """게시판에 등록된 키워드의 글을 한 번씩만(중복 제거) 최신 수집순으로 조회.
-    group_id가 있으면 그 게시판만, query가 있으면 검색 결과"""
+    group_id가 있으면 그 게시판만, query가 있으면 검색 결과.
+    unread_since가 있으면 안 읽은 새 글만: 그 시각 이후에 읽은 글은 계속 포함해
+    보는 도중 읽음 처리가 되어도 페이지가 밀리지 않게 함"""
     search_sql, search_params = _search_conditions(query)
     feed_sql, params = _feed_from(group_id)
     params += search_params
+    unread_sql = ''
+    if unread_since is not None:
+        unread_sql = "AND kp.is_new = 1 AND (rp.read_at IS NULL OR rp.read_at > ?)"
+        params += (unread_since,)
     base = f"""
         {feed_sql}
         JOIN posts p ON p.id = kp.post_id
         LEFT JOIN read_posts rp ON rp.post_id = p.id
-        WHERE 1 = 1 {f'AND {_HAS_VIDEO_SQL}' if video_only else ''} {search_sql}
+        WHERE 1 = 1 {f'AND {_HAS_VIDEO_SQL}' if video_only else ''} {search_sql} {unread_sql}
     """
     with _db() as conn:
         total = conn.execute(f"SELECT COUNT(DISTINCT p.id) {base}", params).fetchone()[0]
@@ -566,6 +575,32 @@ def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=N
             ORDER BY last_rowid DESC LIMIT ? OFFSET ?
         """, params + (limit, offset)).fetchall()
     return total, [_row_to_post(r) for r in rows]
+
+def unread_summary(id_limit=500):
+    """안 읽은 새 글 모아보기 요약: 글 수(중복 제거)와 최신순 글 ID(최대 id_limit개)"""
+    base, params = _feed_from()
+    with _db() as conn:
+        rows = conn.execute(f"""
+            SELECT kp.post_id, MAX(kp.rowid) AS last_rowid {base}
+            LEFT JOIN read_posts rp ON rp.post_id = kp.post_id
+            WHERE {_UNREAD_SQL}
+            GROUP BY kp.post_id ORDER BY last_rowid DESC
+        """, params).fetchall()
+    return {'total': len(rows), 'unread_ids': [r['post_id'] for r in rows[:id_limit]]}
+
+def latest_alert_group():
+    """가장 최근에 텔레그램 알림이 간 새 글의 게시판 ID (알림 설정 기준). 없으면 None"""
+    base, params = _feed_from()
+    with _db() as conn:
+        row = conn.execute(f"""
+            SELECT gm.group_id {base}
+            JOIN keyword_group_members gm ON gm.board = kp.board AND gm.keyword = kp.keyword
+            JOIN keyword_groups g ON g.id = gm.group_id
+            JOIN posts p ON p.id = kp.post_id
+            WHERE kp.is_new = 1 AND (g.alert = 1 OR (g.video_alert = 1 AND {_HAS_VIDEO_SQL}))
+            ORDER BY kp.rowid DESC, gm.group_id LIMIT 1
+        """, params).fetchone()
+    return row[0] if row else None
 
 def recent_post_ids(limit_per_keyword):
     """키워드별 최근 글 ID 집합 (메인 루프가 목록의 댓글 수로 매 주기 변화를 감시하는 범위)"""

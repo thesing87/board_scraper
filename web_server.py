@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import hmac
 import time
@@ -24,6 +25,8 @@ from storage import (
     locate_post,
     list_groups,
     feed_summary,
+    unread_summary,
+    latest_alert_group,
     save_group,
     delete_group
 )
@@ -107,16 +110,20 @@ def build_state():
         'boards': [{'key': k, 'name': v} for k, v in BOARD_MAP.items()],
         # 모든 게시판을 합친 통합 피드 요약 (같은 글은 한 번만 셈)
         'all': feed_summary(NEW_POSTS_WINDOW),
+        # 모든 게시판의 안 읽은 새 글 모아보기 (첫 화면)
+        'unread': unread_summary(MAX_READ_IDS),
+        # 안 읽은 글이 없을 때 첫 화면으로 쓸 게시판: 가장 최근에 알림이 간 글의 게시판
+        'latest_alert_group': latest_alert_group(),
         # 사용자가 만든 게시판 (등록한 키워드의 글을 중복 없이 한 피드로)
         'groups': groups
     }
 
-def build_posts_page(page, video_only, query='', group_id=None):
-    """통합 피드(group_id 없음)·게시판·검색: 여러 키워드의 글을 중복 없이"""
-    total, _ = query_all_posts(0, 0, video_only, query, group_id)
+def build_posts_page(page, video_only, query='', group_id=None, unread_since=None):
+    """통합 피드(group_id 없음)·게시판·검색·안 읽은 글: 여러 키워드의 글을 중복 없이"""
+    total, _ = query_all_posts(0, 0, video_only, query, group_id, unread_since)
     total_pages = max(1, -(-total // POSTS_PER_PAGE))
     page = min(max(1, page), total_pages)
-    _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id)
+    _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id, unread_since)
     for post in posts:
         for link in post.get('keywords', []):
             link['board_name'] = BOARD_MAP.get(link['board'], link['board'])
@@ -199,7 +206,10 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 search = query.get('q', [''])[0].strip()[:MAX_QUERY_LENGTH]
                 group_param = query.get('group', [''])[0]
                 group_id = int(group_param) if group_param.isdigit() and not search else None
-                self._send_data(200, build_posts_page(page, video_only, search, group_id))
+                # 안 읽은 글 보기: 화면을 연 시각(서버 시각 'YYYY-MM-DD HH:MM:SS') 이후 읽은 글은 계속 포함
+                since = query.get('unread_since', [''])[0]
+                unread_since = since if re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', since) and not search else None
+                self._send_data(200, build_posts_page(page, video_only, search, group_id, unread_since))
             elif pure_path == '/api/locate':
                 post_id = query.get('id', [''])[0]
                 location = locate_post(post_id) if post_id.isdigit() else None

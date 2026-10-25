@@ -4,12 +4,15 @@
 // 상태 및 공용 유틸
 // ==========================================
 const ALL_KEY = '__all__';            // 모든 게시판을 합친 통합 피드
+const UNREAD_KEY = '__unread__';      // 모든 게시판의 안 읽은 새 글 모아보기 (첫 화면)
 const POLL_INTERVAL_MS = 60 * 1000;   // 새 글 확인 주기
 const LEGACY_READ_IDS_KEY = 'read_post_ids';
 
 const app = {
     state: null,          // /api/state 응답
-    activeKey: ALL_KEY,   // 현재 보기: ALL_KEY 또는 "group:<게시판 ID>"
+    activeKey: ALL_KEY,   // 현재 보기: UNREAD_KEY, ALL_KEY 또는 "group:<게시판 ID>"
+    unreadSince: null,    // 안 읽은 글 보기를 연 서버 시각 (보는 중 읽은 글이 빠져 페이지가 밀리지 않게)
+    renderedUnreadIds: null, // 안 읽은 글 보기를 그릴 때의 안 읽은 글 ID (새 글 배너 계산용)
     searchQuery: '',      // 검색 중이면 검색어
     page: 1,
     totalPages: 1,
@@ -42,11 +45,21 @@ function boardName(key) {
 }
 function findGroup(key) { return app.state ? (app.state.groups || []).find(g => groupKey(g) === key) : null; }
 function isAllView() { return app.activeKey === ALL_KEY; }
-function isKnownView(key) { return key === ALL_KEY || !!findGroup(key); }
+function isUnreadView() { return app.activeKey === UNREAD_KEY; }
+function isKnownView(key) { return key === ALL_KEY || key === UNREAD_KEY || !!findGroup(key); }
+
+// 첫 화면: 안 읽은 글이 있으면 안 읽은 글 모아보기, 없으면 가장 최근에 알림이 간 게시판, 그것도 없으면 전체
+function homeKey() {
+    if (!app.state) return ALL_KEY;
+    if (app.state.unread.total > 0) return UNREAD_KEY;
+    const latest = app.state.latest_alert_group;
+    return latest && findGroup('group:' + latest) ? 'group:' + latest : ALL_KEY;
+}
 
 // 현재 보기(통합 피드·게시판)의 요약: 글 수, 안 읽은 새 글 ID
 function viewSummary(key) {
     if (!app.state) return null;
+    if (key === UNREAD_KEY) return app.state.unread;
     return key === ALL_KEY ? app.state.all : findGroup(key);
 }
 
@@ -84,6 +97,10 @@ function forgetUnread(ids) {
     const set = new Set(ids);
     (app.state.groups || []).forEach(g => { g.unread_ids = g.unread_ids.filter(id => !set.has(id)); });
     app.state.all.unread_ids = app.state.all.unread_ids.filter(id => !set.has(id));
+    const unread = app.state.unread;
+    const before = unread.unread_ids.length;
+    unread.unread_ids = unread.unread_ids.filter(id => !set.has(id));
+    unread.total = Math.max(0, unread.total - (before - unread.unread_ids.length));
 }
 
 function markRead(ids) {
@@ -184,11 +201,16 @@ function renderNavigation() {
     const searching = !!app.searchQuery;
     const groups = app.state.groups || [];
     const allActive = !searching && isAllView();
+    const unreadActive = !searching && isUnreadView();
+    const unreadTotal = app.state.unread.total;
     const isActive = g => !searching && groupKey(g) === app.activeKey;
 
-    // 데스크톱: 통합 피드 + 사용자가 만든 게시판
+    // 데스크톱: 안 읽은 글 + 통합 피드 + 사용자가 만든 게시판
     document.getElementById('keyword-groups').innerHTML = `
-        <nav class="kw-group" aria-label="통합">${navItem('전체', app.state.all.total, app.state.all.unread_ids.length, allActive, 'data-action="open-all"')}</nav>
+        <nav class="kw-group" aria-label="통합">
+            ${navItem('안 읽은 글', '', unreadTotal, unreadActive, 'data-action="open-unread"')}
+            ${navItem('전체', app.state.all.total, app.state.all.unread_ids.length, allActive, 'data-action="open-all"')}
+        </nav>
         <nav class="kw-group" aria-label="게시판">
             ${groups.length ? groups.map(g => navItem(esc(g.name), g.total, g.unread_ids.length, isActive(g),
                 `data-action="open-group" data-group-id="${g.id}"`)).join('')
@@ -203,6 +225,7 @@ function renderNavigation() {
             ${hasUnread ? '<span class="chip-dot" aria-label="안 읽은 새 글"></span>' : ''}
         </button>`;
     document.getElementById('chip-row').innerHTML =
+        chip('안 읽은 글', unreadTotal, false, unreadActive, 'data-action="open-unread"') +
         chip('전체', app.state.all.total, app.state.all.unread_ids.length > 0, allActive, 'data-action="open-all"') +
         groups.map(g => chip(esc(g.name), g.total, g.unread_ids.length > 0, isActive(g),
             `data-action="open-group" data-group-id="${g.id}"`)).join('');
@@ -223,6 +246,7 @@ function scrollActiveChipIntoView() {
 
 function openView(key, page) {
     app.activeKey = key;
+    if (key === UNREAD_KEY) app.unreadSince = app.state.generated_at;
     app.searchQuery = '';
     document.getElementById('search-input').value = '';
     app.page = page || 1;
@@ -236,7 +260,7 @@ function goHome() {
     if (!document.getElementById('settings').hidden) setSettingsOpen(false);
     document.querySelector('.topbar').classList.remove('search-open');
     if (window.location.hash) history.replaceState(null, '', window.location.pathname);
-    openView(ALL_KEY, 1);
+    openView(homeKey(), 1);
 }
 
 // ==========================================
@@ -327,7 +351,7 @@ function renderPost(post, isUnread) {
     ].join('');
     // 통합 피드·검색·키워드가 여러 개인 게시판에서는 어느 키워드로 모인 글인지 표시
     const group = findGroup(app.activeKey);
-    const keywordTags = (post.keywords && (isAllView() || app.searchQuery || (group && group.members.length > 1)))
+    const keywordTags = (post.keywords && (isAllView() || isUnreadView() || app.searchQuery || (group && group.members.length > 1)))
         ? post.keywords.map(k => `<span class="kw-chip">${esc(k.board_name)} · ${esc(k.keyword)}</span>`).join('')
         : '';
     const link = esc(safeLink(post.link));
@@ -390,6 +414,7 @@ function feedSubText(total) {
     const summary = viewSummary(app.activeKey);
     if (!summary) return '';
     const unread = summary.unread_ids.length;
+    if (isUnreadView()) return unread ? `모든 게시판의 안 읽은 새 글 <strong>${summary.total}개</strong>` : '안 읽은 글을 모두 읽었습니다';
     const group = findGroup(app.activeKey);
     const label = group ? `키워드 ${group.members.map(m => esc(m.keyword)).join(', ')}` : '모든 게시판';
     return `${label} · ${summary.total}개 글${unread ? ` · <strong>새 글 ${unread}</strong>` : ''}`;
@@ -414,6 +439,10 @@ async function loadPosts() {
     const params = new URLSearchParams({ page: app.page, video_only: videoOnly ? '1' : '0' });
     if (searching) params.set('q', app.searchQuery);
     else if (group) params.set('group', group.id);
+    else if (isUnreadView()) {
+        if (!app.unreadSince) app.unreadSince = app.state.generated_at;
+        params.set('unread_since', app.unreadSince);
+    }
 
     let data;
     try {
@@ -428,6 +457,7 @@ async function loadPosts() {
     app.totalPages = data.total_pages;
     const summary = viewSummary(app.activeKey);
     app.renderedTotal = searching ? null : (summary ? summary.total : null);
+    app.renderedUnreadIds = isUnreadView() ? new Set(app.state.unread.unread_ids) : null;
     if (!searching) {
         storageSet(sessionStorage, 'last_active_tab', app.activeKey);
         storageSet(sessionStorage, 'last_active_page', String(app.page));
@@ -436,7 +466,10 @@ async function loadPosts() {
     const empty = data.total === 0;
     let body = '';
     if (empty) {
-        body = !searching && !(app.state.groups || []).length
+        const latest = findGroup('group:' + app.state.latest_alert_group);
+        body = isUnreadView() && !videoOnly
+            ? `<div class="empty-card">안 읽은 글이 없습니다.${latest ? ` <button class="link-btn" data-action="open-group" data-group-id="${latest.id}">최근 알림 게시판(${esc(latest.name)}) 보기</button>` : ''}</div>`
+            : !searching && !(app.state.groups || []).length
             ? '<div class="empty-card">게시판이 없습니다. 관리에서 게시판을 만들고 키워드를 등록해 주세요.</div>'
             : searching ? `<div class="empty-card">'${esc(app.searchQuery)}'에 해당하는 글이 없습니다.</div>`
             : videoOnly ? '<div class="empty-card">동영상이 포함된 게시글이 없습니다.</div>'
@@ -456,7 +489,7 @@ async function loadPosts() {
         });
     }
 
-    const title = searching ? `검색: ${esc(app.searchQuery)}` : group ? esc(group.name) : '전체';
+    const title = searching ? `검색: ${esc(app.searchQuery)}` : group ? esc(group.name) : isUnreadView() ? '안 읽은 글' : '전체';
     const headActions = searching
         ? '<button class="btn btn-outline btn-small" data-action="clear-search">검색 닫기</button>'
         : `<button class="btn btn-outline btn-small" data-action="mark-all-read" ${summary && summary.unread_ids.length ? '' : 'hidden'}>모두 읽음</button>`;
@@ -558,7 +591,9 @@ async function pollState() {
     if (app.searchQuery || app.renderedTotal === null) return;
     const summary = viewSummary(app.activeKey);
     if (!summary) return;
-    const added = summary.total - app.renderedTotal;
+    const added = isUnreadView() && app.renderedUnreadIds
+        ? summary.unread_ids.filter(id => !app.renderedUnreadIds.has(id)).length
+        : summary.total - app.renderedTotal;
     if (added > 0) {
         const banner = document.getElementById('new-banner');
         banner.innerHTML = `${ICONS.up}<span>새 글 ${added}개 · 눌러서 보기</span>`;
@@ -569,6 +604,7 @@ async function pollState() {
 async function showNewPosts() {
     hideNewBanner();
     app.page = 1;
+    if (isUnreadView()) app.unreadSince = app.state.generated_at;
     await loadPosts();
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -773,7 +809,7 @@ async function loadState() {
     app.state = await getJSON('/api/state');
     renderStatus(true);
     if (!isKnownView(app.activeKey)) {
-        app.activeKey = ALL_KEY;
+        app.activeKey = homeKey();
         app.page = 1;
     }
     renderNavigation();
@@ -782,6 +818,8 @@ async function loadState() {
 
 async function refreshCurrent() {
     try {
+        // 새로고침하면 안 읽은 글 보기에서 이미 읽은 글은 빠짐
+        app.unreadSince = null;
         await loadState();
     } catch (e) {
         renderStatus(false);
@@ -821,19 +859,20 @@ async function init() {
         return;
     }
     renderStatus(true);
+    setInterval(pollState, POLL_INTERVAL_MS);
     // 텔레그램 알림 링크(#post-ID)로 들어온 경우 해당 글이 있는 탭/페이지로 바로 이동
     if (await handlePostAnchor()) return;
+    // 같은 탭에서 새로고침하면 보던 화면 유지, 새로 들어오면 첫 화면(안 읽은 글 → 최근 알림 게시판 → 전체)
     if (isKnownView(savedTab)) {
         app.activeKey = savedTab;
         app.page = savedPage;
     } else {
-        app.activeKey = ALL_KEY;
+        app.activeKey = homeKey();
         app.page = 1;
     }
     renderNavigation();
     scrollActiveChipIntoView();
     loadPosts();
-    setInterval(pollState, POLL_INTERVAL_MS);
 }
 
 // ==========================================
@@ -863,6 +902,8 @@ document.addEventListener('click', (e) => {
         goHome();
     } else if (action === 'open-all') {
         openView(ALL_KEY, 1);
+    } else if (action === 'open-unread') {
+        openView(UNREAD_KEY, 1);
     } else if (action === 'open-group') {
         openView('group:' + el.dataset.groupId, 1);
     } else if (action === 'save-group') {
