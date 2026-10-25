@@ -209,6 +209,8 @@ function safeLink(url) {
 function renderPost(post, isUnread) {
     const classes = ['post-card'];
     if (post.is_deleted) classes.push('is-deleted');
+    // 넓은 화면에서는 댓글이 있는 글만 본문·댓글 2단으로 나눔
+    if (post.comments && post.comments.length) classes.push('has-comments');
     const badges = [
         isUnread ? '<span class="badge badge-new">NEW</span>' : '',
         post.has_video ? '<span class="badge badge-video">동영상</span>' : '',
