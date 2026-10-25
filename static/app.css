@@ -194,19 +194,22 @@ a { color: var(--accent-ink); }
 @media (min-width: 1360px) {
     .feed { max-width: none; }
     .feed-wrap { padding: 24px 32px 64px; }
-    .post-card.has-comments { display: grid; grid-template-columns: minmax(0, 1fr) 400px; column-gap: 32px; align-items: start; }
+    /* 댓글 글자 영역이 에펨코리아 모바일 화면(폰 폭 약 390px) 이상이 되도록 댓글 칸 폭 확보 */
+    .post-card.has-comments { display: grid; grid-template-columns: minmax(0, 1fr) 480px; column-gap: 28px; align-items: start; }
     .post-card.has-comments > .post-head,
     .post-card.has-comments > .post-content { grid-column: 1; }
     .post-card.has-comments > .comments {
         grid-column: 2; grid-row: 1 / span 2;
-        border-top: none; padding: 0 0 0 24px; border-left: 1px solid #E9EBEF;
+        border-top: none; padding: 0 4px 0 18px; border-left: 1px solid #E9EBEF; scrollbar-width: thin;
         /* 댓글이 길면 오른쪽 칸 안에서 따로 스크롤하고, 본문을 내려도 화면에 붙어 있도록 고정 */
         position: sticky; top: 72px; max-height: calc(100vh - 96px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
     }
+    /* 좁은 칸에서는 답글 들여쓰기를 줄여 답글 글자 영역도 넓게 */
+    .post-card.has-comments > .comments .comment.reply { margin-left: 18px; padding: 10px; }
     .post-content { font-size: 16px; }
 }
 @media (min-width: 1800px) {
-    .post-card.has-comments { grid-template-columns: minmax(0, 1fr) 460px; }
+    .post-card.has-comments { grid-template-columns: minmax(0, 1fr) 560px; }
 }
 
 /* ==========================================
