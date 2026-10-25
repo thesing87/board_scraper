@@ -132,7 +132,6 @@ def build_posts_page(page, video_only, query='', group_id=None, unread_since=Non
     for post in posts:
         post['has_video'] = len(post.get('videos', [])) > 0
         post['is_syncing'] = post['id'] in syncing_ids
-        post.pop('images', None)
         post.pop('list_comment_count', None)
     return {'page': page, 'total_pages': total_pages, 'total': total, 'posts': posts}
 

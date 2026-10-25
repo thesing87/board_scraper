@@ -506,7 +506,7 @@ def _row_to_post(row):
     post = {
         'id': row['id'], 'title': row['title'], 'author': row['author'], 'date': row['date'],
         'views': row['views'], 'votes': row['votes'], 'comment_count': row['comment_count'], 'link': row['link'],
-        'content': json.loads(row['content_json']), 'images': [], 'videos': json.loads(row['videos_json']),
+        'content': json.loads(row['content_json']), 'videos': json.loads(row['videos_json']),
         'comments': json.loads(row['comments_json']), 'is_new': bool(row['is_new']),
         'list_comment_count': row['list_comment_count'],
         'read_at': row['read_at'] if 'read_at' in keys else None
@@ -527,22 +527,18 @@ def _search_conditions(query):
     params = tuple('%' + t.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%' for t in terms)
     return sql, params
 
-def query_keyword_posts(board, keyword, offset=0, limit=10, video_only=False):
-    """키워드에 연결된 글을 최신순으로 조회하여 (전체 개수, 글 목록) 반환"""
-    where = "kp.board = ? AND kp.keyword = ?" + (f" AND {_HAS_VIDEO_SQL}" if video_only else "")
-    params = (board, keyword)
+def recent_keyword_posts(board, keyword, limit):
+    """수집기가 매 주기 비교에 쓰는 키워드별 최근 글 (최신순). 본문·댓글 JSON은 읽지 않고
+    새 글 판별·목록 값 비교·상세 페이지 재요청에 필요한 칸만 반환"""
     with _db() as conn:
-        total = conn.execute(
-            f"SELECT COUNT(*) FROM keyword_posts kp JOIN posts p ON p.id = kp.post_id WHERE {where}", params
-        ).fetchone()[0]
-        rows = conn.execute(f"""
-            SELECT p.*, kp.is_new, rp.read_at FROM keyword_posts kp
-            JOIN posts p ON p.id = kp.post_id
-            LEFT JOIN read_posts rp ON rp.post_id = p.id
-            WHERE {where}
-            ORDER BY kp.rowid DESC LIMIT ? OFFSET ?
-        """, params + (limit, offset)).fetchall()
-    return total, [_row_to_post(r) for r in rows]
+        rows = conn.execute("""
+            SELECT p.id, p.title, p.author, p.date, p.link, p.views, p.votes, p.comment_count,
+                   p.list_comment_count, p.is_deleted
+            FROM keyword_posts kp JOIN posts p ON p.id = kp.post_id
+            WHERE kp.board = ? AND kp.keyword = ?
+            ORDER BY kp.rowid DESC LIMIT ?
+        """, (board, keyword, limit)).fetchall()
+    return [dict(r, is_deleted=bool(r['is_deleted'])) for r in rows]
 
 # 안 읽은 새 글: 새 글로 수집됐고 아직 읽음 기록이 없는 글
 _UNREAD_SQL = "kp.is_new = 1 AND rp.read_at IS NULL"

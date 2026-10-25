@@ -126,7 +126,6 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .pager-mini { display: flex; align-items: center; gap: 6px; }
 .pager-mini .icon-btn { width: 32px; height: 32px; }
 .pager-mini .icon-btn:disabled { background: var(--surface-muted); color: #9CA3AF; cursor: default; }
-.pager-text { min-width: 48px; text-align: center; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .page-jump { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .page-select { height: 32px; min-width: 56px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer; }
 .page-select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }

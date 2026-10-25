@@ -19,7 +19,7 @@ from storage import (
     init_db,
     load_keywords,
     load_alert_targets,
-    query_keyword_posts,
+    recent_keyword_posts,
     save_keyword_post,
     update_post,
     update_list_stats,
@@ -205,7 +205,7 @@ def main():
                     log_msg(f"[수집] {target} 확인 중", "DEBUG")
 
                     # 새 글 판별 기준이 되는 최근 수집 글 (최신순)
-                    _, board_data = query_keyword_posts(board, keyword, 0, MAX_DATA_PER_KEYWORD)
+                    board_data = recent_keyword_posts(board, keyword, MAX_DATA_PER_KEYWORD)
 
                     # 목록을 먼저 읽어 새 글 알림을 가장 먼저 처리하고, 기존 글 갱신은 목록 값 비교로 변화가 있을 때만 수행
                     try:

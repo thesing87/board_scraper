@@ -40,21 +40,11 @@ def _call(method, payload):
         log_msg(f"[알림] {method} 오류: {short_err(_redact(str(e)))}", "DEBUG")
     return False
 
-def send_telegram_message(text, reply_markup=None):
+def send_telegram_message(text):
+    """차단 의심·복구 같은 상태 알림 (서식 없는 글)"""
     if not _configured():
         return
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "Markdown"
-    }
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
-    if _call("sendMessage", payload):
-        return
-    # 특수문자로 Markdown 파싱이 실패하는 경우가 있어 일반 텍스트로 한 번 더 시도
-    payload.pop("parse_mode", None)
-    if not _call("sendMessage", payload):
+    if not _call("sendMessage", {"chat_id": TELEGRAM_CHAT_ID, "text": text}):
         log_msg("[알림] 텔레그램 발송 실패", "ERROR")
 
 # ==========================================

@@ -129,7 +129,9 @@ def scrape_post_detail(driver, post_info):
     paragraphs = []
     video_list = []
     if content_area:
-        for trash in content_area.select('.mejs__offscreen, .mejs__poster, .mejs__poster-img, .mejs__time-total, .mejs__currenttime, .mejs__duration, .mejs__controls, button, svg, ul, meta'):
+        # 동영상 플레이어(MediaElement.js)의 컨트롤·오버레이 껍데기는 스크립트 없이는 빈 div라 저장하지 않음
+        for trash in content_area.select('.mejs__offscreen, .mejs__poster, .mejs__poster-img, .mejs__time-total, .mejs__currenttime, .mejs__duration, .mejs__controls, '
+                                         '.mejs__layers, .custom-progress-bar, .volume-layer, .controls-mouse-hover, button, svg, ul, meta'):
             trash.extract()
             
         for a_trash in content_area.select('a.mejs__horizontal-volume-slider'):
@@ -318,5 +320,5 @@ def scrape_post_detail(driver, post_info):
     log_msg(f"[수집] 상세 #{post_id}: 이미지 {img_count}, 동영상 {len(video_list)}, 댓글 {len(comments)}", "DEBUG")
     return {
         'id': post_id, 'title': title, 'author': author, 'date': date, 'views': views, 'votes': votes,
-        'comment_count': comment_count, 'link': link, 'content': paragraphs, 'images': [], 'videos': video_list, 'comments': comments
+        'comment_count': comment_count, 'link': link, 'content': paragraphs, 'videos': video_list, 'comments': comments
     }
