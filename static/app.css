@@ -118,6 +118,11 @@ a { color: var(--accent-ink); }
 .pager-mini .icon-btn { width: 32px; height: 32px; }
 .pager-mini .icon-btn:disabled { background: var(--surface-muted); color: #9CA3AF; cursor: default; }
 .pager-text { min-width: 48px; text-align: center; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.page-jump { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.page-select { height: 32px; min-width: 56px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer; }
+.page-select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.page-total { color: var(--muted); }
+.pager .page-select { height: 40px; min-width: 64px; border-radius: 10px; }
 .pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding-top: 8px; }
 .pager .btn { height: 40px; padding: 0 16px; border-radius: 10px; }
 .pager .btn-outline:disabled { background: var(--surface-muted); color: #6B7280; }
@@ -220,11 +225,16 @@ a { color: var(--accent-ink); }
     .status-pill.is-error { background: none; }
     .topbar-actions .btn-outline { width: 44px; height: 44px; padding: 0; border: none; }
     .layout { min-height: 0; display: block; }
-    .feed-wrap { padding: 12px 10px 96px; }
+    /* 맨 아래까지 내렸을 때 떠 있는 버튼(맨 위로·새로고침)이 하단 페이지 이동을 가리지 않도록 여백 확보 */
+    .feed-wrap { padding: 12px 10px 150px; }
     .feed { gap: 10px; }
     .feed-head { padding: 0 6px 2px; align-items: center; }
     .feed-title { font-size: 18px; }
-    .feed-tools .pager-mini { display: none; }
+    /* 모바일은 필터와 페이지 이동을 제목 아래 한 줄에 양 끝으로 배치 */
+    .feed-tools { width: 100%; justify-content: space-between; }
+    .pager-mini .icon-btn { width: 40px; height: 40px; }
+    .pager-mini .page-select { height: 40px; min-width: 60px; font-size: 14px; }
+    .segmented button { height: 34px; }
     .post-card { padding: 16px; gap: 12px; }
     .post-title { font-size: 17px; }
     .title-row .btn-original { display: none; }
@@ -233,6 +243,7 @@ a { color: var(--accent-ink); }
     .new-divider { padding: 2px 6px; }
     .pager { justify-content: space-between; padding: 6px 6px 0; }
     .pager .btn { height: 44px; padding: 0 18px; font-size: 14px; }
+    .pager .page-select { height: 44px; font-size: 14px; }
     .floating { right: 16px; bottom: 20px; }
     .settings-panel { width: 100%; box-shadow: none; }
     .settings-backdrop { background: var(--bg); }

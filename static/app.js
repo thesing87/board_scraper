@@ -226,12 +226,24 @@ function renderPost(post, isUnread) {
         </article>`;
 }
 
+function renderPageSelect(page, totalPages, label) {
+    // 원하는 페이지로 바로 이동하는 선택 상자 ("3 / 11" 형태)
+    const options = Array.from({ length: totalPages }, (_, i) =>
+        `<option value="${i + 1}" ${i + 1 === page ? 'selected' : ''}>${i + 1}</option>`).join('');
+    return `
+        <span class="page-jump">
+            <select class="page-select" data-action="go-page" aria-label="${label}">${options}</select>
+            <span class="page-total">/ ${totalPages}</span>
+        </span>`;
+}
+
 function renderPagerMini(page, totalPages, empty) {
+    if (empty) return '';
     return `
         <nav class="pager-mini" aria-label="페이지 이동">
-            <button class="icon-btn" data-action="page" data-target="prev" aria-label="이전 페이지" ${empty || page <= 1 ? 'disabled' : ''}>${ICONS.prev}</button>
-            <span class="pager-text">${empty ? '0 / 0' : `${page} / ${totalPages}`}</span>
-            <button class="icon-btn" data-action="page" data-target="next" aria-label="다음 페이지" ${empty || page >= totalPages ? 'disabled' : ''}>${ICONS.next}</button>
+            <button class="icon-btn" data-action="page" data-target="prev" aria-label="이전 페이지" ${page <= 1 ? 'disabled' : ''}>${ICONS.prev}</button>
+            ${renderPageSelect(page, totalPages, '페이지 선택')}
+            <button class="icon-btn" data-action="page" data-target="next" aria-label="다음 페이지" ${page >= totalPages ? 'disabled' : ''}>${ICONS.next}</button>
         </nav>`;
 }
 
@@ -239,7 +251,7 @@ function renderPager(page, totalPages) {
     return `
         <nav class="pager" aria-label="페이지 이동">
             <button class="btn btn-outline" data-action="page" data-target="prev" ${page <= 1 ? 'disabled' : ''}>이전</button>
-            <span class="pager-text">${page} / ${totalPages}</span>
+            ${renderPageSelect(page, totalPages, '페이지 선택 (아래)')}
             <button class="btn btn-primary" data-action="page" data-target="next" ${page >= totalPages ? 'disabled' : ''}>다음 페이지</button>
         </nav>`;
 }
@@ -325,6 +337,7 @@ async function loadPosts() {
 function changePage(target) {
     if (target === 'prev') app.page = Math.max(1, app.page - 1);
     else if (target === 'next') app.page = Math.min(app.totalPages, app.page + 1);
+    else app.page = Math.min(Math.max(1, Number(target) || 1), app.totalPages);
     loadPosts().then(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
 }
 
@@ -542,6 +555,7 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('change', (e) => {
     if (e.target.dataset.action === 'toggle-alert') toggleBoardAlert(e.target);
+    else if (e.target.dataset.action === 'go-page') changePage(e.target.value);
 });
 
 document.addEventListener('keydown', (e) => {
