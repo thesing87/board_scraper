@@ -23,7 +23,9 @@ from storage import (
     save_keyword_post,
     update_post,
     update_list_stats,
-    mark_post_deleted
+    mark_post_deleted,
+    fix_stored_x_embeds,
+    post_exists
 )
 from notifier import send_telegram_message
 from scraper import (
@@ -156,6 +158,10 @@ def main():
 
     # DB 초기화(최초 1회 기존 JSON 데이터 이전 포함). 대시보드는 웹서버가 DB에서 직접 조회하여 제공
     init_db()
+    try:
+        fix_stored_x_embeds()
+    except Exception as fix_err:
+        log_msg(f"[DB] 저장된 X 트윗 카드 변환 실패 (다음 기동 시 재시도): {short_err(fix_err)}", "WARN")
 
     log_msg(f"[시스템] 모니터링 시작 (주기 {CHECK_INTERVAL}초)")
 
@@ -246,7 +252,12 @@ def main():
                                 continue
 
                             post_data['list_comment_count'] = post_info['list_comment_count']
+                            # 같은 글이 여러 키워드(예: 싼타페·싼하)에 걸리면 처음 수집한 키워드에서만 알림
+                            already_collected = post_exists(post_data['id'])
                             save_keyword_post(board, keyword, post_data, is_new=True)
+                            if already_collected:
+                                log_msg(f"[새 글] {target} #{post_data['id']} 다른 키워드로 이미 수집된 글 → 알림 생략", "DEBUG")
+                                continue
                             stats['new'] += 1
 
                             has_video = len(post_data.get('videos', [])) > 0

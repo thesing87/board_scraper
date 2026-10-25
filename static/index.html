@@ -101,6 +101,18 @@
                 </section>
 
                 <section class="settings-card">
+                    <span class="settings-label" id="group-form-title">묶음 게시판 만들기</span>
+                    <span class="settings-hint">여러 키워드의 글을 중복 없이 하나의 게시판으로 모아 봅니다.</span>
+                    <input id="group-name-input" class="input" placeholder="게시판 이름 (예: 싼타페 모음)" maxlength="30" aria-label="게시판 이름">
+                    <div class="group-picker" id="group-picker" role="group" aria-label="묶을 키워드 선택"></div>
+                    <div class="group-form-actions">
+                        <button class="btn btn-primary" data-action="save-group" id="group-save-btn">만들기</button>
+                        <button class="btn btn-outline" data-action="cancel-group-edit" id="group-cancel-btn" hidden>취소</button>
+                    </div>
+                    <div class="group-list" id="settings-groups"></div>
+                </section>
+
+                <section class="settings-card">
                     <div class="alert-head">
                         <span class="settings-label">텔레그램 알림</span>
                         <span class="alert-cols"><span>전체</span><span>동영상</span></span>

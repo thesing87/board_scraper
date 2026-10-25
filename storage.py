@@ -84,6 +84,19 @@ def _create_schema(conn):
         CREATE INDEX IF NOT EXISTS idx_keyword_posts_post ON keyword_posts(post_id);
         CREATE INDEX IF NOT EXISTS idx_keyword_posts_keyword ON keyword_posts(board, keyword);
 
+        -- 사용자가 만든 묶음 게시판: 여러 키워드의 글을 중복 없이 한 피드로
+        CREATE TABLE IF NOT EXISTS keyword_groups (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL UNIQUE,
+            created_at  TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS keyword_group_members (
+            group_id  INTEGER NOT NULL REFERENCES keyword_groups(id) ON DELETE CASCADE,
+            board     TEXT NOT NULL,
+            keyword   TEXT NOT NULL,
+            PRIMARY KEY (group_id, board, keyword)
+        );
+
         CREATE TABLE IF NOT EXISTS board_config (
             board        TEXT PRIMARY KEY,
             alert        INTEGER NOT NULL DEFAULT 1,
@@ -241,9 +254,79 @@ def remove_keyword(board, keyword):
         if cur.rowcount == 0:
             return False
         conn.execute("DELETE FROM keyword_posts WHERE board = ? AND keyword = ?", (board, keyword))
+        conn.execute("DELETE FROM keyword_group_members WHERE board = ? AND keyword = ?", (board, keyword))
         conn.execute("DELETE FROM posts WHERE id NOT IN (SELECT post_id FROM keyword_posts)")
         conn.execute("DELETE FROM read_posts WHERE post_id NOT IN (SELECT id FROM posts)")
         return True
+
+# ==========================================
+# 묶음 게시판 (여러 키워드를 하나의 피드로)
+# ==========================================
+def list_groups(new_window=100):
+    """묶음 게시판 목록: 구성 키워드, 중복 제거한 글 수, 안 읽은 새 글 ID, 최신 글 날짜"""
+    groups = []
+    with _db() as conn:
+        for g in conn.execute("SELECT id, name FROM keyword_groups ORDER BY id").fetchall():
+            members = [dict(board=r['board'], keyword=r['keyword']) for r in conn.execute("""
+                SELECT m.board, m.keyword FROM keyword_group_members m
+                JOIN keywords k ON k.board = m.board AND k.keyword = m.keyword
+                WHERE m.group_id = ? ORDER BY k.rowid
+            """, (g['id'],))]
+            member_join = """
+                FROM keyword_posts kp
+                JOIN keyword_group_members m ON m.board = kp.board AND m.keyword = kp.keyword AND m.group_id = ?
+                JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword
+            """
+            total = conn.execute(f"SELECT COUNT(DISTINCT kp.post_id) {member_join}", (g['id'],)).fetchone()[0]
+            recent = conn.execute(f"""
+                SELECT kp.post_id, MAX(kp.is_new) AS is_new, MAX(kp.rowid) AS last_rowid, p.date, rp.read_at
+                {member_join}
+                JOIN posts p ON p.id = kp.post_id
+                LEFT JOIN read_posts rp ON rp.post_id = kp.post_id
+                GROUP BY kp.post_id ORDER BY last_rowid DESC LIMIT ?
+            """, (g['id'], new_window)).fetchall()
+            groups.append({
+                'id': g['id'],
+                'name': g['name'],
+                'members': members,
+                'total': total,
+                'unread_ids': [r['post_id'] for r in recent if r['is_new'] and not r['read_at']],
+                'latest_date': recent[0]['date'] if recent else ''
+            })
+    return groups
+
+def save_group(group_id, name, members):
+    """묶음 게시판 생성(group_id=None) 또는 수정. 등록된 키워드만 구성원으로 저장하고 게시판 ID 반환.
+    이름 중복이면 ValueError"""
+    with _db() as conn, conn:
+        valid = [(m['board'], m['keyword']) for m in members
+                 if conn.execute("SELECT 1 FROM keywords WHERE board = ? AND keyword = ?", (m['board'], m['keyword'])).fetchone()]
+        if not valid:
+            raise ValueError('등록된 키워드를 하나 이상 선택해 주세요.')
+        clash = conn.execute("SELECT id FROM keyword_groups WHERE name = ? AND id != ?", (name, group_id or -1)).fetchone()
+        if clash:
+            raise ValueError('같은 이름의 게시판이 이미 있습니다.')
+        if group_id is None:
+            group_id = conn.execute("INSERT INTO keyword_groups(name, created_at) VALUES(?, ?)", (name, _now())).lastrowid
+        else:
+            if not conn.execute("SELECT 1 FROM keyword_groups WHERE id = ?", (group_id,)).fetchone():
+                raise ValueError('존재하지 않는 게시판입니다.')
+            conn.execute("UPDATE keyword_groups SET name = ? WHERE id = ?", (name, group_id))
+            conn.execute("DELETE FROM keyword_group_members WHERE group_id = ?", (group_id,))
+        conn.executemany("INSERT OR IGNORE INTO keyword_group_members(group_id, board, keyword) VALUES(?, ?, ?)",
+                         [(group_id, b, k) for b, k in valid])
+        return group_id
+
+def delete_group(group_id):
+    """묶음 게시판만 삭제 (구성 키워드와 수집한 글은 그대로). 삭제되면 True"""
+    with _db() as conn, conn:
+        conn.execute("DELETE FROM keyword_group_members WHERE group_id = ?", (group_id,))
+        return conn.execute("DELETE FROM keyword_groups WHERE id = ?", (group_id,)).rowcount > 0
+
+def post_exists(post_id):
+    """다른 키워드로 이미 수집된 글인지 (같은 글 중복 알림 방지용)"""
+    with _db() as conn:
+        return conn.execute("SELECT 1 FROM posts WHERE id = ?", (str(post_id),)).fetchone() is not None
 
 # ==========================================
 # 게시판 알림 설정
@@ -399,12 +482,18 @@ def query_keyword_posts(board, keyword, offset=0, limit=10, video_only=False):
         """, params + (limit, offset)).fetchall()
     return total, [_row_to_post(r) for r in rows]
 
-def query_all_posts(offset=0, limit=10, video_only=False, query=None):
-    """모든 등록 키워드의 글을 한 번씩만(중복 제거) 최신 수집순으로 조회. query가 있으면 검색 결과"""
+def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=None):
+    """모든 등록 키워드의 글을 한 번씩만(중복 제거) 최신 수집순으로 조회.
+    query가 있으면 검색 결과, group_id가 있으면 그 묶음 게시판의 구성 키워드만"""
     search_sql, search_params = _search_conditions(query)
+    group_join = ''
+    if group_id is not None:
+        group_join = "JOIN keyword_group_members gm ON gm.board = kp.board AND gm.keyword = kp.keyword AND gm.group_id = ?"
+        search_params = (group_id,) + search_params
     base = f"""
         FROM keyword_posts kp
         JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword
+        {group_join}
         JOIN posts p ON p.id = kp.post_id
         LEFT JOIN read_posts rp ON rp.post_id = p.id
         WHERE 1 = 1 {f'AND {_HAS_VIDEO_SQL}' if video_only else ''} {search_sql}
@@ -461,6 +550,33 @@ def count_all_posts():
             SELECT COUNT(DISTINCT kp.post_id) FROM keyword_posts kp
             JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword
         """).fetchone()[0]
+
+def fix_stored_x_embeds():
+    """이미 저장된 글 중 X(트위터) '링크 자동 변환 중' 임시 상자가 남은 글을 트윗 카드로 1회 변환"""
+    from bs4 import BeautifulSoup
+    from embeds import convert_x_embeds
+    from sanitize import sanitize_tree
+    with _db() as conn:
+        if _get_meta(conn, 'x_embeds_fixed'):
+            return
+        rows = conn.execute("SELECT id, title, content_json, comments_json FROM posts WHERE content_json LIKE '%twitter-tweet%'").fetchall()
+    fixed = 0
+    for row in rows:
+        content = json.loads(row['content_json'])
+        soup = BeautifulSoup('\n'.join(content), 'html.parser')
+        if not convert_x_embeds(soup, soup):
+            continue
+        sanitize_tree(soup)
+        new_content = soup.decode().split('\n')
+        post = {'title': row['title'], 'content': new_content, 'comments': json.loads(row['comments_json'])}
+        with _db() as conn, conn:
+            conn.execute("UPDATE posts SET content_json = ?, search_text = ? WHERE id = ?",
+                         (json.dumps(new_content, ensure_ascii=False), _search_text(post), row['id']))
+        fixed += 1
+    with _db() as conn, conn:
+        _set_meta(conn, 'x_embeds_fixed', '1')
+    if fixed:
+        log_msg(f"[DB] 저장된 글의 X 트윗 카드 변환: {fixed}건")
 
 def mark_posts_read(post_ids):
     """읽음 기록 저장. 이미 읽은 글은 읽은 시각을 갱신(그 이후 달린 댓글만 '새 댓글'이 되도록)"""

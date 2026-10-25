@@ -8,6 +8,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from config import log_msg
 from sanitize import sanitize_tree
+from embeds import convert_x_embeds
 
 def extract_post_id(link):
     if not link: return "0"
@@ -219,6 +220,11 @@ def scrape_post_detail(driver, post_info):
             if 'loading' in img.attrs: del img['loading']
             img_count += 1
             
+
+        # X(트위터) '링크 자동 변환 중' 임시 상자를 트윗 카드로 교체 (페이지 스크립트가 변환하기 전에 수집되므로)
+        converted = convert_x_embeds(detail_soup, content_area)
+        if converted:
+            log_msg(f"[수집] #{post_id} X 트윗 카드 변환 {converted}건", "DEBUG")
 
         sanitize_tree(content_area)
 

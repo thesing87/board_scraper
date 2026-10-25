@@ -27,12 +27,17 @@ from storage import (
     count_all_posts,
     recent_post_ids,
     mark_posts_read,
-    locate_post
+    locate_post,
+    list_groups,
+    save_group,
+    delete_group
 )
 
 MAX_BODY_BYTES = 10 * 1024
 MAX_READ_IDS = 500
 MAX_QUERY_LENGTH = 50
+MAX_GROUP_NAME_LENGTH = 30
+MAX_GROUP_MEMBERS = 50
 MAX_KEYWORD_LENGTH = 50
 POSTS_PER_PAGE = 10
 # 탭의 '안 읽은 새 글' 표시 계산에 쓰는 키워드별 최근 글 범위
@@ -105,6 +110,10 @@ def build_state():
     all_unread = []
     for tab in tabs:
         all_unread.extend(i for i in tab['unread_ids'] if i not in all_unread)
+    groups = list_groups(NEW_POSTS_WINDOW)
+    for group in groups:
+        for member in group['members']:
+            member['board_name'] = BOARD_MAP.get(member['board'], member['board'])
     return {
         'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'posts_per_page': POSTS_PER_PAGE,
@@ -112,16 +121,18 @@ def build_state():
         'board_config': load_board_config(),
         # 모든 키워드를 합친 통합 피드 요약 (같은 글은 한 번만 셈)
         'all': {'total': count_all_posts(), 'unread_ids': all_unread},
+        # 사용자가 만든 묶음 게시판 (여러 키워드를 중복 없이 한 피드로)
+        'groups': groups,
         'tabs': tabs
     }
 
-def build_posts_page(board, keyword, page, video_only, scope_all=False, query=''):
-    if scope_all or query:
-        # 통합 피드 또는 검색: 모든 키워드의 글을 중복 없이
-        total, _ = query_all_posts(0, 0, video_only, query)
+def build_posts_page(board, keyword, page, video_only, scope_all=False, query='', group_id=None):
+    if scope_all or query or group_id is not None:
+        # 통합 피드·검색·묶음 게시판: 여러 키워드의 글을 중복 없이
+        total, _ = query_all_posts(0, 0, video_only, query, group_id)
         total_pages = max(1, -(-total // POSTS_PER_PAGE))
         page = min(max(1, page), total_pages)
-        _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query)
+        _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id)
         for post in posts:
             for link in post.get('keywords', []):
                 link['board_name'] = BOARD_MAP.get(link['board'], link['board'])
@@ -208,9 +219,11 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 except ValueError:
                     page = 1
                 video_only = query.get('video_only', ['0'])[0] in ('1', 'true')
-                scope_all = query.get('scope', [''])[0] == 'all'
+                scope = query.get('scope', [''])[0]
                 search = query.get('q', [''])[0].strip()[:MAX_QUERY_LENGTH]
-                self._send_data(200, build_posts_page(board, keyword, page, video_only, scope_all, search))
+                group_param = query.get('group', [''])[0]
+                group_id = int(group_param) if scope == 'group' and group_param.isdigit() else None
+                self._send_data(200, build_posts_page(board, keyword, page, video_only, scope == 'all', search, group_id))
             elif pure_path == '/api/locate':
                 post_id = query.get('id', [''])[0]
                 location = locate_post(post_id) if post_id.isdigit() else None
@@ -248,9 +261,57 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._handle_keyword()
         elif pure_path == '/api/read':
             self._handle_read()
+        elif pure_path == '/api/group':
+            self._handle_group()
         else:
             self.send_response(404)
             self.end_headers()
+
+    def _handle_group(self):
+        """묶음 게시판 만들기·수정·삭제 (관리자 암호 필요)"""
+        try:
+            params = self._read_json_body()
+            if not self._authorize(params.get('password', ''), '묶음 게시판'):
+                return
+            action = params.get('action')
+            if action == 'delete':
+                group_id = params.get('id')
+                if not isinstance(group_id, int) or not delete_group(group_id):
+                    self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
+                    return
+                log_msg(f"[API] 묶음 게시판 삭제: #{group_id}")
+                self._send_json(200, True, '🗑️ 게시판을 삭제했습니다.')
+                return
+            if action not in ('create', 'update'):
+                self._send_json(400, False, '❌ 지원하지 않는 작업입니다.')
+                return
+            name = str(params.get('name', '')).strip()
+            members = params.get('members')
+            if not name or len(name) > MAX_GROUP_NAME_LENGTH or any(ch in name for ch in '\r\n\t'):
+                self._send_json(400, False, f'❌ 게시판 이름은 줄바꿈 없이 {MAX_GROUP_NAME_LENGTH}자 이하로 입력해 주세요.')
+                return
+            if (not isinstance(members, list) or not members or len(members) > MAX_GROUP_MEMBERS
+                    or not all(isinstance(m, dict) and isinstance(m.get('board'), str) and isinstance(m.get('keyword'), str) for m in members)):
+                self._send_json(400, False, '❌ 묶을 키워드를 하나 이상 선택해 주세요.')
+                return
+            group_id = params.get('id') if action == 'update' else None
+            if action == 'update' and not isinstance(group_id, int):
+                self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
+                return
+            try:
+                saved_id = save_group(group_id, name, members)
+            except ValueError as ve:
+                self._send_json(400, False, f'❌ {ve}')
+                return
+            log_msg(f"[API] 묶음 게시판 {'추가' if action == 'create' else '수정'}: {name} (키워드 {len(members)}개)")
+            self._send_data(200, {'success': True, 'id': saved_id,
+                                  'message': f"📚 '{name}' 게시판을 {'만들었' if action == 'create' else '수정했'}습니다."})
+        except Exception as e:
+            log_msg(f"[API] 묶음 게시판 처리 오류: {short_err(e)}", "ERROR")
+            try:
+                self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
+            except Exception:
+                pass
 
     def _handle_read(self):
         """화면에서 읽은 글 기록 (기기 간 공유). 읽음 표시는 민감 정보가 아니라 관리자 암호 없이 허용"""
