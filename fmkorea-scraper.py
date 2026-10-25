@@ -27,7 +27,7 @@ from storage import (
     fix_stored_x_embeds,
     post_exists
 )
-from notifier import send_telegram_message
+from notifier import send_telegram_message, send_post_alert
 from scraper import (
     get_list_page_posts,
     scrape_post_detail,
@@ -268,7 +268,6 @@ def main():
                             video_only = [t['name'] for t in targets if has_video and t['video_alert'] and not t['alert']]
                             alert_boards = full_alert + video_only
                             should_send_alert = bool(alert_boards)
-                            video_badge = " [🎬 동영상 알림]" if should_send_alert and not full_alert else ""
 
                             alert_result = "알림 발송" if should_send_alert else "알림 꺼짐"
                             log_msg(f"[새 글] {target} #{post_data['id']} {short_title(post_data['title'])}{' (동영상)' if has_video else ''} → {alert_result}")
@@ -283,23 +282,7 @@ def main():
                                 if original_post_url and not original_post_url.startswith(("http://", "https://")):
                                     original_post_url = f"https://www.fmkorea.com{original_post_url if original_post_url.startswith('/') else '/' + original_post_url}"
 
-                                # 모바일 화면에서 누르기 편한 큼직한 인라인 키보드 버튼 구성
-                                keyboard = []
-                                if board_post_url.startswith(("http://", "https://")):
-                                    keyboard.append([{"text": "📱 게시판에서 확인하기", "url": board_post_url}])
-                                if original_post_url.startswith(("http://", "https://")):
-                                    keyboard.append([{"text": "🔗 원본글 보기 (에펨코리아)", "url": original_post_url}])
-
-                                reply_markup = {"inline_keyboard": keyboard} if keyboard else None
-
-                                label = ', '.join(alert_boards)
-                                if alert_boards != [keyword]:
-                                    label += f" - {keyword}"
-                                telegram_text = (
-                                    f"🔔 *[{label}]{video_badge} 실시간 새 글!*\n\n"
-                                    f"📌 *제목:* {post_data['title']}"
-                                )
-                                send_telegram_message(telegram_text, reply_markup=reply_markup)
+                                send_post_alert(post_data, alert_boards, keyword, board_name, board_post_url, original_post_url)
                         except Exception as deep_ex:
                             stats['errors'] += 1
                             log_msg(f"[오류] {target} #{post_info['id']} 새 글 수집 실패: {short_err(deep_ex)}", "WARN")
