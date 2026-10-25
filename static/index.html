@@ -12,11 +12,11 @@
     <header class="topbar">
         <div class="topbar-row">
             <div class="brand">
-                <span class="brand-mark" aria-hidden="true">
+                <a class="brand-mark" href="/" data-action="go-home" tabindex="-1" aria-hidden="true">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
-                </span>
+                </a>
                 <div class="brand-text">
-                    <span class="brand-name">키워드 모니터</span>
+                    <a class="brand-name" href="/" data-action="go-home" title="홈으로">키워드 모니터</a>
                     <span class="status-pill" id="status-pill"><span class="status-dot"></span><span id="status-text">불러오는 중</span></span>
                 </div>
             </div>
@@ -25,8 +25,14 @@
                 <input type="search" id="search-input" class="search-input" placeholder="모은 글 검색 (제목·본문·댓글)" aria-label="모은 글 검색" maxlength="50" autocomplete="off">
             </form>
             <div class="topbar-actions">
+                <button class="icon-btn ghost mobile-only" data-action="go-home" aria-label="홈">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h5v-6h4v6h5V10"></path></svg>
+                </button>
                 <button class="icon-btn ghost mobile-only" data-action="toggle-search" aria-label="검색">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+                </button>
+                <button class="icon-btn desktop-only" data-action="go-home" aria-label="홈" title="홈">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h5v-6h4v6h5V10"></path></svg>
                 </button>
                 <button class="icon-btn desktop-only" data-action="refresh" aria-label="새로고침">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"></path><path d="M21 4v5h-5"></path></svg>

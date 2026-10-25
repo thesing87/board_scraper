@@ -67,7 +67,9 @@ a { color: var(--accent-ink); }
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .brand-mark { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 8px; background: var(--accent); display: flex; align-items: center; justify-content: center; }
 .brand-text { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.brand-name { font-size: 16px; font-weight: 700; white-space: nowrap; }
+.brand-name { font-size: 16px; font-weight: 700; white-space: nowrap; color: inherit; text-decoration: none; }
+a.brand-mark, a.brand-name { cursor: pointer; }
+a.brand-name:hover { color: var(--accent); }
 .status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--ok-bg); color: var(--ok-text); font-size: 12px; font-weight: 500; white-space: nowrap; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok-dot); }
 .status-pill.is-error { background: var(--danger-bg); color: var(--danger-text); }

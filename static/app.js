@@ -231,6 +231,14 @@ function openView(key, page) {
     loadPosts().then(() => window.scrollTo({ top: 0 }));
 }
 
+// 홈: 검색·관리 패널·텔레그램 링크(#post-ID)를 정리하고 통합 피드 첫 페이지로
+function goHome() {
+    if (!document.getElementById('settings').hidden) setSettingsOpen(false);
+    document.querySelector('.topbar').classList.remove('search-open');
+    if (window.location.hash) history.replaceState(null, '', window.location.pathname);
+    openView(ALL_KEY, 1);
+}
+
 // ==========================================
 // 피드
 // ==========================================
@@ -850,7 +858,10 @@ document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-action]');
     if (!el || el.tagName === 'INPUT') return;
     const action = el.dataset.action;
-    if (action === 'open-all') {
+    if (action === 'go-home') {
+        e.preventDefault();
+        goHome();
+    } else if (action === 'open-all') {
         openView(ALL_KEY, 1);
     } else if (action === 'open-group') {
         openView('group:' + el.dataset.groupId, 1);
