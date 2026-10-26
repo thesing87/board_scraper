@@ -31,6 +31,7 @@ from notifier import send_telegram_message, send_post_alert
 from scraper import (
     get_list_page_posts,
     scrape_post_detail,
+    keyword_in_post,
     parse_count,
     BlockedError
 )
@@ -173,6 +174,8 @@ def main():
         heartbeat = {'since': time.time(), 'cycles': 0, 'new': 0, 'errors': 0}
         # 목록에서 빠졌지만 원문이 남아 있다고 확인된 글 (매 주기 다시 열지 않도록 기억)
         verified_present = set()
+        # 검색에는 걸렸지만 키워드가 그대로 들어 있지 않아 거른 글 {(board, keyword, id)} (매 주기 다시 열지 않도록 기억)
+        rejected = set()
         # 차단 의심이 연속된 횟수와 그에 따른 다음 주기까지의 대기 시간
         block_streak = 0
         next_wait = CHECK_INTERVAL
@@ -226,18 +229,26 @@ def main():
                         continue
 
                     if not board_data:
-                        # 기준점이 없으면 목록 전체를 새 글로 취급해 알림이 폭주하므로, 성공할 때까지 매 주기 최신 글 1개만 기준점으로 저장
-                        if new_post_list:
+                        # 기준점이 없으면 목록 전체를 새 글로 취급해 알림이 폭주하므로, 성공할 때까지 매 주기
+                        # 키워드가 그대로 들어 있는 가장 최신 글 1개만 기준점으로 저장
+                        for candidate in new_post_list:
+                            if (board, keyword, candidate['id']) in rejected:
+                                continue
                             try:
                                 stats['details'] += 1
-                                post_data = scrape_post_detail(driver, new_post_list[0])
-                                if post_data:
-                                    post_data['list_comment_count'] = new_post_list[0]['list_comment_count']
-                                    save_keyword_post(board, keyword, post_data, is_new=False)
-                                    log_msg(f"[기준점] {target} #{post_data['id']} 저장 (이후 새 글부터 알림)")
+                                post_data = scrape_post_detail(driver, candidate)
+                                if not post_data:
+                                    continue
+                                if not keyword_in_post(keyword, post_data['title'], post_data.get('content')):
+                                    rejected.add((board, keyword, candidate['id']))
+                                    continue
+                                post_data['list_comment_count'] = candidate['list_comment_count']
+                                save_keyword_post(board, keyword, post_data, is_new=False)
+                                log_msg(f"[기준점] {target} #{post_data['id']} 저장 (이후 새 글부터 알림)")
                             except Exception as e:
                                 stats['errors'] += 1
                                 log_msg(f"[오류] {target} 기준점 수집 실패, 다음 주기 재시도: {short_err(e)}", "WARN")
+                            break
                         continue
 
                     existing_ids = {post['id'] for post in board_data}
@@ -245,13 +256,19 @@ def main():
                     for p in new_post_list:
                         if p['id'] in existing_ids:
                             break
-                        new_posts.append(p)
+                        if (board, keyword, p['id']) not in rejected:
+                            new_posts.append(p)
 
                     for post_info in reversed(new_posts):
                         try:
                             stats['details'] += 1
                             post_data = scrape_post_detail(driver, post_info)
                             if post_data is None:
+                                continue
+                            if not keyword_in_post(keyword, post_data['title'], post_data.get('content')):
+                                rejected.add((board, keyword, post_info['id']))
+                                log_msg(f"[제외] {target} #{post_info['id']} 키워드가 그대로 없음 (띄어쓰기 무시 검색) "
+                                        f"{short_title(post_data['title'])}", "DEBUG")
                                 continue
 
                             post_data['list_comment_count'] = post_info['list_comment_count']

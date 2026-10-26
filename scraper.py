@@ -1,6 +1,7 @@
 import time
 import random
 import re
+import html
 from urllib.parse import quote, urlparse
 from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
@@ -23,6 +24,17 @@ class BlockedError(Exception):
     """목록 페이지가 정상 게시판 화면이 아님 (접속 차단·보안 확인·점검 페이지 등으로 추정)"""
 
 DELETED_PAGE_PHRASES =("삭제된 글입니다", "삭제된 문서입니다", "존재하지 않습니다", "존재하지 않는", "권한이 없습니다")
+
+_TAG_RE = re.compile(r'<[^>]+>')
+
+def keyword_in_post(keyword, title, content_lines=None):
+    """키워드가 제목·본문에 띄어쓰기까지 그대로 있는지 (대소문자 무시, 연속 공백은 하나로 봄)
+    에펨코리아 검색은 띄어쓰기를 무시해 '투싼 하브'도 '싼하'로 찾으므로 수집 전에 한 번 더 확인.
+    본문은 줄 단위로 저장되므로 줄 안의 태그(링크·굵게 등)는 지우고 줄 사이만 띄움"""
+    def norm(text):
+        return ' '.join(text.split()).casefold()
+    body = ' '.join(html.unescape(_TAG_RE.sub('', line)) for line in content_lines or [])
+    return norm(keyword) in norm(f"{title or ''} {body}")
 
 def parse_count(text):
     """'1,234'처럼 표시된 숫자 문자열을 정수로 변환 (숫자가 없으면 0)"""
