@@ -17,7 +17,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 BASE = 'http://127.0.0.1:18097/'
 SHOTS = shot_dir('unread_shots')
 summary = storage.unread_summary()
-print('unread total', summary['total'], 'latest alert group', storage.latest_alert_group())
+print('unread total', summary['total'])
 assert summary['total'] > 20
 
 o = Options()
@@ -62,22 +62,24 @@ try:
     print('banner', banner)
     assert '새 글 1개' in banner
 
-    # 5) 다 읽으면 다음 방문의 첫 화면은 가장 최근 알림 게시판
+    # 5) 다 읽으면 다음 방문의 첫 화면은 전체. 이미 읽은 글을 다시 읽어도(읽은 시각 갱신)
+    #    '안 읽은 글' 보기에 다시 나타나지 않음 (전체 화면에서 맨 위 글이 다시 읽음 처리됨)
     storage.mark_posts_read(storage.unread_summary()['unread_ids'])
     assert storage.unread_summary()['total'] == 0
-    latest = storage.latest_alert_group()
-    name = next(g['name'] for g in storage.list_groups() if g['id'] == latest)
     js("sessionStorage.clear()"); d.get(BASE); W(2.5)
-    v5 = view(); print('no unread first screen', v5['title'], 'expected', name)
-    assert v5['title'] == name
-    # 안 읽은 글 보기로 가면 빈 화면 + 최근 알림 게시판 버튼
+    v5 = view(); print('no unread first screen', v5['title'])
+    assert v5['title'] == '전체'
+    # 안 읽은 글 보기로 가면 빈 화면 + 전체 보기 버튼
     js("document.querySelector('[data-action=\"open-unread\"]').click()"); W(1.2)
     empty = js("return document.querySelector('.empty-card').textContent.trim()")
     print('empty', empty)
-    assert '안 읽은 글이 없습니다' in empty and name in empty
+    assert '안 읽은 글이 없습니다' in empty and '전체 보기' in empty
+    js("document.querySelector('.empty-card [data-action=\"open-all\"]').click()"); W(1.2)
+    assert view()['title'] == '전체'
     # 홈 버튼도 같은 규칙
+    js("document.querySelector('[data-action=\"open-unread\"]').click()"); W(1.2)
     js("document.querySelector('a.brand-name').click()"); W(1.2)
-    assert view()['title'] == name
+    assert view()['title'] == '전체'
 
     # 6) 모바일 칩 맨 앞이 안 읽은 글
     d.set_window_size(390, 844); d.get(BASE); W(2.5)

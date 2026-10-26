@@ -49,12 +49,9 @@ function isAllView() { return app.activeKey === ALL_KEY; }
 function isUnreadView() { return app.activeKey === UNREAD_KEY; }
 function isKnownView(key) { return key === ALL_KEY || key === UNREAD_KEY || !!findGroup(key); }
 
-// 첫 화면: 안 읽은 글이 있으면 안 읽은 글 모아보기, 없으면 가장 최근에 알림이 간 게시판, 그것도 없으면 전체
+// 첫 화면: 안 읽은 글이 있으면 안 읽은 글 모아보기, 없으면 전체
 function homeKey() {
-    if (!app.state) return ALL_KEY;
-    if (app.state.unread.total > 0) return UNREAD_KEY;
-    const latest = app.state.latest_alert_group;
-    return latest && findGroup('group:' + latest) ? 'group:' + latest : ALL_KEY;
+    return app.state && app.state.unread.total > 0 ? UNREAD_KEY : ALL_KEY;
 }
 
 // 현재 보기(통합 피드·게시판)의 요약: 글 수, 안 읽은 새 글 ID
@@ -493,9 +490,8 @@ function renderFeed(data) {
     const empty = data.total === 0;
     let body = '';
     if (empty) {
-        const latest = findGroup('group:' + app.state.latest_alert_group);
         body = isUnreadView() && !videoOnly
-            ? `<div class="empty-card">안 읽은 글이 없습니다.${latest ? ` <button class="link-btn" data-action="open-group" data-group-id="${latest.id}">최근 알림 게시판(${esc(latest.name)}) 보기</button>` : ''}</div>`
+            ? '<div class="empty-card">안 읽은 글이 없습니다. <button class="link-btn" data-action="open-all">전체 보기</button></div>'
             : !searching && !(app.state.groups || []).length
             ? '<div class="empty-card">게시판이 없습니다. 관리에서 게시판을 만들고 키워드를 등록해 주세요.</div>'
             : searching ? `<div class="empty-card">'${esc(app.searchQuery)}'에 해당하는 글이 없습니다.</div>`
@@ -942,7 +938,7 @@ async function init() {
     setInterval(pollState, POLL_INTERVAL_MS);
     // 텔레그램 알림 링크(#post-ID)로 들어온 경우 해당 글이 있는 탭/페이지로 바로 이동
     if (await handlePostAnchor()) return;
-    // 같은 탭에서 새로고침하면 보던 게시판의 첫 페이지, 새로 들어오면 첫 화면(안 읽은 글 → 최근 알림 게시판 → 전체)
+    // 같은 탭에서 새로고침하면 보던 게시판의 첫 페이지, 새로 들어오면 첫 화면(안 읽은 글이 있으면 안 읽은 글, 없으면 전체)
     app.activeKey = isKnownView(savedTab) ? savedTab : homeKey();
     app.page = 1;
     // 글 목록까지 받은 뒤 게시판 목록과 함께 한 번에 표시 (그때까지는 뼈대 화면)

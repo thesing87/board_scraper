@@ -61,8 +61,9 @@ def _create_schema(conn):
 
         -- 대시보드 읽음 기록 (PC·휴대폰 어디서 읽어도 공유). read_at 이후 달린 댓글을 '새 댓글'로 표시
         CREATE TABLE IF NOT EXISTS read_posts (
-            post_id  TEXT PRIMARY KEY,
-            read_at  TEXT NOT NULL
+            post_id        TEXT PRIMARY KEY,
+            read_at        TEXT NOT NULL,   -- 마지막으로 읽은 시각 (이후 달린 댓글이 '새 댓글')
+            first_read_at  TEXT             -- 처음 읽은 시각 (다시 읽어도 그대로, '안 읽은 글' 보기 기준)
         );
 
         CREATE TABLE IF NOT EXISTS keywords (
@@ -195,6 +196,13 @@ def _add_missing_columns(conn):
         # 제목·본문·댓글의 태그를 뺀 텍스트 (대시보드 검색용)
         conn.execute("ALTER TABLE posts ADD COLUMN search_text TEXT")
         log_msg("[DB] posts.search_text 컬럼 추가")
+    read_columns = {row['name'] for row in conn.execute("PRAGMA table_info(read_posts)")}
+    if 'first_read_at' not in read_columns:
+        # 다시 읽으면 read_at이 갱신되어, '안 읽은 글' 보기(연 시각 이후 읽은 글 포함)에 이미 읽은 글이 섞이던 문제
+        with conn:
+            conn.execute("ALTER TABLE read_posts ADD COLUMN first_read_at TEXT")
+            conn.execute("UPDATE read_posts SET first_read_at = read_at")
+        log_msg("[DB] read_posts.first_read_at 컬럼 추가")
     group_columns = {row['name'] for row in conn.execute("PRAGMA table_info(keyword_groups)")}
     if 'alert' not in group_columns:
         # 알림을 게시판별로 설정. 초기값은 등록 키워드 카테고리의 예전 알림 설정 (하나라도 켜져 있으면 켬)
@@ -553,7 +561,7 @@ def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=N
     params += search_params
     unread_sql = ''
     if unread_since is not None:
-        unread_sql = "AND kp.is_new = 1 AND (rp.read_at IS NULL OR rp.read_at > ?)"
+        unread_sql = "AND kp.is_new = 1 AND (rp.read_at IS NULL OR rp.first_read_at > ?)"
         params += (unread_since,)
     base = f"""
         {feed_sql}
@@ -583,20 +591,6 @@ def unread_summary(id_limit=500):
             GROUP BY kp.post_id ORDER BY last_rowid DESC
         """, params).fetchall()
     return {'total': len(rows), 'unread_ids': [r['post_id'] for r in rows[:id_limit]]}
-
-def latest_alert_group():
-    """가장 최근에 텔레그램 알림이 간 새 글의 게시판 ID (알림 설정 기준). 없으면 None"""
-    base, params = _feed_from()
-    with _db() as conn:
-        row = conn.execute(f"""
-            SELECT gm.group_id {base}
-            JOIN keyword_group_members gm ON gm.board = kp.board AND gm.keyword = kp.keyword
-            JOIN keyword_groups g ON g.id = gm.group_id
-            JOIN posts p ON p.id = kp.post_id
-            WHERE kp.is_new = 1 AND (g.alert = 1 OR (g.video_alert = 1 AND {_HAS_VIDEO_SQL}))
-            ORDER BY kp.rowid DESC, gm.group_id LIMIT 1
-        """, params).fetchone()
-    return row[0] if row else None
 
 def recent_post_ids(limit_per_keyword):
     """키워드별 최근 글 ID 집합 (메인 루프가 목록의 댓글 수로 매 주기 변화를 감시하는 범위)"""
@@ -704,15 +698,17 @@ def prune_old_posts(days, keep_per_keyword):
     return deleted
 
 def mark_posts_read(post_ids):
-    """읽음 기록 저장. 이미 읽은 글은 읽은 시각을 갱신(그 이후 달린 댓글만 '새 댓글'이 되도록)"""
+    """읽음 기록 저장. 이미 읽은 글은 마지막 읽은 시각만 갱신(그 이후 달린 댓글만 '새 댓글'이 되도록),
+    처음 읽은 시각은 그대로 둠"""
     ids = [str(i) for i in post_ids if str(i).isdigit()]
     if not ids:
         return 0
     now = _now()
     with _db() as conn, conn:
         conn.executemany(
-            "INSERT INTO read_posts(post_id, read_at) VALUES(?, ?) ON CONFLICT(post_id) DO UPDATE SET read_at = excluded.read_at",
-            [(i, now) for i in ids]
+            "INSERT INTO read_posts(post_id, read_at, first_read_at) VALUES(?, ?, ?) "
+            "ON CONFLICT(post_id) DO UPDATE SET read_at = excluded.read_at",
+            [(i, now, now) for i in ids]
         )
     return len(ids)
 

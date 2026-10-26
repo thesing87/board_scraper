@@ -27,7 +27,6 @@ from storage import (
     list_groups,
     feed_summary,
     unread_summary,
-    latest_alert_group,
     save_group,
     delete_group
 )
@@ -115,8 +114,6 @@ def build_state():
         'all': feed_summary(NEW_POSTS_WINDOW),
         # 모든 게시판의 안 읽은 새 글 모아보기 (첫 화면)
         'unread': unread_summary(MAX_READ_IDS),
-        # 안 읽은 글이 없을 때 첫 화면으로 쓸 게시판: 가장 최근에 알림이 간 글의 게시판
-        'latest_alert_group': latest_alert_group(),
         # 사용자가 만든 게시판 (등록한 키워드의 글을 중복 없이 한 피드로)
         'groups': groups
     }
