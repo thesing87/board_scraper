@@ -8,7 +8,9 @@ from config import log_msg, short_err
 # 에펨코리아는 X(트위터) 링크를 '링크 자동 변환 중...' 임시 상자로 넣어 두고 페이지의 스크립트로 트윗 화면으로 바꿈.
 # 수집 시점에는 변환 전 상자만 남으므로, X 공개 oEmbed API로 작성자·본문을 받아 스크립트 없는 트윗 카드로 직접 만듦
 X_STATUS_RE = re.compile(r'https?://(?:www\.|mobile\.)?(?:x|twitter)\.com/([A-Za-z0-9_]{1,15})/status(?:es)?/(\d+)')
-X_PLACEHOLDER_SELECTOR = 'blockquote.twitter-tweet, blockquote.fm-twitter-tweet'
+# 트윗 화면 iframe 주소(platform.twitter.com/embed/Tweet.html?...&id=트윗ID&...)의 트윗 ID
+X_EMBED_ID_RE = re.compile(r'[?&](?:amp;)?id=(\d+)')
+X_PLACEHOLDER_SELECTOR ='blockquote.twitter-tweet, blockquote.fm-twitter-tweet'
 OEMBED_URL = 'https://publish.twitter.com/oembed'
 
 _oembed_cache = {}
@@ -62,9 +64,20 @@ def _build_x_card(soup, status_url, handle, info):
     card.append(link)
     return card
 
+def _rendered_tweet_ids(root):
+    """페이지 스크립트가 이미 트윗 화면(사진 포함 iframe)으로 바꿔 둔 트윗 ID들"""
+    ids = set()
+    for iframe in root.select('iframe[src*="platform.twitter.com/embed"]'):
+        match = X_EMBED_ID_RE.search(iframe['src'])
+        if match:
+            ids.add(match.group(1))
+    return ids
+
 def convert_x_embeds(soup, root):
-    """root 안의 X 임시 상자를 트윗 카드로 교체하고, 바꾼 개수를 반환"""
+    """root 안의 X 임시 상자를 트윗 카드로 교체하고, 바꾼 개수를 반환.
+    수집 시점에 이미 트윗 화면으로 바뀐 트윗은 남은 원래 상자만 지움 (같은 트윗이 글자 카드로 한 번 더 뜨지 않도록)"""
     converted = 0
+    rendered = _rendered_tweet_ids(root)
     for quote in root.select(X_PLACEHOLDER_SELECTOR):
         match = None
         for a in quote.find_all('a', href=True):
@@ -73,7 +86,22 @@ def convert_x_embeds(soup, root):
                 break
         if not match:
             continue
-        status_url = f"https://x.com/{match.group(1)}/status/{match.group(2)}"
-        quote.replace_with(_build_x_card(soup, status_url, match.group(1), fetch_x_oembed(status_url)))
+        if match.group(2) in rendered:
+            quote.decompose()
+        else:
+            status_url = f"https://x.com/{match.group(1)}/status/{match.group(2)}"
+            quote.replace_with(_build_x_card(soup, status_url, match.group(1), fetch_x_oembed(status_url)))
         converted += 1
     return converted
+
+def remove_duplicate_x_cards(root):
+    """트윗 화면(iframe)과 같은 트윗을 가리키는 글자 카드를 지우고, 지운 개수를 반환 (이미 저장된 글 정리용)"""
+    rendered = _rendered_tweet_ids(root)
+    removed = 0
+    for card in root.select('div.x-embed'):
+        link = card.select_one('a.x-embed-link[href]')
+        match = X_STATUS_RE.search(link['href']) if link else None
+        if match and match.group(2) in rendered:
+            card.decompose()
+            removed += 1
+    return removed

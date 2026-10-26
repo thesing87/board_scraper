@@ -635,6 +635,31 @@ def fix_stored_x_embeds():
     if fixed:
         log_msg(f"[DB] 저장된 글의 X 트윗 카드 변환: {fixed}건")
 
+def remove_stored_duplicate_x_cards():
+    """이미 저장된 글 중 트윗 화면(iframe)과 같은 트윗의 글자 카드가 함께 남은 글에서 글자 카드를 1회 정리"""
+    from bs4 import BeautifulSoup
+    from embeds import remove_duplicate_x_cards
+    with _db() as conn:
+        if _get_meta(conn, 'x_duplicate_cards_removed'):
+            return
+        rows = conn.execute("SELECT id, title, content_json, comments_json FROM posts "
+                            "WHERE content_json LIKE '%x-embed%' AND content_json LIKE '%platform.twitter.com/embed%'").fetchall()
+    fixed = 0
+    for row in rows:
+        soup = BeautifulSoup('\n'.join(json.loads(row['content_json'])), 'html.parser')
+        if not remove_duplicate_x_cards(soup):
+            continue
+        new_content = soup.decode().split('\n')
+        post = {'title': row['title'], 'content': new_content, 'comments': json.loads(row['comments_json'])}
+        with _db() as conn, conn:
+            conn.execute("UPDATE posts SET content_json = ?, search_text = ? WHERE id = ?",
+                         (json.dumps(new_content, ensure_ascii=False), _search_text(post), row['id']))
+        fixed += 1
+    with _db() as conn, conn:
+        _set_meta(conn, 'x_duplicate_cards_removed', '1')
+    if fixed:
+        log_msg(f"[DB] 트윗 화면과 겹친 X 글자 카드 정리: {fixed}건")
+
 def mark_posts_read(post_ids):
     """읽음 기록 저장. 이미 읽은 글은 읽은 시각을 갱신(그 이후 달린 댓글만 '새 댓글'이 되도록)"""
     ids = [str(i) for i in post_ids if str(i).isdigit()]
