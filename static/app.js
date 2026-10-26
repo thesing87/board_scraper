@@ -309,7 +309,6 @@ function renderComments(post) {
         const classes = ['comment'];
         const depth = replyDepth(c);
         if (c.is_reply) classes.push('reply');
-        if (isAuthor) classes.push('by-author');
         if (isNew) classes.push('is-new-comment');
         return `
             <div class="${classes.join(' ')}"${depth ? ` style="--depth: ${depth}"` : ''}>
