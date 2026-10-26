@@ -308,13 +308,20 @@ def scrape_post_detail(driver, post_info):
         elif 'margin-left' in style or 'padding-left' in style:
             if not re.search(r'(?:margin-left|padding-left)\s*:\s*0(px|%|em)?(?![\d])', style):
                 is_reply = True
-            
+
+        # 답글 깊이: 에펨코리아는 한 단계마다 margin-left를 2%씩 늘림 (1단 2%, 2단 4%, …). 값이 없으면 1단
+        depth = 0
+        if is_reply:
+            indent = re.search(r'margin-left\s*:\s*([\d.]+)%', style)
+            depth = max(1, round(float(indent.group(1)) / 2)) if indent else 1
+
         comments.append({
-            'author': c_author, 
-            'date': c_date, 
-            'votes': c_votes, 
-            'content': c_paragraphs, 
-            'is_reply': is_reply
+            'author': c_author,
+            'date': c_date,
+            'votes': c_votes,
+            'content': c_paragraphs,
+            'is_reply': is_reply,
+            'depth': depth
         })
     
     log_msg(f"[수집] 상세 #{post_id}: 이미지 {img_count}, 동영상 {len(video_list)}, 댓글 {len(comments)}", "DEBUG")

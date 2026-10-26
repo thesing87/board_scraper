@@ -197,7 +197,9 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 /* 댓글 하나하나가 구분되도록: 원댓글 사이 구분선 + 프로필 원 + 답글은 회색 상자로 묶음 */
 .comment { display: flex; align-items: flex-start; gap: 10px; padding: 12px 0; border-top: 1px solid #E9EBEF; }
 .comments-title + .comment { border-top: none; padding-top: 6px; }
-.comment.reply { margin: 0 0 8px 40px; padding: 10px 12px; border-top: none; border-radius: 10px; background: #F5F6F8; }
+/* 답글의 답글은 깊이(--depth, 최대 4)마다 한 단계씩 더 안쪽으로. 화면 폭에 따라 첫 들여쓰기와 단계 폭만 바꿈 */
+.comments { --reply-indent: 40px; --reply-step: 24px; }
+.comment.reply { margin: 0 0 8px calc(var(--reply-indent) + var(--reply-step) * (var(--depth, 1) - 1)); padding: 10px 12px; border-top: none; border-radius: 10px; background: #F5F6F8; }
 .comment.reply + .comment.reply { margin-top: -2px; }
 /* 답글은 원댓글에서 이어지는 꺾인 연결선 + '↳ 답글' 표시로 일반 댓글(특히 새 댓글 강조)과 구분 */
 .comment.reply { position: relative; }
@@ -254,7 +256,8 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
     }
     .post-card.has-comments > .comments.is-empty { display: flex; }
     /* 좁은 칸에서는 답글 들여쓰기를 줄여 답글 글자 영역도 넓게 */
-    .post-card.has-comments > .comments .comment.reply { margin-left: 18px; padding: 10px; }
+    .post-card.has-comments > .comments { --reply-indent: 18px; --reply-step: 14px; }
+    .post-card.has-comments > .comments .comment.reply { padding: 10px; }
     .post-content { font-size: 16px; }
 }
 @media (min-width: 1800px) {
@@ -348,7 +351,7 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
     .title-row .btn-original { display: none; }
     .btn-original.bottom { display: flex; }
     .post-meta { gap: 10px; font-size: 12px; }
-    .comment.reply { margin-left: 24px; }
+    .comments { --reply-indent: 24px; --reply-step: 12px; }
     .comment.by-author:not(.reply) { padding: 12px 8px; }
     .new-divider { padding: 2px 6px; }
     .pager { justify-content: space-between; padding: 6px 6px 0; }

@@ -302,8 +302,23 @@ function replyTargetName(comment) {
     return link ? link.textContent.trim() : '';
 }
 
-// 답글의 원댓글: 위쪽에서 상대 닉네임으로 쓴 가장 가까운 댓글, 없으면 바로 위의 일반 댓글
+// 답글 깊이 (0: 일반 댓글). 깊이를 저장하기 전에 수집된 답글은 1단으로 봄
+const MAX_REPLY_DEPTH = 4;
+function replyDepth(comment) {
+    if (!comment.is_reply) return 0;
+    return Math.min(Math.max(parseInt(comment.depth, 10) || 1, 1), MAX_REPLY_DEPTH);
+}
+
+// 답글의 원댓글: 깊이를 알면 위쪽에서 한 단계 얕은 가장 가까운 댓글,
+// 아니면 상대 닉네임으로 쓴 가장 가까운 댓글, 없으면 바로 위의 일반 댓글
 function findParentComment(comments, idx) {
+    const depth = parseInt(comments[idx].depth, 10) || 0;
+    if (depth >= 1) {
+        for (let i = idx - 1; i >= 0; i--) {
+            const d = comments[i].is_reply ? (parseInt(comments[i].depth, 10) || 1) : 0;
+            if (d === depth - 1) return comments[i];
+        }
+    }
     const target = replyTargetName(comments[idx]);
     for (let i = idx - 1; i >= 0; i--) {
         if (target && comments[i].author === target) return comments[i];
@@ -333,19 +348,21 @@ function renderComments(post) {
         const isAuthor = c.author === post.author;
         const isNew = isNewComment(c, post);
         const classes = ['comment'];
+        const depth = replyDepth(c);
         if (c.is_reply) classes.push('reply');
         if (isAuthor) classes.push('by-author');
         if (isNew) classes.push('is-new-comment');
+        const depthLabel = depth >= 2 ? `↳ ${depth}단` : '↳ 답글';
         // 새 답글은 어느 댓글에 단 답글인지 원댓글을 한 줄 인용
         const parent = c.is_reply && isNew ? findParentComment(post.comments, idx) : null;
         const quote = parent ? `
                     <div class="reply-quote"><span class="reply-quote-author">${esc(parent.author)}</span>${esc(commentSnippet(parent))}</div>` : '';
         return `
-            <div class="${classes.join(' ')}">
+            <div class="${classes.join(' ')}"${depth ? ` style="--depth: ${depth}"` : ''}>
                 <span class="comment-avatar av-${avatarTone(c.author)}" aria-hidden="true">${esc(Array.from(c.author || '?')[0])}</span>
                 <div class="comment-main">
                     <div class="comment-meta">
-                        ${c.is_reply ? '<span class="reply-label">↳ 답글</span>' : ''}
+                        ${c.is_reply ? `<span class="reply-label">${depthLabel}</span>` : ''}
                         <span class="comment-author">${esc(c.author)}</span>
                         ${isAuthor ? '<span class="op-badge">작성자</span>' : ''}
                         ${isNew ? `<span class="new-comment-badge">${c.is_reply ? '새 답글' : '새 댓글'}</span>` : ''}
