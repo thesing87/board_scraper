@@ -15,6 +15,10 @@ _URL_RE = re.compile(r'https?://\S+')
 _POSTER_RE = re.compile(r'<video\b[^>]*\bposter="([^"]+)"', re.I)
 # 에펨코리아에 올린 첨부 이미지만 (이모티콘·아이콘 제외)
 _ATTACH_IMG_RE = re.compile(r'<img\b[^>]*\bsrc="([^"]*/files/attach/[^"]+)"', re.I)
+# 유튜브 영상 ID (퍼가기 iframe·watch·youtu.be·shorts 주소)
+_YOUTUBE_RE = re.compile(
+    r'(?:youtube(?:-nocookie)?\.com/(?:embed/|shorts/|live/|v/|watch\?(?:[^"\s<>]*?&(?:amp;)?)?v=)|youtu\.be/)'
+    r'([A-Za-z0-9_-]{11})', re.I)
 
 def _redact(text):
     """요청 URL이 포함된 예외 메시지에 봇 토큰이 노출되지 않도록 가림"""
@@ -63,12 +67,18 @@ def _absolute(url):
     return url if url.startswith(('http://', 'https://')) else ''
 
 def find_thumbnail(content_lines):
-    """본문의 첫 동영상 썸네일, 없으면 첫 첨부 이미지 주소 (없으면 빈 문자열)"""
+    """본문의 첫 동영상 썸네일, 없으면 유튜브 영상 썸네일, 없으면 첫 첨부 이미지 주소 (없으면 빈 문자열)"""
     joined = '\n'.join(content_lines or [])
-    for pattern in (_POSTER_RE, _ATTACH_IMG_RE):
-        match = pattern.search(joined)
-        if match and _absolute(match.group(1)):
-            return _absolute(match.group(1))
+    match = _POSTER_RE.search(joined)
+    if match and _absolute(match.group(1)):
+        return _absolute(match.group(1))
+    match = _YOUTUBE_RE.search(joined)
+    if match:
+        # hqdefault는 모든 영상에 있음 (maxresdefault는 없는 영상이 있어 사진 발송이 실패할 수 있음)
+        return f"https://img.youtube.com/vi/{match.group(1)}/hqdefault.jpg"
+    match = _ATTACH_IMG_RE.search(joined)
+    if match and _absolute(match.group(1)):
+        return _absolute(match.group(1))
     return ''
 
 def _count(value):
