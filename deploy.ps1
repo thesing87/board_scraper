@@ -30,7 +30,7 @@ $Nas = if (-not $External -and (Test-SshAlias 'nas')) { 'nas' } else { 'nas-ext'
 Write-Host "[연결] $(if ($Nas -eq 'nas') { '내부망' } else { '외부망(DDNS)' }) 경로 사용: $Nas"
 
 # .env·output은 NAS에 있는 것을 그대로 사용하므로 보내지 않음
-$files = @(Get-ChildItem -Name *.py) + @('static', 'Dockerfile', 'requirements.txt', 'docker-compose.yml', 'deploy_remote.sh')
+$files = @(Get-ChildItem -Name *.py) + @('static', 'Dockerfile', 'requirements.txt', 'docker-compose.yml', 'deploy_remote.sh', 'compose.env', '.dockerignore')
 Write-Host "[전송] $($files -join ', ')"
 # PowerShell 5.1 파이프는 바이너리를 깨뜨리므로 tar 스트림은 cmd 파이프로 전달
 cmd /c "tar -cf - $($files -join ' ') | ssh $Nas `"tar -xf - -C $NasProject`""

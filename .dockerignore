@@ -1,0 +1,14 @@
+# 이미지 빌드에는 Dockerfile이 COPY하는 requirements.txt, *.py, static/만 필요.
+# NAS 프로젝트 폴더의 데이터·로그(output/, 수 MB 이상이고 수집 중에 바뀜)와 비밀값(.env)이
+# 빌드 컨텍스트로 넘어가지 않게 제외 (넘어가면 빌드가 느려지고 'write too long' 같은 오류가 남)
+output/
+.env
+@eaDir/
+.git/
+tests/
+.build_hash
+*.bat
+*.ps1
+*.sh
+*.txt
+!requirements.txt

@@ -10,11 +10,12 @@ if [ "$(stat -c %u output 2>/dev/null || echo 0)" != "1200" ]; then
     sudo chown -R 1200:1201 output
 fi
 
+# compose.env: docker-compose 자체 설정 (sudo는 환경변수를 넘기지 않으므로 파일로 전달). 컨테이너 환경변수는 .env
 if sudo -n /usr/local/bin/docker-compose version >/dev/null 2>&1; then
-    dc() { sudo /usr/local/bin/docker-compose "$@"; }
+    dc() { sudo /usr/local/bin/docker-compose --env-file compose.env "$@"; }
 else
     echo '[안내] 비밀번호 없는 sudo가 설정되지 않아 sudo 비밀번호를 물어봅니다. (setup_nas_sudo.ps1 실행 시 생략)'
-    dc() { sudo env PATH="$PATH:/usr/local/bin" /usr/local/bin/docker-compose "$@"; }
+    dc() { sudo env PATH="$PATH:/usr/local/bin" /usr/local/bin/docker-compose --env-file compose.env "$@"; }
 fi
 
 dk() { sudo -n /usr/local/bin/docker "$@"; }
