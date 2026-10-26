@@ -408,3 +408,30 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
     max-width: 100% !important;
     height: auto !important;
 }
+
+/* ==========================================
+   불러오는 중: 상단 진행 막대 + 첫 화면 뼈대
+   ========================================== */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.top-progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; overflow: hidden; pointer-events: none; }
+.top-progress i { position: absolute; top: 0; left: -40%; width: 40%; height: 100%; background: var(--accent); border-radius: 2px; animation: top-progress 1.1s ease-in-out infinite; }
+@keyframes top-progress { from { left: -40%; } to { left: 100%; } }
+.sk { display: block; background: #E5E7EB; border-radius: 6px; animation: sk-pulse 1.2s ease-in-out infinite; }
+@keyframes sk-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+.sk-nav { display: flex; flex-direction: column; gap: 14px; padding: 10px 12px; }
+.sk-nav .sk { height: 14px; width: 85%; }
+.sk-nav .sk-short { width: 60%; }
+.chip-row .sk-chip { flex: 0 0 auto; display: inline-block; width: 72px; height: 32px; border-radius: 999px; }
+.sk-head { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+.sk-title { width: 140px; height: 24px; }
+.sk-sub { width: 220px; height: 13px; }
+.post-card.sk-card { display: flex; flex-direction: column; gap: 10px; }
+.sk-badge { width: 70px; height: 18px; }
+.sk-line-l { width: 70%; height: 20px; }
+.sk-meta { width: 45%; height: 12px; margin-bottom: 8px; }
+.sk-line { width: 100%; height: 14px; }
+.sk-line-s { width: 55%; height: 14px; }
+@media (prefers-reduced-motion: reduce) {
+    .sk, .top-progress i { animation: none; }
+    .top-progress i { left: 0; width: 100%; opacity: 0.6; }
+}

@@ -43,7 +43,11 @@
                 </button>
             </div>
         </div>
-        <nav class="chip-row mobile-only" id="chip-row" aria-label="게시판"></nav>
+        <nav class="chip-row mobile-only" id="chip-row" aria-label="게시판">
+            <span class="sk sk-chip"></span><span class="sk sk-chip"></span><span class="sk sk-chip"></span><span class="sk sk-chip"></span>
+        </nav>
+        <!-- 화면을 그리는 요청 동안 표시하는 진행 막대 (app.js withProgress) -->
+        <div class="top-progress" id="top-progress" role="progressbar" aria-label="불러오는 중" hidden><i></i></div>
     </header>
 
     <div class="layout">
@@ -54,7 +58,11 @@
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
                 </button>
             </div>
-            <div id="keyword-groups"></div>
+            <div id="keyword-groups">
+                <div class="sk-nav" aria-hidden="true">
+                    <span class="sk"></span><span class="sk"></span><span class="sk sk-short"></span><span class="sk"></span><span class="sk sk-short"></span>
+                </div>
+            </div>
             <div class="alert-summary">
                 <span class="alert-summary-title">텔레그램 알림</span>
                 <span class="alert-summary-text" id="alert-summary"></span>
@@ -66,8 +74,18 @@
             <div class="new-banner-wrap">
                 <button class="new-banner" id="new-banner" data-action="show-new" hidden></button>
             </div>
-            <div class="feed" id="feed">
-                <div class="empty-card">불러오는 중...</div>
+            <div class="feed" id="feed" aria-busy="true">
+                <!-- 첫 화면 뼈대: 서버 응답(글 목록)이 오면 app.js가 실제 글로 바꿈 -->
+                <span class="sr-only">불러오는 중</span>
+                <div class="sk-head" aria-hidden="true"><span class="sk sk-title"></span><span class="sk sk-sub"></span></div>
+                <div class="post-card sk-card" aria-hidden="true">
+                    <span class="sk sk-badge"></span><span class="sk sk-line-l"></span><span class="sk sk-meta"></span>
+                    <span class="sk sk-line"></span><span class="sk sk-line"></span><span class="sk sk-line-s"></span>
+                </div>
+                <div class="post-card sk-card" aria-hidden="true">
+                    <span class="sk sk-badge"></span><span class="sk sk-line-l"></span><span class="sk sk-meta"></span>
+                    <span class="sk sk-line"></span><span class="sk sk-line-s"></span>
+                </div>
             </div>
         </main>
     </div>
