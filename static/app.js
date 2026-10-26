@@ -804,12 +804,61 @@ async function deleteGroup(groupId, button) {
     }
 }
 
+// ---------- 수집 상태 (수집 주기·차단 의심·크롬·백업·최근 경고) ----------
+function parseServerTime(ts) {
+    return ts ? new Date(ts.replace(' ', 'T')) : null;
+}
+
+function agoText(ts, now) {
+    const t = parseServerTime(ts);
+    if (!t) return '';
+    const minutes = Math.floor((parseServerTime(now) - t) / 60000);
+    if (minutes < 1) return '방금';
+    if (minutes < 60) return `${minutes}분 전`;
+    if (minutes < 60 * 24) return `${Math.floor(minutes / 60)}시간 전`;
+    return `${Math.floor(minutes / 60 / 24)}일 전`;
+}
+
+function renderRuntimeStatus(s) {
+    const hm = ts => esc((ts || '').slice(11, 16));
+    const row = (label, value) => `<div class="status-row"><span class="status-label">${label}</span><span class="status-value">${value}</span></div>`;
+    const c = s.last_cycle;
+    const rows = [
+        row('상태', s.block_streak
+            ? `<span class="status-warn">차단 의심 · 연속 ${s.block_streak}회</span> (다음 확인 ${hm(s.next_check_at)})`
+            : '<span class="status-ok">정상 수집 중</span>'),
+        row('마지막 수집', c
+            ? `${hm(c.finished_at)} (${agoText(c.finished_at, s.now)}) · ${c.seconds}초 · 새 글 ${c.new}, 갱신 ${c.updated}, 오류 ${c.errors}`
+            : '아직 없음 (시작 직후)'),
+        row('실행', `${hm(s.started_at)}부터 (${agoText(s.started_at, s.now)}) · 주기 ${s.cycles}회`),
+        row('크롬', s.chrome_started_at ? `${hm(s.chrome_started_at)} 시작 · 재시작 ${s.chrome_restarts}회` : '-'),
+        row('DB 백업', s.last_backup ? `${esc(s.last_backup.file)} (${hm(s.last_backup.at)})` : '오늘 백업 있음 또는 아직 안 함'),
+        row('오래된 글 정리', s.last_prune ? `${s.last_prune.deleted}건 정리 (${hm(s.last_prune.at)})` : '-')
+    ];
+    const problems = (s.recent_problems || []).slice(0, 5);
+    const problemList = problems.length
+        ? `<ul class="status-problems">${problems.map(p => `<li><span class="status-time">${esc(p.time.slice(5, 16))}</span>${esc(p.message)}</li>`).join('')}</ul>`
+        : '<span class="settings-hint">최근 경고·오류 없음</span>';
+    document.getElementById('settings-status').innerHTML = rows.join('') +
+        `<div class="status-row status-row-block"><span class="status-label">최근 경고·오류</span>${problemList}</div>`;
+}
+
+async function loadRuntimeStatus() {
+    const box = document.getElementById('settings-status');
+    try {
+        renderRuntimeStatus(await getJSON('/api/status'));
+    } catch (e) {
+        box.innerHTML = '<span class="settings-hint">수집 상태를 불러오지 못했습니다.</span>';
+    }
+}
+
 function setSettingsOpen(open) {
     const panel = document.getElementById('settings');
     panel.hidden = !open;
     document.body.style.overflow = open ? 'hidden' : '';
     if (open) {
         renderSettings();
+        loadRuntimeStatus();
         const pwd = document.getElementById('admin-pwd-input');
         (pwd.value ? document.getElementById('group-name-input') : pwd).focus();
     }
@@ -1004,6 +1053,8 @@ document.addEventListener('click', (e) => {
         clearSearch();
     } else if (action === 'open-settings') {
         setSettingsOpen(true);
+    } else if (action === 'refresh-status') {
+        loadRuntimeStatus();
     } else if (action === 'close-settings') {
         setSettingsOpen(false);
     } else if (action === 'refresh') {

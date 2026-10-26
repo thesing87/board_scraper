@@ -17,6 +17,7 @@ from config import (
     BOARD_MAP,
     LIST_PAGE_SIZE
 )
+import runtime_status
 from storage import (
     set_group_alert,
     query_all_posts,
@@ -211,6 +212,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 since = query.get('unread_since', [''])[0]
                 unread_since = since if re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', since) and not search else None
                 self._send_data(200, build_posts_page(page, video_only, search, group_id, unread_since))
+            elif pure_path == '/api/status':
+                # 관리 패널 '수집 상태': 마지막 수집 주기, 차단 의심, 크롬·백업, 최근 경고·오류
+                self._send_data(200, runtime_status.snapshot())
             elif pure_path == '/api/locate':
                 post_id = query.get('id', [''])[0]
                 location = locate_post(post_id) if post_id.isdigit() else None

@@ -5,7 +5,7 @@ import html
 import sqlite3
 import threading
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta
 from config import (
     log_msg,
     DB_FILE,
@@ -659,6 +659,49 @@ def remove_stored_duplicate_x_cards():
         _set_meta(conn, 'x_duplicate_cards_removed', '1')
     if fixed:
         log_msg(f"[DB] 트윗 화면과 겹친 X 글자 카드 정리: {fixed}건")
+
+# ==========================================
+# 유지 관리 (하루 한 번: 백업, 오래된 글 정리)
+# ==========================================
+_BACKUP_NAME_RE = re.compile(r'board-\d{8}\.db')
+
+def backup_db(backup_dir, keep):
+    """DB를 sqlite 온라인 백업으로 하루 한 파일(board-YYYYMMDD.db)씩 복사하고 최근 keep개만 남김.
+    만든 파일 경로를 반환하고, 오늘 백업이 이미 있으면 None"""
+    os.makedirs(backup_dir, exist_ok=True)
+    path = os.path.join(backup_dir, f"board-{datetime.now():%Y%m%d}.db")
+    if os.path.exists(path):
+        return None
+    # 수집 중에도 일관된 사본을 만들고, 도중에 실패해도 반쪽 파일이 백업으로 남지 않게 임시 이름으로 쓴 뒤 교체
+    partial = path + '.part'
+    with _db() as src, closing(sqlite3.connect(partial)) as dst:
+        src.backup(dst)
+    os.replace(partial, path)
+    backups = sorted(name for name in os.listdir(backup_dir) if _BACKUP_NAME_RE.fullmatch(name))
+    for old in backups[:-keep] if keep > 0 else []:
+        os.remove(os.path.join(backup_dir, old))
+    return path
+
+def prune_old_posts(days, keep_per_keyword):
+    """수집한 지 days일이 지난 글을 삭제하고 삭제한 글 수를 반환 (days가 0 이하면 안 함).
+    각 키워드의 최근 keep_per_keyword개는 새 글 판별 기준이라 남김
+    (지우면 검색 1페이지에 아직 있는 오래된 글이 새 글로 다시 잡혀 알림이 감)"""
+    if days <= 0:
+        return 0
+    cutoff = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+    with _db() as conn, conn:
+        deleted = conn.execute("""
+            DELETE FROM posts WHERE created_at < ? AND id NOT IN (
+                SELECT post_id FROM (
+                    SELECT post_id, ROW_NUMBER() OVER (PARTITION BY board, keyword ORDER BY rowid DESC) AS rn
+                    FROM keyword_posts
+                ) WHERE rn <= ?
+            )
+        """, (cutoff, keep_per_keyword)).rowcount
+        if deleted:
+            # 글과 키워드 연결은 외래 키(ON DELETE CASCADE)로 함께 지워짐
+            conn.execute("DELETE FROM read_posts WHERE post_id NOT IN (SELECT id FROM posts)")
+    return deleted
 
 def mark_posts_read(post_ids):
     """읽음 기록 저장. 이미 읽은 글은 읽은 시각을 갱신(그 이후 달린 댓글만 '새 댓글'이 되도록)"""

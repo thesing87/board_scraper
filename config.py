@@ -2,6 +2,7 @@ import os
 import platform
 import logging
 import threading
+from collections import deque
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from dotenv import load_dotenv
@@ -38,11 +39,16 @@ def _write_debug_file(line):
         _debug_disabled = True
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [WARN ] [시스템] 디버그 로그 파일 기록 중단: {e}", flush=True)
 
+# 관리 패널의 '수집 상태'에 보여 줄 최근 경고·오류 (WARN 이상, 최신이 뒤)
+RECENT_PROBLEMS = deque(maxlen=10)
+
 def log_msg(message, level="INFO"):
     """전체 로그는 디버그 파일에, LOG_LEVEL 이상은 화면에도 시간과 함께 출력"""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     line = f"[{timestamp}] [{level:<5}] {message}"
     _write_debug_file(line)
+    if LOG_LEVELS.get(level, LOG_LEVELS['INFO']) >= LOG_LEVELS['WARN']:
+        RECENT_PROBLEMS.append({'time': timestamp, 'level': level, 'message': message.splitlines()[0]})
     if LOG_LEVELS.get(level, LOG_LEVELS['INFO']) >= LOG_LEVEL:
         print(line, flush=True)
 
@@ -76,6 +82,12 @@ INSECURE_ADMIN_PASSWORDS = {'', 'admin1234'}
 DDNS_URL = os.environ.get('DDNS_URL')
 
 MAX_DATA_PER_KEYWORD = 100
+# 수집한 지 이 일수가 지난 글은 하루 한 번 정리 (각 키워드의 최근 MAX_DATA_PER_KEYWORD개는 새 글 판별 기준이라 유지). 0이면 정리 안 함
+RETENTION_DAYS = int(os.environ.get('RETENTION_DAYS', 180))
+# DB 자동 백업: 하루 한 번 OUTPUT_DIR/backups에 복사하고 최근 이 개수만 보관
+BACKUP_KEEP = int(os.environ.get('BACKUP_KEEP', 7))
+# 크롬 메모리가 계속 불어나 NAS가 스왑을 쓰지 않도록 이 주기 수마다 크롬을 새로 띄움 (0이면 안 함)
+CHROME_RESTART_CYCLES = int(os.environ.get('CHROME_RESTART_CYCLES', 40))
 
 IS_LINUX = platform.system() == 'Linux'
 
@@ -87,6 +99,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 DB_FILE = os.path.join(OUTPUT_DIR, 'board.db')
 DEBUG_LOG_FILE = os.path.join(OUTPUT_DIR, 'logs', 'debug.log')
+BACKUP_DIR = os.path.join(OUTPUT_DIR, 'backups')
 # 아래 JSON 파일들은 DB 도입 이전 저장 방식으로, 최초 기동 시 DB로 이전한 뒤 *.migrated로 이름이 바뀜
 JSON_BACKUP_FILE = os.path.join(OUTPUT_DIR, 'board_data_backup.json')
 KEYWORDS_FILE = os.path.join(OUTPUT_DIR, 'keywords_config.json')

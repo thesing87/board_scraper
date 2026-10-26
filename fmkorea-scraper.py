@@ -1,7 +1,9 @@
+import os
 import time
 import sys
 import threading
 import traceback
+from datetime import date, datetime
 from selenium.webdriver import Chrome
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -13,6 +15,10 @@ from config import (
     CHECK_INTERVAL,
     DDNS_URL,
     MAX_DATA_PER_KEYWORD,
+    RETENTION_DAYS,
+    BACKUP_KEEP,
+    BACKUP_DIR,
+    CHROME_RESTART_CYCLES,
     IS_LINUX
 )
 from storage import (
@@ -26,7 +32,9 @@ from storage import (
     mark_post_deleted,
     fix_stored_x_embeds,
     remove_stored_duplicate_x_cards,
-    post_exists
+    post_exists,
+    backup_db,
+    prune_old_posts
 )
 from notifier import send_telegram_message, send_post_alert
 from scraper import (
@@ -37,6 +45,7 @@ from scraper import (
     BlockedError
 )
 from web_server import run_api_server
+import runtime_status
 
 # 변경이 없는 주기는 요약 로그를 남기지 않으므로, 살아있음을 알리는 상태 로그 간격
 HEARTBEAT_SECONDS = 3600
@@ -56,6 +65,11 @@ def create_driver():
     options.page_load_strategy = 'eager'
     options.add_argument('--blink-settings=imagesEnabled=false')
     options.add_argument('--disable-images')
+    # 메모리를 덜 쓰도록 수집에 필요 없는 기능은 끔 (NAS 메모리가 1.8GB라 크롬이 커지면 스왑으로 전체가 느려짐)
+    for arg in ('--disable-extensions', '--disable-background-networking', '--disable-component-update',
+                '--disable-sync', '--disable-default-apps', '--mute-audio', '--renderer-process-limit=2',
+                '--disable-features=Translate,OptimizationHints,MediaRouter,AutofillServerCommunication'):
+        options.add_argument(arg)
     services = Service()
     if IS_LINUX:
         options.add_argument('--headless=new')
@@ -64,6 +78,7 @@ def create_driver():
         options.add_argument('--disable-gpu')
 
     driver = Chrome(options=options, service=services)
+    runtime_status.update(chrome_started_at=runtime_status.now())
     log_msg(f"[시스템] 크롬 드라이버 준비 완료{' (headless)' if IS_LINUX else ''}")
     return driver
 
@@ -74,6 +89,7 @@ def ensure_driver_alive(driver):
         return driver
     except Exception as health_err:
         log_msg(f"[시스템] 크롬 응답 없음 → 재시작: {short_err(health_err)}", "WARN")
+    runtime_status.increment('chrome_restarts')
     try:
         driver.quit()
     except Exception:
@@ -143,6 +159,33 @@ def sync_existing_posts(driver, target, list_posts, board_data, stats, verified_
             stats['errors'] += 1
             log_msg(f"[오류] {target} #{old['id']} 삭제 확인 실패: {short_err(check_ex)}", "WARN")
 
+def restart_driver(driver):
+    """오래 띄워 둔 크롬은 메모리가 계속 불어나므로 주기적으로 새로 띄움"""
+    try:
+        driver.quit()
+    except Exception:
+        pass
+    runtime_status.increment('chrome_restarts')
+    log_msg(f"[시스템] 크롬 정기 재시작 ({CHROME_RESTART_CYCLES}주기마다, 메모리 정리)", "DEBUG")
+    return create_driver()
+
+def run_daily_maintenance():
+    """하루 한 번 DB 백업과 오래된 글 정리. 실패해도 수집은 계속"""
+    try:
+        path = backup_db(BACKUP_DIR, BACKUP_KEEP)
+        if path:
+            runtime_status.update(last_backup={'at': runtime_status.now(), 'file': os.path.basename(path)})
+            log_msg(f"[DB] 백업 완료: {path} (최근 {BACKUP_KEEP}개 보관)")
+    except Exception as e:
+        log_msg(f"[DB] 백업 실패: {short_err(e)}", "ERROR")
+    try:
+        deleted = prune_old_posts(RETENTION_DAYS, MAX_DATA_PER_KEYWORD)
+        runtime_status.update(last_prune={'at': runtime_status.now(), 'deleted': deleted})
+        if deleted:
+            log_msg(f"[DB] {RETENTION_DAYS}일 지난 글 {deleted}건 정리")
+    except Exception as e:
+        log_msg(f"[DB] 오래된 글 정리 실패: {short_err(e)}", "ERROR")
+
 def short_title(title, limit=40):
     title = (title or '').strip()
     return title if len(title) <= limit else title[:limit] + '…'
@@ -181,6 +224,9 @@ def main():
         # 차단 의심이 연속된 횟수와 그에 따른 다음 주기까지의 대기 시간
         block_streak = 0
         next_wait = CHECK_INTERVAL
+        # 크롬을 마지막으로 띄운 뒤 지난 주기 수, 유지 관리(백업·정리)를 마지막으로 한 날짜
+        cycles_since_chrome = 0
+        maintenance_date = None
 
         while True:
             if not is_initial_run:
@@ -189,6 +235,9 @@ def main():
             is_initial_run = False
 
             try:
+                if CHROME_RESTART_CYCLES and cycles_since_chrome >= CHROME_RESTART_CYCLES:
+                    driver = restart_driver(driver)
+                    cycles_since_chrome = 0
                 driver = ensure_driver_alive(driver)
             except Exception as restart_err:
                 log_msg(f"[시스템] 크롬 재시작 실패, 다음 주기에 재시도: {short_err(restart_err)}", "ERROR")
@@ -335,6 +384,17 @@ def main():
                 send_telegram_message(f"✅ 에펨코리아 접속이 정상으로 돌아왔습니다. (차단 의심 {block_streak}회 후 복구)")
                 block_streak = 0
                 next_wait = CHECK_INTERVAL
+
+            cycles_since_chrome += 1
+            runtime_status.increment('cycles')
+            runtime_status.update(
+                last_cycle={'finished_at': runtime_status.now(), 'seconds': round(elapsed), 'new': stats['new'],
+                            'updated': stats['updated'], 'deleted': stats['deleted'], 'errors': stats['errors']},
+                block_streak=block_streak,
+                next_check_at=datetime.fromtimestamp(time.time() + next_wait).strftime('%Y-%m-%d %H:%M:%S'))
+            if maintenance_date != date.today():
+                maintenance_date = date.today()
+                run_daily_maintenance()
 
             heartbeat['cycles'] += 1
             heartbeat['new'] += stats['new']
