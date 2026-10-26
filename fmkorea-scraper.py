@@ -94,10 +94,12 @@ def sync_existing_posts(driver, target, list_posts, board_data, stats, verified_
             # 목록 댓글 수가 아직 없는(이전 방식으로 저장된) 글은 상세 페이지 기준 댓글 수와 한 번 비교
             prev = parse_count(old.get('comment_count'))
 
-        if item['list_comment_count'] != prev:
+        # 제목이 바뀌었으면 작성자가 글을 수정한 것 → 본문(교체된 이미지 등)도 다시 받음
+        title_changed = bool(item['title']) and item['title'] != old.get('title')
+        if item['list_comment_count'] != prev or title_changed:
             try:
                 stats['details'] += 1
-                updated = scrape_post_detail(driver, old)
+                updated = scrape_post_detail(driver, {**old, 'title': item['title'] or old.get('title')})
                 if updated is None:
                     mark_post_deleted(old['id'])
                     stats['deleted'] += 1
@@ -106,7 +108,8 @@ def sync_existing_posts(driver, target, list_posts, board_data, stats, verified_
                 updated['list_comment_count'] = item['list_comment_count']
                 update_post(updated)
                 stats['updated'] += 1
-                log_msg(f"[갱신] {target} #{old['id']} 댓글 {prev}→{item['list_comment_count']}, 추천 {updated['votes']}", "DEBUG")
+                log_msg(f"[갱신] {target} #{old['id']} 댓글 {prev}→{item['list_comment_count']}, 추천 {updated['votes']}"
+                        + (" (제목 수정됨)" if title_changed else ""), "DEBUG")
             except Exception as sync_ex:
                 stats['errors'] += 1
                 log_msg(f"[오류] {target} #{old['id']} 갱신 실패: {short_err(sync_ex)}", "WARN")
