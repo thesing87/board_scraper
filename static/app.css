@@ -204,8 +204,6 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 /* 답글은 원댓글에서 이어지는 꺾인 연결선과 들여쓰기로 일반 댓글(특히 새 댓글 강조)과 구분 */
 .comment.reply { position: relative; }
 .comment.reply::before { content: ''; position: absolute; left: -16px; top: -10px; height: calc(50% + 10px); width: 11px; border-left: 2px solid #CBD2DC; border-bottom: 2px solid #CBD2DC; border-bottom-left-radius: 8px; pointer-events: none; }
-.reply-quote { margin: 2px 0 3px; padding: 3px 8px; border-left: 2px solid #CBD2DC; background: rgba(255, 255, 255, 0.7); font-size: 12px; color: var(--muted); line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.reply-quote-author { font-weight: 700; color: var(--text-2); margin-right: 6px; }
 /* 음수 여백으로 배경을 넓히면 댓글 칸(2단) 밖으로 삐져나가 가로 스크롤이 생기므로 칸 안에서만 강조 */
 .comment.by-author:not(.reply) { background: #F5F8FF; padding: 12px 10px; border-radius: 10px; }
 .comment.reply.by-author { background: #EEF3FE; }

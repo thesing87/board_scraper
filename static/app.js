@@ -290,18 +290,6 @@ function isNewComment(comment, post) {
     return !!(post.read_at && comment.first_seen && comment.first_seen > post.read_at);
 }
 
-// 저장된 댓글 HTML을 이미지 요청 없이 해석 (DOMParser 문서는 화면에 붙지 않아 리소스를 불러오지 않음)
-const commentParser = new DOMParser();
-function parseCommentHtml(comment) {
-    return commentParser.parseFromString((comment.content || []).join(' '), 'text/html').body;
-}
-
-// 에펨코리아 답글은 본문 맨 앞에 상대 닉네임 링크(a.findParent)가 붙어 있음
-function replyTargetName(comment) {
-    const link = parseCommentHtml(comment).querySelector('a.findParent');
-    return link ? link.textContent.trim() : '';
-}
-
 // 답글 깊이 (0: 일반 댓글). 깊이를 저장하기 전에 수집된 답글은 1단으로 봄
 const MAX_REPLY_DEPTH = 4;
 function replyDepth(comment) {
@@ -309,41 +297,12 @@ function replyDepth(comment) {
     return Math.min(Math.max(parseInt(comment.depth, 10) || 1, 1), MAX_REPLY_DEPTH);
 }
 
-// 답글의 원댓글: 깊이를 알면 위쪽에서 한 단계 얕은 가장 가까운 댓글,
-// 아니면 상대 닉네임으로 쓴 가장 가까운 댓글, 없으면 바로 위의 일반 댓글
-function findParentComment(comments, idx) {
-    const depth = parseInt(comments[idx].depth, 10) || 0;
-    if (depth >= 1) {
-        for (let i = idx - 1; i >= 0; i--) {
-            const d = comments[i].is_reply ? (parseInt(comments[i].depth, 10) || 1) : 0;
-            if (d === depth - 1) return comments[i];
-        }
-    }
-    const target = replyTargetName(comments[idx]);
-    for (let i = idx - 1; i >= 0; i--) {
-        if (target && comments[i].author === target) return comments[i];
-    }
-    for (let i = idx - 1; i >= 0; i--) {
-        if (!comments[i].is_reply) return comments[i];
-    }
-    return null;
-}
-
-const REPLY_QUOTE_LENGTH = 40;
-function commentSnippet(comment) {
-    const body = parseCommentHtml(comment);
-    body.querySelectorAll('a.findParent').forEach(a => a.remove());
-    body.querySelectorAll('img').forEach(img => img.replaceWith(' (이미지) '));
-    const text = body.textContent.replace(/\s+/g, ' ').trim() || '(내용 없음)';
-    return text.length > REPLY_QUOTE_LENGTH ? text.slice(0, REPLY_QUOTE_LENGTH) + '…' : text;
-}
-
 function renderComments(post) {
     if (!post.comments || post.comments.length === 0) {
         // 넓은 화면의 2단 배치에서 오른쪽 댓글 자리를 유지하기 위한 빈 댓글 칸 (좁은 화면에서는 CSS로 숨김)
         return '<section class="comments is-empty"><h3 class="comments-title">댓글 0</h3><p class="comments-empty">아직 댓글이 없습니다.</p></section>';
     }
-    const items = post.comments.map((c, idx) => {
+    const items = post.comments.map(c => {
         const body = (c.content || []).map(t => t ? `<p class="comment-line">${t}</p>` : '<br>').join('');
         const isAuthor = c.author === post.author;
         const isNew = isNewComment(c, post);
@@ -352,10 +311,6 @@ function renderComments(post) {
         if (c.is_reply) classes.push('reply');
         if (isAuthor) classes.push('by-author');
         if (isNew) classes.push('is-new-comment');
-        // 새 답글은 어느 댓글에 단 답글인지 원댓글을 한 줄 인용
-        const parent = c.is_reply && isNew ? findParentComment(post.comments, idx) : null;
-        const quote = parent ? `
-                    <div class="reply-quote"><span class="reply-quote-author">${esc(parent.author)}</span>${esc(commentSnippet(parent))}</div>` : '';
         return `
             <div class="${classes.join(' ')}"${depth ? ` style="--depth: ${depth}"` : ''}>
                 <span class="comment-avatar av-${avatarTone(c.author)}" aria-hidden="true">${esc(Array.from(c.author || '?')[0])}</span>
@@ -366,7 +321,7 @@ function renderComments(post) {
                         ${isNew ? `<span class="new-comment-badge">${c.is_reply ? '새 답글' : '새 댓글'}</span>` : ''}
                         <span>${esc(c.date)}</span>
                         ${c.votes && c.votes !== '0' ? `<span class="comment-votes">추천 ${esc(c.votes)}</span>` : ''}
-                    </div>${quote}
+                    </div>
                     <div class="comment-body">${body}</div>
                 </div>
             </div>`;
