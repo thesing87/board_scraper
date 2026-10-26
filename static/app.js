@@ -465,10 +465,7 @@ async function loadPosts() {
     const summary = viewSummary(app.activeKey);
     app.renderedTotal = searching ? null : (summary ? summary.total : null);
     app.renderedUnreadIds = isUnreadView() ? new Set(app.state.unread.unread_ids) : null;
-    if (!searching) {
-        storageSet(sessionStorage, 'last_active_tab', app.activeKey);
-        storageSet(sessionStorage, 'last_active_page', String(app.page));
-    }
+    if (!searching) storageSet(sessionStorage, 'last_active_tab', app.activeKey);
 
     const empty = data.total === 0;
     let body = '';
@@ -856,7 +853,8 @@ async function handlePostAnchor() {
 
 async function init() {
     const savedTab = storageGet(sessionStorage, 'last_active_tab', null);
-    const savedPage = parseInt(storageGet(sessionStorage, 'last_active_page', '1'), 10) || 1;
+    // 예전 버전이 저장한 페이지 번호는 더 쓰지 않음
+    storageRemove(sessionStorage, 'last_active_page');
     await migrateLegacyReads();
     try {
         app.state = await getJSON('/api/state');
@@ -869,14 +867,9 @@ async function init() {
     setInterval(pollState, POLL_INTERVAL_MS);
     // 텔레그램 알림 링크(#post-ID)로 들어온 경우 해당 글이 있는 탭/페이지로 바로 이동
     if (await handlePostAnchor()) return;
-    // 같은 탭에서 새로고침하면 보던 화면 유지, 새로 들어오면 첫 화면(안 읽은 글 → 최근 알림 게시판 → 전체)
-    if (isKnownView(savedTab)) {
-        app.activeKey = savedTab;
-        app.page = savedPage;
-    } else {
-        app.activeKey = homeKey();
-        app.page = 1;
-    }
+    // 같은 탭에서 새로고침하면 보던 게시판의 첫 페이지, 새로 들어오면 첫 화면(안 읽은 글 → 최근 알림 게시판 → 전체)
+    app.activeKey = isKnownView(savedTab) ? savedTab : homeKey();
+    app.page = 1;
     renderNavigation();
     scrollActiveChipIntoView();
     loadPosts();
