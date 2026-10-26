@@ -40,6 +40,8 @@ MAX_KEYWORD_LENGTH = 50
 POSTS_PER_PAGE = 10
 # 탭의 '안 읽은 새 글' 표시 계산에 쓰는 키워드별 최근 글 범위
 NEW_POSTS_WINDOW = 100
+# 첫 화면 조회를 미리 돌려 두는 간격 (_keep_warm)
+WARMUP_INTERVAL_SECONDS = 30
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 STATIC_FILES = {
@@ -355,8 +357,20 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
+def _keep_warm():
+    """NAS 메모리가 부족해 한동안 요청이 없으면 웹서버 쪽 메모리가 스왑으로 밀려나 첫 화면이 수 초 걸림.
+    첫 화면과 같은 조회를 주기적으로 돌려 관련 코드와 DB 페이지를 메모리에 붙잡아 둠"""
+    while True:
+        time.sleep(WARMUP_INTERVAL_SECONDS)
+        try:
+            state = build_state()
+            build_posts_page(1, False, unread_since=state['generated_at'])
+        except Exception as e:
+            log_msg(f"[API] 예열 조회 실패: {short_err(e)}", "DEBUG")
+
 def run_api_server():
     server_address = ('', 8081)
     httpd = ThreadedHTTPServer(server_address, KeywordAPIServer)
+    threading.Thread(target=_keep_warm, daemon=True).start()
     log_msg("[API] 웹서버 시작 (포트 8081)")
     httpd.serve_forever()

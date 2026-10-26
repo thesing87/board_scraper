@@ -6,6 +6,10 @@
 const ALL_KEY = '__all__';            // 모든 게시판을 합친 통합 피드
 const UNREAD_KEY = '__unread__';      // 모든 게시판의 안 읽은 새 글 모아보기 (첫 화면)
 const POLL_INTERVAL_MS = 60 * 1000;   // 새 글 확인 주기
+// 마지막 화면 캐시 (localStorage): 접속하자마자 지난 게시판 목록·글을 먼저 그리고 서버 응답이 오면 바꿈
+const STATE_CACHE_KEY = 'state_cache_v1';
+const FEED_CACHE_KEY = 'feed_cache_v1';
+const FEED_CACHE_LIMIT = 6;           // 보기별 첫 페이지를 최근 본 순서로 이만큼 보관
 const LEGACY_READ_IDS_KEY = 'read_post_ids';
 
 const app = {
@@ -20,7 +24,8 @@ const app = {
     highlightPostId: null,
     renderedTotal: null,  // 현재 화면을 그릴 때의 글 수 (새 글 배너 계산용)
     readQueue: new Set(), // 서버에 보낼 읽음 기록
-    readFlushTimer: null
+    readFlushTimer: null,
+    showingCached: false  // 지난 화면을 표시 중 (서버 응답 전)
 };
 
 const ICONS = {
@@ -88,6 +93,22 @@ async function postJSON(url, body) {
     return res.json();
 }
 
+function readCache(key) {
+    try { return JSON.parse(storageGet(localStorage, key, 'null')); } catch (e) { return null; }
+}
+function saveStateCache() {
+    storageSet(localStorage, STATE_CACHE_KEY, JSON.stringify(app.state));
+}
+function feedCacheEntry(viewKey, videoOnly) {
+    return (readCache(FEED_CACHE_KEY) || []).find(e => e.key === viewKey && e.videoOnly === videoOnly) || null;
+}
+function saveFeedCache(viewKey, videoOnly, data) {
+    if (data.page !== 1) return;
+    const entries = (readCache(FEED_CACHE_KEY) || []).filter(e => !(e.key === viewKey && e.videoOnly === videoOnly));
+    entries.unshift({ key: viewKey, videoOnly: videoOnly, data: data });
+    storageSet(localStorage, FEED_CACHE_KEY, JSON.stringify(entries.slice(0, FEED_CACHE_LIMIT)));
+}
+
 // ==========================================
 // 읽음 기록 (서버에 저장하여 PC·휴대폰 간 공유)
 // ==========================================
@@ -149,6 +170,8 @@ async function migrateLegacyReads() {
 let readCheckScheduled = false;
 function checkReadSentinels() {
     readCheckScheduled = false;
+    // 지난 화면(캐시)에서 읽음 처리하면 그사이 달린 새 댓글이 '읽은 뒤'가 되지 못해 표시가 사라지므로 건너뜀
+    if (app.showingCached) return;
     const ids = [];
     document.querySelectorAll('.read-sentinel:not([data-read])').forEach(el => {
         if (el.getBoundingClientRect().top < window.innerHeight) {
@@ -181,6 +204,10 @@ function renderStatus(ok) {
         return;
     }
     pill.classList.remove('is-error');
+    if (app.showingCached) {
+        text.textContent = '지난 화면 · 새로 불러오는 중';
+        return;
+    }
     const time = (app.state.generated_at || '').slice(11, 16);
     text.textContent = '수집 중 · ' + time + ' 업데이트';
 }
@@ -460,6 +487,19 @@ async function loadPosts() {
     }
     const currentKey = app.searchQuery ? 'search:' + app.searchQuery : app.activeKey;
     if (viewKey !== currentKey) return;  // 응답 도착 전에 다른 보기로 이동한 경우
+    const wasCached = app.showingCached;
+    app.showingCached = false;
+    if (wasCached) renderStatus(true);
+    renderFeed(data);
+    if (!searching) saveFeedCache(viewKey, videoOnly, data);
+}
+
+// 글 목록 응답(또는 지난 화면 캐시)을 피드로 그림
+function renderFeed(data) {
+    const feed = document.getElementById('feed');
+    const searching = !!app.searchQuery;
+    const group = findGroup(app.activeKey);
+    const videoOnly = !!app.videoOnly[app.activeKey];
     app.page = data.page;
     app.totalPages = data.total_pages;
     const summary = viewSummary(app.activeKey);
@@ -589,6 +629,7 @@ async function pollState() {
         return;
     }
     app.state = fresh;
+    saveStateCache();
     renderStatus(true);
     renderNavigation();
     renderFeedSub();
@@ -811,6 +852,7 @@ async function toggleGroupAlert(checkbox) {
 async function loadState() {
     await flushReads();
     app.state = await getJSON('/api/state');
+    saveStateCache();
     renderStatus(true);
     if (!isKnownView(app.activeKey)) {
         app.activeKey = homeKey();
@@ -855,21 +897,42 @@ async function init() {
     const savedTab = storageGet(sessionStorage, 'last_active_tab', null);
     // 예전 버전이 저장한 페이지 번호는 더 쓰지 않음
     storageRemove(sessionStorage, 'last_active_page');
+    // 서버 응답(NAS가 쉬다 깨어나면 수 초)을 기다리지 않고 지난 화면부터 표시 (텔레그램 링크로 들어온 경우 제외)
+    const cachedState = readCache(STATE_CACHE_KEY);
+    let cachedKey = null;
+    if (cachedState && cachedState.unread && !/^#post-\d+$/.test(window.location.hash)) {
+        app.state = cachedState;
+        app.showingCached = true;
+        app.activeKey = cachedKey = isKnownView(savedTab) ? savedTab : homeKey();
+        app.page = 1;
+        renderStatus(true);
+        renderNavigation();
+        scrollActiveChipIntoView();
+        const entry = feedCacheEntry(app.activeKey, false);
+        if (entry) renderFeed(entry.data);
+    }
     await migrateLegacyReads();
     try {
         app.state = await getJSON('/api/state');
     } catch (e) {
         renderStatus(false);
-        document.getElementById('feed').innerHTML = '<div class="empty-card">서버에 연결하지 못했습니다. 잠시 후 새로고침해 주세요.</div>';
+        if (!app.showingCached) {
+            document.getElementById('feed').innerHTML = '<div class="empty-card">서버에 연결하지 못했습니다. 잠시 후 새로고침해 주세요.</div>';
+        }
         return;
     }
+    saveStateCache();
     renderStatus(true);
     setInterval(pollState, POLL_INTERVAL_MS);
     // 텔레그램 알림 링크(#post-ID)로 들어온 경우 해당 글이 있는 탭/페이지로 바로 이동
     if (await handlePostAnchor()) return;
     // 같은 탭에서 새로고침하면 보던 게시판의 첫 페이지, 새로 들어오면 첫 화면(안 읽은 글 → 최근 알림 게시판 → 전체)
-    app.activeKey = isKnownView(savedTab) ? savedTab : homeKey();
-    app.page = 1;
+    // 지난 화면을 보는 사이 다른 보기로 옮겼으면 그 보기를 유지
+    if (cachedKey === null || app.activeKey === cachedKey) {
+        app.activeKey = isKnownView(savedTab) ? savedTab : homeKey();
+        app.page = 1;
+    }
+    if (isUnreadView()) app.unreadSince = null;
     renderNavigation();
     scrollActiveChipIntoView();
     loadPosts();
