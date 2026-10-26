@@ -1,10 +1,12 @@
-# 베이스 이미지를 Selenium 공식 이미지로 변경
-FROM selenium/standalone-chrome:latest
+# Selenium 공식 이미지 (크롬·크롬드라이버 포함). latest는 재빌드할 때마다 크롬이 바뀌어 수집이 갑자기 깨질 수 있어
+# 지금 NAS에서 검증된 이미지로 고정: 2026-10-14 빌드, Google Chrome 155.0.8059.79, Python 3.14
+# 올릴 때는 새 이미지로 시험한 뒤 아래 digest를 바꿀 것
+FROM selenium/standalone-chrome@sha256:d6843a37cd2852fac7f33099709a203769f864dcf260e740a34e9605055c1dd5
 
-# 2. apt-get 명령을 실행하기 전, 반드시 root 권한으로 전환
+# apt-get은 root 권한이 필요
 USER root
 
-# Chromium 브라우저 및 한글 폰트 설치
+# 한글 폰트 설치
 RUN apt-get update && apt-get install -y \
     fonts-nanum \
     && rm -rf /var/lib/apt/lists/*

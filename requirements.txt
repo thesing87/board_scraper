@@ -1,4 +1,5 @@
-selenium
-beautifulsoup4
-requests
-python-dotenv
+# NAS 이미지에서 검증된 버전으로 고정 (pip freeze 기준)
+selenium==4.51.0
+beautifulsoup4==4.15.0
+requests==2.34.2
+python-dotenv==1.2.4
