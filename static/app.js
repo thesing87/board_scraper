@@ -352,7 +352,6 @@ function renderComments(post) {
         if (c.is_reply) classes.push('reply');
         if (isAuthor) classes.push('by-author');
         if (isNew) classes.push('is-new-comment');
-        const depthLabel = depth >= 2 ? `↳ ${depth}단` : '↳ 답글';
         // 새 답글은 어느 댓글에 단 답글인지 원댓글을 한 줄 인용
         const parent = c.is_reply && isNew ? findParentComment(post.comments, idx) : null;
         const quote = parent ? `
@@ -362,7 +361,6 @@ function renderComments(post) {
                 <span class="comment-avatar av-${avatarTone(c.author)}" aria-hidden="true">${esc(Array.from(c.author || '?')[0])}</span>
                 <div class="comment-main">
                     <div class="comment-meta">
-                        ${c.is_reply ? `<span class="reply-label">${depthLabel}</span>` : ''}
                         <span class="comment-author">${esc(c.author)}</span>
                         ${isAuthor ? '<span class="op-badge">작성자</span>' : ''}
                         ${isNew ? `<span class="new-comment-badge">${c.is_reply ? '새 답글' : '새 댓글'}</span>` : ''}
