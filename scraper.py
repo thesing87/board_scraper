@@ -9,7 +9,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from config import log_msg
 from sanitize import sanitize_tree
-from embeds import convert_x_embeds
+from embeds import convert_x_embeds, remove_duplicate_instagram_placeholders
 
 def extract_post_id(link):
     if not link: return "0"
@@ -239,6 +239,8 @@ def scrape_post_detail(driver, post_info):
         converted = convert_x_embeds(detail_soup, content_area)
         if converted:
             log_msg(f"[수집] #{post_id} X 트윗 카드 변환 {converted}건", "DEBUG")
+        # 인스타그램 게시물 화면 옆에 남은 임시 상자 제거 (같은 게시물이 두 번 뜨지 않도록)
+        remove_duplicate_instagram_placeholders(content_area)
 
         sanitize_tree(content_area)
 

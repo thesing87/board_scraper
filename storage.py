@@ -654,6 +654,31 @@ def remove_stored_duplicate_x_cards():
     if fixed:
         log_msg(f"[DB] 트윗 화면과 겹친 X 글자 카드 정리: {fixed}건")
 
+def remove_stored_duplicate_instagram_placeholders():
+    """이미 저장된 글 중 인스타그램 게시물 화면(iframe)과 같은 게시물의 임시 상자가 함께 남은 글에서 상자를 1회 정리"""
+    from bs4 import BeautifulSoup
+    from embeds import remove_duplicate_instagram_placeholders
+    with _db() as conn:
+        if _get_meta(conn, 'instagram_duplicate_placeholders_removed'):
+            return
+        rows = conn.execute("SELECT id, title, content_json, comments_json FROM posts "
+                            "WHERE content_json LIKE '%instagram-media%' AND content_json LIKE '%instagram.com%'").fetchall()
+    fixed = 0
+    for row in rows:
+        soup = BeautifulSoup('\n'.join(json.loads(row['content_json'])), 'html.parser')
+        if not remove_duplicate_instagram_placeholders(soup):
+            continue
+        new_content = soup.decode().split('\n')
+        post = {'title': row['title'], 'content': new_content, 'comments': json.loads(row['comments_json'])}
+        with _db() as conn, conn:
+            conn.execute("UPDATE posts SET content_json = ?, search_text = ? WHERE id = ?",
+                         (json.dumps(new_content, ensure_ascii=False), _search_text(post), row['id']))
+        fixed += 1
+    with _db() as conn, conn:
+        _set_meta(conn, 'instagram_duplicate_placeholders_removed', '1')
+    if fixed:
+        log_msg(f"[DB] 인스타그램 게시물 화면과 겹친 임시 상자 정리: {fixed}건")
+
 # ==========================================
 # 유지 관리 (하루 한 번: 백업, 오래된 글 정리)
 # ==========================================

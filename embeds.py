@@ -105,3 +105,24 @@ def remove_duplicate_x_cards(root):
             card.decompose()
             removed += 1
     return removed
+
+# 에펨코리아는 인스타그램 링크를 임시 상자(blockquote.instagram-media)로 넣어 두고, 페이지 스크립트가 그 옆에 게시물 화면(iframe)을
+# 만든 뒤 상자는 지우지 않고 instagram-media-registered로 이름만 바꿔 둠 → 그대로 저장하면 같은 게시물이 회색 상자로 한 번 더 뜸
+INSTAGRAM_POST_RE = re.compile(r'instagram\.com/(?:[A-Za-z0-9_.]+/)?(?:p|reel|tv)/([A-Za-z0-9_-]+)')
+INSTAGRAM_PLACEHOLDER_SELECTOR = 'blockquote.instagram-media, blockquote.instagram-media-registered'
+
+def remove_duplicate_instagram_placeholders(root):
+    """인스타그램 게시물 화면(iframe)과 같은 게시물을 가리키는 임시 상자를 지우고, 지운 개수를 반환"""
+    rendered = set()
+    for iframe in root.select('iframe[src*="instagram.com"]'):
+        match = INSTAGRAM_POST_RE.search(iframe['src'])
+        if match:
+            rendered.add(match.group(1))
+    removed = 0
+    for quote in root.select(INSTAGRAM_PLACEHOLDER_SELECTOR):
+        urls = [quote.get('data-instgrm-permalink', '')] + [a['href'] for a in quote.find_all('a', href=True)]
+        match = next((m for m in (INSTAGRAM_POST_RE.search(u) for u in urls) if m), None)
+        if match and match.group(1) in rendered:
+            quote.decompose()
+            removed += 1
+    return removed
