@@ -962,6 +962,19 @@ function handleVideoClick(e) {
     return true;
 }
 
+// 인스타그램 게시물 화면(iframe)은 내용 높이를 MEASURE 메시지로 알려 주므로, 그 높이로 맞춰 안쪽 세로 스크롤 없이 전부 보이게 함
+// (원래는 인스타그램 embed.js가 하는 일이지만 외부 스크립트는 넣지 않음)
+window.addEventListener('message', (e) => {
+    if (!/^https:\/\/(www\.)?instagram\.com$/.test(e.origin)) return;
+    let data;
+    try { data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
+    const height = Number(data?.type === 'MEASURE' && data.details?.height);
+    if (!(height > 0)) return;
+    const iframe = [...document.querySelectorAll('.post-content iframe[src*="instagram.com"]')]
+        .find(f => f.contentWindow === e.source);
+    if (iframe) iframe.style.setProperty('height', `${Math.ceil(height)}px`, 'important');
+});
+
 document.addEventListener('click', (e) => {
     if (handleVideoClick(e)) return;
     const backdrop = document.getElementById('settings');

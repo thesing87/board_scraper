@@ -403,6 +403,14 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
     border: 0;
     display: block;
 }
+/* 인스타그램은 게시물이 알려 주는 내용 높이로 app.js가 높이를 맞춤. 그 전까지는 세로로 긴 기본 크기 */
+.post-content iframe[src*="instagram.com"] {
+    aspect-ratio: auto !important;
+    height: 600px !important;
+    max-width: 540px !important;
+    margin: 8px auto;
+    background: #fff;
+}
 .mejs__container, .mejs__embed, .mejs__player {
     width: 100% !important;
     max-width: 100% !important;
