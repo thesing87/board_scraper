@@ -535,6 +535,9 @@ function renderFeed(data) {
         </div>
         ${body}
         ${empty ? '' : renderPager(data.page, data.total_pages)}`;
+    // 새 목록은 맨 위에서 시작. 맨 아래에서 '다음 페이지'를 누른 위치 그대로 읽음 확인을 하면
+    // 새 글들의 끝 표식이 모두 화면 위쪽에 있는 것으로 판정되어 한꺼번에 읽음 처리되므로, 확인 전에 즉시 이동
+    window.scrollTo({ top: 0 });
     observeReadSentinels();
 
     if (app.highlightPostId) {
@@ -555,7 +558,7 @@ function changePage(target) {
     if (target === 'prev') app.page = Math.max(1, app.page - 1);
     else if (target === 'next') app.page = Math.min(app.totalPages, app.page + 1);
     else app.page = Math.min(Math.max(1, Number(target) || 1), app.totalPages);
-    loadPosts().then(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    loadPosts();
 }
 
 function markAllRead() {
@@ -629,7 +632,6 @@ async function showNewPosts() {
     app.page = 1;
     if (isUnreadView()) app.unreadSince = app.state.generated_at;
     await loadPosts();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ==========================================
