@@ -51,7 +51,8 @@ try:
     side = js("return [...document.querySelectorAll('.kw-item')].map(b => b.textContent.replace(/\\s+/g, ' ').trim())")
     heads = js("return [...document.querySelectorAll('.kw-group-name')].map(e => e.textContent)")
     print('sidebar', side, heads)
-    assert len(side) == len(kws) + 2 and heads == []
+    # 통합 항목(안 읽은 글·새 댓글·전체) + 게시판
+    assert len(side) == len(kws) + 3 and heads == []
     d.save_screenshot(os.path.join(SHOTS, '1_sidebar.png'))
 
     # 2) 게시판 하나 열기
@@ -109,11 +110,11 @@ try:
     print('anchor', v)
     assert v['title'] == '싼타페 모음' and v['found']
 
-    # 7) 모바일 칩: 전체 + 게시판만
+    # 7) 모바일 칩: 통합 항목(안 읽은 글·새 댓글·전체) + 게시판
     d.set_window_size(390, 844); d.get(BASE); wait(2.5)
     chips = js("return [...document.querySelectorAll('#chip-row .chip')].map(c => c.textContent.replace(/\\s+/g, ' ').trim())")
     print('chips', chips)
-    assert len(chips) == len(storage.list_groups()) + 2
+    assert len(chips) == len(storage.list_groups()) + 3
     d.save_screenshot(os.path.join(SHOTS, '4_mobile.png'))
     errs = [l for l in d.get_log('browser') if l['level'] == 'SEVERE']
     assert not errs, errs

@@ -40,8 +40,6 @@ MAX_GROUP_NAME_LENGTH = 30
 MAX_GROUP_MEMBERS = 50
 MAX_KEYWORD_LENGTH = 50
 POSTS_PER_PAGE = 10
-# 탭의 '안 읽은 새 글' 표시 계산에 쓰는 키워드별 최근 글 범위
-NEW_POSTS_WINDOW = 100
 # 첫 화면 조회를 미리 돌려 두는 간격 (_keep_warm)
 WARMUP_INTERVAL_SECONDS = 30
 
@@ -104,7 +102,7 @@ def _clear_auth_failures(ip):
 
 def build_state():
     """대시보드 초기 화면 구성용 데이터: 게시판 목록(알림 설정 포함), 통합 피드 요약, 카테고리(에펨코리아 게시판)"""
-    groups = list_groups(NEW_POSTS_WINDOW)
+    groups = list_groups(MAX_READ_IDS)
     for group in groups:
         for member in group['members']:
             member['board_name'] = BOARD_MAP.get(member['board'], member['board'])
@@ -113,7 +111,7 @@ def build_state():
         'posts_per_page': POSTS_PER_PAGE,
         'boards': [{'key': k, 'name': v} for k, v in BOARD_MAP.items()],
         # 모든 게시판을 합친 통합 피드 요약 (같은 글은 한 번만 셈)
-        'all': feed_summary(NEW_POSTS_WINDOW),
+        'all': feed_summary(MAX_READ_IDS),
         # 모든 게시판의 안 읽은 새 글 모아보기 (첫 화면)
         'unread': unread_summary(MAX_READ_IDS),
         # 이미 읽은 글 중 읽은 뒤 새 댓글이 달린 글 모아보기

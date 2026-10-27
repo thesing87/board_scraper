@@ -315,30 +315,35 @@ def _feed_from(group_id=None):
         return sql, ()
     return sql + "JOIN keyword_group_members gm ON gm.board = kp.board AND gm.keyword = kp.keyword AND gm.group_id = ?\n", (group_id,)
 
-def _feed_summary(conn, new_window, group_id=None):
-    """중복 제거한 글 수, 최근 new_window개 중 안 읽은 새 글 ID, 최신 글 날짜"""
+def _feed_summary(conn, id_limit, group_id=None):
+    """중복 제거한 글 수, 안 읽은 새 글 수(전부)와 최신순 ID(최대 id_limit개), 최신 글 날짜"""
     base, params = _feed_from(group_id)
     total = conn.execute(f"SELECT COUNT(DISTINCT kp.post_id) {base}", params).fetchone()[0]
-    recent = conn.execute(f"""
-        SELECT kp.post_id, MAX(kp.is_new) AS is_new, MAX(kp.rowid) AS last_rowid, p.date, rp.read_at
-        {base}
-        JOIN posts p ON p.id = kp.post_id
+    unread = conn.execute(f"""
+        SELECT kp.post_id, MAX(kp.rowid) AS last_rowid {base}
         LEFT JOIN read_posts rp ON rp.post_id = kp.post_id
-        GROUP BY kp.post_id ORDER BY last_rowid DESC LIMIT ?
-    """, params + (new_window,)).fetchall()
+        WHERE {_UNREAD_SQL}
+        GROUP BY kp.post_id ORDER BY last_rowid DESC
+    """, params).fetchall()
+    latest = conn.execute(f"""
+        SELECT p.date {base}
+        JOIN posts p ON p.id = kp.post_id
+        ORDER BY kp.rowid DESC LIMIT 1
+    """, params).fetchone()
     return {
         'total': total,
-        'unread_ids': [r['post_id'] for r in recent if r['is_new'] and not r['read_at']],
-        'latest_date': recent[0]['date'] if recent else ''
+        'unread_count': len(unread),
+        'unread_ids': [r['post_id'] for r in unread[:id_limit]],
+        'latest_date': latest['date'] if latest else ''
     }
 
-def feed_summary(new_window=100):
+def feed_summary(id_limit=500):
     """모든 게시판을 합친 통합 피드 요약"""
     with _db() as conn:
-        return _feed_summary(conn, new_window)
+        return _feed_summary(conn, id_limit)
 
-def list_groups(new_window=100):
-    """게시판 목록: 등록 키워드, 알림 설정, 중복 제거한 글 수, 안 읽은 새 글 ID, 최신 글 날짜"""
+def list_groups(id_limit=500):
+    """게시판 목록: 등록 키워드, 알림 설정, 중복 제거한 글 수, 안 읽은 새 글 수·ID, 최신 글 날짜"""
     groups = []
     with _db() as conn:
         for g in conn.execute("SELECT id, name, alert, video_alert FROM keyword_groups ORDER BY id").fetchall():
@@ -349,7 +354,7 @@ def list_groups(new_window=100):
             """, (g['id'],))]
             groups.append({'id': g['id'], 'name': g['name'], 'members': members,
                            'alert': bool(g['alert']), 'video_alert': bool(g['video_alert']),
-                           **_feed_summary(conn, new_window, g['id'])})
+                           **_feed_summary(conn, id_limit, g['id'])})
     return groups
 
 def save_group(group_id, name, members):

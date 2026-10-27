@@ -16,6 +16,9 @@ tabs = storage.list_groups()
 sum_tabs = sum(t['total'] for t in tabs)
 print('all total', total_all, 'sum of tabs', sum_tabs)
 assert total_all < sum_tabs and total_all == storage.feed_summary()["total"]
+# 전체·게시판의 안 읽은 수는 최근 일부가 아니라 전부를 셈 → '안 읽은 글' 수와 같고 게시판은 그 이하
+unread_total = storage.unread_summary()['total']
+assert storage.feed_summary()['unread_count'] == unread_total and all(t['unread_count'] <= unread_total for t in tabs)
 ids = [p['id'] for p in posts]
 assert len(ids) == len(set(ids))
 multi = [p for p in storage.query_all_posts(0, 500)[1] if len(p['keywords']) > 1]
