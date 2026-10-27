@@ -11,7 +11,7 @@ os.environ['ADMIN_PASSWORD'] = 'Secr3t!'
 os.environ['TELEGRAM_TOKEN'] = ''
 os.environ['LOG_LEVEL'] = sys.argv[1] if len(sys.argv) > 1 else 'INFO'
 
-spec = importlib.util.spec_from_file_location('m', os.path.join(ROOT, 'fmkorea-scraper.py'))
+spec = importlib.util.spec_from_file_location('m', os.path.join(ROOT, 'app', 'fmkorea-scraper.py'))
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 import storage
 

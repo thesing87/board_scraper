@@ -18,7 +18,7 @@ storage._initialized = False
 storage.init_db()   # 컬럼 보충 확인
 assert 'list_comment_count' in [r[1] for r in conn.execute('PRAGMA table_info(posts)')]
 
-spec = importlib.util.spec_from_file_location('m', os.path.join(ROOT, 'fmkorea-scraper.py'))
+spec = importlib.util.spec_from_file_location('m', os.path.join(ROOT, 'app', 'fmkorea-scraper.py'))
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 
 class FakeDriver:

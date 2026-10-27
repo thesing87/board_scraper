@@ -5,7 +5,7 @@ import os, sys, json, re, urllib.request, urllib.parse
 os.environ.update(TELEGRAM_TOKEN='TEST', TELEGRAM_CHAT_ID='1', LOG_LEVEL='WARN', OUTPUT_DIR=os.environ.get('TEMP', '.'))
 import notifier, ast
 
-ast.parse(open(os.path.join(ROOT, 'fmkorea-scraper.py'), encoding='utf-8').read())
+ast.parse(open(os.path.join(ROOT, 'app', 'fmkorea-scraper.py'), encoding='utf-8').read())
 
 B = LIVE_URL + ''
 posts = json.load(urllib.request.urlopen(B + '/api/posts?video_only=1', timeout=20))['posts'][:2]

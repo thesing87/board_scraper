@@ -20,8 +20,8 @@ services:
     volumes:
       # NAS의 공유 폴더에 HTML 결과물 저장 (경로는 NAS 환경에 맞게 수정)
       - /volume2/docker/fmkorea-scraper/output:/output
-      # 코드(*.py, static)는 이미지 대신 NAS의 프로젝트 폴더를 그대로 사용 → 코드만 바뀌면 재빌드 없이 재시작만
-      # (이미지 재빌드는 Dockerfile·requirements.txt가 바뀔 때만 deploy.ps1이 수행)
+      # 코드(app/)는 이미지 대신 NAS의 프로젝트 폴더를 그대로 사용 → 코드만 바뀌면 재빌드 없이 재시작만
+      # (이미지 재빌드는 Dockerfile·requirements.txt가 바뀔 때만 deploy/deploy.ps1이 수행)
       - .:/app:ro
     deploy:
       resources:

@@ -10,11 +10,12 @@ import sys
 
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(TESTS_DIR)
+APP_DIR = os.path.join(ROOT, 'app')
 DATA_DIR = os.path.join(ROOT, 'output')
 LIVE_URL = 'http://thesing87.iptime.org'
 
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+if APP_DIR not in sys.path:
+    sys.path.insert(0, APP_DIR)
 
 def shot_dir(name):
     path = os.path.join(TESTS_DIR, '_shots', name)

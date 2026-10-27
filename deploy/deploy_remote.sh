@@ -1,7 +1,7 @@
 #!/bin/sh
-# deploy.ps1이 배포할 때마다 함께 전송하여 NAS에서 실행하는 스크립트
+# deploy.ps1이 배포할 때마다 함께 전송하여 NAS에서 실행하는 스크립트 (프로젝트 폴더 기준으로 동작)
 set -e
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 if [ ! -f .env ]; then echo '[오류] NAS에 .env 파일이 없습니다.'; exit 1; fi
 
 # 컨테이너는 uid 1200 비root 사용자로 실행되므로 출력 폴더 소유권을 맞춤 (이미 맞으면 sudo 생략)

@@ -3,7 +3,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import ROOT, DATA_DIR, LIVE_URL, shot_dir
 import os, sys, tempfile, importlib.util
 os.environ['OUTPUT_DIR'] = tempfile.mkdtemp()
-spec = importlib.util.spec_from_file_location('m', os.path.join(ROOT, 'fmkorea-scraper.py'))
+spec = importlib.util.spec_from_file_location('m', os.path.join(ROOT, 'app', 'fmkorea-scraper.py'))
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 class Alive:
     def execute_script(self, s): return 1

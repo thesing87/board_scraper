@@ -28,7 +28,7 @@ except scraper.BlockedError as e:
 print('LIST DETECT OK')
 
 # --- 2) 메인 루프 백오프 흐름
-spec = importlib.util.spec_from_file_location('m', os.path.join(ROOT, 'fmkorea-scraper.py'))
+spec = importlib.util.spec_from_file_location('m', os.path.join(ROOT, 'app', 'fmkorea-scraper.py'))
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 class FakeDriver:
     def execute_script(self, s): return 1

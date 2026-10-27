@@ -58,7 +58,7 @@ assert not any('정보는' in p['message'] for p in status['recent_problems'])
 assert status['last_cycle']['seconds'] == 12 and status['started_at'] and status['now']
 
 # 4) 메인 루프: 크롬 정기 재시작, 주기 상태 기록, 하루 한 번 유지 관리
-spec = importlib.util.spec_from_file_location('m', os.path.join(ROOT, 'fmkorea-scraper.py'))
+spec = importlib.util.spec_from_file_location('m', os.path.join(ROOT, 'app', 'fmkorea-scraper.py'))
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 created, quits = [], []
 class FakeDriver:
