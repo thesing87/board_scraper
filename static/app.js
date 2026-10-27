@@ -5,6 +5,7 @@
 // ==========================================
 const ALL_KEY = '__all__';            // 모든 게시판을 합친 통합 피드
 const UNREAD_KEY = '__unread__';      // 모든 게시판의 안 읽은 새 글 모아보기 (첫 화면)
+const COMMENTS_KEY = '__comments__';  // 읽은 뒤 새 댓글이 달린 글 모아보기
 const POLL_INTERVAL_MS = 60 * 1000;   // 새 글 확인 주기
 const LEGACY_READ_IDS_KEY = 'read_post_ids';
 
@@ -13,6 +14,7 @@ const app = {
     activeKey: ALL_KEY,   // 현재 보기: UNREAD_KEY, ALL_KEY 또는 "group:<게시판 ID>"
     unreadSince: null,    // 안 읽은 글 보기를 연 서버 시각 (보는 중 읽은 글이 빠져 페이지가 밀리지 않게)
     renderedUnreadIds: null, // 안 읽은 글 보기를 그릴 때의 안 읽은 글 ID (새 글 배너 계산용)
+    commentIds: null,     // 새 댓글 보기를 연 때의 글 ID 목록 (보는 중 확인한 글이 빠져 페이지가 밀리지 않게)
     searchQuery: '',      // 검색 중이면 검색어
     page: 1,
     totalPages: 1,
@@ -47,7 +49,8 @@ function boardName(key) {
 function findGroup(key) { return app.state ? (app.state.groups || []).find(g => groupKey(g) === key) : null; }
 function isAllView() { return app.activeKey === ALL_KEY; }
 function isUnreadView() { return app.activeKey === UNREAD_KEY; }
-function isKnownView(key) { return key === ALL_KEY || key === UNREAD_KEY || !!findGroup(key); }
+function isCommentsView() { return app.activeKey === COMMENTS_KEY; }
+function isKnownView(key) { return key === ALL_KEY || key === UNREAD_KEY || key === COMMENTS_KEY || !!findGroup(key); }
 
 // 첫 화면: 안 읽은 글이 있으면 안 읽은 글 모아보기, 없으면 전체
 function homeKey() {
@@ -58,6 +61,7 @@ function homeKey() {
 function viewSummary(key) {
     if (!app.state) return null;
     if (key === UNREAD_KEY) return app.state.unread;
+    if (key === COMMENTS_KEY) return app.state.new_comments;  // unread_ids: 새 댓글을 아직 확인하지 않은 글
     return key === ALL_KEY ? app.state.all : findGroup(key);
 }
 
@@ -107,10 +111,12 @@ function forgetUnread(ids) {
     const set = new Set(ids);
     (app.state.groups || []).forEach(g => { g.unread_ids = g.unread_ids.filter(id => !set.has(id)); });
     app.state.all.unread_ids = app.state.all.unread_ids.filter(id => !set.has(id));
-    const unread = app.state.unread;
-    const before = unread.unread_ids.length;
-    unread.unread_ids = unread.unread_ids.filter(id => !set.has(id));
-    unread.total = Math.max(0, unread.total - (before - unread.unread_ids.length));
+    // 안 읽은 글·새 댓글 모아보기는 글 수도 함께 줄임 (읽으면 그 글의 새 댓글도 확인한 것)
+    [app.state.unread, app.state.new_comments].forEach(summary => {
+        const before = summary.unread_ids.length;
+        summary.unread_ids = summary.unread_ids.filter(id => !set.has(id));
+        summary.total = Math.max(0, summary.total - (before - summary.unread_ids.length));
+    });
 }
 
 function markRead(ids) {
@@ -213,12 +219,15 @@ function renderNavigation() {
     const allActive = !searching && isAllView();
     const unreadActive = !searching && isUnreadView();
     const unreadTotal = app.state.unread.total;
+    const commentsActive = !searching && isCommentsView();
+    const commentsTotal = app.state.new_comments.total;
     const isActive = g => !searching && groupKey(g) === app.activeKey;
 
     // 데스크톱: 안 읽은 글 + 통합 피드 + 사용자가 만든 게시판
     document.getElementById('keyword-groups').innerHTML = `
         <nav class="kw-group" aria-label="통합">
             ${navItem('안 읽은 글', '', unreadTotal, unreadActive, 'data-action="open-unread"')}
+            ${navItem('새 댓글', '', commentsTotal, commentsActive, 'data-action="open-comments"')}
             ${navItem('전체', app.state.all.total, app.state.all.unread_ids.length, allActive, 'data-action="open-all"')}
         </nav>
         <nav class="kw-group" aria-label="게시판">
@@ -236,6 +245,7 @@ function renderNavigation() {
         </button>`;
     document.getElementById('chip-row').innerHTML =
         chip('안 읽은 글', unreadTotal, false, unreadActive, 'data-action="open-unread"') +
+        chip('새 댓글', commentsTotal, false, commentsActive, 'data-action="open-comments"') +
         chip('전체', app.state.all.total, app.state.all.unread_ids.length > 0, allActive, 'data-action="open-all"') +
         groups.map(g => chip(esc(g.name), g.total, g.unread_ids.length > 0, isActive(g),
             `data-action="open-group" data-group-id="${g.id}"`)).join('');
@@ -257,6 +267,7 @@ function scrollActiveChipIntoView() {
 function openView(key, page) {
     app.activeKey = key;
     if (key === UNREAD_KEY) app.unreadSince = app.state.generated_at;
+    if (key === COMMENTS_KEY) app.commentIds = null;
     app.searchQuery = '';
     document.getElementById('search-input').value = '';
     app.page = page || 1;
@@ -368,7 +379,7 @@ function renderPost(post, isUnread) {
     ].join('');
     // 통합 피드·검색·키워드가 여러 개인 게시판에서는 어느 키워드로 모인 글인지 표시
     const group = findGroup(app.activeKey);
-    const keywordTags = (post.keywords && (isAllView() || isUnreadView() || app.searchQuery || (group && group.members.length > 1)))
+    const keywordTags = (post.keywords && (isAllView() || isUnreadView() || isCommentsView() || app.searchQuery || (group && group.members.length > 1)))
         ? post.keywords.map(k => `<span class="kw-chip">${esc(k.board_name)} · ${esc(k.keyword)}</span>`).join('')
         : '';
     const link = esc(safeLink(post.link));
@@ -432,6 +443,7 @@ function feedSubText(total) {
     if (!summary) return '';
     const unread = summary.unread_ids.length;
     if (isUnreadView()) return unread ? `모든 게시판의 안 읽은 새 글 <strong>${summary.total}개</strong>` : '안 읽은 글을 모두 읽었습니다';
+    if (isCommentsView()) return unread ? `읽은 뒤 새 댓글이 달린 글 <strong>${summary.total}개</strong> · 최근 댓글 순` : '새 댓글을 모두 확인했습니다';
     const group = findGroup(app.activeKey);
     const label = group ? `키워드 ${group.members.map(m => esc(m.keyword)).join(', ')}` : '모든 게시판';
     return `${label} · ${summary.total}개 글${unread ? ` · <strong>새 글 ${unread}</strong>` : ''}`;
@@ -463,7 +475,9 @@ async function loadPosts() {
 
     let data;
     try {
-        data = await withProgress(getJSON('/api/posts?' + params.toString()));
+        data = isCommentsView() && !searching
+            ? await loadCommentPosts()
+            : await withProgress(getJSON('/api/posts?' + params.toString()));
     } catch (e) {
         feed.innerHTML = '<div class="empty-card">게시글을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</div>';
         return;
@@ -471,6 +485,18 @@ async function loadPosts() {
     const currentKey = app.searchQuery ? 'search:' + app.searchQuery : app.activeKey;
     if (viewKey !== currentKey) return;  // 응답 도착 전에 다른 보기로 이동한 경우
     renderFeed(data);
+}
+
+// 새 댓글 보기: 연 때의 글 목록(최근 댓글 순)을 고정해 두고 한 페이지 분량씩 받아 옴
+async function loadCommentPosts() {
+    if (!app.commentIds) app.commentIds = app.state.new_comments.unread_ids.slice();
+    const perPage = app.state.posts_per_page;
+    const total = app.commentIds.length;
+    const totalPages = Math.max(1, Math.ceil(total / perPage));
+    const page = Math.min(Math.max(1, app.page), totalPages);
+    const ids = app.commentIds.slice((page - 1) * perPage, page * perPage);
+    const posts = ids.length ? (await withProgress(getJSON('/api/posts?ids=' + ids.join(',')))).posts : [];
+    return { page, total_pages: totalPages, total, posts };
 }
 
 // 글 목록 응답(또는 지난 화면 캐시)을 피드로 그림
@@ -484,7 +510,8 @@ function renderFeed(data) {
     app.totalPages = data.total_pages;
     const summary = viewSummary(app.activeKey);
     app.renderedTotal = searching ? null : (summary ? summary.total : null);
-    app.renderedUnreadIds = isUnreadView() ? new Set(app.state.unread.unread_ids) : null;
+    app.renderedUnreadIds = isUnreadView() ? new Set(app.state.unread.unread_ids)
+        : isCommentsView() && !searching ? new Set(app.commentIds) : null;
     if (!searching) storageSet(sessionStorage, 'last_active_tab', app.activeKey);
 
     const empty = data.total === 0;
@@ -492,6 +519,8 @@ function renderFeed(data) {
     if (empty) {
         body = isUnreadView() && !videoOnly
             ? '<div class="empty-card">안 읽은 글이 없습니다. <button class="link-btn" data-action="open-all">전체 보기</button></div>'
+            : isCommentsView() && !searching
+            ? '<div class="empty-card">읽은 뒤 새 댓글이 달린 글이 없습니다.</div>'
             : !searching && !(app.state.groups || []).length
             ? '<div class="empty-card">게시판이 없습니다. 관리에서 게시판을 만들고 키워드를 등록해 주세요.</div>'
             : searching ? `<div class="empty-card">'${esc(app.searchQuery)}'에 해당하는 글이 없습니다.</div>`
@@ -512,10 +541,18 @@ function renderFeed(data) {
         });
     }
 
-    const title = searching ? `검색: ${esc(app.searchQuery)}` : group ? esc(group.name) : isUnreadView() ? '안 읽은 글' : '전체';
+    const commentsView = isCommentsView() && !searching;
+    const title = searching ? `검색: ${esc(app.searchQuery)}` : group ? esc(group.name)
+        : isUnreadView() ? '안 읽은 글' : commentsView ? '새 댓글' : '전체';
     const headActions = searching
         ? '<button class="btn btn-outline btn-small" data-action="clear-search">검색 닫기</button>'
-        : `<button class="btn btn-outline btn-small" data-action="mark-all-read" ${summary && summary.unread_ids.length ? '' : 'hidden'}>모두 읽음</button>`;
+        : `<button class="btn btn-outline btn-small" data-action="mark-all-read" ${summary && summary.unread_ids.length ? '' : 'hidden'}>${commentsView ? '모두 확인' : '모두 읽음'}</button>`;
+    // 새 댓글 보기는 연 때의 글 목록을 그대로 보여 주므로 동영상 필터 없음
+    const filter = commentsView ? '' : `
+                <div class="segmented" role="group" aria-label="글 필터">
+                    <button data-action="set-filter" data-video="0" aria-pressed="${!videoOnly}">전체</button>
+                    <button data-action="set-filter" data-video="1" aria-pressed="${videoOnly}">동영상만</button>
+                </div>`;
     feed.innerHTML = `
         <div class="feed-head">
             <div class="feed-head-text">
@@ -526,10 +563,7 @@ function renderFeed(data) {
                 <span class="feed-sub">${feedSubText(data.total)}</span>
             </div>
             <div class="feed-tools">
-                <div class="segmented" role="group" aria-label="글 필터">
-                    <button data-action="set-filter" data-video="0" aria-pressed="${!videoOnly}">전체</button>
-                    <button data-action="set-filter" data-video="1" aria-pressed="${videoOnly}">동영상만</button>
-                </div>
+                ${filter}
                 ${renderPagerMini(data.page, data.total_pages, empty)}
             </div>
         </div>
@@ -617,12 +651,12 @@ async function pollState() {
     if (app.searchQuery || app.renderedTotal === null) return;
     const summary = viewSummary(app.activeKey);
     if (!summary) return;
-    const added = isUnreadView() && app.renderedUnreadIds
+    const added = app.renderedUnreadIds
         ? summary.unread_ids.filter(id => !app.renderedUnreadIds.has(id)).length
         : summary.total - app.renderedTotal;
     if (added > 0) {
         const banner = document.getElementById('new-banner');
-        banner.innerHTML = `${ICONS.up}<span>새 글 ${added}개 · 눌러서 보기</span>`;
+        banner.innerHTML = `${ICONS.up}<span>${isCommentsView() ? '새 댓글이 달린 글' : '새 글'} ${added}개 · 눌러서 보기</span>`;
         banner.hidden = false;
     }
 }
@@ -631,6 +665,7 @@ async function showNewPosts() {
     hideNewBanner();
     app.page = 1;
     if (isUnreadView()) app.unreadSince = app.state.generated_at;
+    app.commentIds = null;
     await loadPosts();
 }
 
@@ -894,6 +929,7 @@ async function refreshCurrent() {
     try {
         // 새로고침하면 안 읽은 글 보기에서 이미 읽은 글은 빠짐
         app.unreadSince = null;
+        app.commentIds = null;
         await loadState();
     } catch (e) {
         renderStatus(false);
@@ -991,6 +1027,8 @@ document.addEventListener('click', (e) => {
         openView(ALL_KEY, 1);
     } else if (action === 'open-unread') {
         openView(UNREAD_KEY, 1);
+    } else if (action === 'open-comments') {
+        openView(COMMENTS_KEY, 1);
     } else if (action === 'open-group') {
         openView('group:' + el.dataset.groupId, 1);
     } else if (action === 'save-group') {

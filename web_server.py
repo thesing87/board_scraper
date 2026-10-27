@@ -27,6 +27,8 @@ from storage import (
     list_groups,
     feed_summary,
     unread_summary,
+    new_comment_summary,
+    query_posts_by_ids,
     save_group,
     delete_group
 )
@@ -114,6 +116,8 @@ def build_state():
         'all': feed_summary(NEW_POSTS_WINDOW),
         # 모든 게시판의 안 읽은 새 글 모아보기 (첫 화면)
         'unread': unread_summary(MAX_READ_IDS),
+        # 이미 읽은 글 중 읽은 뒤 새 댓글이 달린 글 모아보기
+        'new_comments': new_comment_summary(MAX_READ_IDS),
         # 사용자가 만든 게시판 (등록한 키워드의 글을 중복 없이 한 피드로)
         'groups': groups
     }
@@ -124,6 +128,9 @@ def build_posts_page(page, video_only, query='', group_id=None, unread_since=Non
     total_pages = max(1, -(-total // POSTS_PER_PAGE))
     page = min(max(1, page), total_pages)
     _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id, unread_since)
+    return {'page': page, 'total_pages': total_pages, 'total': total, 'posts': _decorate_posts(posts)}
+
+def _decorate_posts(posts):
     for post in posts:
         for link in post.get('keywords', []):
             link['board_name'] = BOARD_MAP.get(link['board'], link['board'])
@@ -133,7 +140,7 @@ def build_posts_page(page, video_only, query='', group_id=None, unread_since=Non
         post['has_video'] = len(post.get('videos', [])) > 0
         post['is_syncing'] = post['id'] in syncing_ids
         post.pop('list_comment_count', None)
-    return {'page': page, 'total_pages': total_pages, 'total': total, 'posts': posts}
+    return posts
 
 class KeywordAPIServer(BaseHTTPRequestHandler):
     def log_message(self, format, *args): return
@@ -196,6 +203,10 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._serve_static(*STATIC_FILES[pure_path])
             elif pure_path == '/api/state':
                 self._send_data(200, build_state())
+            elif pure_path == '/api/posts' and 'ids' in query:
+                # 새 댓글 모아보기: 화면을 연 때의 글 목록 중 한 페이지 분량을 그 순서대로
+                ids = [i for i in query['ids'][0].split(',') if i.isdigit()][:POSTS_PER_PAGE]
+                self._send_data(200, {'posts': _decorate_posts(query_posts_by_ids(ids))})
             elif pure_path == '/api/posts':
                 try:
                     page = int(query.get('page', ['1'])[0])
