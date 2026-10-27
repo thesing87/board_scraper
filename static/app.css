@@ -239,7 +239,8 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
     .feed { max-width: none; }
     .feed-wrap { padding: 24px 32px 64px; }
     /* 댓글 글자 영역이 에펨코리아 모바일 화면(폰 폭 약 390px) 이상이 되도록 댓글 칸 폭 확보 */
-    .post-card.has-comments { display: grid; grid-template-columns: minmax(0, 1fr) 480px; column-gap: 28px; align-items: start; }
+    /* 댓글 칸이 길어져 생기는 남는 높이는 본문 줄(2행) 아래로만 가게 해서, 짧은 본문도 제목 바로 아래에 붙도록 */
+    .post-card.has-comments { display: grid; grid-template-columns: minmax(0, 1fr) 480px; grid-template-rows: auto 1fr; column-gap: 28px; align-items: start; }
     .post-card.has-comments > .post-head,
     .post-card.has-comments > .post-content { grid-column: 1; }
     .post-card.has-comments > .comments {
