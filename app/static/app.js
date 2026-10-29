@@ -654,6 +654,11 @@ async function pollState() {
     renderStatus(true);
     renderNavigation();
     renderFeedSub();
+    // 관리 패널을 열어 둔 채 기다리면 추가한 카테고리의 확인 결과가 바로 보이게
+    if (!document.getElementById('settings').hidden) {
+        renderBoardSelect();
+        renderCategorySettings();
+    }
     if (app.searchQuery || app.renderedTotal === null) return;
     const summary = viewSummary(app.activeKey);
     if (!summary) return;
@@ -687,12 +692,9 @@ function alertSwitch(groupId, type, on, label) {
 }
 
 function renderSettings() {
-    const select = document.getElementById('group-board-select');
-    const prev = select.value;
-    select.innerHTML = app.state.boards.map(b => `<option value="${esc(b.key)}">${esc(b.name)}</option>`).join('');
-    if (prev) select.value = prev;
-
+    renderBoardSelect();
     renderGroupSettings();
+    renderCategorySettings();
 
     const groups = app.state.groups || [];
     document.getElementById('settings-alerts').innerHTML = groups.length ? groups.map(g => `
@@ -823,6 +825,95 @@ async function deleteGroup(groupId, button) {
     } finally {
         button.disabled = false;
     }
+}
+
+// ---------- 카테고리 (수집할 에펨코리아 게시판. 추가하면 수집기가 다음 주기에 확인) ----------
+const CATEGORY_STATUS = {
+    pending: { label: '확인 대기', cls: 'cat-pending' },
+    ok: { label: '수집 중', cls: 'cat-ok' },
+    invalid: { label: '수집 불가', cls: 'cat-invalid' }
+};
+
+// 키워드 등록용 카테고리 선택: 수집할 수 없는 카테고리는 빼고, 확인 전인 카테고리는 표시해서 보여줌
+function renderBoardSelect() {
+    const select = document.getElementById('group-board-select');
+    const prev = select.value;
+    const boards = app.state.boards.filter(b => b.status !== 'invalid');
+    select.innerHTML = boards.map(b =>
+        `<option value="${esc(b.key)}">${esc(b.name)}${b.status === 'pending' ? ' (확인 대기)' : ''}</option>`).join('');
+    if (boards.some(b => b.key === prev)) select.value = prev;
+}
+
+function renderCategorySettings() {
+    const boards = app.state.boards || [];
+    document.getElementById('settings-categories').innerHTML = boards.length ? boards.map(b => {
+        const status = CATEGORY_STATUS[b.status] || CATEGORY_STATUS.pending;
+        // 확인은 됐지만 등록한 키워드가 없으면 실제로 수집하는 글은 없음
+        const label = b.status === 'ok' && !b.keyword_count ? '확인됨' : status.label;
+        const usage = b.keyword_count
+            ? `키워드 ${b.keyword_count}개${b.groups.length ? ` (${b.groups.map(esc).join(', ')})` : ''}`
+            : '키워드 없음';
+        return `
+        <div class="group-row">
+            <div class="group-row-main">
+                <span class="group-row-name">${esc(b.name)} <span class="cat-status ${status.cls}">${label}</span></span>
+                <span class="group-row-members">${esc(b.key)} · ${usage}</span>
+                ${b.status === 'invalid' && b.message ? `<span class="cat-message">${esc(b.message)}</span>` : ''}
+            </div>
+            ${b.status === 'invalid' ? `<button class="btn btn-outline btn-small" data-action="recheck-category" data-key="${esc(b.key)}">다시 확인</button>` : ''}
+            <button class="btn btn-outline btn-small" data-action="rename-category" data-key="${esc(b.key)}">이름</button>
+            <button class="btn btn-outline btn-small btn-danger" data-action="delete-category" data-key="${esc(b.key)}">삭제</button>
+        </div>`;
+    }).join('') : '<span class="settings-hint">등록된 카테고리가 없습니다.</span>';
+}
+
+async function categoryRequest(body, button) {
+    const pwd = adminPassword();
+    if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return false; }
+    button.disabled = true;
+    try {
+        const data = await postJSON('/api/category', { ...body, password: pwd });
+        if (!data.success) { alert(data.message); return false; }
+        await loadState();
+        renderSettings();
+        return data;
+    } catch (e) {
+        alert('요청 중 오류가 발생했습니다.');
+        return false;
+    } finally {
+        button.disabled = false;
+    }
+}
+
+async function addCategory(button) {
+    const input = document.getElementById('category-input');
+    const value = input.value.trim();
+    if (!value) { input.focus(); return; }
+    const data = await categoryRequest({ action: 'create', input: value }, button);
+    if (data) {
+        input.value = '';
+        alert(data.message);
+    }
+}
+
+async function renameCategory(key, button) {
+    const board = app.state.boards.find(b => b.key === key);
+    if (!board) return;
+    const name = prompt(`'${board.name}' 카테고리의 새 이름`, board.name);
+    if (name === null || !name.trim() || name.trim() === board.name) return;
+    await categoryRequest({ action: 'rename', key: key, name: name.trim() }, button);
+}
+
+async function deleteCategory(key, button) {
+    const board = app.state.boards.find(b => b.key === key);
+    if (!board) return;
+    // 키워드가 등록된 카테고리는 서버에서도 거부함 (지우면 그 키워드를 쓰는 게시판을 고칠 수 없게 됨)
+    if (board.keyword_count) {
+        alert(`키워드가 등록되어 있어 삭제할 수 없습니다.${board.groups.length ? `\n(${board.groups.join(', ')} 게시판에서 이 카테고리 키워드를 먼저 빼 주세요)` : ''}`);
+        return;
+    }
+    if (!confirm(`'${board.name}' 카테고리를 삭제할까요?`)) return;
+    await categoryRequest({ action: 'delete', key: key }, button);
 }
 
 // ---------- 수집 상태 (수집 주기·차단 의심·크롬·백업·최근 경고) ----------
@@ -1054,6 +1145,14 @@ document.addEventListener('click', (e) => {
         resetGroupForm();
     } else if (action === 'delete-group') {
         deleteGroup(Number(el.dataset.groupId), el);
+    } else if (action === 'add-category') {
+        addCategory(el);
+    } else if (action === 'rename-category') {
+        renameCategory(el.dataset.key, el);
+    } else if (action === 'recheck-category') {
+        categoryRequest({ action: 'recheck', key: el.dataset.key }, el);
+    } else if (action === 'delete-category') {
+        deleteCategory(el.dataset.key, el);
     } else if (action === 'page') {
         changePage(el.dataset.target);
     } else if (action === 'set-filter') {
@@ -1104,6 +1203,9 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.target.id === 'group-kw-input') {
         e.preventDefault();
         addDraftKeyword();
+    } else if (e.key === 'Enter' && e.target.id === 'category-input') {
+        e.preventDefault();
+        addCategory(document.querySelector('[data-action="add-category"]'));
     } else if (e.key === 'Escape' && !document.getElementById('settings').hidden) {
         setSettingsOpen(false);
     } else if (e.key === 'Escape' && e.target.id === 'search-input' && app.searchQuery) {

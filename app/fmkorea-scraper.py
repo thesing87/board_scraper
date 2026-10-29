@@ -11,7 +11,6 @@ from selenium.webdriver.chrome.options import Options
 from config import (
     log_msg,
     short_err,
-    BOARD_MAP,
     CHECK_INTERVAL,
     DDNS_URL,
     MAX_DATA_PER_KEYWORD,
@@ -24,6 +23,9 @@ from config import (
 from storage import (
     init_db,
     load_keywords,
+    category_names,
+    pending_categories,
+    set_category_checked,
     load_alert_targets,
     recent_keyword_posts,
     save_keyword_post,
@@ -43,6 +45,7 @@ from scraper import (
     scrape_post_detail,
     keyword_in_post,
     parse_count,
+    check_board,
     BlockedError
 )
 from web_server import run_api_server
@@ -187,6 +190,21 @@ def run_daily_maintenance():
     except Exception as e:
         log_msg(f"[DB] 오래된 글 정리 실패: {short_err(e)}", "ERROR")
 
+def verify_pending_categories(driver):
+    """관리 화면에서 추가한 카테고리를 열어 보고 수집 가능(ok)·불가(invalid)를 기록. 수집은 다음 주기부터"""
+    for board in pending_categories():
+        try:
+            ok, detail = check_board(driver, board)
+        except Exception as e:
+            log_msg(f"[카테고리] {board} 확인 실패, 다음 주기에 재시도: {short_err(e)}", "WARN")
+            continue
+        if ok:
+            set_category_checked(board, True, page_name=detail)
+            log_msg(f"[카테고리] {board} 확인 완료{f' ({detail})' if detail else ''} → 다음 주기부터 수집")
+        else:
+            set_category_checked(board, False, message=detail)
+            log_msg(f"[카테고리] {board} 수집할 수 없는 게시판: {detail}", "WARN")
+
 def short_title(title, limit=40):
     title = (title or '').strip()
     return title if len(title) <= limit else title[:limit] + '…'
@@ -246,6 +264,7 @@ def main():
                 continue
 
             config_data = load_keywords()
+            board_names = category_names()
             alert_targets = load_alert_targets()
 
             cycle_started = time.time()
@@ -254,7 +273,7 @@ def main():
             blocked_reason = None
 
             for board, keywords in config_data.items():
-                board_name = BOARD_MAP.get(board, board)
+                board_name = board_names.get(board, board)
                 if blocked_reason:
                     break
 
@@ -386,6 +405,10 @@ def main():
                 send_telegram_message(f"✅ 에펨코리아 접속이 정상으로 돌아왔습니다. (차단 의심 {block_streak}회 후 복구)")
                 block_streak = 0
                 next_wait = CHECK_INTERVAL
+
+            # 새로 추가한 카테고리는 차단 의심이 없는 주기에만 확인 (차단 화면을 잘못된 게시판으로 오판하지 않도록)
+            if not blocked_reason:
+                verify_pending_categories(driver)
 
             cycles_since_chrome += 1
             runtime_status.increment('cycles')

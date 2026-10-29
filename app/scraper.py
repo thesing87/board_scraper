@@ -41,26 +41,9 @@ def parse_count(text):
     digits = re.sub(r'[^\d]', '', str(text or ''))
     return int(digits) if digits else 0
 
-def get_list_page_posts(driver, board, keyword, page=1):
-    encoded_keyword = quote(keyword)
-    list_url = f"https://www.fmkorea.com/index.php?mid={board}&search_target=title_content&search_keyword={encoded_keyword}&page={page}"
-    # 페이지 로드 실패는 호출한 쪽(메인 루프)에서 키워드 정보와 함께 한 번만 기록
-    driver.get(list_url)
-    WebDriverWait(driver, 5).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, 'table.bd_lst, body'))
-    )
-    time.sleep(random.uniform(0.5, 1.2))
-    
-    soup = BeautifulSoup(driver.page_source, 'html.parser')
-    if not soup.select_one('table.bd_lst'):
-        # 검색 결과가 없을 때도 게시판 목록 틀(.bd_lst_wrp)과 안내 문구는 있음. 틀 자체가 없으면 정상 화면이 아님
-        if soup.select_one('.bd_lst_wrp') and '등록된 글이 없습니다' in soup.get_text():
-            log_msg(f"[수집] 목록 {board}/{keyword}: 0건 (검색 결과 없음)", "DEBUG")
-            return []
-        page_title = (driver.title or '').strip()[:60] or '제목 없음'
-        raise BlockedError(f"게시판 목록이 아닌 페이지 응답 (제목: {page_title})")
+def _parse_list_rows(soup):
+    """목록 표(table.bd_lst)의 공지를 뺀 글 행을 글 정보로"""
     posts = soup.select('table.bd_lst tbody tr:not(.notice)')
-    
     post_list = []
     for post in posts:
         title_tag = post.select_one('td.title a.hx') or post.select_one('td.title a')
@@ -94,8 +77,54 @@ def get_list_page_posts(driver, board, keyword, page=1):
                 'list_votes': votes_tag.text.strip() if votes_tag else None,
             })
 
+    return post_list
+
+def get_list_page_posts(driver, board, keyword, page=1):
+    encoded_keyword = quote(keyword)
+    list_url = f"https://www.fmkorea.com/index.php?mid={board}&search_target=title_content&search_keyword={encoded_keyword}&page={page}"
+    # 페이지 로드 실패는 호출한 쪽(메인 루프)에서 키워드 정보와 함께 한 번만 기록
+    driver.get(list_url)
+    WebDriverWait(driver, 5).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, 'table.bd_lst, body'))
+    )
+    time.sleep(random.uniform(0.5, 1.2))
+    
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
+    if not soup.select_one('table.bd_lst'):
+        # 검색 결과가 없을 때도 게시판 목록 틀(.bd_lst_wrp)과 안내 문구는 있음. 틀 자체가 없으면 정상 화면이 아님
+        if soup.select_one('.bd_lst_wrp') and '등록된 글이 없습니다' in soup.get_text():
+            log_msg(f"[수집] 목록 {board}/{keyword}: 0건 (검색 결과 없음)", "DEBUG")
+            return []
+        page_title = (driver.title or '').strip()[:60] or '제목 없음'
+        raise BlockedError(f"게시판 목록이 아닌 페이지 응답 (제목: {page_title})")
+    post_list = _parse_list_rows(soup)
+
     log_msg(f"[수집] 목록 {board}/{keyword}: {len(post_list)}건", "DEBUG")
     return post_list
+
+def board_title(page_title):
+    """'자동차 - 에펨코리아'(검색 중이면 '검색어 - 자동차 - 에펨코리아') 형태의 창 제목에서 게시판 이름"""
+    parts = [p.strip() for p in (page_title or '').split(' - ') if p.strip()]
+    if parts and '에펨코리아' in parts[-1]:
+        parts.pop()
+    return parts[-1][:30] if parts else ''
+
+def check_board(driver, board):
+    """새로 추가한 카테고리 확인: 게시판 첫 목록이 수집기가 읽는 표(table.bd_lst) 형태로 글을 보여주는지.
+    검색 결과가 없을 때의 빈 목록으로는 표 형태인지 알 수 없어 검색 없는 첫 목록으로 확인함.
+    (True, 게시판 이름) 또는 (False, 사유). 페이지를 못 열면 예외 그대로 (호출한 쪽에서 다음 주기에 재시도)"""
+    driver.get(f"https://www.fmkorea.com/index.php?mid={quote(board)}")
+    WebDriverWait(driver, 5).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, 'table.bd_lst, body'))
+    )
+    time.sleep(random.uniform(0.5, 1.2))
+    page_title = (driver.title or '').strip()
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
+    if not soup.select_one('table.bd_lst'):
+        return False, f"글 목록(표)이 없는 페이지 (제목: {page_title[:60] or '제목 없음'})"
+    if not _parse_list_rows(soup):
+        return False, "목록 표에서 글을 읽지 못함"
+    return True, board_title(page_title)
 
 def scrape_post_detail(driver, post_info):
     link = post_info['link']
