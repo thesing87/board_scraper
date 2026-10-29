@@ -99,6 +99,17 @@ def _create_schema(conn):
             PRIMARY KEY (group_id, board, keyword)
         );
 
+        -- 수집할 에펨코리아 게시판(카테고리). rowid 순서가 화면 표시 순서
+        -- 관리 화면에서 추가하면 pending, 수집기가 다음 주기에 열어 보고 ok(수집) 또는 invalid(수집 안 함)로 바꿈
+        CREATE TABLE IF NOT EXISTS categories (
+            key         TEXT PRIMARY KEY,           -- 에펨코리아 게시판 mid
+            name        TEXT NOT NULL DEFAULT '',   -- 비어 있으면 확인할 때 게시판 제목으로 채움
+            status      TEXT NOT NULL DEFAULT 'pending',
+            message     TEXT NOT NULL DEFAULT '',   -- 확인 실패 사유
+            checked_at  TEXT,
+            created_at  TEXT NOT NULL
+        );
+
         -- 예전 카테고리별 알림 설정. 게시판별 알림으로 옮길 때 초기값으로만 사용
         CREATE TABLE IF NOT EXISTS board_config (
             board        TEXT PRIMARY KEY,
@@ -245,6 +256,7 @@ def init_db():
                     conn.execute("INSERT OR IGNORE INTO board_config(board) VALUES(?)", (board,))
                 _backfill_search_text(conn)
                 _migrate_keywords_to_boards(conn)
+                _seed_categories(conn)
         # 커밋이 끝난 뒤에만 기존 파일을 정리하여, 이전 도중 실패하면 다음 기동 시 다시 시도
         for path in migrated_files:
             _mark_legacy_migrated(path)
@@ -255,14 +267,95 @@ def _db():
     return closing(_connect())
 
 # ==========================================
+# 카테고리 (수집할 에펨코리아 게시판. 처음 한 번 config.BOARD_MAP으로 채우고 이후 관리 화면에서 추가·삭제)
+# ==========================================
+def _seed_categories(conn):
+    """카테고리 표를 1회 채움: BOARD_MAP의 기본 게시판과, 키워드가 이미 등록된 그 밖의 게시판(이름은 mid)"""
+    if _get_meta(conn, 'categories_seeded'):
+        return
+    now = _now()
+    seeds = list(BOARD_MAP.items()) + [(r['board'], r['board']) for r in conn.execute("SELECT DISTINCT board FROM keywords")]
+    conn.executemany("""
+        INSERT OR IGNORE INTO categories(key, name, status, checked_at, created_at) VALUES(?, ?, 'ok', ?, ?)
+    """, [(key, name, now, now) for key, name in seeds])
+    _set_meta(conn, 'categories_seeded', '1')
+
+def category_names():
+    """{mid: 표시 이름} 모든 카테고리 (확인 전·실패 포함, 이름이 비어 있으면 mid)"""
+    with _db() as conn:
+        return {r['key']: r['name'] or r['key'] for r in conn.execute("SELECT key, name FROM categories ORDER BY rowid")}
+
+def list_categories():
+    """관리 화면용 카테고리 목록: 상태, 확인 실패 사유, 등록된 키워드 수와 그 키워드를 쓰는 게시판 이름"""
+    with _db() as conn:
+        rows = conn.execute("SELECT * FROM categories ORDER BY rowid").fetchall()
+        result = []
+        for r in rows:
+            keyword_count = conn.execute("SELECT COUNT(*) FROM keywords WHERE board = ?", (r['key'],)).fetchone()[0]
+            groups = [g['name'] for g in conn.execute("""
+                SELECT DISTINCT g.name FROM keyword_group_members m JOIN keyword_groups g ON g.id = m.group_id
+                WHERE m.board = ? ORDER BY g.id
+            """, (r['key'],))]
+            result.append({'key': r['key'], 'name': r['name'] or r['key'], 'status': r['status'],
+                           'message': r['message'], 'checked_at': r['checked_at'],
+                           'keyword_count': keyword_count, 'groups': groups})
+    return result
+
+def add_category(key, name=''):
+    """확인 전(pending) 카테고리 추가. 이미 있으면 ValueError"""
+    with _db() as conn, conn:
+        if conn.execute("SELECT 1 FROM categories WHERE key = ?", (key,)).fetchone():
+            raise ValueError('이미 등록된 카테고리입니다.')
+        conn.execute("INSERT INTO categories(key, name, created_at) VALUES(?, ?, ?)", (key, name, _now()))
+
+def rename_category(key, name):
+    """이름 변경. 없는 카테고리면 False"""
+    with _db() as conn, conn:
+        return conn.execute("UPDATE categories SET name = ? WHERE key = ?", (name, key)).rowcount > 0
+
+def recheck_category(key):
+    """확인에 실패한 카테고리를 다음 수집 주기에 다시 확인하도록 되돌림. 없거나 실패 상태가 아니면 False"""
+    with _db() as conn, conn:
+        return conn.execute("UPDATE categories SET status = 'pending', message = '' WHERE key = ? AND status = 'invalid'",
+                            (key,)).rowcount > 0
+
+def delete_category(key):
+    """카테고리 삭제. 키워드가 등록되어 있으면(그 키워드를 쓰는 게시판 이름과 함께) ValueError, 없는 카테고리면 False"""
+    with _db() as conn, conn:
+        groups = [g['name'] for g in conn.execute("""
+            SELECT DISTINCT g.name FROM keyword_group_members m JOIN keyword_groups g ON g.id = m.group_id
+            WHERE m.board = ? ORDER BY g.id
+        """, (key,))]
+        if groups:
+            raise ValueError(f"키워드가 등록되어 있어 삭제할 수 없습니다. ({', '.join(groups)} 게시판에서 이 카테고리 키워드를 먼저 빼 주세요)")
+        if conn.execute("SELECT 1 FROM keywords WHERE board = ?", (key,)).fetchone():
+            raise ValueError('키워드가 등록되어 있어 삭제할 수 없습니다.')
+        return conn.execute("DELETE FROM categories WHERE key = ?", (key,)).rowcount > 0
+
+def pending_categories():
+    """수집기가 확인할 카테고리 mid 목록 (추가한 순서)"""
+    with _db() as conn:
+        return [r['key'] for r in conn.execute("SELECT key FROM categories WHERE status = 'pending' ORDER BY rowid")]
+
+def set_category_checked(key, ok, page_name='', message=''):
+    """확인 결과 기록. 이름이 비어 있으면 게시판 제목(page_name)으로 채움"""
+    with _db() as conn, conn:
+        conn.execute("""
+            UPDATE categories SET status = ?, message = ?, checked_at = ?,
+                   name = CASE WHEN name = '' THEN ? ELSE name END
+            WHERE key = ?
+        """, ('ok' if ok else 'invalid', message, _now(), page_name, key))
+
+# ==========================================
 # 키워드 (게시판에 등록된 키워드가 곧 수집 대상. 직접 추가·삭제하지 않고 게시판 저장 시 자동 정리)
 # ==========================================
 def load_keywords():
-    """{board: [keyword, ...]} 형태로 등록 순서대로 반환"""
-    result = {board: [] for board in BOARD_MAP.keys()}
+    """{board: [keyword, ...]} 형태로 등록 순서대로 반환. 확인을 통과한(ok) 카테고리만 수집 대상"""
     with _db() as conn:
+        result = {r['key']: [] for r in conn.execute("SELECT key FROM categories WHERE status = 'ok' ORDER BY rowid")}
         for row in conn.execute("SELECT board, keyword FROM keywords ORDER BY rowid"):
-            result.setdefault(row['board'], []).append(row['keyword'])
+            if row['board'] in result:
+                result[row['board']].append(row['keyword'])
     return result
 
 def _drop_orphan_keywords(conn):

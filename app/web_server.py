@@ -14,7 +14,7 @@ from config import (
     short_err,
     ADMIN_PASSWORD,
     INSECURE_ADMIN_PASSWORDS,
-    BOARD_MAP,
+    CHECK_INTERVAL,
     LIST_PAGE_SIZE
 )
 import runtime_status
@@ -30,7 +30,13 @@ from storage import (
     new_comment_summary,
     query_posts_by_ids,
     save_group,
-    delete_group
+    delete_group,
+    category_names,
+    list_categories,
+    add_category,
+    rename_category,
+    recheck_category,
+    delete_category
 )
 
 MAX_BODY_BYTES = 10 * 1024
@@ -39,6 +45,10 @@ MAX_QUERY_LENGTH = 50
 MAX_GROUP_NAME_LENGTH = 30
 MAX_GROUP_MEMBERS = 50
 MAX_KEYWORD_LENGTH = 50
+MAX_CATEGORY_NAME_LENGTH = 20
+MAX_CATEGORY_INPUT_LENGTH = 300
+# 에펨코리아 게시판 mid (글 주소 'fmkorea.com/12345'와 헷갈리지 않게 숫자만인 값은 제외)
+BOARD_KEY_RE = re.compile(r'(?![0-9]+$)[a-z0-9_]{1,40}')
 POSTS_PER_PAGE = 10
 # 첫 화면 조회를 미리 돌려 두는 간격 (_keep_warm)
 WARMUP_INTERVAL_SECONDS = 30
@@ -68,6 +78,22 @@ auth_lock = threading.Lock()
 ADMIN_API_ENABLED = ADMIN_PASSWORD not in INSECURE_ADMIN_PASSWORDS
 if not ADMIN_API_ENABLED:
     log_msg("[API] ADMIN_PASSWORD 미설정/기본값 - 관리 기능 비활성화", "WARN")
+
+def board_key_from_input(text):
+    """관리 화면에 입력한 게시판 mid 또는 주소에서 mid를 뽑음 ('hotdeal', 'https://www.fmkorea.com/hotdeal',
+    'fmkorea.com/index.php?mid=hotdeal&page=2' 등). 알아볼 수 없으면 None"""
+    text = (text or '').strip()
+    if any(ch in text for ch in '/?.:'):
+        url = urlparse(text if '://' in text else 'https://' + text)
+        host = (url.hostname or '').lower()
+        if host != 'fmkorea.com' and not host.endswith('.fmkorea.com'):
+            return None
+        text = parse_qs(url.query).get('mid', [''])[0]
+        if not text:
+            segments = [seg for seg in url.path.split('/') if seg]
+            text = segments[0] if segments and segments[0] != 'index.php' else ''
+    text = text.lower()
+    return text if BOARD_KEY_RE.fullmatch(text) else None
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     """요청마다 새로운 스레드를 독립 할당하여 동기 블로킹 및 접속 지연을 차단"""
@@ -103,13 +129,15 @@ def _clear_auth_failures(ip):
 def build_state():
     """대시보드 초기 화면 구성용 데이터: 게시판 목록(알림 설정 포함), 통합 피드 요약, 카테고리(에펨코리아 게시판)"""
     groups = list_groups(MAX_READ_IDS)
+    names = category_names()
     for group in groups:
         for member in group['members']:
-            member['board_name'] = BOARD_MAP.get(member['board'], member['board'])
+            member['board_name'] = names.get(member['board'], member['board'])
     return {
         'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'posts_per_page': POSTS_PER_PAGE,
-        'boards': [{'key': k, 'name': v} for k, v in BOARD_MAP.items()],
+        # 카테고리(에펨코리아 게시판): 확인 상태(pending·ok·invalid)와 등록된 키워드 수·사용 중인 게시판 포함
+        'boards': list_categories(),
         # 모든 게시판을 합친 통합 피드 요약 (같은 글은 한 번만 셈)
         'all': feed_summary(MAX_READ_IDS),
         # 모든 게시판의 안 읽은 새 글 모아보기 (첫 화면)
@@ -129,9 +157,10 @@ def build_posts_page(page, video_only, query='', group_id=None, unread_since=Non
     return {'page': page, 'total_pages': total_pages, 'total': total, 'posts': _decorate_posts(posts)}
 
 def _decorate_posts(posts):
+    names = category_names()
     for post in posts:
         for link in post.get('keywords', []):
-            link['board_name'] = BOARD_MAP.get(link['board'], link['board'])
+            link['board_name'] = names.get(link['board'], link['board'])
     # 메인 루프가 매 주기 목록의 댓글 수로 변화를 감시하는 최근 글 표시 (필터와 무관하게 키워드 전체 기준)
     syncing_ids = recent_post_ids(LIST_PAGE_SIZE)
     for post in posts:
@@ -258,6 +287,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._handle_read()
         elif pure_path == '/api/group':
             self._handle_group()
+        elif pure_path == '/api/category':
+            self._handle_category()
         else:
             self.send_response(404)
             self.end_headers()
@@ -291,8 +322,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._send_json(400, False, f'❌ 키워드를 1~{MAX_GROUP_MEMBERS}개 등록해 주세요.')
                 return
             members = [{'board': m['board'].strip(), 'keyword': m['keyword'].strip()} for m in members]
+            names = category_names()
             for m in members:
-                if m['board'] not in BOARD_MAP:
+                if m['board'] not in names:
                     self._send_json(400, False, '❌ 존재하지 않는 카테고리입니다.')
                     return
                 if not m['keyword'] or len(m['keyword']) > MAX_KEYWORD_LENGTH or any(ch in m['keyword'] for ch in '\r\n\t'):
@@ -319,7 +351,69 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
 
     @staticmethod
     def _dropped_text(dropped):
-        return f" / 수집 중단 키워드: {', '.join(f'{BOARD_MAP.get(b, b)}/{k}' for b, k in dropped)}" if dropped else ''
+        if not dropped:
+            return ''
+        names = category_names()
+        return f" / 수집 중단 키워드: {', '.join(f'{names.get(b, b)}/{k}' for b, k in dropped)}"
+
+    def _handle_category(self):
+        """카테고리(에펨코리아 게시판) 추가·이름 변경·다시 확인·삭제 (관리자 암호 필요).
+        추가한 카테고리는 수집기가 다음 주기에 열어 보고 수집할 수 있는 게시판이면 그다음 주기부터 수집"""
+        try:
+            params = self._read_json_body()
+            if not self._authorize(params.get('password', ''), '카테고리 관리'):
+                return
+            action = params.get('action')
+            if action not in ('create', 'rename', 'recheck', 'delete'):
+                self._send_json(400, False, '❌ 지원하지 않는 작업입니다.')
+                return
+            name = str(params.get('name') or '').strip()
+            if (action == 'rename' and not name) or len(name) > MAX_CATEGORY_NAME_LENGTH or any(ch in name for ch in '\r\n\t'):
+                self._send_json(400, False, f'❌ 카테고리 이름은 줄바꿈 없이 {MAX_CATEGORY_NAME_LENGTH}자 이하로 입력해 주세요.')
+                return
+            if action == 'create':
+                raw = str(params.get('input') or '')[:MAX_CATEGORY_INPUT_LENGTH]
+                key = board_key_from_input(raw)
+                if key is None:
+                    self._send_json(400, False, '❌ 에펨코리아 게시판 주소(예: https://www.fmkorea.com/hotdeal)나 게시판 영문 이름(mid)을 입력해 주세요.')
+                    return
+                try:
+                    add_category(key, name)
+                except ValueError as ve:
+                    self._send_json(400, False, f'❌ {ve}')
+                    return
+                log_msg(f"[API] 카테고리 추가: {key}{f' ({name})' if name else ''} → 다음 주기에 확인")
+                self._send_data(200, {'success': True, 'key': key,
+                                      'message': f"📂 '{name or key}' 카테고리를 추가했습니다. 다음 수집 주기(약 {CHECK_INTERVAL}초 뒤)에 게시판을 확인합니다."})
+                return
+            key = params.get('key')
+            if not isinstance(key, str) or key not in category_names():
+                self._send_json(400, False, '❌ 존재하지 않는 카테고리입니다.')
+                return
+            if action == 'rename':
+                rename_category(key, name)
+                log_msg(f"[API] 카테고리 이름 변경: {key} → {name}")
+                self._send_json(200, True, f"✏️ 카테고리 이름을 '{name}'(으)로 바꿨습니다.")
+            elif action == 'recheck':
+                if not recheck_category(key):
+                    self._send_json(400, False, '❌ 확인에 실패한 카테고리만 다시 확인할 수 있습니다.')
+                    return
+                log_msg(f"[API] 카테고리 다시 확인 요청: {key}")
+                self._send_json(200, True, '🔄 다음 수집 주기에 게시판을 다시 확인합니다.')
+            else:
+                try:
+                    delete_category(key)
+                except ValueError as ve:
+                    self._send_json(400, False, f'❌ {ve}')
+                    return
+                log_msg(f"[API] 카테고리 삭제: {key}")
+                self._send_json(200, True, '🗑️ 카테고리를 삭제했습니다.')
+        except Exception as e:
+            log_msg(f"[API] 카테고리 처리 오류: {short_err(e)}", "ERROR")
+            try:
+                self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
+            except Exception:
+                pass
 
     def _handle_read(self):
         """화면에서 읽은 글 기록 (기기 간 공유). 읽음 표시는 민감 정보가 아니라 관리자 암호 없이 허용"""
