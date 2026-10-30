@@ -1457,15 +1457,24 @@ function handleVideoClick(e) {
     return true;
 }
 
-// 인스타그램 게시물 화면(iframe)은 내용 높이를 MEASURE 메시지로 알려 주므로, 그 높이로 맞춰 안쪽 세로 스크롤 없이 전부 보이게 함
-// (원래는 인스타그램 embed.js가 하는 일이지만 외부 스크립트는 넣지 않음)
+// SNS 게시물 화면(iframe)은 내용 높이를 메시지로 알려 주므로, 그 높이로 맞춰 안쪽 세로 스크롤 없이 전부 보이게 함
+// (원래는 인스타그램 embed.js·X widgets.js가 하는 일이지만 외부 스크립트는 넣지 않음)
+// - 인스타그램: {type: 'MEASURE', details: {height}}
+// - X(트위터): {"twttr.embed": {method: 'twttr.private.resize', params: [{height, width}]}}
+const SNS_EMBEDS = [
+    { origin: /^https:\/\/(www\.)?instagram\.com$/, selector: 'iframe[src*="instagram.com"]',
+      height: data => data?.type === 'MEASURE' && data.details?.height },
+    { origin: /^https:\/\/platform\.twitter\.com$/, selector: 'iframe[src*="platform.twitter.com/embed"]',
+      height: data => data?.['twttr.embed']?.method === 'twttr.private.resize' && data['twttr.embed'].params?.[0]?.height }
+];
 window.addEventListener('message', (e) => {
-    if (!/^https:\/\/(www\.)?instagram\.com$/.test(e.origin)) return;
+    const embed = SNS_EMBEDS.find(s => s.origin.test(e.origin));
+    if (!embed) return;
     let data;
     try { data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
-    const height = Number(data?.type === 'MEASURE' && data.details?.height);
+    const height = Number(embed.height(data));
     if (!(height > 0)) return;
-    const iframe = [...document.querySelectorAll('.post-content iframe[src*="instagram.com"]')]
+    const iframe = [...document.querySelectorAll(`.post-content ${embed.selector}`)]
         .find(f => f.contentWindow === e.source);
     if (iframe) iframe.style.setProperty('height', `${Math.ceil(height)}px`, 'important');
 });
