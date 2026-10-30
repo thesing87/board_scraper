@@ -185,4 +185,44 @@ assert total == per_site['dcinside']['total'] and rows and all(r['id'].startswit
 page = web_server.build_posts_page(1, False, site='dcinside')
 assert page['total'] == total and all(p['id'].startswith('dc-') for p in page['posts'])
 print('SITE FEED OK')
+
+# --- 10) 저장한 디시 이미지: 형식 판별, 저장 주소, 웹서버 경로 검사, 정리된 글의 폴더 삭제
+import images
+jpg = bytes([0xFF, 0xD8, 0xFF, 0xE0]) + b'0' * 100
+assert images.image_ext(jpg) == 'jpg' and images.image_ext(b'<html>') is None
+url = images.save_post_image('dc-car_new1-11561402', 0, jpg)
+assert url and url.startswith('/images/dc-car_new1-11561402/0-') and url.endswith('.jpg'), url
+assert images.save_post_image('dc-car_new1-11561402', 1, b'<html>not image</html>') is None
+path, ctype = images.image_file(url[len('/images/'):])
+assert ctype == 'image/jpeg' and open(path, 'rb').read() == jpg
+for bad in ('../board.db', 'dc-car_new1-11561402/../../board.db', 'dc-car_new1-11561402/0.jpg', 'x/0-0123456789.exe'):
+    assert images.image_file(bad) is None, bad
+images.save_post_image('dc-car_new1-99999999', 0, jpg)          # DB에 없는 글
+assert images.remove_orphan_image_dirs(storage.existing_post_ids) == 1
+assert images.image_file(url[len('/images/'):]) is not None      # DB에 있는 글의 이미지는 남음
+print('IMAGES OK')
+
+# --- 11) 텔레그램 새 글 알림: 디시 글은 NAS에 저장된 본문 이미지를 파일로 올려 사진 알림, 미리보기에서 원문 링크 문구는 뺌
+calls = []
+class FakeRes:
+    status_code = 200
+    text = 'ok'
+def fake_post(url, json=None, data=None, files=None, timeout=None):
+    calls.append({'method': url.rsplit('/', 1)[1], 'json': json, 'data': data,
+                  'file': (files['photo'][0], files['photo'][1].read(), files['photo'][2]) if files else None})
+    return FakeRes()
+notifier.requests.post = fake_post
+notifier.TELEGRAM_TOKEN, notifier.TELEGRAM_CHAT_ID = 'TEST', '1'
+dc_post = {**post, 'content': ['<p>견적 받아봄</p>', f'<img alt="첨부이미지" src="{url}"/>',
+                               '<a href="https://gall.dcinside.com/x">[이미지 2 · 원문에서 보기]</a>']}
+notifier.send_post_alert(dc_post, ['싼타페'], '싼타페', '자동차 갤러리', 'http://x/#post-1', dc_post['link'])
+assert [c['method'] for c in calls] == ['sendPhoto'] and calls[0]['file'][1] == jpg and calls[0]['file'][2] == 'image/jpeg', calls
+caption = calls[0]['data']['caption']
+assert caption.startswith('🔔 [DC] ') and '견적 받아봄' in caption and '원문에서 보기' not in caption, caption
+assert '대시보드' in calls[0]['data']['reply_markup'] and calls[0]['data']['parse_mode'] == 'HTML'
+# 저장 이미지가 없는 디시 글은 글자 알림
+calls.clear()
+notifier.send_post_alert({**post, 'content': ['<p>글만 있음</p>']}, ['싼타페'], '싼타페', '자동차 갤러리')
+assert [c['method'] for c in calls] == ['sendMessage'] and calls[0]['file'] is None, calls
+print('ALERT PHOTO OK')
 print('DCINSIDE OK')

@@ -1,4 +1,6 @@
+import os
 import re
+import json
 import html
 from datetime import datetime
 
@@ -6,6 +8,7 @@ import requests
 from config import log_msg, short_err, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
 from sites import post_site
 from storage import site_labels
+from images import image_file, IMAGE_URL_PREFIX
 
 _missing_config_warned = False
 
@@ -17,6 +20,10 @@ _URL_RE = re.compile(r'https?://\S+')
 _POSTER_RE = re.compile(r'<video\b[^>]*\bposter="([^"]+)"', re.I)
 # 에펨코리아에 올린 첨부 이미지만 (이모티콘·아이콘 제외)
 _ATTACH_IMG_RE = re.compile(r'<img\b[^>]*\bsrc="([^"]*/files/attach/[^"]+)"', re.I)
+# 수집할 때 NAS에 저장한 이미지 (디시인사이드 본문 이미지, images.py)
+_SAVED_IMG_RE = re.compile(r'<img\b[^>]*\bsrc="(' + re.escape(IMAGE_URL_PREFIX) + r'[^"]+)"', re.I)
+# 디시 본문에서 저장하지 못한 이미지·동영상 대신 넣은 원문 링크 문구 (미리보기에서는 뺌, dcinside.py)
+_ORIGINAL_NOTE_RE = re.compile(r'\[(?:이미지 \d+|동영상) · 원문에서 보기\]')
 # 유튜브 영상 ID (퍼가기 iframe·watch·youtu.be·shorts 주소)
 _YOUTUBE_RE = re.compile(
     r'(?:youtube(?:-nocookie)?\.com/(?:embed/|shorts/|live/|v/|watch\?(?:[^"\s<>]*?&(?:amp;)?)?v=)|youtu\.be/)'
@@ -60,7 +67,7 @@ def _plain_text(lines):
     """미리보기용 본문 글자: 동영상 대체 문구('Video 태그를 지원하지 않는…')와 주소는 뺌"""
     joined = _VIDEO_BLOCK_RE.sub(' ', ' '.join(lines or []))
     text = _URL_RE.sub(' ', html.unescape(_TAG_RE.sub(' ', joined)))
-    return ' '.join(text.split())
+    return ' '.join(_ORIGINAL_NOTE_RE.sub(' ', text).split())
 
 def _absolute(url):
     url = html.unescape(url or '').strip().replace('/./', '/')
@@ -82,6 +89,28 @@ def find_thumbnail(content_lines):
     if match and _absolute(match.group(1)):
         return _absolute(match.group(1))
     return ''
+
+def find_saved_image(content_lines):
+    """본문의 첫 저장 이미지 파일 (경로, 형식). 없으면 None. 디시 이미지는 텔레그램 서버가 주소로 받아 갈 수 없어
+    NAS에 저장된 파일을 직접 올려 보냄"""
+    match = _SAVED_IMG_RE.search('\n'.join(content_lines or []))
+    return image_file(html.unescape(match.group(1))[len(IMAGE_URL_PREFIX):]) if match else None
+
+def _upload_photo(base, caption, image):
+    """저장된 이미지 파일을 사진으로 올려 보냄 (multipart). 성공하면 True"""
+    path, content_type = image
+    payload = {k: (json.dumps(v, ensure_ascii=False) if isinstance(v, dict) else str(v)) for k, v in base.items()}
+    payload['caption'] = caption
+    try:
+        with open(path, 'rb') as f:
+            res = requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto", data=payload,
+                                files={'photo': (os.path.basename(path), f, content_type)}, timeout=30)
+        if res.status_code == 200:
+            return True
+        log_msg(f"[알림] sendPhoto(파일) 실패({res.status_code}): {short_err(_redact(res.text))}", "DEBUG")
+    except Exception as e:
+        log_msg(f"[알림] sendPhoto(파일) 오류: {short_err(_redact(str(e)))}", "DEBUG")
+    return False
 
 def _count(value):
     """조회·댓글 수를 천 단위 쉼표로 (숫자가 아니면 그대로)"""
@@ -130,8 +159,12 @@ def send_post_alert(post, boards, keyword, board_name, dashboard_url='', origina
 
     text = build_post_alert(post, boards, keyword, board_name)
     thumbnail = find_thumbnail(post.get('content'))
-    if thumbnail and len(text) <= CAPTION_LIMIT:
-        if _call("sendPhoto", {**base, "photo": thumbnail, "caption": text}):
+    # 인터넷 주소로 쓸 썸네일이 없으면 NAS에 저장된 본문 이미지(디시)를 파일로 올림
+    saved_image = None if thumbnail else find_saved_image(post.get('content'))
+    if (thumbnail or saved_image) and len(text) <= CAPTION_LIMIT:
+        sent = (_call("sendPhoto", {**base, "photo": thumbnail, "caption": text}) if thumbnail
+                else _upload_photo(base, text, saved_image))
+        if sent:
             return
         log_msg("[알림] 썸네일 사진 발송 실패 → 글로 발송", "DEBUG")
     if _call("sendMessage", {**base, "text": text, "link_preview_options": {"is_disabled": True}}):

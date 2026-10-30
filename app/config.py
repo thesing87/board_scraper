@@ -102,6 +102,8 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 DB_FILE = os.path.join(OUTPUT_DIR, 'board.db')
 DEBUG_LOG_FILE = os.path.join(OUTPUT_DIR, 'logs', 'debug.log')
 BACKUP_DIR = os.path.join(OUTPUT_DIR, 'backups')
+# 수집할 때 받아 둔 글 이미지 (디시인사이드 이미지는 다른 사이트에서 열리지 않아 저장해서 보여줌, images.py)
+IMAGE_DIR = os.path.join(OUTPUT_DIR, 'images')
 # 아래 JSON 파일들은 DB 도입 이전 저장 방식으로, 최초 기동 시 DB로 이전한 뒤 *.migrated로 이름이 바뀜
 JSON_BACKUP_FILE = os.path.join(OUTPUT_DIR, 'board_data_backup.json')
 KEYWORDS_FILE = os.path.join(OUTPUT_DIR, 'keywords_config.json')

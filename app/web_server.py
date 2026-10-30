@@ -19,6 +19,7 @@ from config import (
 )
 import runtime_status
 from sites import is_post_id, DC_BOARD_PREFIX, DC_GALLERY_RE
+from images import image_file, IMAGE_URL_PREFIX
 from storage import (
     set_group_alert,
     query_all_posts,
@@ -189,11 +190,12 @@ def _decorate_posts(posts):
 class KeywordAPIServer(BaseHTTPRequestHandler):
     def log_message(self, format, *args): return
 
-    def _send_body(self, status, body, content_type, extra_headers=None):
+    def _send_body(self, status, body, content_type, extra_headers=None,
+                   cache_control='no-store, no-cache, must-revalidate, max-age=0'):
         self.send_response(status)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))
-        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+        self.send_header('Cache-Control', cache_control)
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('X-Frame-Options', 'DENY')
         self.send_header('Referrer-Policy', 'no-referrer')
@@ -245,6 +247,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         try:
             if pure_path in STATIC_FILES:
                 self._serve_static(*STATIC_FILES[pure_path])
+            elif pure_path.startswith(IMAGE_URL_PREFIX):
+                self._serve_image(pure_path[len(IMAGE_URL_PREFIX):])
             elif pure_path == '/api/state':
                 self._send_data(200, build_state())
             elif pure_path == '/api/posts' and 'ids' in query:
@@ -297,6 +301,18 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             content = f.read()
         extra = {'Content-Security-Policy': CONTENT_SECURITY_POLICY} if filename.endswith('.html') else None
         self._send_body(200, content, content_type, extra)
+
+    def _serve_image(self, rel):
+        """수집할 때 저장한 글 이미지 (images.py). 같은 주소의 파일은 바뀌지 않으므로 브라우저가 오래 보관하게 함"""
+        found = image_file(rel)
+        if not found:
+            self.send_response(404)
+            self.end_headers()
+            return
+        path, content_type = found
+        with open(path, 'rb') as f:
+            content = f.read()
+        self._send_body(200, content, content_type, cache_control='private, max-age=2592000')
 
     def do_POST(self):
         pure_path = self.path.split('?')[0]

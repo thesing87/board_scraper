@@ -1034,6 +1034,17 @@ def prune_old_posts(days, keep_per_keyword):
             conn.execute("DELETE FROM read_posts WHERE post_id NOT IN (SELECT id FROM posts)")
     return deleted
 
+def existing_post_ids(post_ids):
+    """주어진 글 ID 중 DB에 남아 있는 것의 집합 (정리된 글의 이미지 폴더를 찾을 때 씀)"""
+    ids = [str(i) for i in post_ids if is_post_id(str(i))]
+    found = set()
+    with _db() as conn:
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            found.update(r['id'] for r in conn.execute(
+                f"SELECT id FROM posts WHERE id IN ({','.join('?' * len(chunk))})", chunk))
+    return found
+
 def mark_posts_read(post_ids):
     """읽음 기록 저장. 이미 읽은 글은 마지막 읽은 시각만 갱신(그 이후 달린 댓글만 '새 댓글'이 되도록),
     처음 읽은 시각은 그대로 둠"""

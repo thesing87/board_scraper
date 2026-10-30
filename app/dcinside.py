@@ -1,10 +1,12 @@
 """디시인사이드 갤러리 수집기 (scraper.py의 에펨코리아 수집기와 같은 형태의 값을 돌려줌).
 
 - 카테고리 키는 'dc:갤러리id', 글 ID는 'dc-갤러리id-글번호' (sites.py)
-- 디시 이미지는 디시 페이지가 아닌 곳에서는 열리지 않으므로, 본문 이미지는 원문으로 가는 안내 링크로 바꿔 저장
+- 디시 이미지는 디시 페이지가 아닌 곳에서는 열리지 않으므로, 크롬이 받은 본문 이미지 파일을 저장해 보여줌 (images.py).
+  꺼내지 못한 이미지는 원문으로 가는 안내 링크로 바꿔 저장
 """
 import re
 import time
+import base64
 import random
 from urllib.parse import quote
 from bs4 import BeautifulSoup
@@ -12,7 +14,8 @@ from selenium.common.exceptions import UnexpectedAlertPresentException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from config import log_msg
+from config import log_msg, short_err
+from images import save_post_image, clear_post_images, MAX_IMAGES_PER_POST
 from scraper import BlockedError, parse_count, content_lines, comment_lines
 from sites import dc_gallery, dc_post_id
 
@@ -22,6 +25,10 @@ DELETED_URL_MARK = '/derror/deleted/'
 DELETED_PAGE_PHRASES = ('삭제했거나 존재하지 않는', '삭제된 게시물', '존재하지 않는 게시물')
 # 이미지·동영상 대신 넣는 원문 링크 모양 (에펨코리아 본문 링크와 같게)
 LINK_STYLE = "color: #1877f2; text-decoration: underline; font-weight: bold;"
+# 저장한 본문 이미지 모양 (에펨코리아 본문 이미지와 같게)
+IMAGE_STYLE = "width: 100%; height: auto; border-radius: 6px; margin-top: 8px; display: block;"
+# 본문 이미지가 다 받아질 때까지 기다리는 최대 시간
+IMAGE_WAIT_SECONDS = 6
 
 def list_url(gallery, keyword=None, page=1):
     url = f"{BASE_URL}/board/lists/?id={quote(gallery)}"
@@ -147,6 +154,37 @@ def _parse_comments(soup):
                 comments.append(item)
     return comments
 
+def _save_body_images(driver, post_id):
+    """본문 이미지를 크롬이 받은 파일 그대로 꺼내(CDP Page.getResourceContent) 저장. {본문 img 순번: 대시보드 주소}.
+    디시 페이지가 정상적으로 받은 파일만 쓰며 따로 요청하지 않음. 실패한 이미지는 빠짐 (원문 링크로 대체됨)"""
+    saved = {}
+    try:
+        # 열린 직후에는 아직 받는 중일 수 있어 본문 이미지가 다 받아질 때까지 잠시 기다림
+        WebDriverWait(driver, IMAGE_WAIT_SECONDS).until(lambda d: d.execute_script(
+            "return [...document.querySelectorAll('.write_div img')].every(i => i.complete)"))
+    except Exception:
+        pass
+    try:
+        urls = driver.execute_script(
+            "return [...document.querySelectorAll('.write_div img')].map(i => i.complete && i.naturalWidth ? (i.currentSrc || i.src) : '')")
+        frame_id = driver.execute_cdp_cmd('Page.getFrameTree', {})['frameTree']['frame']['id']
+    except Exception as e:
+        log_msg(f"[수집] #{post_id} 이미지 목록 확인 실패: {short_err(e)}", "DEBUG")
+        return saved
+    clear_post_images(post_id)
+    for index, url in enumerate(urls[:MAX_IMAGES_PER_POST]):
+        if not url:
+            continue
+        try:
+            resource = driver.execute_cdp_cmd('Page.getResourceContent', {'frameId': frame_id, 'url': url})
+            data = base64.b64decode(resource['content']) if resource.get('base64Encoded') else resource['content'].encode('latin-1')
+            path = save_post_image(post_id, index, data)
+            if path:
+                saved[index] = path
+        except Exception as e:
+            log_msg(f"[수집] #{post_id} 이미지 {index + 1} 저장 실패: {short_err(e)}", "DEBUG")
+    return saved
+
 def scrape_post_detail(driver, post_info):
     link = post_info['link']
     post_id = post_info['id']
@@ -181,10 +219,15 @@ def scrape_post_detail(driver, post_info):
     votes_tag = soup.select_one('.up_num')
     comment_tag = soup.select_one('.gall_comment')
 
-    # 본문 이미지는 다른 사이트(이 대시보드)에서는 열리지 않으므로 원문으로 가는 안내 링크로 바꿈
+    # 본문 이미지는 다른 사이트(이 대시보드)에서는 열리지 않으므로, 크롬이 받은 파일을 꺼내 저장한 이미지로 바꿈.
+    # 꺼내지 못한 이미지는 원문으로 가는 안내 링크로 (본문 img 순서는 페이지와 page_source가 같음)
+    saved = _save_body_images(driver, post_id)
     img_count = 0
-    for img in content_area.select('img'):
+    for index, img in enumerate(content_area.select('img')):
         img_count += 1
+        if saved.get(index):
+            img.attrs = {'src': saved[index], 'alt': '첨부이미지', 'style': IMAGE_STYLE}
+            continue
         note = soup.new_tag('a', href=link, target='_blank', style=LINK_STYLE)
         note.string = f"[이미지 {img_count} · 원문에서 보기]"
         img.replace_with(note)
@@ -210,7 +253,7 @@ def scrape_post_detail(driver, post_info):
     paragraphs = content_lines(content_area)
     comments = _parse_comments(soup)
 
-    log_msg(f"[수집] 상세 #{post_id}: 이미지 {img_count}(원문 링크), 동영상 {len(video_list)}, 댓글 {len(comments)}", "DEBUG")
+    log_msg(f"[수집] 상세 #{post_id}: 이미지 {img_count}(저장 {len(saved)}), 동영상 {len(video_list)}, 댓글 {len(comments)}", "DEBUG")
     return {
         'id': post_id,
         'title': ' '.join(title_tag.get_text().split()) if title_tag else post_info['title'],

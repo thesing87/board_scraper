@@ -40,8 +40,10 @@ from storage import (
     post_exists,
     backup_db,
     prune_old_posts,
+    existing_post_ids,
     site_labels
 )
+from images import remove_orphan_image_dirs
 from notifier import send_telegram_message, send_post_alert
 from scraper import parse_count, BlockedError
 # 목록·상세·게시판 확인은 카테고리(글)의 사이트에 맞는 수집기(에펨코리아·디시인사이드)로
@@ -70,11 +72,14 @@ try:
 except Exception:
     pass
 
+# 이미지는 받지 않아 메모리·전송량을 아끼되, 디시 본문 이미지(확장자 없는 viewimage.php 주소)만 받게 해서
+# 디시 수집기가 크롬이 받은 파일을 꺼내 저장할 수 있게 함 (images.py). 확장자가 있는 이미지·아이콘과 에펨코리아 이미지는 막음
+BLOCKED_URL_PATTERNS = ['*.jpg*', '*.jpeg*', '*.png*', '*.gif*', '*.webp*', '*.svg*', '*.ico*', '*.bmp*', '*.avif*',
+                        '*image.fmkorea.com*', '*fmkorea.com/files/*', '*googlesyndication*', '*doubleclick*']
+
 def create_driver():
     options = Options()
     options.page_load_strategy = 'eager'
-    options.add_argument('--blink-settings=imagesEnabled=false')
-    options.add_argument('--disable-images')
     # 메모리를 덜 쓰도록 수집에 필요 없는 기능은 끔 (NAS 메모리가 1.8GB라 크롬이 커지면 스왑으로 전체가 느려짐)
     for arg in ('--disable-extensions', '--disable-background-networking', '--disable-component-update',
                 '--disable-sync', '--disable-default-apps', '--mute-audio', '--renderer-process-limit=2',
@@ -88,6 +93,10 @@ def create_driver():
         options.add_argument('--disable-gpu')
 
     driver = Chrome(options=options, service=services)
+    # 크롬 개발자 도구(CDP): 이미지 주소 차단, 받은 파일 꺼내기(Page.getResourceContent)에 씀
+    driver.execute_cdp_cmd('Network.enable', {})
+    driver.execute_cdp_cmd('Network.setBlockedURLs', {'urls': BLOCKED_URL_PATTERNS})
+    driver.execute_cdp_cmd('Page.enable', {})
     runtime_status.update(chrome_started_at=runtime_status.now())
     log_msg(f"[시스템] 크롬 드라이버 준비 완료{' (headless)' if IS_LINUX else ''}")
     return driver
@@ -195,6 +204,11 @@ def run_daily_maintenance():
             log_msg(f"[DB] {RETENTION_DAYS}일 지난 글 {deleted}건 정리")
     except Exception as e:
         log_msg(f"[DB] 오래된 글 정리 실패: {short_err(e)}", "ERROR")
+    try:
+        # 정리됐거나 키워드와 함께 지워진 글의 저장 이미지 폴더 삭제
+        remove_orphan_image_dirs(existing_post_ids)
+    except Exception as e:
+        log_msg(f"[DB] 이미지 정리 실패: {short_err(e)}", "ERROR")
 
 def verify_pending_categories(driver):
     """관리 화면에서 추가한 카테고리를 열어 보고 수집 가능(ok)·불가(invalid)를 기록. 수집은 다음 주기부터"""
