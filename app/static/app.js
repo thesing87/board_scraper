@@ -292,7 +292,7 @@ function resetViewSnapshot() {
     app.commentIds = null;
 }
 
-// 게시판 이동 (고른 보기는 유지)
+// 게시판·보기 화면 열기 (app.filter는 호출하는 쪽에서 정함)
 function openView(key, page) {
     app.activeKey = key;
     resetViewSnapshot();
@@ -308,6 +308,12 @@ function openView(key, page) {
 function setFilter(filter) {
     app.filter = filter;
     openView(app.activeKey, 1);
+}
+
+// 게시판 바꾸기: 그 게시판의 모든 글부터 보여 줌
+function openBoard(key) {
+    app.filter = 'all';
+    openView(key, 1);
 }
 
 // 홈: 검색·관리 패널·텔레그램 링크(#post-ID)를 정리하고 전체 게시판 첫 화면으로
@@ -1168,11 +1174,11 @@ document.addEventListener('click', (e) => {
         e.preventDefault();
         goHome();
     } else if (action === 'open-all') {
-        openView(ALL_KEY, 1);
+        openBoard(ALL_KEY);
     } else if (action === 'set-view') {
         setFilter(el.dataset.filter);
     } else if (action === 'open-group') {
-        openView('group:' + el.dataset.groupId, 1);
+        openBoard('group:' + el.dataset.groupId);
     } else if (action === 'save-group') {
         saveGroup(el);
     } else if (action === 'edit-group') {
