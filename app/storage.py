@@ -98,6 +98,13 @@ def _create_schema(conn):
             keyword   TEXT NOT NULL,
             PRIMARY KEY (group_id, board, keyword)
         );
+        -- 키워드별 무시할 표현: 이 표현을 지운 뒤에도 키워드가 남아 있는 글만 모음 (예: '싼하'에 '투싼하')
+        CREATE TABLE IF NOT EXISTS keyword_ignores (
+            board    TEXT NOT NULL,
+            keyword  TEXT NOT NULL,
+            phrase   TEXT NOT NULL,   -- 입력한 그대로
+            PRIMARY KEY (board, keyword, phrase)
+        );
 
         -- 수집할 에펨코리아 게시판(카테고리). rowid 순서가 화면 표시 순서
         -- 관리 화면에서 추가하면 pending, 수집기가 다음 주기에 열어 보고 ok(수집) 또는 invalid(수집 안 함)로 바꿈
@@ -358,6 +365,49 @@ def load_keywords():
                 result[row['board']].append(row['keyword'])
     return result
 
+def _keyword_ignores(conn, board, keyword):
+    return [r['phrase'] for r in conn.execute(
+        "SELECT phrase FROM keyword_ignores WHERE board = ? AND keyword = ? ORDER BY rowid", (board, keyword))]
+
+def load_keyword_ignores():
+    """{(board, keyword): [무시할 표현, ...]} (표현이 있는 키워드만)"""
+    result = {}
+    with _db() as conn:
+        for row in conn.execute("SELECT board, keyword, phrase FROM keyword_ignores ORDER BY rowid"):
+            result.setdefault((row['board'], row['keyword']), []).append(row['phrase'])
+    return result
+
+def _set_keyword_ignores(conn, board, keyword, phrases):
+    """키워드의 무시할 표현을 통째로 바꾸고, 이미 모은 글 중 새 표현 때문에 키워드가 없어진 글을 그 키워드에서 뺌.
+    (표현을 빼서 다시 모아야 할 글은 이미 지나간 글이라 되돌리지 않음) 뺀 글 수 반환"""
+    from matching import norm, keyword_in_post
+    unique = {}
+    for phrase in phrases:
+        if norm(phrase) and norm(phrase) not in unique:
+            unique[norm(phrase)] = phrase.strip()
+    old = _keyword_ignores(conn, board, keyword)
+    if {norm(p) for p in old} == set(unique):
+        return 0
+    conn.execute("DELETE FROM keyword_ignores WHERE board = ? AND keyword = ?", (board, keyword))
+    conn.executemany("INSERT INTO keyword_ignores(board, keyword, phrase) VALUES(?, ?, ?)",
+                     [(board, keyword, p) for p in unique.values()])
+    # 무시할 표현 때문에만 빠지는 글 (표현 없이는 키워드가 있던 글)만 정리. 예전 방식으로 모은 다른 글은 건드리지 않음
+    removed = []
+    for row in conn.execute("""
+        SELECT p.id, p.title, p.content_json FROM keyword_posts kp JOIN posts p ON p.id = kp.post_id
+        WHERE kp.board = ? AND kp.keyword = ?
+    """, (board, keyword)).fetchall():
+        content = json.loads(row['content_json'])
+        if keyword_in_post(keyword, row['title'], content) and not keyword_in_post(keyword, row['title'], content, unique.values()):
+            removed.append(row['id'])
+    for post_id in removed:
+        conn.execute("DELETE FROM keyword_posts WHERE board = ? AND keyword = ? AND post_id = ?", (board, keyword, post_id))
+    if removed:
+        conn.execute("DELETE FROM posts WHERE id NOT IN (SELECT post_id FROM keyword_posts)")
+        conn.execute("DELETE FROM read_posts WHERE post_id NOT IN (SELECT id FROM posts)")
+        log_msg(f"[DB] {board}/{keyword} 무시할 표현 적용: 이미 모은 글 {len(removed)}건 뺌")
+    return len(removed)
+
 def _drop_orphan_keywords(conn):
     """어느 게시판에도 속하지 않게 된 키워드와 그 수집 데이터를 삭제하고 삭제한 (board, keyword) 목록 반환"""
     orphans = [(r['board'], r['keyword']) for r in conn.execute("""
@@ -367,6 +417,7 @@ def _drop_orphan_keywords(conn):
     for board, keyword in orphans:
         conn.execute("DELETE FROM keywords WHERE board = ? AND keyword = ?", (board, keyword))
         conn.execute("DELETE FROM keyword_posts WHERE board = ? AND keyword = ?", (board, keyword))
+        conn.execute("DELETE FROM keyword_ignores WHERE board = ? AND keyword = ?", (board, keyword))
     if orphans:
         conn.execute("DELETE FROM posts WHERE id NOT IN (SELECT post_id FROM keyword_posts)")
         conn.execute("DELETE FROM read_posts WHERE post_id NOT IN (SELECT id FROM posts)")
@@ -448,11 +499,12 @@ def list_groups(id_limit=500):
     groups = []
     with _db() as conn:
         for g in conn.execute("SELECT id, name, alert, video_alert FROM keyword_groups ORDER BY id").fetchall():
-            members = [dict(board=r['board'], keyword=r['keyword']) for r in conn.execute("""
+            members = [dict(board=r['board'], keyword=r['keyword'], ignores=_keyword_ignores(conn, r['board'], r['keyword']))
+                       for r in conn.execute("""
                 SELECT m.board, m.keyword FROM keyword_group_members m
                 JOIN keywords k ON k.board = m.board AND k.keyword = m.keyword
                 WHERE m.group_id = ? ORDER BY k.rowid
-            """, (g['id'],))]
+            """, (g['id'],)).fetchall()]
             groups.append({'id': g['id'], 'name': g['name'], 'members': members,
                            'alert': bool(g['alert']), 'video_alert': bool(g['video_alert']),
                            **_feed_summary(conn, id_limit, g['id'])})
@@ -461,6 +513,7 @@ def list_groups(id_limit=500):
 def save_group(group_id, name, members):
     """게시판 생성(group_id=None) 또는 수정. 새 키워드는 수집 대상으로 등록하고,
     어느 게시판에도 남지 않은 키워드는 수집 데이터와 함께 삭제. (게시판 ID, 삭제된 키워드 목록) 반환.
+    member에 ignores(무시할 표현 목록)가 있으면 그 키워드의 표현을 바꿈 (키워드에 붙으므로 같은 키워드를 쓰는 게시판 모두에 적용).
     이름 중복 등은 ValueError"""
     pairs = list(dict.fromkeys((m['board'], m['keyword']) for m in members))
     if not pairs:
@@ -479,6 +532,9 @@ def save_group(group_id, name, members):
         conn.executemany("INSERT OR IGNORE INTO keywords(board, keyword) VALUES(?, ?)", pairs)
         conn.executemany("INSERT OR IGNORE INTO keyword_group_members(group_id, board, keyword) VALUES(?, ?, ?)",
                          [(group_id, b, k) for b, k in pairs])
+        for m in members:
+            if 'ignores' in m:
+                _set_keyword_ignores(conn, m['board'], m['keyword'], m['ignores'])
         return group_id, _drop_orphan_keywords(conn)
 
 def delete_group(group_id):

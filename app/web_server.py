@@ -43,6 +43,7 @@ MAX_QUERY_LENGTH = 50
 MAX_GROUP_NAME_LENGTH = 30
 MAX_GROUP_MEMBERS = 50
 MAX_KEYWORD_LENGTH = 50
+MAX_IGNORES_PER_KEYWORD = 20
 MAX_CATEGORY_NAME_LENGTH = 20
 MAX_CATEGORY_INPUT_LENGTH = 300
 # 에펨코리아 게시판 mid (글 주소 'fmkorea.com/12345'와 헷갈리지 않게 숫자만인 값은 제외)
@@ -316,7 +317,17 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                     or not all(isinstance(m, dict) and isinstance(m.get('board'), str) and isinstance(m.get('keyword'), str) for m in members)):
                 self._send_json(400, False, f'❌ 키워드를 1~{MAX_GROUP_MEMBERS}개 등록해 주세요.')
                 return
-            members = [{'board': m['board'].strip(), 'keyword': m['keyword'].strip()} for m in members]
+            # 무시할 표현(ignores)은 키워드마다 선택 사항. 보내지 않으면 그 키워드의 기존 표현을 그대로 둠
+            for m in members:
+                ignores = m.get('ignores', [])
+                if (not isinstance(ignores, list) or len(ignores) > MAX_IGNORES_PER_KEYWORD
+                        or not all(isinstance(p, str) and p.strip() and len(p.strip()) <= MAX_KEYWORD_LENGTH
+                                   and not any(ch in p for ch in '\r\n\t') for p in ignores)):
+                    self._send_json(400, False, f'❌ 무시할 표현은 키워드마다 {MAX_IGNORES_PER_KEYWORD}개까지, '
+                                                f'줄바꿈 없이 {MAX_KEYWORD_LENGTH}자 이하로 입력해 주세요.')
+                    return
+            members = [{'board': m['board'].strip(), 'keyword': m['keyword'].strip(),
+                        **({'ignores': [p.strip() for p in m['ignores']]} if 'ignores' in m else {})} for m in members]
             names = category_names()
             for m in members:
                 if m['board'] not in names:

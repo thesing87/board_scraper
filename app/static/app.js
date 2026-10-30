@@ -752,7 +752,9 @@ function renderSettings() {
 function renderGroupSettings() {
     const editing = (app.state.groups || []).find(g => g.id === app.editingGroupId) || null;
     if (!editing) app.editingGroupId = null;
-    if (app.groupDraft === undefined) app.groupDraft = editing ? editing.members.map(m => ({ board: m.board, keyword: m.keyword })) : [];
+    if (app.groupDraft === undefined) {
+        app.groupDraft = editing ? editing.members.map(m => ({ board: m.board, keyword: m.keyword, ignores: m.ignores.slice() })) : [];
+    }
 
     document.getElementById('group-form-title').textContent = editing ? `'${editing.name}' 게시판 수정` : '게시판 만들기';
     document.getElementById('group-save-btn').textContent = editing ? '저장' : '만들기';
@@ -768,12 +770,24 @@ function renderGroupSettings() {
             <button data-action="remove-draft-keyword" data-index="${idx}" aria-label="${esc(boardName(m.board) + ' ' + m.keyword)} 키워드 빼기">${ICONS.close}</button>
         </span>`).join('') : '<span class="settings-hint">아직 등록한 키워드가 없습니다.</span>';
 
+    // 무시할 표현: 붙일 키워드를 고르는 상자(고른 키워드 유지)와 키워드별 표현
+    const ignoreSelect = document.getElementById('group-ignore-keyword');
+    const selected = ignoreSelect.value;
+    ignoreSelect.innerHTML = app.groupDraft.map((m, idx) => `<option value="${idx}">${esc(m.keyword)}</option>`).join('');
+    if (selected && Number(selected) < app.groupDraft.length) ignoreSelect.value = selected;
+    document.getElementById('group-ignores').innerHTML = app.groupDraft.flatMap((m, idx) => m.ignores.map((phrase, pIdx) => `
+        <span class="kw-tag">
+            <span class="kw-tag-board">${esc(m.keyword)} 무시</span>${esc(phrase)}
+            <button data-action="remove-draft-ignore" data-index="${idx}" data-phrase-index="${pIdx}" aria-label="${esc(m.keyword)} 키워드의 무시할 표현 ${esc(phrase)} 빼기">${ICONS.close}</button>
+        </span>`)).join('');
+
     const groups = app.state.groups || [];
+    const memberText = m => esc(m.keyword) + (m.ignores.length ? ` (무시: ${m.ignores.map(esc).join(', ')})` : '');
     document.getElementById('settings-groups').innerHTML = groups.length ? groups.map(g => `
         <div class="group-row">
             <div class="group-row-main">
                 <span class="group-row-name">${esc(g.name)}</span>
-                <span class="group-row-members">${g.members.map(m => esc(m.keyword)).join(' · ') || '(키워드 없음)'} · ${g.total}개 글</span>
+                <span class="group-row-members">${g.members.map(memberText).join(' · ') || '(키워드 없음)'} · ${g.total}개 글</span>
             </div>
             <button class="btn btn-outline btn-small" data-action="edit-group" data-group-id="${g.id}">수정</button>
             <button class="btn btn-outline btn-small btn-danger" data-action="delete-group" data-group-id="${g.id}">삭제</button>
@@ -789,7 +803,25 @@ function addDraftKeyword() {
         alert('이미 등록한 키워드입니다.');
         return;
     }
-    app.groupDraft.push({ board: board, keyword: keyword });
+    app.groupDraft.push({ board: board, keyword: keyword, ignores: [] });
+    input.value = '';
+    renderGroupSettings();
+    input.focus();
+}
+
+function addDraftIgnore() {
+    const input = document.getElementById('group-ignore-input');
+    const phrase = input.value.trim();
+    const member = app.groupDraft[Number(document.getElementById('group-ignore-keyword').value)];
+    if (!member) { alert('키워드를 먼저 등록해 주세요.'); return; }
+    if (!phrase) { input.focus(); return; }
+    // 서버와 같은 기준(대소문자 무시, 연속 공백은 하나로)으로 이미 있는 표현인지 확인
+    const norm = text => text.split(/\s+/).filter(Boolean).join(' ').toLowerCase();
+    if (member.ignores.some(p => norm(p) === norm(phrase))) {
+        alert('이미 등록한 무시할 표현입니다.');
+        return;
+    }
+    member.ignores.push(phrase);
     input.value = '';
     renderGroupSettings();
     input.focus();
@@ -800,6 +832,7 @@ function resetGroupForm() {
     app.groupDraft = undefined;
     app.groupNameDraft = undefined;
     document.getElementById('group-kw-input').value = '';
+    document.getElementById('group-ignore-input').value = '';
     renderGroupSettings();
 }
 
@@ -816,7 +849,8 @@ async function saveGroup(button) {
     const name = document.getElementById('group-name-input').value.trim();
     // 입력만 하고 '추가'를 누르지 않은 키워드도 함께 등록
     if (document.getElementById('group-kw-input').value.trim()) addDraftKeyword();
-    const members = app.groupDraft.slice();
+    if (document.getElementById('group-ignore-input').value.trim()) addDraftIgnore();
+    const members = app.groupDraft.map(m => ({ board: m.board, keyword: m.keyword, ignores: m.ignores.slice() }));
     if (!name) { alert('게시판 이름을 입력해 주세요.'); document.getElementById('group-name-input').focus(); return; }
     if (members.length === 0) { alert('키워드를 하나 이상 등록해 주세요.'); document.getElementById('group-kw-input').focus(); return; }
     if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return; }
@@ -1195,6 +1229,11 @@ document.addEventListener('click', (e) => {
     } else if (action === 'remove-draft-keyword') {
         app.groupDraft.splice(Number(el.dataset.index), 1);
         renderGroupSettings();
+    } else if (action === 'add-draft-ignore') {
+        addDraftIgnore();
+    } else if (action === 'remove-draft-ignore') {
+        app.groupDraft[Number(el.dataset.index)].ignores.splice(Number(el.dataset.phraseIndex), 1);
+        renderGroupSettings();
     } else if (action === 'cancel-group-edit') {
         resetGroupForm();
     } else if (action === 'delete-group') {
@@ -1253,6 +1292,9 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.target.id === 'group-kw-input') {
         e.preventDefault();
         addDraftKeyword();
+    } else if (e.key === 'Enter' && e.target.id === 'group-ignore-input') {
+        e.preventDefault();
+        addDraftIgnore();
     } else if (e.key === 'Enter' && e.target.id === 'category-input') {
         e.preventDefault();
         addCategory(document.querySelector('[data-action="add-category"]'));

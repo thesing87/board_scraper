@@ -119,6 +119,13 @@
                         <button class="btn btn-outline" data-action="add-draft-keyword">추가</button>
                     </div>
                     <div class="keyword-tags" id="group-keywords" aria-label="등록한 키워드"></div>
+                    <span class="settings-hint">무시할 표현: 키워드가 이 표현 안에만 들어 있는 글은 모으지 않습니다. (예: 키워드 싼하 → 투싼하)</span>
+                    <div class="add-row">
+                        <select id="group-ignore-keyword" class="input select" aria-label="무시할 표현을 붙일 키워드"></select>
+                        <input id="group-ignore-input" class="input" aria-label="무시할 표현" placeholder="무시할 표현 입력" maxlength="50">
+                        <button class="btn btn-outline" data-action="add-draft-ignore">추가</button>
+                    </div>
+                    <div class="keyword-tags" id="group-ignores" aria-label="무시할 표현"></div>
                     <div class="group-form-actions">
                         <button class="btn btn-primary" data-action="save-group" id="group-save-btn">만들기</button>
                         <button class="btn btn-outline" data-action="cancel-group-edit" id="group-cancel-btn" hidden>취소</button>

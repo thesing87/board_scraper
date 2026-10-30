@@ -27,6 +27,7 @@ from storage import (
     pending_categories,
     set_category_checked,
     load_alert_targets,
+    load_keyword_ignores,
     recent_keyword_posts,
     save_keyword_post,
     update_post,
@@ -43,11 +44,11 @@ from notifier import send_telegram_message, send_post_alert
 from scraper import (
     get_list_page_posts,
     scrape_post_detail,
-    keyword_in_post,
     parse_count,
     check_board,
     BlockedError
 )
+from matching import keyword_in_post
 from web_server import run_api_server
 import runtime_status
 
@@ -241,6 +242,8 @@ def main():
         verified_present = set()
         # 검색에는 걸렸지만 키워드가 그대로 들어 있지 않아 거른 글 {(board, keyword, id)} (매 주기 다시 열지 않도록 기억)
         rejected = set()
+        # 키워드별 무시할 표현. 관리 화면에서 바뀌면 거른 글 기억을 비워 새 기준으로 다시 확인
+        keyword_ignores = {}
         # 차단 의심이 연속된 횟수와 그에 따른 다음 주기까지의 대기 시간
         block_streak = 0
         next_wait = CHECK_INTERVAL
@@ -266,6 +269,10 @@ def main():
             config_data = load_keywords()
             board_names = category_names()
             alert_targets = load_alert_targets()
+            latest_ignores = load_keyword_ignores()
+            if latest_ignores != keyword_ignores:
+                keyword_ignores = latest_ignores
+                rejected.clear()
 
             cycle_started = time.time()
             stats = {'keywords': 0, 'new': 0, 'updated': 0, 'deleted': 0, 'errors': 0, 'details': 0,
@@ -280,6 +287,7 @@ def main():
                 for keyword in keywords:
                     stats['keywords'] += 1
                     target = f"{board_name}/{keyword}"
+                    ignores = keyword_ignores.get((board, keyword), [])
                     log_msg(f"[수집] {target} 확인 중", "DEBUG")
 
                     # 새 글 판별 기준이 되는 최근 수집 글 (최신순)
@@ -311,7 +319,7 @@ def main():
                                 post_data = scrape_post_detail(driver, candidate)
                                 if not post_data:
                                     continue
-                                if not keyword_in_post(keyword, post_data['title'], post_data.get('content')):
+                                if not keyword_in_post(keyword, post_data['title'], post_data.get('content'), ignores):
                                     rejected.add((board, keyword, candidate['id']))
                                     continue
                                 post_data['list_comment_count'] = candidate['list_comment_count']
@@ -337,9 +345,9 @@ def main():
                             post_data = scrape_post_detail(driver, post_info)
                             if post_data is None:
                                 continue
-                            if not keyword_in_post(keyword, post_data['title'], post_data.get('content')):
+                            if not keyword_in_post(keyword, post_data['title'], post_data.get('content'), ignores):
                                 rejected.add((board, keyword, post_info['id']))
-                                log_msg(f"[제외] {target} #{post_info['id']} 키워드가 그대로 없음 (띄어쓰기 무시 검색) "
+                                log_msg(f"[제외] {target} #{post_info['id']} 키워드가 그대로 없음 (띄어쓰기 무시 검색 또는 무시할 표현) "
                                         f"{short_title(post_data['title'])}", "DEBUG")
                                 continue
 
