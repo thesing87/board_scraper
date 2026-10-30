@@ -6,9 +6,12 @@
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot)
 # PowerShell 5.1 파이프는 줄바꿈·인코딩을 바꾸므로 스크립트는 cmd 리다이렉트로 그대로 전달
+Write-Host "[NAS] git 설정 진행 중..."
 cmd /c "ssh nas sh -s < deploy\setup_nas_git.sh"
 if ($LASTEXITCODE -eq 2) {
     Write-Host "`n위 키를 등록한 뒤 이 스크립트를 다시 실행해 주세요." -ForegroundColor Yellow
 } elseif ($LASTEXITCODE -ne 0) {
-    throw "[오류] NAS git 설정 실패"
+    throw "[오류] NAS git 설정 실패 (종료 코드 $LASTEXITCODE)"
+} else {
+    Write-Host "[NAS] git 설정 끝" -ForegroundColor Green
 }
