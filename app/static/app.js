@@ -719,6 +719,8 @@ function renderFeed(data) {
     // 새 목록은 맨 위에서 시작. 맨 아래에서 '다음 페이지'를 누른 위치 그대로 읽음 확인을 하면
     // 새 글들의 끝 표식이 모두 화면 위쪽에 있는 것으로 판정되어 한꺼번에 읽음 처리되므로, 확인 전에 즉시 이동
     window.scrollTo({ top: 0 });
+    // 글이 없는 화면에서는 다음 글 버튼을 숨김
+    document.querySelector('.fab-next').hidden = empty;
     // 텔레그램 알림 링크(#post-ID)로 연 글이 있으면 그 글로 이동 (읽음 확인보다 먼저)
     const target = app.highlightPostId && document.getElementById('post-' + app.highlightPostId);
     app.highlightPostId = null;
@@ -754,6 +756,36 @@ function jumpToPost(target) {
     above.forEach(card => observer.observe(card));
     USER_SCROLL_EVENTS.forEach(type => window.addEventListener(type, stop, { passive: true }));
     setTimeout(stop, JUMP_SETTLE_MS);
+}
+
+// 다음 글 버튼(J 키): 화면 맨 위에 걸친 글(위 메뉴 바로 아래에서 아직 끝나지 않은 첫 글)을 읽음 처리하고
+// 다음 글의 제목이 위 메뉴 바로 아래에 오도록 이동. 페이지의 마지막 글이면 다음 페이지로
+function currentPostCard() {
+    const headerBottom = document.querySelector('.topbar').getBoundingClientRect().bottom;
+    return [...document.querySelectorAll('#feed .post-card')]
+        .find(card => card.getBoundingClientRect().bottom > headerBottom + 8) || null;
+}
+
+function goNextPost() {
+    const cards = [...document.querySelectorAll('#feed .post-card')];
+    const current = currentPostCard();
+    if (!cards.length || !current) return;
+    const sentinel = current.querySelector('.read-sentinel');
+    if (sentinel && !sentinel.dataset.read) {
+        sentinel.dataset.read = '1';
+        markRead([sentinel.dataset.postId]);
+    }
+    const next = cards[cards.indexOf(current) + 1];
+    if (!next) {
+        if (app.page < app.totalPages) changePage('next');
+        return;
+    }
+    // 모바일은 아래로 내리면 맨 위 제목 줄이 숨으므로, 숨은 뒤의 위 메뉴 높이에 맞춤
+    const topbar = document.querySelector('.topbar');
+    const mobile = window.matchMedia('(max-width: 899px)').matches;
+    const offset = topbar.offsetHeight - (mobile ? topbar.querySelector('.topbar-row').offsetHeight : 0) + 12;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: next.getBoundingClientRect().top + window.pageYOffset - offset, behavior: reduceMotion ? 'auto' : 'smooth' });
 }
 
 function changePage(target) {
@@ -1399,6 +1431,8 @@ document.addEventListener('click', (e) => {
         refreshCurrent();
     } else if (action === 'scroll-top') {
         window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else if (action === 'next-post') {
+        goNextPost();
     }
 });
 
@@ -1435,6 +1469,11 @@ document.addEventListener('keydown', (e) => {
         setSettingsOpen(false);
     } else if (e.key === 'Escape' && e.target.id === 'search-input' && app.searchQuery) {
         clearSearch();
+    } else if ((e.key === 'j' || e.key === 'J') && !e.ctrlKey && !e.metaKey && !e.altKey
+               && !e.target.closest('input, textarea, select, [contenteditable]')
+               && document.getElementById('settings').hidden) {
+        // 입력 중이거나 관리 화면이 열려 있지 않을 때만 J 키로 다음 글
+        goNextPost();
     }
 });
 

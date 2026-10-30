@@ -304,11 +304,14 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 /* ==========================================
    떠 있는 버튼
    ========================================== */
+/* 위에서부터 맨 위로·다음 글·새로고침(모바일). 세 버튼은 같은 크기로 맞추고 색으로만 구분 */
 .floating { position: fixed; right: 24px; bottom: 24px; display: flex; flex-direction: column; gap: 12px; z-index: 40; }
-.fab { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 6px 16px rgba(17,24,39,0.18); }
+.fab { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 6px 16px rgba(17,24,39,0.18); }
 .fab-top { border: 1px solid var(--border); background: var(--surface); color: var(--text); opacity: 0; visibility: hidden; transition: opacity 0.2s ease; }
 .fab-top.visible { opacity: 1; visibility: visible; }
-.fab-refresh { width: 52px; height: 52px; border: none; background: var(--accent); color: #FFFFFF; }
+.fab-next { border: none; background: var(--text); color: #FFFFFF; }
+.fab-next[hidden] { display: none; }
+.fab-refresh { border: none; background: var(--accent); color: #FFFFFF; }
 
 /* ==========================================
    관리 패널 (데스크톱: 오른쪽 패널, 모바일: 전체 화면)
