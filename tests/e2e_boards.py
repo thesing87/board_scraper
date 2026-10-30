@@ -56,8 +56,8 @@ try:
     heads = js("return [...document.querySelectorAll('.kw-group-name')].map(e => e.textContent)")
     in_topbar = js("return !!document.querySelector('.topbar #view-bar-tabs')")
     print('sidebar', side, views, in_topbar, heads)
-    # 사이드바는 게시판(전체 + 사용자 게시판)만, 보기 5개는 상단 바 가운데 보기 탭
-    assert len(side) == len(kws) + 1 and side[0].startswith('전체') and len(views) == 5 and heads == []
+    # 사이드바는 게시판(전체 + 사용자 게시판)만, 보기 6개(모든 글·안 읽은 글·새 댓글·동영상·이미지·삭제됨)는 상단 바 가운데 보기 탭
+    assert len(side) == len(kws) + 1 and side[0].startswith('전체') and len(views) == 6 and heads == []
     assert in_topbar and js("return document.querySelectorAll('#keyword-groups [data-action=\"set-view\"]').length") == 0
     d.save_screenshot(os.path.join(SHOTS, '1_sidebar.png'))
 
@@ -119,12 +119,12 @@ try:
     print('anchor', v)
     assert v['title'].startswith('싼타페 모음') and v['found']
 
-    # 7) 모바일: 위는 보기 탭 5개, 아래 칩은 전체 + 게시판
+    # 7) 모바일: 위는 보기 탭 6개, 아래 칩은 전체 + 게시판
     d.set_window_size(390, 844); d.get(BASE); wait(2.5)
     chips = js("return [...document.querySelectorAll('#chip-row .chip')].map(c => c.textContent.replace(/\\s+/g, ' ').trim())")
     tabs = js("return document.querySelectorAll('#view-tabs .view-tab').length")
     print('chips', chips, 'tabs', tabs)
-    assert len(chips) == len(storage.list_groups()) + 1 and tabs == 5
+    assert len(chips) == len(storage.list_groups()) + 1 and tabs == 6
     d.save_screenshot(os.path.join(SHOTS, '4_mobile.png'))
     errs = [l for l in d.get_log('browser') if l['level'] == 'SEVERE']
     assert not errs, errs

@@ -165,13 +165,14 @@ def build_state():
         'groups': groups
     }
 
-def build_posts_page(page, video_only, query='', group_id=None, unread_since=None, deleted_only=False, site=None):
+def build_posts_page(page, video_only, query='', group_id=None, unread_since=None, deleted_only=False, site=None,
+                     image_only=False):
     """통합 피드(group_id 없음)·게시판·사이트 전체 게시판(site)·검색·안 읽은 글·삭제된 글: 여러 키워드의 글을 중복 없이"""
-    total, _ = query_all_posts(0, 0, video_only, query, group_id, unread_since, deleted_only, site)
+    total, _ = query_all_posts(0, 0, video_only, query, group_id, unread_since, deleted_only, site, image_only)
     total_pages = max(1, -(-total // POSTS_PER_PAGE))
     page = min(max(1, page), total_pages)
     _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id, unread_since,
-                               deleted_only, site)
+                               deleted_only, site, image_only)
     return {'page': page, 'total_pages': total_pages, 'total': total, 'posts': _decorate_posts(posts)}
 
 def _decorate_posts(posts):
@@ -262,6 +263,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                     page = 1
                 video_only = query.get('video_only', ['0'])[0] in ('1', 'true')
                 search = query.get('q', [''])[0].strip()[:MAX_QUERY_LENGTH]
+                image_only = query.get('image_only', ['0'])[0] in ('1', 'true') and not search
                 group_param = query.get('group', [''])[0]
                 group_id = int(group_param) if group_param.isdigit() and not search else None
                 # 안 읽은 글 보기: 화면을 연 시각(서버 시각 'YYYY-MM-DD HH:MM:SS') 이후 읽은 글은 계속 포함
@@ -271,7 +273,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 # 사이트 전체 게시판 (fmkorea·dcinside). 게시판을 고른 경우와 검색에는 쓰지 않음
                 site = query.get('site', [''])[0]
                 site = site if site in site_labels() and group_id is None and not search else None
-                self._send_data(200, build_posts_page(page, video_only, search, group_id, unread_since, deleted_only, site))
+                self._send_data(200, build_posts_page(page, video_only, search, group_id, unread_since, deleted_only, site,
+                                                      image_only))
             elif pure_path == '/api/status':
                 # 관리 패널 '수집 상태': 마지막 수집 주기, 차단 의심, 크롬·백업, 최근 경고·오류
                 self._send_data(200, runtime_status.snapshot())

@@ -80,14 +80,21 @@ a.brand-name:hover { color: var(--accent); }
 /* 검색창: 데스크톱은 상단 바 오른쪽(관리 버튼들 옆), 모바일은 돋보기 버튼으로 펼침 */
 .search-form { flex: 0 1 240px; min-width: 160px; position: relative; display: flex; align-items: center; }
 .narrow-desktop-only { display: none !important; }
-/* 좁은 데스크톱: 보기 탭 자리를 위해 '수집 중' 글자는 점만 남기고, 검색창은 돋보기 버튼으로 접었다가 펼침(보기 탭 위에 겹쳐 뜸) */
-@media (min-width: 900px) and (max-width: 1199px) {
+/* 좁은 데스크톱(1360px 미만): 보기 탭 자리를 위해 '수집 중' 글자는 점만 남기고, 검색창은 돋보기 버튼으로 접었다가 펼침(보기 탭 위에 겹쳐 뜸) */
+@media (min-width: 900px) and (max-width: 1359px) {
     .narrow-desktop-only { display: inline-flex !important; }
     #status-text { display: none; }
     .status-pill { padding: 6px; }
     .search-form { display: none; position: absolute; right: 200px; top: 9px; width: 300px; z-index: 5; }
     .topbar.search-open .search-form { display: flex; }
     .topbar-row { position: relative; }
+    /* 보기 6칸이 로고와 버튼 사이에 들어가도록 칸 여백·글자를 조금 줄임 */
+    .view-bar-tab { padding: 0 7px; gap: 4px; font-size: 12px; }
+    .view-bar-tab .count-badge { font-size: 11px; }
+}
+/* 더 좁으면 '키워드 모니터' 글자도 숨김 (로고·홈 버튼으로 홈 이동) */
+@media (min-width: 900px) and (max-width: 1099px) {
+    .brand-name { display: none; }
 }
 .search-icon { position: absolute; left: 12px; color: var(--muted); pointer-events: none; }
 .search-input { width: 100%; height: 38px; padding: 0 12px 0 36px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-muted); font-size: 14px; color: var(--text); }

@@ -225,4 +225,19 @@ calls.clear()
 notifier.send_post_alert({**post, 'content': ['<p>글만 있음</p>']}, ['싼타페'], '싼타페', '자동차 갤러리')
 assert [c['method'] for c in calls] == ['sendMessage'] and calls[0]['file'] is None, calls
 print('ALERT PHOTO OK')
+
+# --- 12) 이미지 보기: 첨부 이미지(에펨코리아 /files/attach/, 저장한 디시 /images/dc-)가 있는 글만, 이모티콘·링크 그림만 있는 글은 제외
+def img_post(pid, content):
+    return {**post, 'id': pid, 'title': '이미지 시험 ' + pid, 'content': content}
+storage.save_keyword_post('car', '싼타페', img_post('20000000001', ['<img src="https://image.fmkorea.com/files/attach/new5/a.jpg"/>']), is_new=True)
+storage.save_keyword_post('dc:car_new1', '싼타페', img_post('dc-car_new1-20000002', [f'<img src="{url}"/>']), is_new=True)
+storage.save_keyword_post('car', '싼타페', img_post('20000000003', ['<img src="https://image.fmkorea.com/emoticon/smile.gif"/>']), is_new=True)
+storage.save_keyword_post('car', '싼타페', img_post('20000000004', ['<p>글만</p>']), is_new=True)
+total, rows = storage.query_all_posts(0, 100, image_only=True)
+ids = {r['id'] for r in rows}
+assert {'20000000001', 'dc-car_new1-20000002'} <= ids and not ids & {'20000000003', '20000000004'}, ids
+assert storage.feed_summary()['image_count'] == total
+assert storage.site_feed_summaries()['dcinside']['image_count'] >= 1
+assert web_server.build_posts_page(1, False, image_only=True)['total'] == total
+print('IMAGE FILTER OK')
 print('DCINSIDE OK')

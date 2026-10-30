@@ -531,6 +531,9 @@ def _feed_summary(conn, id_limit, group_id=None, site=None):
     video_count = conn.execute(f"""
         SELECT COUNT(DISTINCT kp.post_id) {base} JOIN posts p ON p.id = kp.post_id WHERE {_HAS_VIDEO_SQL}
     """, params).fetchone()[0]
+    image_count = conn.execute(f"""
+        SELECT COUNT(DISTINCT kp.post_id) {base} JOIN posts p ON p.id = kp.post_id WHERE {_HAS_IMAGE_SQL}
+    """, params).fetchone()[0]
     deleted_count = conn.execute(f"""
         SELECT COUNT(DISTINCT kp.post_id) {base} JOIN posts p ON p.id = kp.post_id WHERE p.is_deleted = 1
     """, params).fetchone()[0]
@@ -549,6 +552,7 @@ def _feed_summary(conn, id_limit, group_id=None, site=None):
     return {
         'total': total,
         'video_count': video_count,
+        'image_count': image_count,
         'deleted_count': deleted_count,
         'unread_count': len(unread),
         'unread_ids': [r['post_id'] for r in unread[:id_limit]],
@@ -776,6 +780,10 @@ def _row_to_post(row):
     return post
 
 _HAS_VIDEO_SQL = "p.videos_json != '[]'"
+# 첨부 이미지가 있는 글: 에펨코리아 첨부(/files/attach/)나 수집할 때 저장한 디시 이미지(/images/dc-) 본문 img
+# (이모티콘·아이콘·링크 미리보기 그림만 있는 글은 빼려고 첨부 경로로 판별)
+_HAS_IMAGE_SQL = ("(p.content_json LIKE '%<img%' AND "
+                  "(p.content_json LIKE '%/files/attach/%' OR p.content_json LIKE '%/images/dc-%'))")
 
 def _search_conditions(query):
     """검색어를 공백으로 나눠 모든 단어가 포함된 글만 (대소문자 무시, LIKE 특수문자 이스케이프)"""
@@ -801,7 +809,7 @@ def recent_keyword_posts(board, keyword, limit):
 _UNREAD_SQL = "kp.is_new = 1 AND rp.read_at IS NULL"
 
 def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=None, unread_since=None, deleted_only=False,
-                    site=None):
+                    site=None, image_only=False):
     """게시판에 등록된 키워드의 글을 한 번씩만(중복 제거) 최신 수집순으로 조회.
     group_id가 있으면 그 게시판만, site가 있으면 그 사이트의 모든 게시판만, query가 있으면 검색 결과.
     unread_since가 있으면 안 읽은 새 글만: 그 시각 이후에 읽은 글은 계속 포함해
@@ -818,7 +826,8 @@ def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=N
         {feed_sql}
         JOIN posts p ON p.id = kp.post_id
         LEFT JOIN read_posts rp ON rp.post_id = p.id
-        WHERE 1 = 1 {f'AND {_HAS_VIDEO_SQL}' if video_only else ''} {'AND p.is_deleted = 1' if deleted_only else ''}
+        WHERE 1 = 1 {f'AND {_HAS_VIDEO_SQL}' if video_only else ''} {f'AND {_HAS_IMAGE_SQL}' if image_only else ''}
+            {'AND p.is_deleted = 1' if deleted_only else ''}
             {search_sql} {unread_sql}
     """
     order = 'p.updated_at DESC, last_rowid DESC' if deleted_only else 'last_rowid DESC'
