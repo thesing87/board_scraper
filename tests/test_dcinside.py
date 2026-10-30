@@ -131,4 +131,44 @@ try:
 except ValueError:
     pass
 print('SITE LABELS OK')
+
+# --- 8) 게시판 이름은 사이트 안에서만 겹치지 않으면 됨 (FM 싼타페·DC 싼타페)
+storage.set_site_label('dcinside', '디시인사이드', 'DC')
+fm_santafe, _ = storage.save_group(None, '싼타페', [{'board': 'car', 'keyword': '싼타페'}])
+storage.save_group(dc_id, '싼타페', [{'board': 'dc:car_new1', 'keyword': '싼타페'}])   # DC 게시판 이름을 FM과 같게 수정
+same = sorted((g['site'], g['id']) for g in storage.list_groups() if g['name'] == '싼타페')
+assert same == sorted([('fmkorea', fm_santafe), ('dcinside', dc_id)]), same
+for group_id, members, message in [
+        (None, [{'board': 'dc:car_new1', 'keyword': '투싼'}], '디시인사이드에 같은 이름'),       # 같은 사이트 안에서는 중복 불가
+        (dc_id, [{'board': 'car', 'keyword': '싼타페'}], '다른 사이트의 키워드로')]:            # 게시판의 사이트는 바꿀 수 없음
+    try:
+        storage.save_group(group_id, '싼타페', members)
+        raise AssertionError(f'저장되면 안 됨: {message}')
+    except ValueError as e:
+        assert message in str(e), e
+
+# 예전 DB(게시판 이름이 전체에서 UNIQUE, 사이트 칸 없음)를 열면 표를 새로 만들어 옮기고, 키워드·알림 설정은 그대로
+import sqlite3
+legacy_dir = tempfile.mkdtemp()
+legacy = sqlite3.connect(os.path.join(legacy_dir, 'board.db'))
+legacy.executescript("""
+    CREATE TABLE keyword_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL,
+                                 alert INTEGER NOT NULL DEFAULT 1, video_alert INTEGER NOT NULL DEFAULT 1);
+    CREATE TABLE keyword_group_members (group_id INTEGER NOT NULL REFERENCES keyword_groups(id) ON DELETE CASCADE,
+                                        board TEXT NOT NULL, keyword TEXT NOT NULL, PRIMARY KEY (group_id, board, keyword));
+    INSERT INTO keyword_groups(id, name, created_at, alert, video_alert) VALUES (1, '싼타페', 't', 0, 1), (2, 'DC 싼타페', 't', 1, 0);
+    INSERT INTO keyword_group_members VALUES (1, 'car', '싼타페'), (2, 'dc:car_new1', '싼타페');
+""")
+legacy.commit()
+legacy.close()
+conn = sqlite3.connect(os.path.join(legacy_dir, 'board.db'))
+conn.row_factory = sqlite3.Row
+conn.execute("PRAGMA foreign_keys = ON")
+storage._add_group_site(conn)
+rows = [tuple(r) for r in conn.execute("SELECT id, site, name, alert, video_alert FROM keyword_groups ORDER BY id")]
+assert rows == [(1, 'fmkorea', '싼타페', 0, 1), (2, 'dcinside', 'DC 싼타페', 1, 0)], rows
+assert conn.execute("SELECT COUNT(*) FROM keyword_group_members").fetchone()[0] == 2
+conn.execute("UPDATE keyword_groups SET name = '싼타페' WHERE id = 2")     # 옮긴 뒤에는 사이트가 다르면 같은 이름 가능
+conn.commit()
+print('SAME NAME OK')
 print('DCINSIDE OK')

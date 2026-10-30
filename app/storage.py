@@ -85,13 +85,16 @@ def _create_schema(conn):
         CREATE INDEX IF NOT EXISTS idx_keyword_posts_post ON keyword_posts(post_id);
         CREATE INDEX IF NOT EXISTS idx_keyword_posts_keyword ON keyword_posts(board, keyword);
 
-        -- 사용자가 만든 게시판: 등록한 키워드의 글을 중복 없이 한 피드로
+        -- 사용자가 만든 게시판: 등록한 키워드의 글을 중복 없이 한 피드로.
+        -- 게시판은 한 사이트의 키워드만 담고, 이름은 사이트 안에서만 겹치지 않으면 됨 (FM 싼타페·DC 싼타페)
         CREATE TABLE IF NOT EXISTS keyword_groups (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            name        TEXT NOT NULL UNIQUE,
+            site        TEXT NOT NULL DEFAULT 'fmkorea',  -- sites.py의 사이트 (fmkorea·dcinside)
+            name        TEXT NOT NULL,
             created_at  TEXT NOT NULL,
             alert       INTEGER NOT NULL DEFAULT 1,   -- 새 글 텔레그램 알림
-            video_alert INTEGER NOT NULL DEFAULT 1    -- 동영상 글 알림 (alert가 꺼져 있어도 동영상 글은 알림)
+            video_alert INTEGER NOT NULL DEFAULT 1,   -- 동영상 글 알림 (alert가 꺼져 있어도 동영상 글은 알림)
+            UNIQUE (site, name)
         );
         CREATE TABLE IF NOT EXISTS keyword_group_members (
             group_id  INTEGER NOT NULL REFERENCES keyword_groups(id) ON DELETE CASCADE,
@@ -235,6 +238,42 @@ def _add_missing_columns(conn):
                     ), 1)
                 """)
         log_msg("[DB] 게시판별 알림 설정 컬럼 추가")
+    if 'site' not in {row['name'] for row in conn.execute("PRAGMA table_info(keyword_groups)")}:
+        _add_group_site(conn)
+
+def _add_group_site(conn):
+    """게시판에 사이트 칸을 넣고 이름 중복 규칙을 '사이트 안에서만'으로 바꿈. SQLite는 기존 UNIQUE를 고칠 수 없어
+    표를 새로 만들어 옮김 (게시판 번호는 그대로라 키워드·알림·읽음 기록은 영향 없음).
+    옛 표를 지울 때 게시판 키워드(ON DELETE CASCADE)가 함께 지워지지 않도록 외래 키 검사를 잠시 끔"""
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        with conn:
+            conn.execute("""
+                CREATE TABLE keyword_groups_new (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    site        TEXT NOT NULL DEFAULT 'fmkorea',
+                    name        TEXT NOT NULL,
+                    created_at  TEXT NOT NULL,
+                    alert       INTEGER NOT NULL DEFAULT 1,
+                    video_alert INTEGER NOT NULL DEFAULT 1,
+                    UNIQUE (site, name)
+                )
+            """)
+            # 사이트는 등록된 키워드의 카테고리로 정함 (디시 갤러리 키워드가 있으면 디시인사이드)
+            conn.execute("""
+                INSERT INTO keyword_groups_new(id, site, name, created_at, alert, video_alert)
+                SELECT g.id,
+                       CASE WHEN EXISTS (SELECT 1 FROM keyword_group_members m WHERE m.group_id = g.id AND m.board LIKE 'dc:%')
+                            THEN 'dcinside' ELSE 'fmkorea' END,
+                       g.name, g.created_at, g.alert, g.video_alert
+                FROM keyword_groups g
+            """)
+            conn.execute("DROP TABLE keyword_groups")
+            conn.execute("ALTER TABLE keyword_groups_new RENAME TO keyword_groups")
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+    log_msg("[DB] 게시판에 사이트 칸 추가 (게시판 이름은 사이트 안에서만 겹치지 않으면 됨)")
 
 def _backfill_search_text(conn):
     """검색 텍스트가 없는 기존 글을 1회 채움"""
@@ -522,7 +561,7 @@ def list_groups(id_limit=500):
     """게시판 목록: 등록 키워드, 알림 설정, 중복 제거한 글 수, 안 읽은 새 글 수·ID, 최신 글 날짜"""
     groups = []
     with _db() as conn:
-        for g in conn.execute("SELECT id, name, alert, video_alert FROM keyword_groups ORDER BY id").fetchall():
+        for g in conn.execute("SELECT id, site, name, alert, video_alert FROM keyword_groups ORDER BY id").fetchall():
             members = [dict(board=r['board'], keyword=r['keyword'], ignores=_keyword_ignores(conn, r['board'], r['keyword']))
                        for r in conn.execute("""
                 SELECT m.board, m.keyword FROM keyword_group_members m
@@ -530,8 +569,7 @@ def list_groups(id_limit=500):
                 WHERE m.group_id = ? ORDER BY k.rowid
             """, (g['id'],)).fetchall()]
             # 게시판은 한 사이트의 키워드만 담음 (save_group에서 검사). 사이드바에서 사이트별로 묶어 보여줌
-            site = board_site(members[0]['board']) if members else 'fmkorea'
-            groups.append({'id': g['id'], 'name': g['name'], 'site': site, 'members': members,
+            groups.append({'id': g['id'], 'name': g['name'], 'site': g['site'], 'members': members,
                            'alert': bool(g['alert']), 'video_alert': bool(g['video_alert']),
                            **_feed_summary(conn, id_limit, g['id'])})
     return groups
@@ -540,21 +578,31 @@ def save_group(group_id, name, members):
     """게시판 생성(group_id=None) 또는 수정. 새 키워드는 수집 대상으로 등록하고,
     어느 게시판에도 남지 않은 키워드는 수집 데이터와 함께 삭제. (게시판 ID, 삭제된 키워드 목록) 반환.
     member에 ignores(무시할 표현 목록)가 있으면 그 키워드의 표현을 바꿈 (키워드에 붙으므로 같은 키워드를 쓰는 게시판 모두에 적용).
+    게시판의 사이트는 등록한 키워드의 사이트이며, 이름은 같은 사이트 안에서만 겹치지 않으면 됨.
     이름 중복 등은 ValueError"""
     pairs = list(dict.fromkeys((m['board'], m['keyword']) for m in members))
     if not pairs:
         raise ValueError('키워드를 하나 이상 등록해 주세요.')
-    if len({board_site(b) for b, _ in pairs}) > 1:
-        raise ValueError('한 게시판에는 한 사이트(' + '·'.join(v['name'] for v in site_labels().values()) + ')의 키워드만 등록할 수 있습니다.')
+    labels = site_labels()
+    sites = {board_site(b) for b, _ in pairs}
+    if len(sites) > 1:
+        raise ValueError('한 게시판에는 한 사이트(' + '·'.join(v['name'] for v in labels.values()) + ')의 키워드만 등록할 수 있습니다.')
+    site = sites.pop()
     with _db() as conn, conn:
-        clash = conn.execute("SELECT id FROM keyword_groups WHERE name = ? AND id != ?", (name, group_id or -1)).fetchone()
-        if clash:
-            raise ValueError('같은 이름의 게시판이 이미 있습니다.')
-        if group_id is None:
-            group_id = conn.execute("INSERT INTO keyword_groups(name, created_at) VALUES(?, ?)", (name, _now())).lastrowid
-        else:
-            if not conn.execute("SELECT 1 FROM keyword_groups WHERE id = ?", (group_id,)).fetchone():
+        if group_id is not None:
+            row = conn.execute("SELECT site FROM keyword_groups WHERE id = ?", (group_id,)).fetchone()
+            if not row:
                 raise ValueError('존재하지 않는 게시판입니다.')
+            if row['site'] != site:
+                raise ValueError(f"이 게시판은 {labels[row['site']]['name']} 게시판이라 다른 사이트의 키워드로 바꿀 수 없습니다.")
+        clash = conn.execute("SELECT id FROM keyword_groups WHERE site = ? AND name = ? AND id != ?",
+                             (site, name, group_id or -1)).fetchone()
+        if clash:
+            raise ValueError(f"{labels[site]['name']}에 같은 이름의 게시판이 이미 있습니다.")
+        if group_id is None:
+            group_id = conn.execute("INSERT INTO keyword_groups(site, name, created_at) VALUES(?, ?, ?)",
+                                    (site, name, _now())).lastrowid
+        else:
             conn.execute("UPDATE keyword_groups SET name = ? WHERE id = ?", (name, group_id))
             conn.execute("DELETE FROM keyword_group_members WHERE group_id = ?", (group_id,))
         conn.executemany("INSERT OR IGNORE INTO keywords(board, keyword) VALUES(?, ?)", pairs)

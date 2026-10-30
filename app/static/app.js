@@ -59,6 +59,7 @@ function setState(state) {
         if (SITES[site]) Object.assign(SITES[site], label);
     });
 }
+function siteLabel(site) { return SITES[site] || SITES.fmkorea; }
 function siteTag(site) {
     const info = SITES[site] || SITES.fmkorea;
     return `<span class="site-tag site-${site in SITES ? site : 'fmkorea'}" title="${info.name}">${info.short}</span>`;
@@ -314,7 +315,7 @@ function renderNavigation() {
     // 아래는 고른 게시판 안을 걸러 보는 보기(그 게시판 기준 글 수). 보기는 파란 배경 대신 체크 표시로 선택을 보여 게시판과 구분
     // 게시판이 두 사이트 이상에 걸쳐 있으면 사이트별로 묶어 제목(FM·DC 표시)을 붙임. '전체'는 모든 사이트를 합친 피드
     const currentGroup = findGroup(app.activeKey);
-    const viewHead = `'${currentGroup ? esc(currentGroup.name) : '전체'}'에서 보기`;
+    const viewHead = `'${currentGroup ? (multiSite() ? siteLabel(currentGroup.site).short + ' ' : '') + esc(currentGroup.name) : '전체'}'에서 보기`;
     const bySite = groupsBySite(groups);
     const groupItem = g => navItem(esc(g.name), '', g.unread_count, isActive(g),
         `data-action="open-group" data-group-id="${g.id}"`, g.comment_count);
@@ -357,7 +358,8 @@ function renderNavigation() {
             : groups.map(g => groupChip(g)).join(''));
 
     // 사이드바 하단 알림 요약 (게시판별)
-    const summary = groups.map(g => `${g.name} · ${alertMode(g)}`);
+    // 사이트가 여러 개면 같은 이름의 게시판(FM 싼타페·DC 싼타페)을 구분하도록 짧은 표시를 붙임
+    const summary = groups.map(g => `${multiSite() ? siteLabel(g.site).short + ' ' : ''}${g.name} · ${alertMode(g)}`);
     document.getElementById('alert-summary').textContent = summary.length ? summary.join('\n') : '게시판이 없습니다.';
 }
 
@@ -712,7 +714,7 @@ function renderFeed(data) {
 
     // 제목: 게시판 이름, '모든 글'이 아닌 보기는 뒤에 보기 이름
     const title = searching ? `검색: ${esc(app.searchQuery)}`
-        : (group ? esc(group.name) : '전체') + (filter !== 'all' ? ` · ${filterLabel(filter)}` : '');
+        : (group ? (multiSite() ? siteTag(group.site) : '') + esc(group.name) : '전체') + (filter !== 'all' ? ` · ${filterLabel(filter)}` : '');
     const headActions = searching
         ? '<button class="btn btn-outline btn-small" data-action="clear-search">검색 닫기</button>'
         : `<button class="btn btn-outline btn-small" data-action="mark-all-read" ${summary && pendingCount(summary) ? '' : 'hidden'}>${filter === 'comments' ? '모두 확인' : '모두 읽음'}</button>`;
@@ -909,7 +911,7 @@ function renderSettings() {
     const groups = app.state.groups || [];
     document.getElementById('settings-alerts').innerHTML = groups.length ? groups.map(g => `
         <div class="alert-row">
-            <span class="alert-row-name">${esc(g.name)}</span>
+            <span class="alert-row-name">${multiSite() ? siteTag(g.site) : ''}${esc(g.name)}</span>
             <span class="alert-switches">
                 ${alertSwitch(g.id, 'alert', g.alert, g.name + ' 전체 알림')}
                 ${alertSwitch(g.id, 'video_alert', g.video_alert, g.name + ' 동영상 알림')}
@@ -955,7 +957,7 @@ function renderGroupSettings() {
     document.getElementById('settings-groups').innerHTML = groups.length ? groups.map(g => `
         <div class="group-row">
             <div class="group-row-main">
-                <span class="group-row-name">${esc(g.name)}</span>
+                <span class="group-row-name">${multiSite() ? siteTag(g.site) : ''}${esc(g.name)}</span>
                 <span class="group-row-members">${g.members.map(memberText).join(' · ') || '(키워드 없음)'} · ${g.total}개 글</span>
             </div>
             <button class="btn btn-outline btn-small" data-action="edit-group" data-group-id="${g.id}">수정</button>
