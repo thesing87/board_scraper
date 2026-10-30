@@ -47,18 +47,32 @@ if ($Upload) {
     return
 }
 
-# NAS는 GitHub main을 받으므로, 이 PC에만 있는 변경은 반영되지 않는다는 것을 미리 알려 줌 (배포는 그대로 진행)
-try { git fetch --quiet origin main 2>$null; $fetched = ($LASTEXITCODE -eq 0) } catch { $fetched = $false }
-if ($fetched) {
-    $notInMain = git rev-list --count origin/main..HEAD
-    if ([int]$notInMain -gt 0) {
-        Write-Host "[안내] 이 PC의 커밋 $notInMain개가 GitHub main에 없어 이번 배포에 포함되지 않습니다 (푸시·머지 후 다시 배포)." -ForegroundColor Yellow
+# NAS는 GitHub main을 받으므로, 이 PC에만 있는 변경은 반영되지 않는다는 것을 미리 알려 줌.
+# 안내일 뿐이라 git 확인이 실패해도(네트워크 등) 조용히 넘어가고 배포는 그대로 진행
+try {
+    $ErrorActionPreference = 'Continue'
+    git fetch --quiet origin main 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        $notInMain = git rev-list --count origin/main..HEAD 2>$null
+        if ($LASTEXITCODE -eq 0 -and [int]$notInMain -gt 0) {
+            Write-Host "[안내] 이 PC의 커밋 $notInMain개가 GitHub main에 없어 이번 배포에 포함되지 않습니다 (푸시·머지 후 다시 배포)." -ForegroundColor Yellow
+        }
+        $dirty = git status --porcelain --untracked-files=no 2>$null
+        if ($LASTEXITCODE -eq 0 -and $dirty) {
+            Write-Host "[안내] 커밋하지 않은 변경은 배포되지 않습니다 (시험하려면 -Upload)." -ForegroundColor Yellow
+        }
     }
-    if (git status --porcelain --untracked-files=no) {
-        Write-Host "[안내] 커밋하지 않은 변경은 배포되지 않습니다 (시험하려면 -Upload)." -ForegroundColor Yellow
-    }
+} catch {
+} finally {
+    $ErrorActionPreference = 'Stop'
 }
 
+# NAS 폴더가 아직 git 저장소가 아니면(setup_nas_git.ps1 전) update.sh도 없으므로 먼저 안내
 $arg = if ($Rebuild) { 'rebuild' } elseif ($Restart) { 'restart' } else { '' }
-ssh -t $Nas "sh $NasProject/deploy/update.sh $arg"
+ssh -t $Nas "if [ -d $NasProject/.git ] && [ -f $NasProject/deploy/update.sh ]; then sh $NasProject/deploy/update.sh $arg; else exit 3; fi"
+if ($LASTEXITCODE -eq 3) {
+    Write-Host "[오류] NAS 프로젝트 폴더가 아직 git 저장소가 아닙니다." -ForegroundColor Red
+    Write-Host "       처음 한 번 .\deploy\setup_nas_git.ps1로 전환한 뒤 다시 배포해 주세요. (전환 전에 급히 배포하려면 -Upload)" -ForegroundColor Yellow
+    exit 1
+}
 if ($LASTEXITCODE -ne 0) { throw "[오류] NAS 배포 실패" }
