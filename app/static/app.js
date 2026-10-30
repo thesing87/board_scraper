@@ -226,12 +226,13 @@ function renderStatus(ok) {
     text.textContent = '수집 중 · ' + time + ' 업데이트';
 }
 
-function navItem(label, count, unread, active, attrs) {
+function navItem(label, count, unread, active, attrs, comments = 0) {
     return `
         <button class="kw-item ${active ? 'active' : ''}" ${attrs} ${active ? 'aria-current="true"' : ''}>
             <span>${label}</span>
             <span class="kw-side">
                 ${unread ? `<span class="kw-unread" aria-label="안 읽은 새 글 ${unread}개">${unread}</span>` : ''}
+                ${comments ? `<span class="kw-unread kw-comments" aria-label="새 댓글이 달린 글 ${comments}개">${comments}</span>` : ''}
                 <span class="kw-count">${count}</span>
             </span>
         </button>`;
@@ -258,7 +259,7 @@ function renderNavigation() {
     const filterActive = key => !searching && app.filter === key;
     const filterAttrs = key => `data-action="set-view" data-filter="${key}"`;
 
-    // 데스크톱: 위는 보기(고른 게시판 기준 글 수), 아래는 게시판(전체 + 사용자가 만든 게시판, 안 읽은 새 글 수)
+    // 데스크톱: 위는 보기(고른 게시판 기준 글 수), 아래는 게시판(전체 + 사용자가 만든 게시판, 안 읽은 새 글 수·새 댓글이 달린 글 수)
     document.getElementById('keyword-groups').innerHTML = `
         <nav class="kw-group" aria-label="보기">
             <div class="sidebar-head"><span>보기</span></div>
@@ -266,26 +267,27 @@ function renderNavigation() {
         </nav>
         <nav class="kw-group" aria-label="게시판">
             <div class="sidebar-head"><span>게시판</span>${ADD_BOARD_BUTTON}</div>
-            ${navItem('전체', '', app.state.all.unread_count, allActive, 'data-action="open-all"')}
+            ${navItem('전체', '', app.state.all.unread_count, allActive, 'data-action="open-all"', app.state.all.comment_count)}
             ${groups.length ? groups.map(g => navItem(esc(g.name), '', g.unread_count, isActive(g),
-                `data-action="open-group" data-group-id="${g.id}"`)).join('')
+                `data-action="open-group" data-group-id="${g.id}"`, g.comment_count)).join('')
                 : '<span class="kw-group-name">게시판이 없습니다. 관리에서 만들어 주세요.</span>'}
         </nav>`;
 
-    // 모바일: 위는 네 칸 보기, 아래는 가로로 넘기는 게시판 칩 (맨 앞이 전체)
+    // 모바일: 위는 네 칸 보기, 아래는 가로로 넘기는 게시판 칩 (맨 앞이 전체, 안 읽은 새 글은 파란 점·새 댓글은 주황 점)
     document.getElementById('view-tabs').innerHTML = FILTERS.map(f => `
         <button class="view-tab" ${filterAttrs(f.key)} aria-pressed="${filterActive(f.key)}">
             <span>${f.label}</span>
             ${countBadge(f.key, filterCount(current, f.key))}
         </button>`).join('');
-    const chip = (label, hasUnread, active, attrs) => `
+    const chip = (label, summary, active, attrs) => `
         <button class="chip ${active ? 'active' : ''}" ${attrs} ${active ? 'aria-current="true"' : ''}>
             <span>${label}</span>
-            ${hasUnread ? '<span class="chip-dot" aria-label="안 읽은 새 글"></span>' : ''}
+            ${summary.unread_count > 0 ? '<span class="chip-dot" aria-label="안 읽은 새 글"></span>' : ''}
+            ${summary.comment_count > 0 ? '<span class="chip-dot chip-dot-comments" aria-label="새 댓글"></span>' : ''}
         </button>`;
     document.getElementById('chip-row').innerHTML =
-        chip('전체', app.state.all.unread_count > 0, allActive, 'data-action="open-all"') +
-        groups.map(g => chip(esc(g.name), g.unread_count > 0, isActive(g),
+        chip('전체', app.state.all, allActive, 'data-action="open-all"') +
+        groups.map(g => chip(esc(g.name), g, isActive(g),
             `data-action="open-group" data-group-id="${g.id}"`)).join('');
 
     // 사이드바 하단 알림 요약 (게시판별)
