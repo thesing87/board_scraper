@@ -34,7 +34,7 @@ try:
     legacy = [r[0] for r in db.execute('select post_id from keyword_posts where is_new=1 limit 3')]
     js("localStorage.setItem('read_post_ids', JSON.stringify(arguments[0])); sessionStorage.clear();", legacy)
     d.get(BASE); wait(2.5)
-    js("openView(ALL_KEY, 1)"); wait(1.5)  # 첫 화면은 안 읽은 글 → 통합 피드로 전환
+    js("app.filter = 'all'; openView(ALL_KEY, 1)"); wait(1.5)  # 첫 화면은 안 읽은 글 보기 → 전체 게시판의 모든 글로 전환
     migrated = db.execute(f"select count(*) from read_posts where post_id in ({','.join('?'*len(legacy))})", legacy).fetchone()[0]
     assert migrated == len(legacy) and js("return localStorage.getItem('read_post_ids')") is None, migrated
     ok.append('legacy reads migrated to server')
@@ -100,7 +100,7 @@ try:
     ok.append('new comment badge + highlight')
 
     # 6) 새 글 배너: 화면을 보는 중에 새 글이 수집되면 배너 → 누르면 맨 위에 표시
-    js("sessionStorage.clear()"); d.get(BASE); wait(2.5); js("openView(ALL_KEY, 1)"); wait(1.5)
+    js("sessionStorage.clear()"); d.get(BASE); wait(2.5); js("app.filter = 'all'; openView(ALL_KEY, 1)"); wait(1.5)
     any_kw = db.execute('select board, keyword from keywords limit 1').fetchone()
     newp = dict(rows[0]); newp.update(id='10999999901', title='배너 테스트 새 글', comments=[], is_deleted=False)
     storage.save_keyword_post(any_kw[0], any_kw[1], newp, is_new=True)
@@ -119,20 +119,21 @@ try:
     js("document.querySelectorAll('[data-action=\"open-group\"]')[1].click()"); wait(1.2)
     kw_title = js("return document.querySelector('.feed-title').textContent")
     js("document.querySelector('.kw-item[data-action=\"open-all\"]').click()"); wait(1.2)
-    assert js("return document.querySelector('.feed-title').textContent") == '전체' and kw_title != '전체'
+    # 게시판을 바꾸면 그 게시판의 기본 보기로 열리므로 제목 앞부분(게시판 이름)만 비교
+    assert js("return document.querySelector('.feed-title').textContent").startswith('전체') and not kw_title.startswith('전체')
     errors = [l for l in d.get_log('browser') if l['level'] == 'SEVERE']
     print('console errors', errors)
     assert not errors
     ok.append('tab switching, no console errors')
 
-    # 8) 모바일 폭: 검색 펼치기와 칩
+    # 8) 모바일 폭: 검색 펼치기와 게시판 칩 (맨 앞이 전체)
     d.set_window_size(390, 844); d.get(BASE); wait(2.5)
     m = js("""document.querySelector('[data-action="toggle-search"]').click();
         return { chipFirst: document.querySelector('#chip-row .chip').textContent.replace(/\\s+/g,' ').trim(),
                  searchVisible: getComputedStyle(document.getElementById('search-form')).display !== 'none',
                  overflow: document.documentElement.scrollWidth > innerWidth }""")
     print('mobile', m)
-    assert m['chipFirst'].startswith('안 읽은 글') and m['searchVisible'] and not m['overflow']
+    assert m['chipFirst'].startswith('전체') and m['searchVisible'] and not m['overflow']
     wait(0.5)
     d.save_screenshot(os.path.join(SHOTS, '5_mobile.png'))
     ok.append('mobile chips + search toggle')

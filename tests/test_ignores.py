@@ -2,7 +2,11 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import ROOT
 import tempfile
-os.environ.update(OUTPUT_DIR=tempfile.mkdtemp(), LOG_LEVEL='WARN', KEYWORDS_BASEBALL='')
+os.environ.update(OUTPUT_DIR=tempfile.mkdtemp(), LOG_LEVEL='WARN')
+import config
+# 로컬 .env의 KEYWORDS_* (config가 불러옴)가 새 DB에 같은 이름의 게시판을 미리 만들지 않게 비움
+for name in [k for k in os.environ if k.startswith('KEYWORDS_')]:
+    os.environ[name] = ''
 import storage
 from matching import keyword_in_post
 

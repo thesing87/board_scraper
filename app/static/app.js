@@ -37,7 +37,8 @@ const ICONS = {
     prev: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>',
     next: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg>',
     close: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
-    up: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>'
+    up: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>',
+    check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>'
 };
 
 function esc(value) {
@@ -240,6 +241,15 @@ function navItem(label, count, unread, active, attrs, comments = 0) {
         </button>`;
 }
 
+// 사이드바 보기 항목: 고른 항목은 왼쪽 체크 표시와 굵은 글씨로만 표시 (게시판의 파란 배경 선택과 구분)
+function viewItem(label, count, active, attrs) {
+    return `
+        <button class="kw-item view-item ${active ? 'checked' : ''}" ${attrs} aria-pressed="${active}">
+            <span class="view-label"><span class="view-check">${active ? ICONS.check : ''}</span>${label}</span>
+            <span class="kw-side">${count}</span>
+        </button>`;
+}
+
 // 보기 칸의 글 수 배지: 확인할 글이 남은 안 읽은 글(파랑)·새 댓글(주황)만 색을 넣어 눈에 띄게, 나머지는 회색
 function countBadge(filter, count) {
     const tone = count > 0 && (filter === 'unread' || filter === 'comments') ? ` is-${filter}` : '';
@@ -261,18 +271,21 @@ function renderNavigation() {
     const filterActive = key => !searching && app.filter === key;
     const filterAttrs = key => `data-action="set-view" data-filter="${key}"`;
 
-    // 데스크톱: 위는 보기(고른 게시판 기준 글 수), 아래는 게시판(전체 + 사용자가 만든 게시판, 안 읽은 새 글 수·새 댓글이 달린 글 수)
+    // 데스크톱: 위는 어디를 볼지 고르는 게시판(전체 + 사용자가 만든 게시판, 안 읽은 새 글 수·새 댓글이 달린 글 수),
+    // 아래는 고른 게시판 안을 걸러 보는 보기(그 게시판 기준 글 수). 보기는 파란 배경 대신 체크 표시로 선택을 보여 게시판과 구분
+    const currentGroup = findGroup(app.activeKey);
+    const viewHead = `'${currentGroup ? esc(currentGroup.name) : '전체'}'에서 보기`;
     document.getElementById('keyword-groups').innerHTML = `
-        <nav class="kw-group" aria-label="보기">
-            <div class="sidebar-head"><span>보기</span></div>
-            ${FILTERS.map(f => navItem(f.label, countBadge(f.key, filterCount(current, f.key)), 0, filterActive(f.key), filterAttrs(f.key))).join('')}
-        </nav>
         <nav class="kw-group" aria-label="게시판">
             <div class="sidebar-head"><span>게시판</span>${ADD_BOARD_BUTTON}</div>
             ${navItem('전체', '', app.state.all.unread_count, allActive, 'data-action="open-all"', app.state.all.comment_count)}
             ${groups.length ? groups.map(g => navItem(esc(g.name), '', g.unread_count, isActive(g),
                 `data-action="open-group" data-group-id="${g.id}"`, g.comment_count)).join('')
                 : '<span class="kw-group-name">게시판이 없습니다. 관리에서 만들어 주세요.</span>'}
+        </nav>
+        <nav class="kw-group view-group" aria-label="보기">
+            <div class="sidebar-head"><span class="view-head">${viewHead}</span></div>
+            ${FILTERS.map(f => viewItem(f.label, countBadge(f.key, filterCount(current, f.key)), filterActive(f.key), filterAttrs(f.key))).join('')}
         </nav>`;
 
     // 모바일: 위는 네 칸 보기, 아래는 가로로 넘기는 게시판 칩 (맨 앞이 전체, 안 읽은 새 글은 파란 점·새 댓글은 주황 점)

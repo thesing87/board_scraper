@@ -46,18 +46,26 @@ d = Chrome(options=o)
 js = d.execute_script
 wait = time.sleep
 by_name = {g['name']: g for g in groups}
+def show_all():
+    # 게시판을 열면 기본 보기(안 읽은 글 등)로 열리므로 글 수는 '모든 글' 보기로 바꿔서 확인
+    js("document.querySelector('#keyword-groups [data-action=\"set-view\"][data-filter=\"all\"]').click()"); wait(1.5)
 try:
     d.get(BASE); wait(2.5)
-    side = js("return [...document.querySelectorAll('.kw-item')].map(b => b.textContent.replace(/\\s+/g, ' ').trim())")
+    side = js("return [...document.querySelectorAll('#keyword-groups .kw-item:not(.view-item)')].map(b => b.textContent.replace(/\\s+/g, ' ').trim())")
+    views = js("return [...document.querySelectorAll('#keyword-groups .view-item')].map(b => b.textContent.replace(/\\s+/g, ' ').trim())")
     heads = js("return [...document.querySelectorAll('.kw-group-name')].map(e => e.textContent)")
-    print('sidebar', side, heads)
-    # 통합 항목(안 읽은 글·새 댓글·전체) + 게시판
-    assert len(side) == len(kws) + 3 and heads == []
+    view_head = js("return document.querySelector('.view-head').textContent")
+    print('sidebar', side, views, view_head, heads)
+    # 위는 게시판(전체 + 사용자 게시판), 아래는 고른 게시판 안의 보기 5개
+    assert len(side) == len(kws) + 1 and side[0].startswith('전체') and len(views) == 5 and heads == []
+    assert view_head == "'전체'에서 보기"
     d.save_screenshot(os.path.join(SHOTS, '1_sidebar.png'))
 
     # 2) 게시판 하나 열기
     gid = by_name['싼타페']['id']
     js(f"document.querySelector('[data-action=\"open-group\"][data-group-id=\"{gid}\"]').click()"); wait(1.5)
+    assert js("return document.querySelector('.view-head').textContent") == "'싼타페'에서 보기"
+    show_all()
     v = js("return {title: document.querySelector('.feed-title').textContent, sub: document.querySelector('.feed-sub').textContent, chips: document.querySelectorAll('.kw-chip').length}")
     print('board view', v)
     assert v['title'] == '싼타페' and f"{distinct_count([('car', '싼타페')])}개 글" in v['sub'] and v['chips'] == 0
@@ -78,6 +86,7 @@ try:
     assert len(tags) == 3
     d.save_screenshot(os.path.join(SHOTS, '2_edit_form.png'))
     js("document.getElementById('group-save-btn').click()"); wait(2)
+    show_all()
     v = js("return {title: document.querySelector('.feed-title').textContent, sub: document.querySelector('.feed-sub').textContent, chips: document.querySelectorAll('.kw-chip').length, ids: [...document.querySelectorAll('.post-card')].map(c => c.id)}")
     print('edited', v['title'], v['sub'], v['chips'])
     assert v['title'] == '싼타페 모음' and f"{distinct_count([('car', '싼타페'), ('car', '싼하')])}개 글" in v['sub']
@@ -108,13 +117,14 @@ try:
     d.get(BASE + '#post-' + pid); d.refresh(); wait(3)
     v = js(f"return {{title: document.querySelector('.feed-title').textContent, found: !!document.getElementById('post-{pid}')}}")
     print('anchor', v)
-    assert v['title'] == '싼타페 모음' and v['found']
+    assert v['title'].startswith('싼타페 모음') and v['found']
 
-    # 7) 모바일 칩: 통합 항목(안 읽은 글·새 댓글·전체) + 게시판
+    # 7) 모바일: 위는 보기 탭 5개, 아래 칩은 전체 + 게시판
     d.set_window_size(390, 844); d.get(BASE); wait(2.5)
     chips = js("return [...document.querySelectorAll('#chip-row .chip')].map(c => c.textContent.replace(/\\s+/g, ' ').trim())")
-    print('chips', chips)
-    assert len(chips) == len(storage.list_groups()) + 3
+    tabs = js("return document.querySelectorAll('#view-tabs .view-tab').length")
+    print('chips', chips, 'tabs', tabs)
+    assert len(chips) == len(storage.list_groups()) + 1 and tabs == 5
     d.save_screenshot(os.path.join(SHOTS, '4_mobile.png'))
     errs = [l for l in d.get_log('browser') if l['level'] == 'SEVERE']
     assert not errs, errs

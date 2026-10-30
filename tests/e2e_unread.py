@@ -31,12 +31,12 @@ def view():
         page: app.page, ids: [...document.querySelectorAll('.post-card')].map(c => c.id.slice(5)),
         nav: [...document.querySelectorAll('.kw-item')].slice(0, 2).map(b => b.textContent.replace(/\\s+/g, ' ').trim())}""")
 try:
-    # 1) 처음 들어오면 안 읽은 글 모아보기
+    # 1) 처음 들어오면 전체 게시판의 안 읽은 글 보기 (사이드바 맨 위 '전체'에 안 읽은 수)
     d.get(BASE); W(2.5)
     v = view(); print('first screen', v['title'], '|', v['sub'], '|', v['nav'])
     # 화면에 다 보인 짧은 글은 바로 읽음 처리되므로 지금 서버 기준 개수와 비교
     now_total = storage.unread_summary()['total']
-    assert v['title'] == '안 읽은 글' and f"{now_total}개" in v['sub'] and v['nav'][0] == f'안 읽은 글 {now_total}'
+    assert v['title'] == '전체 · 안 읽은 글' and f"{now_total}개" in v['sub'] and v['nav'][0] == f'전체 {now_total}'
     assert v['ids'] == summary['unread_ids'][:10]
     d.save_screenshot(os.path.join(SHOTS, '1_unread.png'))
 
@@ -69,23 +69,24 @@ try:
     js("sessionStorage.clear()"); d.get(BASE); W(2.5)
     v5 = view(); print('no unread first screen', v5['title'])
     assert v5['title'] == '전체'
-    # 안 읽은 글 보기로 가면 빈 화면 + 전체 보기 버튼
-    js("document.querySelector('[data-action=\"open-unread\"]').click()"); W(1.2)
+    # 안 읽은 글 보기로 가면 빈 화면 + 모든 글 보기 버튼
+    js("document.querySelector('#keyword-groups [data-action=\"set-view\"][data-filter=\"unread\"]').click()"); W(1.2)
     empty = js("return document.querySelector('.empty-card').textContent.trim()")
     print('empty', empty)
-    assert '안 읽은 글이 없습니다' in empty and '전체 보기' in empty
-    js("document.querySelector('.empty-card [data-action=\"open-all\"]').click()"); W(1.2)
+    assert '안 읽은 글이 없습니다' in empty and '모든 글 보기' in empty
+    js("document.querySelector('.empty-card [data-action=\"set-view\"]').click()"); W(1.2)
     assert view()['title'] == '전체'
     # 홈 버튼도 같은 규칙
-    js("document.querySelector('[data-action=\"open-unread\"]').click()"); W(1.2)
+    js("document.querySelector('#keyword-groups [data-action=\"set-view\"][data-filter=\"unread\"]').click()"); W(1.2)
     js("document.querySelector('a.brand-name').click()"); W(1.2)
     assert view()['title'] == '전체'
 
-    # 6) 모바일 칩 맨 앞이 안 읽은 글
+    # 6) 모바일: 칩 맨 앞이 전체, 안 읽은 글이 없으니 '모든 글' 보기 탭이 선택됨
     d.set_window_size(390, 844); d.get(BASE); W(2.5)
     chips = js("return [...document.querySelectorAll('#chip-row .chip')].slice(0, 2).map(c => c.textContent.replace(/\\s+/g, ' ').trim())")
-    print('chips', chips)
-    assert chips[0].startswith('안 읽은 글')
+    pressed = js("return document.querySelector('#view-tabs .view-tab[aria-pressed=\"true\"]').textContent.replace(/\\s+/g, ' ').trim()")
+    print('chips', chips, 'tab', pressed)
+    assert chips[0].startswith('전체') and pressed.startswith('모든 글')
     d.save_screenshot(os.path.join(SHOTS, '2_mobile.png'))
     errs = [l for l in d.get_log('browser') if l['level'] == 'SEVERE']
     assert not errs, errs
