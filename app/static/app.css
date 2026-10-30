@@ -138,6 +138,16 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .page-select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .page-total { color: var(--muted); }
 .pager .page-select { height: 40px; min-width: 64px; border-radius: 10px; }
+/* 맨 아래 페이지 선택: 버튼 위쪽으로 열리는 목록 */
+.page-menu { position: relative; display: inline-flex; }
+.page-menu-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; }
+.page-menu-btn svg { color: var(--muted); transition: transform 0.15s; }
+.page-menu-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+.page-menu-list { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 30; min-width: 100%; max-height: min(320px, 50vh); overflow-y: auto; padding: 4px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); box-shadow: 0 8px 24px rgba(17,24,39,0.14); display: flex; flex-direction: column; gap: 2px; }
+.page-menu-list[hidden] { display: none; }
+.page-menu-option { min-height: 36px; padding: 0 16px; border: none; border-radius: 8px; background: transparent; color: var(--text-2); font-size: 14px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.page-menu-option:hover { background: var(--surface-muted); }
+.page-menu-option[aria-selected="true"] { background: var(--accent-weak); color: var(--accent); font-weight: 700; }
 .pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding-top: 8px; }
 .pager .btn { height: 40px; padding: 0 16px; border-radius: 10px; }
 .pager .btn-outline:disabled { background: var(--surface-muted); color: #6B7280; }

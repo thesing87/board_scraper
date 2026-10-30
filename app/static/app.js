@@ -484,11 +484,42 @@ function renderPagerMini(page, totalPages, empty) {
         </nav>`;
 }
 
+// 맨 아래 페이지 선택: 기본 선택 상자는 아래로 펼쳐져 화면 밖으로 잘리므로, 버튼 위쪽으로 열리는 목록으로 직접 그림
+function renderPageMenu(page, totalPages) {
+    const options = Array.from({ length: totalPages }, (_, i) => `
+        <button class="page-menu-option" role="option" data-action="pick-page" data-page="${i + 1}" aria-selected="${i + 1 === page}">${i + 1}</button>`).join('');
+    return `
+        <span class="page-jump">
+            <span class="page-menu">
+                <button class="page-select page-menu-btn" data-action="toggle-page-menu" aria-haspopup="listbox" aria-expanded="false" aria-label="페이지 선택 (아래)">
+                    ${page}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"></path></svg>
+                </button>
+                <span class="page-menu-list" role="listbox" aria-label="페이지" hidden>${options}</span>
+            </span>
+            <span class="page-total">/ ${totalPages}</span>
+        </span>`;
+}
+
+function setPageMenuOpen(menu, open) {
+    const list = menu.querySelector('.page-menu-list');
+    list.hidden = !open;
+    menu.querySelector('.page-menu-btn').setAttribute('aria-expanded', String(open));
+    if (open) {
+        // 현재 페이지가 목록 가운데쯤 보이도록
+        const current = list.querySelector('[aria-selected="true"]');
+        if (current) list.scrollTop = current.offsetTop - list.clientHeight / 2 + current.offsetHeight / 2;
+    }
+}
+
+function closePageMenus(except) {
+    document.querySelectorAll('.page-menu').forEach(menu => { if (menu !== except) setPageMenuOpen(menu, false); });
+}
+
 function renderPager(page, totalPages) {
     return `
         <nav class="pager" aria-label="페이지 이동">
             <button class="btn btn-outline" data-action="page" data-target="prev" ${page <= 1 ? 'disabled' : ''}>이전</button>
-            ${renderPageSelect(page, totalPages, '페이지 선택 (아래)')}
+            ${renderPageMenu(page, totalPages)}
             <button class="btn btn-primary" data-action="page" data-target="next" ${page >= totalPages ? 'disabled' : ''}>다음 페이지</button>
         </nav>`;
 }
@@ -1218,6 +1249,8 @@ window.addEventListener('message', (e) => {
 
 document.addEventListener('click', (e) => {
     if (handleVideoClick(e)) return;
+    // 페이지 목록 바깥을 누르면 닫음
+    closePageMenus(e.target.closest('.page-menu'));
     const backdrop = document.getElementById('settings');
     if (e.target === backdrop) { setSettingsOpen(false); return; }
     const el = e.target.closest('[data-action]');
@@ -1264,6 +1297,12 @@ document.addEventListener('click', (e) => {
         deleteCategory(el.dataset.key, el);
     } else if (action === 'page') {
         changePage(el.dataset.target);
+    } else if (action === 'toggle-page-menu') {
+        const menu = el.closest('.page-menu');
+        setPageMenuOpen(menu, menu.querySelector('.page-menu-list').hidden);
+    } else if (action === 'pick-page') {
+        closePageMenus();
+        changePage(el.dataset.page);
     } else if (action === 'mark-all-read') {
         markAllRead();
     } else if (action === 'show-new') {
@@ -1314,6 +1353,8 @@ document.addEventListener('keydown', (e) => {
     } else if (e.key === 'Enter' && e.target.id === 'category-input') {
         e.preventDefault();
         addCategory(document.querySelector('[data-action="add-category"]'));
+    } else if (e.key === 'Escape' && document.querySelector('.page-menu-list:not([hidden])')) {
+        closePageMenus();
     } else if (e.key === 'Escape' && !document.getElementById('settings').hidden) {
         setSettingsOpen(false);
     } else if (e.key === 'Escape' && e.target.id === 'search-input' && app.searchQuery) {
