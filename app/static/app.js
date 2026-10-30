@@ -231,6 +231,12 @@ function navItem(label, count, unread, active, attrs) {
         </button>`;
 }
 
+// 보기 칸의 글 수 배지: 확인할 글이 남은 안 읽은 글(파랑)·새 댓글(주황)만 색을 넣어 눈에 띄게, 나머지는 회색
+function countBadge(filter, count) {
+    const tone = count > 0 && (filter === 'unread' || filter === 'comments') ? ` is-${filter}` : '';
+    return `<span class="count-badge${tone}">${count}</span>`;
+}
+
 const ADD_BOARD_BUTTON = `
     <button class="icon-btn small" data-action="open-settings" aria-label="게시판 만들기">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
@@ -250,7 +256,7 @@ function renderNavigation() {
     document.getElementById('keyword-groups').innerHTML = `
         <nav class="kw-group" aria-label="보기">
             <div class="sidebar-head"><span>보기</span></div>
-            ${FILTERS.map(f => navItem(f.label, filterCount(current, f.key), 0, filterActive(f.key), filterAttrs(f.key))).join('')}
+            ${FILTERS.map(f => navItem(f.label, countBadge(f.key, filterCount(current, f.key)), 0, filterActive(f.key), filterAttrs(f.key))).join('')}
         </nav>
         <nav class="kw-group" aria-label="게시판">
             <div class="sidebar-head"><span>게시판</span>${ADD_BOARD_BUTTON}</div>
@@ -264,7 +270,7 @@ function renderNavigation() {
     document.getElementById('view-tabs').innerHTML = FILTERS.map(f => `
         <button class="view-tab" ${filterAttrs(f.key)} aria-pressed="${filterActive(f.key)}">
             <span>${f.label}</span>
-            <span class="view-tab-count">${filterCount(current, f.key)}</span>
+            ${countBadge(f.key, filterCount(current, f.key))}
         </button>`).join('');
     const chip = (label, hasUnread, active, attrs) => `
         <button class="chip ${active ? 'active' : ''}" ${attrs} ${active ? 'aria-current="true"' : ''}>
