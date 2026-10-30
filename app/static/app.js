@@ -9,7 +9,8 @@ const FILTERS = [
     { key: 'all', label: '모든 글' },
     { key: 'unread', label: '안 읽은 글' },
     { key: 'comments', label: '새 댓글' },
-    { key: 'video', label: '동영상' }
+    { key: 'video', label: '동영상' },
+    { key: 'deleted', label: '삭제됨' }
 ];
 const POLL_INTERVAL_MS = 60 * 1000;   // 새 글 확인 주기
 const LEGACY_READ_IDS_KEY = 'read_post_ids';
@@ -77,12 +78,17 @@ function filterCount(summary, filter) {
     if (filter === 'unread') return summary.unread_count;
     if (filter === 'comments') return summary.comment_count;
     if (filter === 'video') return summary.video_count;
+    if (filter === 'deleted') return summary.deleted_count;
     return summary.total;
 }
 
-// '모두 읽음'·새 글 배너가 다루는 글: 새 댓글 보기는 새 댓글이 달린 글, 나머지는 안 읽은 새 글
+// '모두 읽음'·새 글 배너가 다루는 글: 새 댓글 보기는 새 댓글이 달린 글, 나머지는 안 읽은 새 글.
+// 삭제됨 보기는 보이는 글과 상관없는 글을 읽음 처리하게 되므로 '모두 읽음'을 숨김
 function pendingIds(summary) { return app.filter === 'comments' ? summary.comment_ids : summary.unread_ids; }
-function pendingCount(summary) { return app.filter === 'comments' ? summary.comment_count : summary.unread_count; }
+function pendingCount(summary) {
+    if (app.filter === 'deleted') return 0;
+    return app.filter === 'comments' ? summary.comment_count : summary.unread_count;
+}
 
 function storageGet(store, key, fallback) {
     try { const v = store.getItem(key); return v === null ? fallback : v; } catch (e) { return fallback; }
@@ -498,6 +504,7 @@ function feedSubText(total) {
     if (app.filter === 'comments') return summary.comment_count
         ? `${label} · 읽은 뒤 새 댓글이 달린 글 <strong>${summary.comment_count}개</strong> · 최근 댓글 순` : '새 댓글을 모두 확인했습니다';
     if (app.filter === 'video') return `${label} · 동영상 글 ${summary.video_count}개`;
+    if (app.filter === 'deleted') return `${label} · 원문이 삭제된 글 ${summary.deleted_count}개 · 최근 삭제 순`;
     return `${label} · ${summary.total}개 글${unread ? ` · <strong>새 글 ${unread}</strong>` : ''}`;
 }
 
@@ -522,6 +529,7 @@ async function loadPosts() {
     const group = findGroup(app.activeKey);
     const viewKey = currentViewKey();
     const params = new URLSearchParams({ page: app.page, video_only: !searching && app.filter === 'video' ? '1' : '0' });
+    if (!searching && app.filter === 'deleted') params.set('deleted_only', '1');
     if (searching) {
         params.set('q', app.searchQuery);
     } else {
@@ -586,6 +594,7 @@ function renderFeed(data) {
             ? '<div class="empty-card">읽은 뒤 새 댓글이 달린 글이 없습니다.</div>'
             : searching ? `<div class="empty-card">'${esc(app.searchQuery)}'에 해당하는 글이 없습니다.</div>`
             : filter === 'video' ? '<div class="empty-card">동영상이 포함된 게시글이 없습니다.</div>'
+            : filter === 'deleted' ? '<div class="empty-card">원문이 삭제된 글이 없습니다.</div>'
             : '<div class="empty-card">수집된 게시글이 없습니다. 새 글이 등록되면 이곳에 표시됩니다.</div>';
     } else {
         let sawUnread = false;
@@ -715,7 +724,8 @@ async function pollState() {
         : filterCount(summary, app.filter) - app.renderedTotal;
     if (added > 0) {
         const banner = document.getElementById('new-banner');
-        banner.innerHTML = `${ICONS.up}<span>${app.filter === 'comments' ? '새 댓글이 달린 글' : '새 글'} ${added}개 · 눌러서 보기</span>`;
+        const what = app.filter === 'comments' ? '새 댓글이 달린 글' : app.filter === 'deleted' ? '새로 삭제된 글' : '새 글';
+        banner.innerHTML = `${ICONS.up}<span>${what} ${added}개 · 눌러서 보기</span>`;
         banner.hidden = false;
     }
 }

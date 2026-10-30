@@ -144,12 +144,12 @@ def build_state():
         'groups': groups
     }
 
-def build_posts_page(page, video_only, query='', group_id=None, unread_since=None):
-    """통합 피드(group_id 없음)·게시판·검색·안 읽은 글: 여러 키워드의 글을 중복 없이"""
-    total, _ = query_all_posts(0, 0, video_only, query, group_id, unread_since)
+def build_posts_page(page, video_only, query='', group_id=None, unread_since=None, deleted_only=False):
+    """통합 피드(group_id 없음)·게시판·검색·안 읽은 글·삭제된 글: 여러 키워드의 글을 중복 없이"""
+    total, _ = query_all_posts(0, 0, video_only, query, group_id, unread_since, deleted_only)
     total_pages = max(1, -(-total // POSTS_PER_PAGE))
     page = min(max(1, page), total_pages)
-    _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id, unread_since)
+    _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id, unread_since, deleted_only)
     return {'page': page, 'total_pages': total_pages, 'total': total, 'posts': _decorate_posts(posts)}
 
 def _decorate_posts(posts):
@@ -242,7 +242,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 # 안 읽은 글 보기: 화면을 연 시각(서버 시각 'YYYY-MM-DD HH:MM:SS') 이후 읽은 글은 계속 포함
                 since = query.get('unread_since', [''])[0]
                 unread_since = since if re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', since) and not search else None
-                self._send_data(200, build_posts_page(page, video_only, search, group_id, unread_since))
+                deleted_only = query.get('deleted_only', ['0'])[0] in ('1', 'true') and not search
+                self._send_data(200, build_posts_page(page, video_only, search, group_id, unread_since, deleted_only))
             elif pure_path == '/api/status':
                 # 관리 패널 '수집 상태': 마지막 수집 주기, 차단 의심, 크롬·백업, 최근 경고·오류
                 self._send_data(200, runtime_status.snapshot())

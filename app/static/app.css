@@ -90,9 +90,9 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .chip-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .chip.active { border-color: var(--accent); background: var(--accent); color: #FFFFFF; font-weight: 700; }
 .chip.active .chip-count { color: #FFFFFF; opacity: 0.85; }
-/* 모바일 보기 선택 (모든 글·안 읽은 글·새 댓글·동영상 중 하나, 글 수는 고른 게시판 기준) */
-.view-tabs { gap: 3px; margin: 0 16px 10px; padding: 3px; border-radius: 10px; background: #E9EBEF; }
-.view-tab { flex: 1 1 0; min-width: 0; height: 52px; padding: 0 2px; border: none; border-radius: 8px; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 13px; font-weight: 500; color: var(--text-2); white-space: nowrap; cursor: pointer; }
+/* 모바일 보기 선택 (모든 글·안 읽은 글·새 댓글·동영상·삭제됨 중 하나, 글 수는 고른 게시판 기준) */
+.view-tabs { gap: 2px; margin: 0 16px 10px; padding: 3px; border-radius: 10px; background: #E9EBEF; }
+.view-tab { flex: 1 1 0; min-width: 0; height: 52px; padding: 0 1px; border: none; border-radius: 8px; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 500; color: var(--text-2); white-space: nowrap; cursor: pointer; }
 .view-tab[aria-pressed="true"] { background: var(--surface); box-shadow: 0 1px 2px rgba(17,24,39,0.08); color: var(--text); font-weight: 700; }
 /* 보기 칸 글 수 배지 (데스크톱 사이드바·모바일 보기 칸 공통). 회색 배지는 회색 칸 위에서는 흰 바탕 */
 .count-badge { min-width: 22px; height: 20px; padding: 0 7px; border-radius: 999px; background: #EEF0F3; color: var(--text-2); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; justify-content: center; }
