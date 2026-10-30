@@ -36,6 +36,7 @@ from storage import (
     fix_stored_x_embeds,
     remove_stored_duplicate_x_cards,
     remove_stored_duplicate_instagram_placeholders,
+    remove_stored_sns_videos,
     post_exists,
     backup_db,
     prune_old_posts
@@ -230,6 +231,7 @@ def main():
         fix_stored_x_embeds()
         remove_stored_duplicate_x_cards()
         remove_stored_duplicate_instagram_placeholders()
+        remove_stored_sns_videos()
     except Exception as fix_err:
         log_msg(f"[DB] 저장된 글의 X·인스타그램 정리 실패 (다음 기동 시 재시도): {short_err(fix_err)}", "WARN")
 

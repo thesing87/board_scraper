@@ -43,4 +43,22 @@ storage.remove_stored_duplicate_instagram_placeholders()
 _, rows = storage.query_all_posts(0, 10)
 stored = '\n'.join(rows[0]['content'])
 assert 'instagram.com/p/De_Q5dCSLKp/embed' in stored and 'instagram-media-registered' not in stored, stored
+print('stored placeholder removed OK')
+
+# 3) 인스타그램·X 게시물 화면은 동영상이 아님 (유튜브 등 동영상 iframe만 동영상 목록에)
+YOUTUBE = '<iframe src="//www.youtube.com/embed/abc123"></iframe>'
+TWEET = '<iframe src="https://platform.twitter.com/embed/Tweet.html?id=1850000000000000001"></iframe>'
+res = scrape(RENDERED + TWEET)
+assert res['videos'] == [], res['videos']
+res = scrape(RENDERED + YOUTUBE)
+assert res['videos'] == ['https://www.youtube.com/embed/abc123'], res['videos']
+print('new post videos OK')
+
+# 4) 이미 저장된 글의 동영상 목록에서 SNS 게시물 화면을 기동 시 1회 뺌 (다른 동영상은 그대로)
+for pid, videos in (('10999999003', ['https://www.instagram.com/p/De_Q5dCSLKp/embed/captioned/']),
+                    ('10999999004', ['https://platform.twitter.com/embed/Tweet.html?id=1', 'https://www.youtube.com/embed/abc123'])):
+    storage.save_keyword_post('baseball', '삼성', dict(post, id=pid, link='/' + pid, videos=videos), is_new=False)
+storage.remove_stored_sns_videos()
+_, rows = storage.query_all_posts(0, 10, video_only=True)
+assert [(r['id'], r['videos']) for r in rows] == [('10999999004', ['https://www.youtube.com/embed/abc123'])], rows
 print('Instagram OK')

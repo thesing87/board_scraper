@@ -881,6 +881,25 @@ def remove_stored_duplicate_instagram_placeholders():
     if fixed:
         log_msg(f"[DB] 인스타그램 게시물 화면과 겹친 임시 상자 정리: {fixed}건")
 
+def remove_stored_sns_videos():
+    """이미 저장된 글의 동영상 목록에서 인스타그램·X 등 SNS 게시물 화면을 1회 뺌 ('동영상' 보기에 섞이지 않도록)"""
+    from embeds import is_sns_embed
+    with _db() as conn:
+        if _get_meta(conn, 'sns_videos_removed'):
+            return
+        rows = conn.execute("SELECT id, videos_json FROM posts WHERE videos_json != '[]'").fetchall()
+    fixed = 0
+    with _db() as conn, conn:
+        for row in rows:
+            videos = json.loads(row['videos_json'])
+            kept = [v for v in videos if not is_sns_embed(v)]
+            if len(kept) != len(videos):
+                conn.execute("UPDATE posts SET videos_json = ? WHERE id = ?", (json.dumps(kept, ensure_ascii=False), row['id']))
+                fixed += 1
+        _set_meta(conn, 'sns_videos_removed', '1')
+    if fixed:
+        log_msg(f"[DB] 동영상 목록에서 SNS 게시물 화면 정리: 글 {fixed}건")
+
 # ==========================================
 # 유지 관리 (하루 한 번: 백업, 오래된 글 정리)
 # ==========================================

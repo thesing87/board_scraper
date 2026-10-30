@@ -8,7 +8,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from config import log_msg
 from sanitize import sanitize_tree
-from embeds import convert_x_embeds, remove_duplicate_instagram_placeholders
+from embeds import convert_x_embeds, remove_duplicate_instagram_placeholders, is_sns_embed
 
 def extract_post_id(link):
     if not link: return "0"
@@ -224,7 +224,9 @@ def scrape_post_detail(driver, post_info):
             src = iframe.get('src')
             if src:
                 if src.startswith('//'): src = 'https:' + src
-                video_list.append(src)
+                # 인스타그램·X 등 SNS 게시물 화면은 동영상이 아니므로 동영상 목록에서 뺌
+                if not is_sns_embed(src):
+                    video_list.append(src)
                 iframe['src'] = src
                 iframe['style'] = "width: 100%; max-width: 100%; border-radius: 6px; margin-top: 8px;"
 

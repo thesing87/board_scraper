@@ -126,3 +126,10 @@ def remove_duplicate_instagram_placeholders(root):
             quote.decompose()
             removed += 1
     return removed
+
+# 동영상이 아닌 SNS 게시물 화면(iframe). 본문의 iframe은 동영상 목록에 넣는데, 이런 화면까지 넣으면
+# '동영상' 보기·동영상 표시·동영상 알림에 인스타그램·X 글이 섞이므로 뺌
+SNS_EMBED_RE = re.compile(r'^(?:https?:)?//(?:[\w-]+\.)*(?:instagram\.com|twitter\.com|x\.com|threads\.net)/', re.IGNORECASE)
+
+def is_sns_embed(url):
+    return bool(SNS_EMBED_RE.match(url or ''))
