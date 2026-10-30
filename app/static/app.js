@@ -1409,10 +1409,32 @@ document.addEventListener('visibilitychange', () => {
 
 window.addEventListener('hashchange', handlePostAnchor);
 
+// 모바일: 아래로 내리면 맨 위 제목 줄(홈·검색·관리)만 숨기고, 조금이라도 위로 올리거나 맨 위 근처면 다시 보임.
+// 손 떨림 같은 작은 움직임에 깜빡이지 않도록 마지막으로 바꾼 위치에서 일정 거리 이상 움직였을 때만 바꿈
+const TITLE_ROW_SCROLL_STEP = 10;
+let titleRowScrollY = 0;
+function updateTitleRow() {
+    const topbar = document.querySelector('.topbar');
+    const row = topbar.querySelector('.topbar-row');
+    const y = window.scrollY;
+    const keepShown = !window.matchMedia('(max-width: 899px)').matches || y < row.offsetHeight
+        || topbar.classList.contains('search-open') || !document.getElementById('settings').hidden;
+    if (keepShown) {
+        topbar.classList.remove('title-hidden');
+        titleRowScrollY = y;
+        return;
+    }
+    if (Math.abs(y - titleRowScrollY) < TITLE_ROW_SCROLL_STEP) return;
+    topbar.style.setProperty('--title-row-h', row.offsetHeight + 'px');
+    topbar.classList.toggle('title-hidden', y > titleRowScrollY);
+    titleRowScrollY = y;
+}
+
 window.addEventListener('scroll', () => {
     document.getElementById('floating-top-btn').classList.toggle('visible', window.scrollY > 400);
+    updateTitleRow();
     scheduleReadCheck();
 }, { passive: true });
-window.addEventListener('resize', scheduleReadCheck, { passive: true });
+window.addEventListener('resize', () => { updateTitleRow(); scheduleReadCheck(); }, { passive: true });
 
 document.addEventListener('DOMContentLoaded', init);

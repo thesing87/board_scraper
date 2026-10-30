@@ -96,14 +96,19 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .chip.active { border-color: var(--accent); background: var(--accent); color: #FFFFFF; font-weight: 700; }
 .chip.active .chip-count { color: #FFFFFF; opacity: 0.85; }
 /* 모바일 보기 선택 (모든 글·안 읽은 글·새 댓글·동영상·삭제됨 중 하나, 글 수는 고른 게시판 기준) */
-.view-tabs { gap: 2px; margin: 0 16px 10px; padding: 3px; border-radius: 10px; background: #E9EBEF; }
-.view-tab { flex: 1 1 0; min-width: 0; height: 52px; padding: 0 1px; border: none; border-radius: 8px; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 500; color: var(--text-2); white-space: nowrap; cursor: pointer; }
+.view-tabs { gap: 2px; margin: 0 16px 8px; padding: 3px; border-radius: 10px; background: #E9EBEF; }
+.view-tab { flex: 1 1 0; min-width: 0; height: 40px; padding: 0 1px; border: none; border-radius: 8px; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-size: 12px; font-weight: 500; color: var(--text-2); white-space: nowrap; cursor: pointer; }
 .view-tab[aria-pressed="true"] { background: var(--surface); box-shadow: 0 1px 2px rgba(17,24,39,0.08); color: var(--text); font-weight: 700; }
-/* 보기 칸 글 수 배지 (데스크톱 사이드바·모바일 보기 칸 공통). 회색 배지는 회색 칸 위에서는 흰 바탕 */
+/* 보기 칸 글 수 배지 (데스크톱 사이드바). 모바일 보기 칸은 높이를 줄이려고 배지 대신 작은 숫자만 */
 .count-badge { min-width: 22px; height: 20px; padding: 0 7px; border-radius: 999px; background: #EEF0F3; color: var(--text-2); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; justify-content: center; }
-.view-tab[aria-pressed="false"] .count-badge:not(.is-unread):not(.is-comments) { background: var(--surface); }
 .count-badge.is-unread { background: var(--accent); color: #FFFFFF; }
 .count-badge.is-comments { background: #EA580C; color: #FFFFFF; }
+.view-tab .count-badge { min-width: 0; height: auto; padding: 0; background: none; color: var(--muted); font-size: 11px; line-height: 1.3; }
+.view-tab .count-badge.is-unread { color: var(--accent); }
+.view-tab .count-badge.is-comments { color: #EA580C; }
+/* 모바일에서 아래로 내리면 맨 위 제목 줄만 위로 밀어 숨김 (보기 칸·게시판 칩은 남김, --title-row-h는 app.js가 잼) */
+.topbar { transition: transform 0.2s ease; }
+.topbar.title-hidden { transform: translateY(calc(-1 * var(--title-row-h, 60px))); }
 
 /* ==========================================
    레이아웃 / 사이드바
@@ -477,5 +482,6 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .sk-line-s { width: 55%; height: 14px; }
 @media (prefers-reduced-motion: reduce) {
     .sk, .top-progress i { animation: none; }
+    .topbar { transition: none; }
     .top-progress i { left: 0; width: 100%; opacity: 0.6; }
 }
