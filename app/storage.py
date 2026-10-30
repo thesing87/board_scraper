@@ -508,20 +508,25 @@ def _migrate_keywords_to_boards(conn):
 # ==========================================
 # 게시판 (하나 이상의 키워드 글을 중복 없이 한 피드로)
 # ==========================================
-def _feed_from(group_id=None):
-    """피드 글 연결의 FROM 절과 파라미터. group_id가 없으면 모든 게시판(등록 키워드 전체)"""
-    sql = """
+def _site_sql(site):
+    """카테고리 키(kp.board)가 그 사이트인지 (디시 카테고리 키는 'dc:'로 시작, sites.py)"""
+    return "kp.board LIKE 'dc:%'" if site == 'dcinside' else "kp.board NOT LIKE 'dc:%'"
+
+def _feed_from(group_id=None, site=None):
+    """피드 글 연결의 FROM 절과 파라미터. group_id가 없으면 모든 게시판(등록 키워드 전체),
+    site가 있으면 그 사이트의 모든 게시판(사이트 전체 게시판)"""
+    sql = f"""
         FROM keyword_posts kp
-        JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword
+        JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword{f' AND {_site_sql(site)}' if site else ''}
     """
     if group_id is None:
         return sql, ()
     return sql + "JOIN keyword_group_members gm ON gm.board = kp.board AND gm.keyword = kp.keyword AND gm.group_id = ?\n", (group_id,)
 
-def _feed_summary(conn, id_limit, group_id=None):
+def _feed_summary(conn, id_limit, group_id=None, site=None):
     """중복 제거한 글 수, 동영상 글 수, 안 읽은 새 글 수(전부)와 최신순 ID(최대 id_limit개),
     새 댓글이 달린 글 수와 최근 댓글순 ID(최대 id_limit개), 최신 글 날짜"""
-    base, params = _feed_from(group_id)
+    base, params = _feed_from(group_id, site)
     total = conn.execute(f"SELECT COUNT(DISTINCT kp.post_id) {base}", params).fetchone()[0]
     video_count = conn.execute(f"""
         SELECT COUNT(DISTINCT kp.post_id) {base} JOIN posts p ON p.id = kp.post_id WHERE {_HAS_VIDEO_SQL}
@@ -529,7 +534,7 @@ def _feed_summary(conn, id_limit, group_id=None):
     deleted_count = conn.execute(f"""
         SELECT COUNT(DISTINCT kp.post_id) {base} JOIN posts p ON p.id = kp.post_id WHERE p.is_deleted = 1
     """, params).fetchone()[0]
-    comment_ids = _new_comment_ids(conn, group_id)
+    comment_ids = _new_comment_ids(conn, group_id, site)
     unread = conn.execute(f"""
         SELECT kp.post_id, MAX(kp.rowid) AS last_rowid {base}
         LEFT JOIN read_posts rp ON rp.post_id = kp.post_id
@@ -551,6 +556,12 @@ def _feed_summary(conn, id_limit, group_id=None):
         'comment_ids': comment_ids[:id_limit],
         'latest_date': latest['date'] if latest else ''
     }
+
+def site_feed_summaries(id_limit=500):
+    """사이트 전체 게시판(그 사이트의 모든 게시판을 합친 피드) 요약: {site: 게시판 요약과 같은 형태}.
+    사이드바 사이트 제목 옆 안 읽은 수와 사이트 전체 게시판 보기에 씀 (게시판끼리 겹치는 글은 한 번만 셈)"""
+    with _db() as conn:
+        return {site: _feed_summary(conn, id_limit, site=site) for site in SITE_NAMES}
 
 def feed_summary(id_limit=500):
     """모든 게시판을 합친 통합 피드 요약"""
@@ -789,14 +800,15 @@ def recent_keyword_posts(board, keyword, limit):
 # 안 읽은 새 글: 새 글로 수집됐고 아직 읽음 기록이 없는 글
 _UNREAD_SQL = "kp.is_new = 1 AND rp.read_at IS NULL"
 
-def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=None, unread_since=None, deleted_only=False):
+def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=None, unread_since=None, deleted_only=False,
+                    site=None):
     """게시판에 등록된 키워드의 글을 한 번씩만(중복 제거) 최신 수집순으로 조회.
-    group_id가 있으면 그 게시판만, query가 있으면 검색 결과.
+    group_id가 있으면 그 게시판만, site가 있으면 그 사이트의 모든 게시판만, query가 있으면 검색 결과.
     unread_since가 있으면 안 읽은 새 글만: 그 시각 이후에 읽은 글은 계속 포함해
     보는 도중 읽음 처리가 되어도 페이지가 밀리지 않게 함.
     deleted_only면 원문이 삭제된 글만, 최근 삭제 순 (삭제된 글은 더 갱신하지 않으므로 updated_at이 삭제 확인 시각)"""
     search_sql, search_params = _search_conditions(query)
-    feed_sql, params = _feed_from(group_id)
+    feed_sql, params = _feed_from(group_id, site)
     params += search_params
     unread_sql = ''
     if unread_since is not None:
@@ -833,10 +845,10 @@ def unread_summary(id_limit=500):
         """, params).fetchall()
     return {'total': len(rows), 'unread_ids': [r['post_id'] for r in rows[:id_limit]]}
 
-def _new_comment_ids(conn, group_id=None):
+def _new_comment_ids(conn, group_id=None, site=None):
     """이미 읽은 글 중 마지막으로 읽은 뒤 수집된 댓글이 있는 글 ID (가장 최근 새 댓글 순).
     아직 안 읽은 글은 '안 읽은 글'에 나오므로 제외"""
-    base, params = _feed_from(group_id)
+    base, params = _feed_from(group_id, site)
     rows = conn.execute(f"""
         SELECT id FROM (
             SELECT p.id, rp.read_at,

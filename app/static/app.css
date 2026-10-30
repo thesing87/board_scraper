@@ -103,9 +103,20 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .count-badge { min-width: 22px; height: 20px; padding: 0 7px; border-radius: 999px; background: #EEF0F3; color: var(--text-2); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; justify-content: center; }
 .count-badge.is-unread { background: var(--accent); color: #FFFFFF; }
 .count-badge.is-comments { background: #EA580C; color: #FFFFFF; }
-.view-tab .count-badge { min-width: 0; height: auto; padding: 0; background: none; color: var(--muted); font-size: 11px; line-height: 1.3; }
-.view-tab .count-badge.is-unread { color: var(--accent); }
-.view-tab .count-badge.is-comments { color: #EA580C; }
+.view-tab .count-badge, .view-bar-tab .count-badge { min-width: 0; height: auto; padding: 0; background: none; color: var(--muted); font-size: 11px; line-height: 1.3; }
+.view-tab .count-badge.is-unread, .view-bar-tab .count-badge.is-unread { color: var(--accent); }
+.view-tab .count-badge.is-comments, .view-bar-tab .count-badge.is-comments { color: #EA580C; }
+/* 데스크톱 보기 탭: 글 목록 위 한 줄, 스크롤해도 상단 바(57px) 아래에 고정. 모바일 보기 칸과 같은 모양(회색 바탕 위 흰 칸) */
+.view-bar { position: sticky; top: 57px; z-index: 35; max-width: 760px; margin: -8px auto 12px; padding: 8px 0; display: flex; align-items: center; gap: 12px; background: var(--bg); }
+.view-bar.stuck { box-shadow: 0 1px 0 var(--border), 0 6px 12px -10px rgba(17,24,39,0.25); background: var(--surface); padding: 8px 12px; border-radius: 0 0 10px 10px; }
+.view-bar-tabs { display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: #E9EBEF; }
+.view-bar-tab { height: 32px; padding: 0 12px; border: none; border-radius: 8px; background: transparent; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--text-2); white-space: nowrap; cursor: pointer; }
+.view-bar-tab:hover { background: rgba(255,255,255,0.6); }
+.view-bar-tab[aria-pressed="true"] { background: var(--surface); box-shadow: 0 1px 2px rgba(17,24,39,0.08); color: var(--text); font-weight: 700; }
+.view-bar-tab .count-badge { font-size: 12px; }
+/* 고정됐을 때만 지금 보는 게시판 이름을 오른쪽에 작게 */
+.view-bar-where { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 700; color: var(--text-3); visibility: hidden; }
+.view-bar.stuck .view-bar-where { visibility: visible; }
 /* 모바일에서 아래로 내리면 맨 위 제목 줄만 위로 밀어 숨김 (보기 칸·게시판 칩은 남김, --title-row-h는 app.js가 잼) */
 .topbar { transition: transform 0.2s ease; }
 .topbar.title-hidden { transform: translateY(calc(-1 * var(--title-row-h, 60px))); }
@@ -130,8 +141,40 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .site-tag { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 16px; padding: 0 3px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.02em; margin-right: 6px; vertical-align: 1px; }
 .site-fmkorea { background: #E0EAFF; color: #1D4ED8; }
 .site-dcinside { background: #EDE9FE; color: #5B21B6; }
-.site-head { display: flex; align-items: center; padding: 10px 8px 4px; font-size: 12px; font-weight: 700; color: var(--muted); }
+/* 사이드바: 사이트마다 옅은 색 상자로 게시판을 묶고, 제목 옆에 그 사이트의 안 읽은 새 글 수 */
+.site-box { margin-top: 8px; padding: 4px; border-radius: 10px; display: flex; flex-direction: column; gap: 2px; }
+.site-box-fmkorea { background: #F3F7FF; border: 1px solid #D6E4FF; }
+.site-box-dcinside { background: #F6F3FF; border: 1px solid #E2DAFE; }
+/* 사이트 제목 줄: 이름 부분(누르면 사이트 전체 게시판)과 오른쪽 끝 접기·펼치기 칸 */
+.site-head { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
+.site-head.active { background: #FFFFFF; box-shadow: 0 1px 2px rgba(17,24,39,0.06); }
+.site-open { flex: 1 1 auto; min-width: 0; height: 34px; padding: 0 6px; border: none; border-radius: 8px; background: transparent; display: flex; align-items: center; gap: 6px; cursor: pointer; text-align: left; font-size: 13px; font-weight: 700; color: var(--text); }
+.site-open:hover { background: rgba(255,255,255,0.7); }
+.site-head.active .site-open { color: var(--accent); }
+.site-open .site-tag { margin-right: 0; }
+.site-head-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.site-toggle { flex: 0 0 auto; width: 30px; height: 30px; border: none; border-radius: 6px; background: transparent; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.site-toggle:hover { background: rgba(255,255,255,0.8); color: var(--text); }
+.site-box .kw-item:hover { background: rgba(255,255,255,0.7); }
+.site-box .kw-item.active { background: #FFFFFF; box-shadow: 0 1px 2px rgba(17,24,39,0.06); }
+/* 모바일 칩: 테두리를 사이트 색으로 */
+.chip-fmkorea:not(.active) { border-color: #BFD3FF; }
+.chip-dcinside:not(.active) { border-color: #D4C8FD; }
 .chip-sep { flex: 0 0 auto; width: 1px; align-self: stretch; margin: 6px 2px; background: var(--border); }
+/* 모바일 사이트 칩: 이름 부분(사이트 전체 게시판 열기) | 오른쪽 아이콘 칸(게시판 칩 펼치기·접기) */
+.site-chip { flex: 0 0 auto; height: 36px; border-radius: 999px; display: inline-flex; align-items: stretch; overflow: hidden; }
+.site-chip-fmkorea { background: #EEF4FF; border: 1px solid #BFD3FF; color: #1D4ED8; }
+.site-chip-dcinside { background: #F3EFFF; border: 1px solid #D4C8FD; color: #5B21B6; }
+.site-chip button { border: none; background: transparent; color: inherit; cursor: pointer; font-size: 14px; font-weight: 700; }
+.site-chip-open { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px 0 10px; white-space: nowrap; }
+.site-chip-open .site-tag { margin-right: 0; background: #FFFFFF; }
+.site-chip-count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: #FFFFFF; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+.site-chip .site-chip-toggle { width: 36px; display: inline-flex; align-items: center; justify-content: center; border-left: 1px solid rgba(91,33,182,0.25); }
+.site-chip-fmkorea .site-chip-toggle { border-left-color: rgba(29,78,216,0.25); }
+.site-chip.active.site-chip-fmkorea { background: #1D4ED8; border-color: #1D4ED8; color: #FFFFFF; }
+.site-chip.active.site-chip-dcinside { background: #5B21B6; border-color: #5B21B6; color: #FFFFFF; }
+.site-chip.active .site-chip-toggle { border-left-color: rgba(255,255,255,0.35); }
+.site-chip.active .site-chip-count { background: #FFFFFF; color: var(--accent); }
 .chip.active .site-tag { background: rgba(255,255,255,0.25); color: #FFFFFF; }
 .kw-chip .site-tag { margin-right: 4px; }
 /* 관리 화면 사이트 이름 편집 줄: 표시 · 이름 · 짧은 표시 · 저장 */
@@ -139,12 +182,6 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .site-row .site-tag { margin-right: 0; }
 .site-name-input { flex: 1 1 auto; min-width: 0; height: 36px; }
 .site-short-input { flex: 0 0 64px; width: 64px; height: 36px; text-align: center; }
-.view-group { padding-top: 14px; border-top: 1px solid var(--border); }
-.view-head { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.view-item { height: 34px; padding-left: 4px; font-weight: 400; color: var(--text-2); }
-.view-item.checked { font-weight: 700; color: var(--text); }
-.view-label { display: inline-flex; align-items: center; }
-.view-check { width: 22px; display: inline-flex; justify-content: center; color: var(--accent); }
 .kw-count {font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 400; }
 .alert-summary { margin-top: auto; padding: 12px; border-radius: 10px; background: var(--surface-muted); border: 1px solid var(--border-soft); display: flex; flex-direction: column; gap: 8px; }
 .alert-summary-title { font-size: 12px; font-weight: 700; color: var(--text-2); }
@@ -187,7 +224,7 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .btn-small { height: 28px; padding: 0 10px; font-size: 12px; border-radius: 8px; }
 
 /* 1분마다 확인한 새 글 알림 배너 (피드 위에 떠서 표시, 공간은 차지하지 않음) */
-.new-banner-wrap { position: sticky; top: 68px; z-index: 30; height: 0; display: flex; justify-content: center; }
+.new-banner-wrap { position: sticky; top: 118px; z-index: 30; height: 0; display: flex; justify-content: center; }
 .new-banner { height: 38px; padding: 0 16px; border: none; border-radius: 999px; background: var(--accent); color: #FFFFFF; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; box-shadow: 0 6px 16px rgba(37,99,235,0.35); }
 .new-banner:hover { background: var(--accent-ink); }
 
@@ -284,6 +321,7 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
    ========================================== */
 @media (min-width: 1360px) {
     .feed { max-width: none; }
+    .view-bar { max-width: none; }
     .feed-wrap { padding: 24px 32px 64px; }
     /* 댓글 글자 영역이 에펨코리아 모바일 화면(폰 폭 약 390px) 이상이 되도록 댓글 칸 폭 확보 */
     /* 댓글 칸이 길어져 생기는 남는 높이는 본문 줄(2행) 아래로만 가게 해서, 짧은 본문도 제목 바로 아래에 붙도록 */

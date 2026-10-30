@@ -37,7 +37,8 @@ from storage import (
     recheck_category,
     delete_category,
     site_labels,
-    set_site_label
+    set_site_label,
+    site_feed_summaries
 )
 
 MAX_BODY_BYTES = 10 * 1024
@@ -154,6 +155,8 @@ def build_state():
         'boards': list_categories(),
         # 사이트 이름·짧은 표시 (관리 화면에서 편집)
         'sites': site_labels(),
+        # 사이트 전체 게시판(그 사이트의 모든 게시판을 합친 피드) 요약. 사이드바 사이트 제목 옆 안 읽은 수에도 씀
+        'site_feeds': site_feed_summaries(MAX_READ_IDS),
         # 모든 게시판을 합친 통합 피드 요약 (같은 글은 한 번만 셈). 게시판과 같이
         # 모든 글·동영상 글·안 읽은 새 글·새 댓글이 달린 글 수와 안 읽은 글·새 댓글 글 ID를 담음
         'all': feed_summary(MAX_READ_IDS),
@@ -161,12 +164,13 @@ def build_state():
         'groups': groups
     }
 
-def build_posts_page(page, video_only, query='', group_id=None, unread_since=None, deleted_only=False):
-    """통합 피드(group_id 없음)·게시판·검색·안 읽은 글·삭제된 글: 여러 키워드의 글을 중복 없이"""
-    total, _ = query_all_posts(0, 0, video_only, query, group_id, unread_since, deleted_only)
+def build_posts_page(page, video_only, query='', group_id=None, unread_since=None, deleted_only=False, site=None):
+    """통합 피드(group_id 없음)·게시판·사이트 전체 게시판(site)·검색·안 읽은 글·삭제된 글: 여러 키워드의 글을 중복 없이"""
+    total, _ = query_all_posts(0, 0, video_only, query, group_id, unread_since, deleted_only, site)
     total_pages = max(1, -(-total // POSTS_PER_PAGE))
     page = min(max(1, page), total_pages)
-    _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id, unread_since, deleted_only)
+    _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id, unread_since,
+                               deleted_only, site)
     return {'page': page, 'total_pages': total_pages, 'total': total, 'posts': _decorate_posts(posts)}
 
 def _decorate_posts(posts):
@@ -260,7 +264,10 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 since = query.get('unread_since', [''])[0]
                 unread_since = since if re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', since) and not search else None
                 deleted_only = query.get('deleted_only', ['0'])[0] in ('1', 'true') and not search
-                self._send_data(200, build_posts_page(page, video_only, search, group_id, unread_since, deleted_only))
+                # 사이트 전체 게시판 (fmkorea·dcinside). 게시판을 고른 경우와 검색에는 쓰지 않음
+                site = query.get('site', [''])[0]
+                site = site if site in site_labels() and group_id is None and not search else None
+                self._send_data(200, build_posts_page(page, video_only, search, group_id, unread_since, deleted_only, site))
             elif pure_path == '/api/status':
                 # 관리 패널 '수집 상태': 마지막 수집 주기, 차단 의심, 크롬·백업, 최근 경고·오류
                 self._send_data(200, runtime_status.snapshot())

@@ -171,4 +171,18 @@ assert conn.execute("SELECT COUNT(*) FROM keyword_group_members").fetchone()[0] 
 conn.execute("UPDATE keyword_groups SET name = '싼타페' WHERE id = 2")     # 옮긴 뒤에는 사이트가 다르면 같은 이름 가능
 conn.commit()
 print('SAME NAME OK')
+
+# --- 9) 사이트 전체 게시판: 그 사이트의 모든 게시판 글만, 사이트끼리 겹치지 않으므로 합이 전체와 같음
+storage.save_keyword_post('dc:car_new1', '싼타페', {**post, 'id': 'dc-car_new1-11561500', 'title': '싼타페 새 글'}, is_new=True)
+per_site = storage.site_feed_summaries()
+assert set(per_site) == {'fmkorea', 'dcinside'} and 'dc-car_new1-11561500' in per_site['dcinside']['unread_ids'], per_site
+assert all(not i.startswith('dc-') for i in per_site['fmkorea']['unread_ids'])
+for field in ('total', 'unread_count'):
+    assert sum(v[field] for v in per_site.values()) == storage.feed_summary()[field], field
+assert web_server.build_state()['site_feeds']['dcinside']['unread_count'] == per_site['dcinside']['unread_count']
+total, rows = storage.query_all_posts(0, 50, site='dcinside')
+assert total == per_site['dcinside']['total'] and rows and all(r['id'].startswith('dc-') for r in rows), (total, rows)
+page = web_server.build_posts_page(1, False, site='dcinside')
+assert page['total'] == total and all(p['id'].startswith('dc-') for p in page['posts'])
+print('SITE FEED OK')
 print('DCINSIDE OK')

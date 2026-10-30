@@ -66,6 +66,11 @@
         </aside>
 
         <main class="feed-wrap">
+            <!-- 데스크톱 보기 탭: 글 목록 위 한 줄, 스크롤해도 상단 바 아래에 고정 (모바일은 상단 메뉴의 view-tabs) -->
+            <div class="view-bar desktop-only" id="view-bar">
+                <nav class="view-bar-tabs" id="view-bar-tabs" aria-label="보기"></nav>
+                <span class="view-bar-where" id="view-bar-where"></span>
+            </div>
             <div class="new-banner-wrap">
                 <button class="new-banner" id="new-banner" data-action="show-new" hidden></button>
             </div>

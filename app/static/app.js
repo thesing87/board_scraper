@@ -38,7 +38,7 @@ const ICONS = {
     next: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg>',
     close: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
     up: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>',
-    check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>'
+    chevronDown: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>'
 };
 
 function esc(value) {
@@ -87,7 +87,13 @@ function boardName(key) {
 }
 function findGroup(key) { return app.state ? (app.state.groups || []).find(g => groupKey(g) === key) : null; }
 function isAllView() { return app.activeKey === ALL_KEY; }
-function isKnownView(key) { return key === ALL_KEY || !!findGroup(key); }
+// 사이트 전체 게시판 (그 사이트의 모든 게시판을 합친 피드): 'site:fmkorea'·'site:dcinside'
+function siteKey(site) { return 'site:' + site; }
+function siteOfKey(key) {
+    const site = typeof key === 'string' && key.startsWith('site:') ? key.slice(5) : null;
+    return site && SITES[site] ? site : null;
+}
+function isKnownView(key) { return key === ALL_KEY || !!findGroup(key) || !!siteOfKey(key); }
 function isKnownFilter(key) { return FILTERS.some(f => f.key === key); }
 function filterLabel(key) { return FILTERS.find(f => f.key === key).label; }
 
@@ -104,6 +110,7 @@ function defaultFilter(key) {
 // (ID는 최신 일부만 오므로 개수는 *_count로 셈)
 function viewSummary(key) {
     if (!app.state) return null;
+    if (siteOfKey(key)) return (app.state.site_feeds || {})[siteOfKey(key)] || null;
     return key === ALL_KEY ? app.state.all : findGroup(key);
 }
 
@@ -168,8 +175,10 @@ function forgetUnread(ids) {
     if (!app.state) return;
     const set = new Set(ids);
     // 안 읽은 새 글 수와 새 댓글이 달린 글 수를 함께 줄임 (읽으면 그 글의 새 댓글도 확인한 것)
-    [...(app.state.groups || []), app.state.all].forEach(summary => {
+    // 사이트별 요약(사이드바 사이트 제목 옆 안 읽은 수)은 안 읽은 새 글만 담음
+    [...(app.state.groups || []), app.state.all, ...Object.values(app.state.site_feeds || {})].forEach(summary => {
         [['unread_ids', 'unread_count'], ['comment_ids', 'comment_count']].forEach(([idsField, countField]) => {
+            if (!summary[idsField]) return;
             const before = summary[idsField].length;
             summary[idsField] = summary[idsField].filter(id => !set.has(id));
             summary[countField] = Math.max(0, summary[countField] - (before - summary[idsField].length));
@@ -282,14 +291,6 @@ function navItem(label, count, unread, active, attrs, comments = 0) {
 }
 
 // 사이드바 보기 항목: 고른 항목은 왼쪽 체크 표시와 굵은 글씨로만 표시 (게시판의 파란 배경 선택과 구분)
-function viewItem(label, count, active, attrs) {
-    return `
-        <button class="kw-item view-item ${active ? 'checked' : ''}" ${attrs} aria-pressed="${active}">
-            <span class="view-label"><span class="view-check">${active ? ICONS.check : ''}</span>${label}</span>
-            <span class="kw-side">${count}</span>
-        </button>`;
-}
-
 // 보기 칸의 글 수 배지: 확인할 글이 남은 안 읽은 글(파랑)·새 댓글(주황)만 색을 넣어 눈에 띄게, 나머지는 회색
 function countBadge(filter, count) {
     const tone = count > 0 && (filter === 'unread' || filter === 'comments') ? ` is-${filter}` : '';
@@ -311,31 +312,55 @@ function renderNavigation() {
     const filterActive = key => !searching && app.filter === key;
     const filterAttrs = key => `data-action="set-view" data-filter="${key}"`;
 
-    // 데스크톱: 위는 어디를 볼지 고르는 게시판(전체 + 사용자가 만든 게시판, 안 읽은 새 글 수·새 댓글이 달린 글 수),
-    // 아래는 고른 게시판 안을 걸러 보는 보기(그 게시판 기준 글 수). 보기는 파란 배경 대신 체크 표시로 선택을 보여 게시판과 구분
+    // 데스크톱 사이드바: 어디를 볼지 고르는 게시판(전체 + 사용자가 만든 게시판, 안 읽은 새 글 수·새 댓글이 달린 글 수).
+    // 고른 게시판 안을 걸러 보는 보기는 글 목록 위 보기 탭(view-bar)
     // 게시판이 두 사이트 이상에 걸쳐 있으면 사이트별로 묶어 제목(FM·DC 표시)을 붙임. '전체'는 모든 사이트를 합친 피드
     const currentGroup = findGroup(app.activeKey);
-    const viewHead = `'${currentGroup ? (multiSite() ? siteLabel(currentGroup.site).short + ' ' : '') + esc(currentGroup.name) : '전체'}'에서 보기`;
+    const currentSite = siteOfKey(app.activeKey);
+    const viewWhere = currentGroup ? (multiSite() ? siteTag(currentGroup.site) : '') + esc(currentGroup.name)
+        : currentSite ? siteTag(currentSite) + esc(SITES[currentSite].name) : '전체';
     const bySite = groupsBySite(groups);
     const groupItem = g => navItem(esc(g.name), '', g.unread_count, isActive(g),
         `data-action="open-group" data-group-id="${g.id}"`, g.comment_count);
+    // 접힌 사이트는 지금 보고 있는 게시판만 남겨 어디를 보고 있는지 보이게 함
+    const visibleGroups = (list, expanded) => expanded ? list : list.filter(isActive);
     const groupList = !groups.length
         ? '<span class="kw-group-name">게시판이 없습니다. 관리에서 만들어 주세요.</span>'
         : bySite.length > 1
-            ? bySite.map(([site, list]) => `
-                <div class="site-head">${siteTag(site)}<span>${SITES[site].name}</span></div>
-                ${list.map(groupItem).join('')}`).join('')
+            ? bySite.map(([site, list]) => {
+                // 사이트마다 색 상자로 감싸고, 제목 줄(누르면 사이트 전체 게시판) 옆에 그 사이트의 안 읽은 새 글 수
+                // (게시판끼리 겹치는 글은 한 번만), 오른쪽 끝 화살표 칸은 접기·펼치기
+                const unread = (viewSummary(siteKey(site)) || {}).unread_count || 0;
+                const expanded = isSiteExpanded('desktop', site);
+                const active = !searching && app.activeKey === siteKey(site);
+                return `
+                <div class="site-box site-box-${site}">
+                    <div class="site-head ${active ? 'active' : ''}">
+                        <button class="site-open" data-action="open-site" data-site="${site}" ${active ? 'aria-current="true"' : ''}>
+                            ${siteTag(site)}<span class="site-head-name">${esc(SITES[site].name)}</span>
+                            ${unread ? `<span class="kw-unread" aria-label="안 읽은 새 글 ${unread}개">${unread}</span>` : ''}
+                        </button>
+                        <button class="site-toggle" data-action="toggle-site" data-scope="desktop" data-site="${site}"
+                                aria-expanded="${expanded}" aria-label="${esc(SITES[site].name)} 게시판 ${expanded ? '접기' : '펼치기'}">
+                            ${expanded ? ICONS.chevronDown : ICONS.next}</button>
+                    </div>
+                    ${visibleGroups(list, expanded).map(groupItem).join('')}
+                </div>`;
+            }).join('')
             : groups.map(groupItem).join('');
     document.getElementById('keyword-groups').innerHTML = `
         <nav class="kw-group" aria-label="게시판">
             <div class="sidebar-head"><span>게시판</span>${ADD_BOARD_BUTTON}</div>
             ${navItem('전체', '', app.state.all.unread_count, allActive, 'data-action="open-all"', app.state.all.comment_count)}
             ${groupList}
-        </nav>
-        <nav class="kw-group view-group" aria-label="보기">
-            <div class="sidebar-head"><span class="view-head">${viewHead}</span></div>
-            ${FILTERS.map(f => viewItem(f.label, countBadge(f.key, filterCount(current, f.key)), filterActive(f.key), filterAttrs(f.key))).join('')}
         </nav>`;
+
+    // 데스크톱 보기 탭 (글 목록 위 한 줄): 이름 옆에 고른 게시판 기준 글 수, 고정됐을 때 오른쪽에 지금 보는 게시판 이름
+    document.getElementById('view-bar-tabs').innerHTML = FILTERS.map(f => `
+        <button class="view-bar-tab" ${filterAttrs(f.key)} aria-pressed="${filterActive(f.key)}">
+            <span>${f.label}</span>${countBadge(f.key, filterCount(current, f.key))}
+        </button>`).join('');
+    document.getElementById('view-bar-where').innerHTML = viewWhere;
 
     // 모바일: 위는 네 칸 보기, 아래는 가로로 넘기는 게시판 칩 (맨 앞이 전체, 안 읽은 새 글은 파란 점·새 댓글은 주황 점)
     document.getElementById('view-tabs').innerHTML = FILTERS.map(f => `
@@ -344,23 +369,58 @@ function renderNavigation() {
             ${countBadge(f.key, filterCount(current, f.key))}
         </button>`).join('');
     const chip = (label, summary, active, attrs, site) => `
-        <button class="chip ${active ? 'active' : ''}" ${attrs} ${active ? 'aria-current="true"' : ''}>
+        <button class="chip ${site ? 'chip-' + site : ''} ${active ? 'active' : ''}" ${attrs} ${active ? 'aria-current="true"' : ''}>
             ${site ? siteTag(site) : ''}<span>${label}</span>
             ${summary.unread_count > 0 ? '<span class="chip-dot" aria-label="안 읽은 새 글"></span>' : ''}
             ${summary.comment_count > 0 ? '<span class="chip-dot chip-dot-comments" aria-label="새 댓글"></span>' : ''}
         </button>`;
     const groupChip = (g, site) => chip(esc(g.name), g, isActive(g), `data-action="open-group" data-group-id="${g.id}"`, site);
-    // 사이트가 여러 개면 사이트 사이에 구분선을 넣고 칩마다 사이트 표시
+    // 사이트가 여러 개면 사이트마다 맨 앞에 사이트 칩을 둠: 이름 부분은 사이트 전체 게시판을 열고,
+    // 오른쪽 아이콘 칸은 그 사이트의 게시판 칩을 펼치거나 접음 (접혀 있으면 지금 보는 게시판 칩만 남김)
+    const siteChip = site => {
+        const summary = viewSummary(siteKey(site)) || {};
+        const expanded = isSiteExpanded('mobile', site);
+        const active = !searching && app.activeKey === siteKey(site);
+        return `
+        <span class="site-chip site-chip-${site} ${active ? 'active' : ''}">
+            <button class="site-chip-open" data-action="open-site" data-site="${site}" ${active ? 'aria-current="true"' : ''}>
+                ${siteTag(site)}<span>${esc(SITES[site].name)}</span>
+                ${summary.unread_count ? `<span class="site-chip-count" aria-label="안 읽은 새 글 ${summary.unread_count}개">${summary.unread_count}</span>` : ''}
+            </button>
+            <button class="site-chip-toggle" data-action="toggle-site" data-scope="mobile" data-site="${site}"
+                    aria-expanded="${expanded}" aria-label="${esc(SITES[site].name)} 게시판 ${expanded ? '접기' : '펼치기'}">
+                ${expanded ? ICONS.prev : ICONS.next}</button>
+        </span>`;
+    };
     document.getElementById('chip-row').innerHTML =
         chip('전체', app.state.all, allActive, 'data-action="open-all"') +
         (bySite.length > 1
-            ? bySite.map(([site, list]) => '<span class="chip-sep" aria-hidden="true"></span>' + list.map(g => groupChip(g, site)).join('')).join('')
+            ? bySite.map(([site, list]) => siteChip(site)
+                + visibleGroups(list, isSiteExpanded('mobile', site)).map(g => groupChip(g, site)).join('')).join('')
             : groups.map(g => groupChip(g)).join(''));
 
     // 사이드바 하단 알림 요약 (게시판별)
     // 사이트가 여러 개면 같은 이름의 게시판(FM 싼타페·DC 싼타페)을 구분하도록 짧은 표시를 붙임
     const summary = groups.map(g => `${multiSite() ? siteLabel(g.site).short + ' ' : ''}${g.name} · ${alertMode(g)}`);
     document.getElementById('alert-summary').textContent = summary.length ? summary.join('\n') : '게시판이 없습니다.';
+}
+
+// 사이트 상자(데스크톱)·사이트 칩(모바일)의 펼침 상태. 기기마다 따로 기억 (데스크톱은 기본 펼침, 모바일은 기본 접힘)
+// 데스크톱 목록은 접은 사이트, 모바일 목록은 펼친 사이트
+const SITE_EXPAND_KEYS = { desktop: 'collapsed_sites_desktop', mobile: 'expanded_sites_mobile' };
+function siteExpandList(scope) {
+    try { return JSON.parse(storageGet(localStorage, SITE_EXPAND_KEYS[scope], '[]')) || []; } catch (e) { return []; }
+}
+function isSiteExpanded(scope, site) {
+    const listed = siteExpandList(scope).includes(site);
+    return scope === 'desktop' ? !listed : listed;
+}
+function toggleSiteExpanded(scope, site) {
+    const expanded = isSiteExpanded(scope, site);
+    const list = siteExpandList(scope).filter(s => s !== site);
+    if (scope === 'desktop' ? expanded : !expanded) list.push(site);
+    storageSet(localStorage, SITE_EXPAND_KEYS[scope], JSON.stringify(list));
+    renderNavigation();
 }
 
 function alertMode(group) {
@@ -505,7 +565,7 @@ function renderPost(post, isUnread) {
     ].join('');
     // 통합 피드·검색·키워드가 여러 개인 게시판에서는 어느 키워드로 모인 글인지 표시
     const group = findGroup(app.activeKey);
-    const keywordTags = (post.keywords && (isAllView() || app.searchQuery || (group && group.members.length > 1)))
+    const keywordTags = (post.keywords && (isAllView() || siteOfKey(app.activeKey) || app.searchQuery || (group && group.members.length > 1)))
         ? post.keywords.map(k => `<span class="kw-chip">${multiSite() ? siteTag(boardSite(k.board)) : ''}${esc(k.board_name)} · ${esc(k.keyword)}</span>`).join('')
         : '';
     const link = esc(safeLink(post.link));
@@ -600,7 +660,9 @@ function feedSubText(total) {
     if (!summary) return '';
     const unread = summary.unread_count;
     const group = findGroup(app.activeKey);
-    const label = group ? `키워드 ${group.members.map(m => esc(m.keyword)).join(', ')}` : '모든 게시판';
+    const site = siteOfKey(app.activeKey);
+    const label = group ? `키워드 ${group.members.map(m => esc(m.keyword)).join(', ')}`
+        : site ? `${esc(SITES[site].name)}의 모든 게시판` : '모든 게시판';
     if (app.filter === 'unread') return unread ? `${label} · 안 읽은 새 글 <strong>${unread}개</strong>` : '안 읽은 글을 모두 읽었습니다';
     if (app.filter === 'comments') return summary.comment_count
         ? `${label} · 읽은 뒤 새 댓글이 달린 글 <strong>${summary.comment_count}개</strong> · 최근 댓글 순` : '새 댓글을 모두 확인했습니다';
@@ -635,6 +697,7 @@ async function loadPosts() {
         params.set('q', app.searchQuery);
     } else {
         if (group) params.set('group', group.id);
+        if (siteOfKey(app.activeKey)) params.set('site', siteOfKey(app.activeKey));
         if (app.filter === 'unread') {
             if (!app.unreadSince) app.unreadSince = app.state.generated_at;
             params.set('unread_since', app.unreadSince);
@@ -714,7 +777,9 @@ function renderFeed(data) {
 
     // 제목: 게시판 이름, '모든 글'이 아닌 보기는 뒤에 보기 이름
     const title = searching ? `검색: ${esc(app.searchQuery)}`
-        : (group ? (multiSite() ? siteTag(group.site) : '') + esc(group.name) : '전체') + (filter !== 'all' ? ` · ${filterLabel(filter)}` : '');
+        : (group ? (multiSite() ? siteTag(group.site) : '') + esc(group.name)
+            : siteOfKey(app.activeKey) ? siteTag(siteOfKey(app.activeKey)) + esc(SITES[siteOfKey(app.activeKey)].name) : '전체')
+          + (filter !== 'all' ? ` · ${filterLabel(filter)}` : '');
     const headActions = searching
         ? '<button class="btn btn-outline btn-small" data-action="clear-search">검색 닫기</button>'
         : `<button class="btn btn-outline btn-small" data-action="mark-all-read" ${summary && pendingCount(summary) ? '' : 'hidden'}>${filter === 'comments' ? '모두 확인' : '모두 읽음'}</button>`;
@@ -752,7 +817,7 @@ function renderFeed(data) {
 const JUMP_SETTLE_MS = 4000;
 const USER_SCROLL_EVENTS = ['wheel', 'touchstart', 'keydown', 'mousedown'];
 function jumpToPost(target) {
-    const offset = document.querySelector('.topbar').offsetHeight + 12;
+    const offset = stickyHeight() + 12;
     const scrollToTarget = () => window.scrollTo({ top: target.getBoundingClientRect().top + window.pageYOffset - offset });
     const above = [...document.querySelectorAll('#feed .post-card')]
         .filter(card => card.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -777,8 +842,15 @@ function jumpToPost(target) {
 
 // 다음 글 버튼(J 키): 화면 맨 위에 걸친 글(위 메뉴 바로 아래에서 아직 끝나지 않은 첫 글)을 읽음 처리하고
 // 다음 글의 제목이 위 메뉴 바로 아래에 오도록 이동. 페이지의 마지막 글이면 다음 페이지로
+// 화면 위에 고정된 메뉴의 높이: 상단 바 + 데스크톱 보기 탭 (모바일은 보기 탭이 상단 바 안에 있어 0)
+function stickyHeight() {
+    return document.querySelector('.topbar').offsetHeight + document.getElementById('view-bar').offsetHeight;
+}
+
 function currentPostCard() {
-    const headerBottom = document.querySelector('.topbar').getBoundingClientRect().bottom;
+    const bar = document.getElementById('view-bar');
+    const headerBottom = Math.max(document.querySelector('.topbar').getBoundingClientRect().bottom,
+        bar.offsetHeight ? bar.getBoundingClientRect().bottom : 0);
     return [...document.querySelectorAll('#feed .post-card')]
         .find(card => card.getBoundingClientRect().bottom > headerBottom + 8) || null;
 }
@@ -800,7 +872,7 @@ function goNextPost() {
     // 모바일은 아래로 내리면 맨 위 제목 줄이 숨으므로, 숨은 뒤의 위 메뉴 높이에 맞춤
     const topbar = document.querySelector('.topbar');
     const mobile = window.matchMedia('(max-width: 899px)').matches;
-    const offset = topbar.offsetHeight - (mobile ? topbar.querySelector('.topbar-row').offsetHeight : 0) + 12;
+    const offset = stickyHeight() - (mobile ? topbar.querySelector('.topbar-row').offsetHeight : 0) + 12;
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     window.scrollTo({ top: next.getBoundingClientRect().top + window.pageYOffset - offset, behavior: reduceMotion ? 'auto' : 'smooth' });
 }
@@ -1485,6 +1557,10 @@ document.addEventListener('click', (e) => {
         goNextPost();
     } else if (action === 'save-site') {
         saveSite(el.dataset.site, el);
+    } else if (action === 'open-site') {
+        if (siteOfKey(siteKey(el.dataset.site))) openBoard(siteKey(el.dataset.site));
+    } else if (action === 'toggle-site') {
+        toggleSiteExpanded(el.dataset.scope, el.dataset.site);
     }
 });
 
@@ -1559,8 +1635,17 @@ function updateTitleRow() {
     titleRowScrollY = y;
 }
 
+// 데스크톱 보기 탭이 상단 바 아래에 붙어 고정되면 흰 바탕·아랫선과 지금 보는 게시판 이름을 보여 줌
+function updateViewBarStuck() {
+    const bar = document.getElementById('view-bar');
+    if (!bar.offsetHeight) return;
+    const stuck = bar.getBoundingClientRect().top <= document.querySelector('.topbar').getBoundingClientRect().bottom + 0.5;
+    bar.classList.toggle('stuck', stuck);
+}
+
 window.addEventListener('scroll', () => {
     document.getElementById('floating-top-btn').classList.toggle('visible', window.scrollY > 400);
+    updateViewBarStuck();
     updateTitleRow();
     scheduleReadCheck();
 }, { passive: true });
