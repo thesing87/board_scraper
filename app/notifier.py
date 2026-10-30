@@ -4,6 +4,7 @@ from datetime import datetime
 
 import requests
 from config import log_msg, short_err, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
+from sites import post_site, SITE_SHORT
 
 _missing_config_warned = False
 
@@ -87,11 +88,13 @@ def _count(value):
     return f"{int(digits):,}" if digits.isdigit() else str(value)
 
 def build_post_alert(post, boards, keyword, board_name):
-    """알림 본문(HTML): 게시판·시각 머리글 / 굵은 제목 / 인용 상자에 본문 미리보기 /
-    키워드·카테고리 한 줄, 작성자·조회·댓글 한 줄"""
+    """알림 본문(HTML): 사이트([FM]·[DC])·게시판·시각 머리글 / 굵은 제목 / 인용 상자에 본문 미리보기 /
+    키워드·카테고리 한 줄, 작성자·조회·댓글 한 줄.
+    사이트는 휴대폰 알림 목록에 보이는 첫 줄 맨 앞에 두어 열어 보지 않아도 어느 사이트 글인지 알 수 있게 함"""
     esc = html.escape
     has_video = bool(post.get('videos'))
-    header = f"{'🎬' if has_video else '🔔'} <b>{esc(', '.join(boards))}</b>"
+    site = SITE_SHORT[post_site(post.get('id', ''))]
+    header = f"{'🎬' if has_video else '🔔'} [{site}] <b>{esc(', '.join(boards))}</b>"
     if has_video:
         header += " · 동영상"
     header += f" · {datetime.now().strftime('%H:%M')}"

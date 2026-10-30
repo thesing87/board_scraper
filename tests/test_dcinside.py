@@ -109,4 +109,12 @@ assert storage.query_posts_by_ids(['dc-car_new1-11561402'])[0]['title'] == '싼�
 assert storage.mark_posts_read(['dc-car_new1-11561402', "x' OR 1=1"]) == 1
 assert storage.locate_post('dc-car_new1-11561402') is not None
 print('STORAGE OK')
+
+# --- 6) 텔레그램 새 글 알림: 첫 줄 맨 앞에 사이트 표시 ([DC]·[FM])
+import notifier
+dc_alert = notifier.build_post_alert(post, ['디시 싼타페'], '싼타페', '자동차 갤러리')
+fm_alert = notifier.build_post_alert({**post, 'id': '10482627360', 'videos': ['v']}, ['싼타페'], '싼타페', '자동차')
+assert dc_alert.startswith('🔔 [DC] <b>디시 싼타페</b> · '), dc_alert
+assert fm_alert.startswith('🎬 [FM] <b>싼타페</b> · 동영상 · '), fm_alert
+print('ALERT OK')
 print('DCINSIDE OK')
