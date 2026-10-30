@@ -134,6 +134,11 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .chip-sep { flex: 0 0 auto; width: 1px; align-self: stretch; margin: 6px 2px; background: var(--border); }
 .chip.active .site-tag { background: rgba(255,255,255,0.25); color: #FFFFFF; }
 .kw-chip .site-tag { margin-right: 4px; }
+/* 관리 화면 사이트 이름 편집 줄: 표시 · 이름 · 짧은 표시 · 저장 */
+.site-row { align-items: center; gap: 8px; }
+.site-row .site-tag { margin-right: 0; }
+.site-name-input { flex: 1 1 auto; min-width: 0; height: 36px; }
+.site-short-input { flex: 0 0 64px; width: 64px; height: 36px; text-align: center; }
 .view-group { padding-top: 14px; border-top: 1px solid var(--border); }
 .view-head { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .view-item { height: 34px; padding-left: 4px; font-weight: 400; color: var(--text-2); }

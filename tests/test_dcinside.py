@@ -117,4 +117,18 @@ fm_alert = notifier.build_post_alert({**post, 'id': '10482627360', 'videos': ['v
 assert dc_alert.startswith('🔔 [DC] <b>디시 싼타페</b> · '), dc_alert
 assert fm_alert.startswith('🎬 [FM] <b>싼타페</b> · 동영상 · '), fm_alert
 print('ALERT OK')
+
+# --- 7) 사이트 이름·짧은 표시 편집: 저장한 값이 화면 상태와 알림에 쓰이고, 없는 사이트는 거부
+assert storage.site_labels()['dcinside'] == {'name': '디시인사이드', 'short': 'DC'}
+storage.set_site_label('dcinside', '디시', 'DCI')
+assert storage.site_labels()['dcinside'] == {'name': '디시', 'short': 'DCI'}
+assert storage.site_labels()['fmkorea'] == {'name': '에펨코리아', 'short': 'FM'}
+assert web_server.build_state()['sites']['dcinside']['short'] == 'DCI'
+assert notifier.build_post_alert(post, ['디시 싼타페'], '싼타페', '자동차 갤러리').startswith('🔔 [DCI] ')
+try:
+    storage.set_site_label('naver', '네이버', 'NV')
+    raise AssertionError('없는 사이트 이름이 저장됨')
+except ValueError:
+    pass
+print('SITE LABELS OK')
 print('DCINSIDE OK')

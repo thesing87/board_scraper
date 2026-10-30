@@ -9,7 +9,7 @@ import re
 FMKOREA = 'fmkorea'
 DCINSIDE = 'dcinside'
 SITE_NAMES = {FMKOREA: '에펨코리아', DCINSIDE: '디시인사이드'}
-# 짧은 표시 (화면의 FM·DC 표시, 텔레그램 알림 머리글)
+# 기본 이름·짧은 표시. 관리 화면에서 바꾼 값은 DB에 저장되며 storage.site_labels()로 읽음
 SITE_SHORT = {FMKOREA: 'FM', DCINSIDE: 'DC'}
 
 DC_BOARD_PREFIX = 'dc:'

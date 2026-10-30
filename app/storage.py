@@ -14,7 +14,7 @@ from config import (
     JSON_BACKUP_FILE,
     BOARD_MAP
 )
-from sites import board_site, is_post_id, SITE_NAMES
+from sites import board_site, is_post_id, SITE_NAMES, SITE_SHORT
 
 SCHEMA_VERSION = 1
 
@@ -340,6 +340,25 @@ def delete_category(key):
             raise ValueError('키워드가 등록되어 있어 삭제할 수 없습니다.')
         return conn.execute("DELETE FROM categories WHERE key = ?", (key,)).rowcount > 0
 
+# ==========================================
+# 사이트 이름·짧은 표시 (관리 화면에서 편집. 저장한 값이 없으면 sites.py의 기본값)
+# ==========================================
+def site_labels():
+    """{site: {'name': 이름, 'short': 짧은 표시}} (예: {'dcinside': {'name': '디시인사이드', 'short': 'DC'}})"""
+    with _db() as conn:
+        saved = json.loads(_get_meta(conn, 'site_labels') or '{}')
+    return {site: {'name': (saved.get(site) or {}).get('name') or SITE_NAMES[site],
+                   'short': (saved.get(site) or {}).get('short') or SITE_SHORT[site]} for site in SITE_NAMES}
+
+def set_site_label(site, name, short):
+    """사이트 이름·짧은 표시 저장. 없는 사이트면 ValueError"""
+    if site not in SITE_NAMES:
+        raise ValueError('존재하지 않는 사이트입니다.')
+    with _db() as conn, conn:
+        saved = json.loads(_get_meta(conn, 'site_labels') or '{}')
+        saved[site] = {'name': name, 'short': short}
+        _set_meta(conn, 'site_labels', json.dumps(saved, ensure_ascii=False))
+
 def pending_categories():
     """수집기가 확인할 카테고리 mid 목록 (추가한 순서)"""
     with _db() as conn:
@@ -526,7 +545,7 @@ def save_group(group_id, name, members):
     if not pairs:
         raise ValueError('키워드를 하나 이상 등록해 주세요.')
     if len({board_site(b) for b, _ in pairs}) > 1:
-        raise ValueError('한 게시판에는 한 사이트(' + '·'.join(SITE_NAMES.values()) + ')의 키워드만 등록할 수 있습니다.')
+        raise ValueError('한 게시판에는 한 사이트(' + '·'.join(v['name'] for v in site_labels().values()) + ')의 키워드만 등록할 수 있습니다.')
     with _db() as conn, conn:
         clash = conn.execute("SELECT id FROM keyword_groups WHERE name = ? AND id != ?", (name, group_id or -1)).fetchone()
         if clash:

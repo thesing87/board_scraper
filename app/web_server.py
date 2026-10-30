@@ -35,7 +35,9 @@ from storage import (
     add_category,
     rename_category,
     recheck_category,
-    delete_category
+    delete_category,
+    site_labels,
+    set_site_label
 )
 
 MAX_BODY_BYTES = 10 * 1024
@@ -47,6 +49,8 @@ MAX_KEYWORD_LENGTH = 50
 MAX_IGNORES_PER_KEYWORD = 20
 MAX_CATEGORY_NAME_LENGTH = 20
 MAX_CATEGORY_INPUT_LENGTH = 300
+MAX_SITE_NAME_LENGTH = 20
+MAX_SITE_SHORT_LENGTH = 4
 # 에펨코리아 게시판 mid (글 주소 'fmkorea.com/12345'와 헷갈리지 않게 숫자만인 값은 제외)
 BOARD_KEY_RE = re.compile(r'(?![0-9]+$)[a-z0-9_]{1,40}')
 POSTS_PER_PAGE = 10
@@ -148,6 +152,8 @@ def build_state():
         'posts_per_page': POSTS_PER_PAGE,
         # 카테고리(에펨코리아 게시판·디시 갤러리): 사이트, 확인 상태(pending·ok·invalid)와 등록된 키워드 수·사용 중인 게시판 포함
         'boards': list_categories(),
+        # 사이트 이름·짧은 표시 (관리 화면에서 편집)
+        'sites': site_labels(),
         # 모든 게시판을 합친 통합 피드 요약 (같은 글은 한 번만 셈). 게시판과 같이
         # 모든 글·동영상 글·안 읽은 새 글·새 댓글이 달린 글 수와 안 읽은 글·새 댓글 글 ID를 담음
         'all': feed_summary(MAX_READ_IDS),
@@ -297,6 +303,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._handle_group()
         elif pure_path == '/api/category':
             self._handle_category()
+        elif pure_path == '/api/site':
+            self._handle_site()
         else:
             self.send_response(404)
             self.end_headers()
@@ -373,6 +381,32 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             return ''
         names = category_names()
         return f" / 수집 중단 키워드: {', '.join(f'{names.get(b, b)}/{k}' for b, k in dropped)}"
+
+    def _handle_site(self):
+        """사이트 이름·짧은 표시 바꾸기 (관리자 암호 필요). 화면의 사이트 제목·FM·DC 표시와 텔레그램 알림에 쓰임"""
+        try:
+            params = self._read_json_body()
+            if not self._authorize(params.get('password', ''), '사이트 이름 변경'):
+                return
+            site = params.get('site')
+            name = str(params.get('name') or '').strip()
+            short = str(params.get('short') or '').strip()
+            if site not in site_labels():
+                self._send_json(400, False, '❌ 존재하지 않는 사이트입니다.')
+                return
+            if (not name or len(name) > MAX_SITE_NAME_LENGTH or not short or len(short) > MAX_SITE_SHORT_LENGTH
+                    or any(ch in name + short for ch in '\r\n\t')):
+                self._send_json(400, False, f'❌ 사이트 이름은 {MAX_SITE_NAME_LENGTH}자, 짧은 표시는 {MAX_SITE_SHORT_LENGTH}자 이하로 줄바꿈 없이 입력해 주세요.')
+                return
+            set_site_label(site, name, short)
+            log_msg(f"[API] 사이트 이름 변경: {site} → {name} ({short})")
+            self._send_json(200, True, f"🏷️ 사이트 표시를 바꿨습니다: {name} ({short})")
+        except Exception as e:
+            log_msg(f"[API] 사이트 이름 처리 오류: {short_err(e)}", "ERROR")
+            try:
+                self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
+            except Exception:
+                pass
 
     def _handle_category(self):
         """카테고리(에펨코리아 게시판·디시 갤러리) 추가·이름 변경·다시 확인·삭제 (관리자 암호 필요).

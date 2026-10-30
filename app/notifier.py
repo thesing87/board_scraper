@@ -4,7 +4,8 @@ from datetime import datetime
 
 import requests
 from config import log_msg, short_err, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
-from sites import post_site, SITE_SHORT
+from sites import post_site
+from storage import site_labels
 
 _missing_config_warned = False
 
@@ -93,7 +94,7 @@ def build_post_alert(post, boards, keyword, board_name):
     사이트는 휴대폰 알림 목록에 보이는 첫 줄 맨 앞에 두어 열어 보지 않아도 어느 사이트 글인지 알 수 있게 함"""
     esc = html.escape
     has_video = bool(post.get('videos'))
-    site = SITE_SHORT[post_site(post.get('id', ''))]
+    site = site_labels()[post_site(post.get('id', ''))]['short']
     header = f"{'🎬' if has_video else '🔔'} [{site}] <b>{esc(', '.join(boards))}</b>"
     if has_video:
         header += " · 동영상"

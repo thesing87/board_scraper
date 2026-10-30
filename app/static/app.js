@@ -48,10 +48,17 @@ function esc(value) {
 }
 
 // 수집 사이트 (sites.py와 같은 값). 카테고리 키 'dc:갤러리id', 글 ID 'dc-갤러리id-글번호'가 디시인사이드
+// 이름·짧은 표시는 기본값이고, 관리 화면에서 바꾼 값(서버 상태의 sites)으로 덮어씀
 const SITES = {
     fmkorea: { name: '에펨코리아', short: 'FM' },
     dcinside: { name: '디시인사이드', short: 'DC' }
 };
+function setState(state) {
+    app.state = state;
+    Object.entries(state.sites || {}).forEach(([site, label]) => {
+        if (SITES[site]) Object.assign(SITES[site], label);
+    });
+}
 function siteTag(site) {
     const info = SITES[site] || SITES.fmkorea;
     return `<span class="site-tag site-${site in SITES ? site : 'fmkorea'}" title="${info.name}">${info.short}</span>`;
@@ -852,7 +859,7 @@ async function pollState() {
         renderStatus(false);
         return;
     }
-    app.state = fresh;
+    setState(fresh);
     renderStatus(true);
     renderNavigation();
     renderFeedSub();
@@ -896,6 +903,7 @@ function alertSwitch(groupId, type, on, label) {
 function renderSettings() {
     renderBoardSelect();
     renderGroupSettings();
+    renderSiteSettings();
     renderCategorySettings();
 
     const groups = app.state.groups || [];
@@ -1082,6 +1090,38 @@ function renderBoardSelect() {
     if (boards.some(b => b.key === prev)) select.value = prev;
 }
 
+// 사이트 이름·짧은 표시 편집 (저장하면 사이드바·FM·DC 표시·텔레그램 알림에 바로 반영)
+function renderSiteSettings() {
+    document.getElementById('settings-sites').innerHTML = Object.entries(SITES).map(([site, label]) => `
+        <div class="group-row site-row">
+            ${siteTag(site)}
+            <input class="input site-name-input" data-site="${site}" value="${esc(label.name)}" maxlength="20" aria-label="${esc(label.name)} 이름" autocomplete="off">
+            <input class="input site-short-input" data-site="${site}" value="${esc(label.short)}" maxlength="4" aria-label="${esc(label.name)} 짧은 표시" autocomplete="off">
+            <button class="btn btn-outline btn-small" data-action="save-site" data-site="${site}">저장</button>
+        </div>`).join('');
+}
+
+async function saveSite(site, button) {
+    const row = button.closest('.site-row');
+    const name = row.querySelector('.site-name-input').value.trim();
+    const short = row.querySelector('.site-short-input').value.trim();
+    if (!name || !short) { alert('이름과 짧은 표시를 모두 입력해 주세요.'); return; }
+    const pwd = adminPassword();
+    if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return; }
+    button.disabled = true;
+    try {
+        const data = await postJSON('/api/site', { site: site, name: name, short: short, password: pwd });
+        if (!data.success) { alert(data.message); return; }
+        await loadState();
+        renderSettings();
+        alert(data.message);
+    } catch (e) {
+        alert('요청 중 오류가 발생했습니다.');
+    } finally {
+        button.disabled = false;
+    }
+}
+
 function renderCategorySettings() {
     const boards = app.state.boards || [];
     document.getElementById('settings-categories').innerHTML = boards.length ? boards.map(b => {
@@ -1250,7 +1290,7 @@ async function toggleGroupAlert(checkbox) {
 // ==========================================
 async function loadState() {
     await flushReads();
-    app.state = await withProgress(getJSON('/api/state'));
+    setState(await withProgress(getJSON('/api/state')));
     renderStatus(true);
     if (!isKnownView(app.activeKey)) {
         app.activeKey = ALL_KEY;
@@ -1308,7 +1348,7 @@ async function init() {
     storageRemove(localStorage, 'feed_cache_v1');
     await migrateLegacyReads();
     try {
-        app.state = await withProgress(getJSON('/api/state'));
+        setState(await withProgress(getJSON('/api/state')));
     } catch (e) {
         renderStatus(false);
         document.getElementById('feed').innerHTML = '<div class="empty-card">서버에 연결하지 못했습니다. 잠시 후 새로고침해 주세요.</div>';
@@ -1441,6 +1481,8 @@ document.addEventListener('click', (e) => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     } else if (action === 'next-post') {
         goNextPost();
+    } else if (action === 'save-site') {
+        saveSite(el.dataset.site, el);
     }
 });
 

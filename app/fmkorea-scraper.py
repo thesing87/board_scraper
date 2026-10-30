@@ -39,7 +39,8 @@ from storage import (
     remove_stored_sns_videos,
     post_exists,
     backup_db,
-    prune_old_posts
+    prune_old_posts,
+    site_labels
 )
 from notifier import send_telegram_message, send_post_alert
 from scraper import parse_count, BlockedError
@@ -310,7 +311,7 @@ def main():
                         # 차단이 의심되면 그 사이트의 남은 키워드까지 요청을 이어가지 않고 이번 주기에는 멈춤
                         stats['errors'] += 1
                         blocked_sites.add(board_site(board))
-                        blocked_reason = blocked_reason or f"{SITE_NAMES[board_site(board)]} {target} {block_ex}"
+                        blocked_reason = blocked_reason or f"{site_labels()[board_site(board)]['name']} {target} {block_ex}"
                         break
                     except Exception as list_ex:
                         stats['errors'] += 1
@@ -416,7 +417,8 @@ def main():
                 next_wait = min(CHECK_INTERVAL * (2 ** block_streak), BACKOFF_MAX_SECONDS)
                 log_msg(f"[차단 의심] {blocked_reason} → {next_wait // 60}분 {next_wait % 60}초 후 다시 확인 (연속 {block_streak}회)", "WARN")
                 if block_streak == 1:
-                    blocked_label = '·'.join(SITE_NAMES[site] for site in SITE_NAMES if site in blocked_sites)
+                    labels = site_labels()
+                    blocked_label = '·'.join(labels[site]['name'] for site in SITE_NAMES if site in blocked_sites)
                     send_telegram_message(
                         f"⚠️ {blocked_label} 접속 차단 의심\n\n{blocked_reason}\n\n"
                         f"요청을 줄이기 위해 대기 시간을 늘립니다. 정상으로 돌아오면 다시 알려드립니다."
