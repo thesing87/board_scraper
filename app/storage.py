@@ -409,9 +409,14 @@ def _feed_from(group_id=None):
     return sql + "JOIN keyword_group_members gm ON gm.board = kp.board AND gm.keyword = kp.keyword AND gm.group_id = ?\n", (group_id,)
 
 def _feed_summary(conn, id_limit, group_id=None):
-    """중복 제거한 글 수, 안 읽은 새 글 수(전부)와 최신순 ID(최대 id_limit개), 최신 글 날짜"""
+    """중복 제거한 글 수, 동영상 글 수, 안 읽은 새 글 수(전부)와 최신순 ID(최대 id_limit개),
+    새 댓글이 달린 글 수와 최근 댓글순 ID(최대 id_limit개), 최신 글 날짜"""
     base, params = _feed_from(group_id)
     total = conn.execute(f"SELECT COUNT(DISTINCT kp.post_id) {base}", params).fetchone()[0]
+    video_count = conn.execute(f"""
+        SELECT COUNT(DISTINCT kp.post_id) {base} JOIN posts p ON p.id = kp.post_id WHERE {_HAS_VIDEO_SQL}
+    """, params).fetchone()[0]
+    comment_ids = _new_comment_ids(conn, group_id)
     unread = conn.execute(f"""
         SELECT kp.post_id, MAX(kp.rowid) AS last_rowid {base}
         LEFT JOIN read_posts rp ON rp.post_id = kp.post_id
@@ -425,8 +430,11 @@ def _feed_summary(conn, id_limit, group_id=None):
     """, params).fetchone()
     return {
         'total': total,
+        'video_count': video_count,
         'unread_count': len(unread),
         'unread_ids': [r['post_id'] for r in unread[:id_limit]],
+        'comment_count': len(comment_ids),
+        'comment_ids': comment_ids[:id_limit],
         'latest_date': latest['date'] if latest else ''
     }
 
@@ -690,21 +698,26 @@ def unread_summary(id_limit=500):
         """, params).fetchall()
     return {'total': len(rows), 'unread_ids': [r['post_id'] for r in rows[:id_limit]]}
 
+def _new_comment_ids(conn, group_id=None):
+    """이미 읽은 글 중 마지막으로 읽은 뒤 수집된 댓글이 있는 글 ID (가장 최근 새 댓글 순).
+    아직 안 읽은 글은 '안 읽은 글'에 나오므로 제외"""
+    base, params = _feed_from(group_id)
+    rows = conn.execute(f"""
+        SELECT id FROM (
+            SELECT p.id, rp.read_at,
+                   (SELECT MAX(json_extract(c.value, '$.first_seen')) FROM json_each(p.comments_json) c) AS last_comment_at
+            FROM posts p JOIN read_posts rp ON rp.post_id = p.id
+            WHERE p.id IN (SELECT kp.post_id {base})
+        ) WHERE last_comment_at > read_at
+        ORDER BY last_comment_at DESC
+    """, params).fetchall()
+    return [r['id'] for r in rows]
+
 def new_comment_summary(id_limit=500):
-    """새 댓글 모아보기 요약: 이미 읽은 글 중 마지막으로 읽은 뒤 수집된 댓글이 있는 글 수와,
-    가장 최근 새 댓글 순 글 ID(최대 id_limit개). 아직 안 읽은 글은 '안 읽은 글'에 나오므로 제외"""
-    base, params = _feed_from()
+    """새 댓글 모아보기 요약 (모든 게시판): 글 수와 최근 댓글순 글 ID(최대 id_limit개)"""
     with _db() as conn:
-        rows = conn.execute(f"""
-            SELECT id FROM (
-                SELECT p.id, rp.read_at,
-                       (SELECT MAX(json_extract(c.value, '$.first_seen')) FROM json_each(p.comments_json) c) AS last_comment_at
-                FROM posts p JOIN read_posts rp ON rp.post_id = p.id
-                WHERE p.id IN (SELECT kp.post_id {base})
-            ) WHERE last_comment_at > read_at
-            ORDER BY last_comment_at DESC
-        """, params).fetchall()
-    return {'total': len(rows), 'unread_ids': [r['id'] for r in rows[:id_limit]]}
+        ids = _new_comment_ids(conn)
+    return {'total': len(ids), 'unread_ids': ids[:id_limit]}
 
 def query_posts_by_ids(post_ids):
     """지정한 글들을 그 순서대로 조회 (새 댓글 모아보기: 화면을 연 때의 목록을 페이지로 나눠 보여줌)"""

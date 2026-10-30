@@ -26,8 +26,6 @@ from storage import (
     locate_post,
     list_groups,
     feed_summary,
-    unread_summary,
-    new_comment_summary,
     query_posts_by_ids,
     save_group,
     delete_group,
@@ -138,12 +136,9 @@ def build_state():
         'posts_per_page': POSTS_PER_PAGE,
         # 카테고리(에펨코리아 게시판): 확인 상태(pending·ok·invalid)와 등록된 키워드 수·사용 중인 게시판 포함
         'boards': list_categories(),
-        # 모든 게시판을 합친 통합 피드 요약 (같은 글은 한 번만 셈)
+        # 모든 게시판을 합친 통합 피드 요약 (같은 글은 한 번만 셈). 게시판과 같이
+        # 모든 글·동영상 글·안 읽은 새 글·새 댓글이 달린 글 수와 안 읽은 글·새 댓글 글 ID를 담음
         'all': feed_summary(MAX_READ_IDS),
-        # 모든 게시판의 안 읽은 새 글 모아보기 (첫 화면)
-        'unread': unread_summary(MAX_READ_IDS),
-        # 이미 읽은 글 중 읽은 뒤 새 댓글이 달린 글 모아보기
-        'new_comments': new_comment_summary(MAX_READ_IDS),
         # 사용자가 만든 게시판 (등록한 키워드의 글을 중복 없이 한 피드로)
         'groups': groups
     }
