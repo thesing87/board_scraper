@@ -219,7 +219,15 @@ function checkReadSentinels() {
     document.querySelectorAll('.read-sentinel:not([data-read])').forEach(el => {
         const top = el.getBoundingClientRect().top;
         // 텔레그램 링크로 건너뛴 위쪽 글(data-skipped)은 지나친 것만으로는 읽음이 아니므로, 글 끝이 실제로 화면에 보일 때만
-        if (el.dataset.skipped ? top >= 0 && top < window.innerHeight : top < window.innerHeight) {
+        let seen = el.dataset.skipped ? top >= 0 && top < window.innerHeight : top < window.innerHeight;
+        // 새 댓글이 달린 글은 글 끝까지 내려가지 않아도 마지막 새 댓글이 화면에 다 보이면 확인한 것으로 봄
+        // (이미 읽은 글에만 새 댓글이 붙으므로, 읽음 처리는 새 댓글 표시를 지우는 것뿐)
+        const newComments = seen ? [] : el.closest('.post-card').querySelectorAll('.comment.is-new-comment');
+        if (newComments.length) {
+            const bottom = newComments[newComments.length - 1].getBoundingClientRect().bottom;
+            seen = bottom <= window.innerHeight && (!el.dataset.skipped || bottom > 0);
+        }
+        if (seen) {
             el.dataset.read = '1';
             ids.push(el.dataset.postId);
         }
