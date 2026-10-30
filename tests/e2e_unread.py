@@ -70,14 +70,14 @@ try:
     v5 = view(); print('no unread first screen', v5['title'])
     assert v5['title'] == '전체'
     # 안 읽은 글 보기로 가면 빈 화면 + 모든 글 보기 버튼
-    js("document.querySelector('#view-bar [data-action=\"set-view\"][data-filter=\"unread\"]').click()"); W(1.2)
+    js("document.querySelector('#view-bar-tabs [data-action=\"set-view\"][data-filter=\"unread\"]').click()"); W(1.2)
     empty = js("return document.querySelector('.empty-card').textContent.trim()")
     print('empty', empty)
     assert '안 읽은 글이 없습니다' in empty and '모든 글 보기' in empty
     js("document.querySelector('.empty-card [data-action=\"set-view\"]').click()"); W(1.2)
     assert view()['title'] == '전체'
     # 홈 버튼도 같은 규칙
-    js("document.querySelector('#view-bar [data-action=\"set-view\"][data-filter=\"unread\"]').click()"); W(1.2)
+    js("document.querySelector('#view-bar-tabs [data-action=\"set-view\"][data-filter=\"unread\"]').click()"); W(1.2)
     js("document.querySelector('a.brand-name').click()"); W(1.2)
     assert view()['title'] == '전체'
 

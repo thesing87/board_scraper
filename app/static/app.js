@@ -313,12 +313,8 @@ function renderNavigation() {
     const filterAttrs = key => `data-action="set-view" data-filter="${key}"`;
 
     // 데스크톱 사이드바: 어디를 볼지 고르는 게시판(전체 + 사용자가 만든 게시판, 안 읽은 새 글 수·새 댓글이 달린 글 수).
-    // 고른 게시판 안을 걸러 보는 보기는 글 목록 위 보기 탭(view-bar)
+    // 고른 게시판 안을 걸러 보는 보기는 상단 바 가운데 보기 탭(view-bar-tabs)
     // 게시판이 두 사이트 이상에 걸쳐 있으면 사이트별로 묶어 제목(FM·DC 표시)을 붙임. '전체'는 모든 사이트를 합친 피드
-    const currentGroup = findGroup(app.activeKey);
-    const currentSite = siteOfKey(app.activeKey);
-    const viewWhere = currentGroup ? (multiSite() ? siteTag(currentGroup.site) : '') + esc(currentGroup.name)
-        : currentSite ? siteTag(currentSite) + esc(SITES[currentSite].name) : '전체';
     const bySite = groupsBySite(groups);
     const groupItem = g => navItem(esc(g.name), '', g.unread_count, isActive(g),
         `data-action="open-group" data-group-id="${g.id}"`, g.comment_count);
@@ -355,12 +351,11 @@ function renderNavigation() {
             ${groupList}
         </nav>`;
 
-    // 데스크톱 보기 탭 (글 목록 위 한 줄): 이름 옆에 고른 게시판 기준 글 수, 고정됐을 때 오른쪽에 지금 보는 게시판 이름
+    // 데스크톱 보기 탭 (상단 바 가운데): 이름 옆에 고른 게시판 기준 글 수
     document.getElementById('view-bar-tabs').innerHTML = FILTERS.map(f => `
         <button class="view-bar-tab" ${filterAttrs(f.key)} aria-pressed="${filterActive(f.key)}">
             <span>${f.label}</span>${countBadge(f.key, filterCount(current, f.key))}
         </button>`).join('');
-    document.getElementById('view-bar-where').innerHTML = viewWhere;
 
     // 모바일: 위는 네 칸 보기, 아래는 가로로 넘기는 게시판 칩 (맨 앞이 전체, 안 읽은 새 글은 파란 점·새 댓글은 주황 점)
     document.getElementById('view-tabs').innerHTML = FILTERS.map(f => `
@@ -842,15 +837,13 @@ function jumpToPost(target) {
 
 // 다음 글 버튼(J 키): 화면 맨 위에 걸친 글(위 메뉴 바로 아래에서 아직 끝나지 않은 첫 글)을 읽음 처리하고
 // 다음 글의 제목이 위 메뉴 바로 아래에 오도록 이동. 페이지의 마지막 글이면 다음 페이지로
-// 화면 위에 고정된 메뉴의 높이: 상단 바 + 데스크톱 보기 탭 (모바일은 보기 탭이 상단 바 안에 있어 0)
+// 화면 위에 고정된 메뉴(상단 바)의 높이. 보기 탭은 데스크톱·모바일 모두 상단 바 안에 있음
 function stickyHeight() {
-    return document.querySelector('.topbar').offsetHeight + document.getElementById('view-bar').offsetHeight;
+    return document.querySelector('.topbar').offsetHeight;
 }
 
 function currentPostCard() {
-    const bar = document.getElementById('view-bar');
-    const headerBottom = Math.max(document.querySelector('.topbar').getBoundingClientRect().bottom,
-        bar.offsetHeight ? bar.getBoundingClientRect().bottom : 0);
+    const headerBottom = document.querySelector('.topbar').getBoundingClientRect().bottom;
     return [...document.querySelectorAll('#feed .post-card')]
         .find(card => card.getBoundingClientRect().bottom > headerBottom + 8) || null;
 }
@@ -1635,17 +1628,8 @@ function updateTitleRow() {
     titleRowScrollY = y;
 }
 
-// 데스크톱 보기 탭이 상단 바 아래에 붙어 고정되면 흰 바탕·아랫선과 지금 보는 게시판 이름을 보여 줌
-function updateViewBarStuck() {
-    const bar = document.getElementById('view-bar');
-    if (!bar.offsetHeight) return;
-    const stuck = bar.getBoundingClientRect().top <= document.querySelector('.topbar').getBoundingClientRect().bottom + 0.5;
-    bar.classList.toggle('stuck', stuck);
-}
-
 window.addEventListener('scroll', () => {
     document.getElementById('floating-top-btn').classList.toggle('visible', window.scrollY > 400);
-    updateViewBarStuck();
     updateTitleRow();
     scheduleReadCheck();
 }, { passive: true });

@@ -48,23 +48,23 @@ wait = time.sleep
 by_name = {g['name']: g for g in groups}
 def show_all():
     # 게시판을 열면 기본 보기(안 읽은 글 등)로 열리므로 글 수는 '모든 글' 보기로 바꿔서 확인
-    js("document.querySelector('#view-bar [data-action=\"set-view\"][data-filter=\"all\"]').click()"); wait(1.5)
+    js("document.querySelector('#view-bar-tabs [data-action=\"set-view\"][data-filter=\"all\"]').click()"); wait(1.5)
 try:
     d.get(BASE); wait(2.5)
     side = js("return [...document.querySelectorAll('#keyword-groups .kw-item')].map(b => b.textContent.replace(/\\s+/g, ' ').trim())")
-    views = js("return [...document.querySelectorAll('#view-bar .view-bar-tab')].map(b => b.textContent.replace(/\\s+/g, ' ').trim())")
+    views = js("return [...document.querySelectorAll('#view-bar-tabs .view-bar-tab')].map(b => b.textContent.replace(/\\s+/g, ' ').trim())")
     heads = js("return [...document.querySelectorAll('.kw-group-name')].map(e => e.textContent)")
-    where = js("return document.getElementById('view-bar-where').textContent")
-    print('sidebar', side, views, where, heads)
-    # 사이드바는 게시판(전체 + 사용자 게시판)만, 보기 5개는 글 목록 위 보기 탭
+    in_topbar = js("return !!document.querySelector('.topbar #view-bar-tabs')")
+    print('sidebar', side, views, in_topbar, heads)
+    # 사이드바는 게시판(전체 + 사용자 게시판)만, 보기 5개는 상단 바 가운데 보기 탭
     assert len(side) == len(kws) + 1 and side[0].startswith('전체') and len(views) == 5 and heads == []
-    assert where == '전체' and js("return document.querySelectorAll('#keyword-groups [data-action=\"set-view\"]').length") == 0
+    assert in_topbar and js("return document.querySelectorAll('#keyword-groups [data-action=\"set-view\"]').length") == 0
     d.save_screenshot(os.path.join(SHOTS, '1_sidebar.png'))
 
     # 2) 게시판 하나 열기
     gid = by_name['싼타페']['id']
     js(f"document.querySelector('[data-action=\"open-group\"][data-group-id=\"{gid}\"]').click()"); wait(1.5)
-    assert js("return document.getElementById('view-bar-where').textContent") == '싼타페'
+    assert js("return document.querySelector('.feed-title').textContent").startswith('싼타페')
     show_all()
     v = js("return {title: document.querySelector('.feed-title').textContent, sub: document.querySelector('.feed-sub').textContent, chips: document.querySelectorAll('.kw-chip').length}")
     print('board view', v)

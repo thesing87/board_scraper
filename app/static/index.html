@@ -20,11 +20,17 @@
                     <span class="status-pill" id="status-pill"><span class="status-dot"></span><span id="status-text">불러오는 중</span></span>
                 </div>
             </div>
+            <!-- 데스크톱 보기 탭: 상단 바 가운데 (모바일은 상단 메뉴 아래 줄의 view-tabs) -->
+            <nav class="view-bar-tabs desktop-only" id="view-bar-tabs" aria-label="보기"></nav>
             <form class="search-form" id="search-form" role="search">
                 <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
                 <input type="search" id="search-input" class="search-input" placeholder="모은 글 검색 (제목·본문·댓글)" aria-label="모은 글 검색" maxlength="50" autocomplete="off">
             </form>
             <div class="topbar-actions">
+                <!-- 좁은 데스크톱(1200px 미만)에서는 검색창을 접고 돋보기 버튼으로 펼침 -->
+                <button class="icon-btn narrow-desktop-only" data-action="toggle-search" aria-label="검색" title="검색">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+                </button>
                 <button class="icon-btn ghost mobile-only" data-action="go-home" aria-label="홈">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h5v-6h4v6h5V10"></path></svg>
                 </button>
@@ -66,11 +72,6 @@
         </aside>
 
         <main class="feed-wrap">
-            <!-- 데스크톱 보기 탭: 글 목록 위 한 줄, 스크롤해도 상단 바 아래에 고정 (모바일은 상단 메뉴의 view-tabs) -->
-            <div class="view-bar desktop-only" id="view-bar">
-                <nav class="view-bar-tabs" id="view-bar-tabs" aria-label="보기"></nav>
-                <span class="view-bar-where" id="view-bar-where"></span>
-            </div>
             <div class="new-banner-wrap">
                 <button class="new-banner" id="new-banner" data-action="show-new" hidden></button>
             </div>
