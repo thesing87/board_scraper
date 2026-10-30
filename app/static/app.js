@@ -192,7 +192,9 @@ function checkReadSentinels() {
     readCheckScheduled = false;
     const ids = [];
     document.querySelectorAll('.read-sentinel:not([data-read])').forEach(el => {
-        if (el.getBoundingClientRect().top < window.innerHeight) {
+        const top = el.getBoundingClientRect().top;
+        // 텔레그램 링크로 건너뛴 위쪽 글(data-skipped)은 지나친 것만으로는 읽음이 아니므로, 글 끝이 실제로 화면에 보일 때만
+        if (el.dataset.skipped ? top >= 0 && top < window.innerHeight : top < window.innerHeight) {
             el.dataset.read = '1';
             ids.push(el.dataset.postId);
         }
@@ -319,7 +321,7 @@ function openView(key, page) {
     app.page = page || 1;
     renderNavigation();
     scrollActiveChipIntoView();
-    loadPosts().then(() => window.scrollTo({ top: 0 }));
+    loadPosts().then(jumped => { if (!jumped) window.scrollTo({ top: 0 }); });
 }
 
 // 보기 바꾸기 (고른 게시판은 유지)
@@ -582,8 +584,8 @@ async function loadPosts() {
         feed.innerHTML = '<div class="empty-card">게시글을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</div>';
         return;
     }
-    if (viewKey !== currentViewKey()) return;  // 응답 도착 전에 다른 보기로 이동한 경우
-    renderFeed(data);
+    if (viewKey !== currentViewKey()) return false;  // 응답 도착 전에 다른 보기로 이동한 경우
+    return renderFeed(data);
 }
 
 // 새 댓글 보기: 연 때의 글 목록(최근 댓글 순)을 고정해 두고 한 페이지 분량씩 받아 옴
@@ -668,20 +670,41 @@ function renderFeed(data) {
     // 새 목록은 맨 위에서 시작. 맨 아래에서 '다음 페이지'를 누른 위치 그대로 읽음 확인을 하면
     // 새 글들의 끝 표식이 모두 화면 위쪽에 있는 것으로 판정되어 한꺼번에 읽음 처리되므로, 확인 전에 즉시 이동
     window.scrollTo({ top: 0 });
+    // 텔레그램 알림 링크(#post-ID)로 연 글이 있으면 그 글로 이동 (읽음 확인보다 먼저)
+    const target = app.highlightPostId && document.getElementById('post-' + app.highlightPostId);
+    app.highlightPostId = null;
+    if (target) jumpToPost(target);
     observeReadSentinels();
+    return !!target;
+}
 
-    if (app.highlightPostId) {
-        const target = document.getElementById('post-' + app.highlightPostId);
-        app.highlightPostId = null;
-        if (target) {
-            setTimeout(() => {
-                const offset = document.querySelector('.topbar').offsetHeight + 12;
-                window.scrollTo({ top: target.getBoundingClientRect().top + window.pageYOffset - offset, behavior: 'smooth' });
-                target.classList.add('highlight');
-                setTimeout(() => target.classList.remove('highlight'), 2500);
-            }, 300);
-        }
-    }
+// 맨 위를 거쳐 미끄러지듯 내려가지 않도록 애니메이션 없이 바로 이동.
+// 위쪽 글의 이미지·동영상·SNS 게시물이 늦게 떠서 높이가 바뀌면 글이 밀리므로, 사용자가 직접 스크롤하기 전까지
+// (최대 몇 초) 위치를 다시 맞춤. 위쪽 글은 지나쳤을 뿐 읽은 게 아니므로 실제로 보일 때만 읽음 처리되게 표시
+const JUMP_SETTLE_MS = 4000;
+const USER_SCROLL_EVENTS = ['wheel', 'touchstart', 'keydown', 'mousedown'];
+function jumpToPost(target) {
+    const offset = document.querySelector('.topbar').offsetHeight + 12;
+    const scrollToTarget = () => window.scrollTo({ top: target.getBoundingClientRect().top + window.pageYOffset - offset });
+    const above = [...document.querySelectorAll('#feed .post-card')]
+        .filter(card => card.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING);
+    above.forEach(card => {
+        const sentinel = card.querySelector('.read-sentinel');
+        if (sentinel) sentinel.dataset.skipped = '1';
+    });
+    scrollToTarget();
+    target.classList.add('highlight');
+    setTimeout(() => target.classList.remove('highlight'), 2500);
+
+    if (!above.length || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(scrollToTarget);
+    const stop = () => {
+        observer.disconnect();
+        USER_SCROLL_EVENTS.forEach(type => window.removeEventListener(type, stop));
+    };
+    above.forEach(card => observer.observe(card));
+    USER_SCROLL_EVENTS.forEach(type => window.addEventListener(type, stop, { passive: true }));
+    setTimeout(stop, JUMP_SETTLE_MS);
 }
 
 function changePage(target) {
