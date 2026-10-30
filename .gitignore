@@ -1,0 +1,13 @@
+# NAS 프로젝트 폴더도 git으로 관리하므로(deploy/update.sh), 거기서만 생기는 파일이 git에 섞이지 않게 제외
+# 비밀값 (텔레그램 토큰·관리자 암호 등)
+.env
+# 수집 데이터·DB·로그·백업
+output/
+# deploy_remote.sh가 이미지 재빌드 여부를 판단하려고 남기는 파일
+.build_hash
+# 시놀로지가 폴더마다 만드는 썸네일·색인 폴더
+@eaDir/
+# 화면 테스트 스크린샷
+tests/_shots/
+__pycache__/
+*.pyc
