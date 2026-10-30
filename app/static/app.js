@@ -57,9 +57,13 @@ function isKnownView(key) { return key === ALL_KEY || !!findGroup(key); }
 function isKnownFilter(key) { return FILTERS.some(f => f.key === key); }
 function filterLabel(key) { return FILTERS.find(f => f.key === key).label; }
 
-// 첫 화면: 전체 게시판에서, 안 읽은 글이 있으면 안 읽은 글 보기, 없으면 모든 글
-function homeFilter() {
-    return app.state && app.state.all.unread_count > 0 ? 'unread' : 'all';
+// 게시판을 열 때의 기본 보기: 안 읽은 글이 있으면 안 읽은 글, 없고 새 댓글이 있으면 새 댓글, 둘 다 없으면 모든 글
+function defaultFilter(key) {
+    const summary = viewSummary(key);
+    if (!summary) return 'all';
+    if (summary.unread_count > 0) return 'unread';
+    if (summary.comment_count > 0) return 'comments';
+    return 'all';
 }
 
 // 고른 게시판(통합 피드·게시판)의 요약: 보기별 글 수, 안 읽은 새 글·새 댓글 글 ID
@@ -310,9 +314,9 @@ function setFilter(filter) {
     openView(app.activeKey, 1);
 }
 
-// 게시판 바꾸기: 그 게시판의 모든 글부터 보여 줌
+// 게시판 바꾸기: 그 게시판의 기본 보기(안 읽은 글 → 새 댓글 → 모든 글)로 엶
 function openBoard(key) {
-    app.filter = 'all';
+    app.filter = defaultFilter(key);
     openView(key, 1);
 }
 
@@ -321,8 +325,7 @@ function goHome() {
     if (!document.getElementById('settings').hidden) setSettingsOpen(false);
     document.querySelector('.topbar').classList.remove('search-open');
     if (window.location.hash) history.replaceState(null, '', window.location.pathname);
-    app.filter = homeFilter();
-    openView(ALL_KEY, 1);
+    openBoard(ALL_KEY);
 }
 
 // ==========================================
@@ -1054,7 +1057,7 @@ async function loadState() {
     renderStatus(true);
     if (!isKnownView(app.activeKey)) {
         app.activeKey = ALL_KEY;
-        app.filter = homeFilter();
+        app.filter = defaultFilter(ALL_KEY);
         app.page = 1;
     }
     renderNavigation();
@@ -1119,13 +1122,13 @@ async function init() {
     // 텔레그램 알림 링크(#post-ID)로 들어온 경우 해당 글이 있는 탭/페이지로 바로 이동
     if (await handlePostAnchor()) return;
     // 같은 탭에서 새로고침하면 보던 게시판·보기의 첫 페이지,
-    // 새로 들어오면 첫 화면(전체 게시판에서 안 읽은 글이 있으면 안 읽은 글, 없으면 모든 글)
+    // 새로 들어오면 첫 화면(전체 게시판의 기본 보기: 안 읽은 글 → 새 댓글 → 모든 글)
     if (isKnownView(savedTab)) {
         app.activeKey = savedTab;
         app.filter = isKnownFilter(savedFilter) ? savedFilter : 'all';
     } else {
         app.activeKey = ALL_KEY;
-        app.filter = homeFilter();
+        app.filter = defaultFilter(ALL_KEY);
     }
     app.page = 1;
     app.unreadSince = app.state.generated_at;
