@@ -126,6 +126,14 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .kw-side { display: flex; align-items: center; gap: 8px; }
 .kw-unread { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #FFFFFF; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
 .kw-comments { background: #EA580C; }
+/* 수집 사이트 표시 (FM: 에펨코리아 파랑, DC: 디시인사이드 보라). 사이드바 사이트 제목·모바일 칩·글의 키워드 표시·관리 화면 */
+.site-tag { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 16px; padding: 0 3px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.02em; margin-right: 6px; vertical-align: 1px; }
+.site-fmkorea { background: #E0EAFF; color: #1D4ED8; }
+.site-dcinside { background: #EDE9FE; color: #5B21B6; }
+.site-head { display: flex; align-items: center; padding: 10px 8px 4px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.chip-sep { flex: 0 0 auto; width: 1px; align-self: stretch; margin: 6px 2px; background: var(--border); }
+.chip.active .site-tag { background: rgba(255,255,255,0.25); color: #FFFFFF; }
+.kw-chip .site-tag { margin-right: 4px; }
 .view-group { padding-top: 14px; border-top: 1px solid var(--border); }
 .view-head { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .view-item { height: 34px; padding-left: 4px; font-weight: 400; color: var(--text-2); }

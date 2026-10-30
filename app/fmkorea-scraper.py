@@ -42,12 +42,15 @@ from storage import (
     prune_old_posts
 )
 from notifier import send_telegram_message, send_post_alert
-from scraper import (
+from scraper import parse_count, BlockedError
+# 목록·상세·게시판 확인은 카테고리(글)의 사이트에 맞는 수집기(에펨코리아·디시인사이드)로
+from sites import (
     get_list_page_posts,
     scrape_post_detail,
-    parse_count,
     check_board,
-    BlockedError
+    board_site,
+    post_number,
+    SITE_NAMES
 )
 from matching import keyword_in_post
 from web_server import run_api_server
@@ -146,10 +149,10 @@ def sync_existing_posts(driver, target, list_posts, board_data, stats, verified_
     # 목록에 있어야 할 범위(목록의 가장 오래된 글보다 최신)인데 목록에서 사라진 글은 삭제됐을 가능성이 있어 확인
     if not list_posts:
         return
-    oldest_listed = min(int(item['id']) for item in list_posts)
+    oldest_listed = min(post_number(item['id']) for item in list_posts)
     missing = [p for p in board_data
                if not p.get('is_deleted') and p['id'] not in listed_ids
-               and int(p['id']) > oldest_listed and p['id'] not in verified_present]
+               and post_number(p['id']) > oldest_listed and p['id'] not in verified_present]
     for old in missing[:DELETION_CHECKS_PER_KEYWORD]:
         try:
             stats['details'] += 1
@@ -249,6 +252,8 @@ def main():
         # 차단 의심이 연속된 횟수와 그에 따른 다음 주기까지의 대기 시간
         block_streak = 0
         next_wait = CHECK_INTERVAL
+        # 차단이 의심된 사이트 이름 (알림 문구용, 예: '에펨코리아')
+        blocked_label = ''
         # 크롬을 마지막으로 띄운 뒤 지난 주기 수, 유지 관리(백업·정리)를 마지막으로 한 날짜
         cycles_since_chrome = 0
         maintenance_date = None
@@ -280,11 +285,13 @@ def main():
             stats = {'keywords': 0, 'new': 0, 'updated': 0, 'deleted': 0, 'errors': 0, 'details': 0,
                      'list_ok': 0, 'list_failed': 0}
             blocked_reason = None
+            # 차단이 의심된 사이트는 이번 주기의 남은 요청을 멈춤 (다른 사이트는 계속 수집)
+            blocked_sites = set()
 
             for board, keywords in config_data.items():
                 board_name = board_names.get(board, board)
-                if blocked_reason:
-                    break
+                if board_site(board) in blocked_sites:
+                    continue
 
                 for keyword in keywords:
                     stats['keywords'] += 1
@@ -300,9 +307,10 @@ def main():
                         new_post_list = get_list_page_posts(driver, board, keyword, page=1)
                         stats['list_ok'] += 1
                     except BlockedError as block_ex:
-                        # 차단이 의심되면 남은 키워드까지 요청을 이어가지 않고 이번 주기를 바로 중단
+                        # 차단이 의심되면 그 사이트의 남은 키워드까지 요청을 이어가지 않고 이번 주기에는 멈춤
                         stats['errors'] += 1
-                        blocked_reason = f"{target} {block_ex}"
+                        blocked_sites.add(board_site(board))
+                        blocked_reason = blocked_reason or f"{SITE_NAMES[board_site(board)]} {target} {block_ex}"
                         break
                     except Exception as list_ex:
                         stats['errors'] += 1
@@ -381,6 +389,7 @@ def main():
 
                                 board_post_url = f"{base_url}#post-{post_data['id']}" if base_url else ""
                                 original_post_url = (post_data.get('link') or "").strip()
+                                # 디시 글 주소는 수집할 때부터 전체 주소. 에펨코리아는 상대 주소일 수 있어 보정
                                 if original_post_url and not original_post_url.startswith(("http://", "https://")):
                                     original_post_url = f"https://www.fmkorea.com{original_post_url if original_post_url.startswith('/') else '/' + original_post_url}"
 
@@ -401,18 +410,20 @@ def main():
             # 차단 의심(정상 게시판이 아닌 응답, 또는 모든 목록 요청 실패) 시 대기 시간을 늘려 요청을 줄이고, 정상 응답이 오면 원래 주기로 복귀
             if not blocked_reason and stats['list_failed'] and not stats['list_ok']:
                 blocked_reason = f"이번 주기의 목록 요청 {stats['list_failed']}건이 모두 실패"
+                blocked_sites = {board_site(board) for board in config_data}
             if blocked_reason:
                 block_streak += 1
                 next_wait = min(CHECK_INTERVAL * (2 ** block_streak), BACKOFF_MAX_SECONDS)
                 log_msg(f"[차단 의심] {blocked_reason} → {next_wait // 60}분 {next_wait % 60}초 후 다시 확인 (연속 {block_streak}회)", "WARN")
                 if block_streak == 1:
+                    blocked_label = '·'.join(SITE_NAMES[site] for site in SITE_NAMES if site in blocked_sites)
                     send_telegram_message(
-                        f"⚠️ 에펨코리아 접속 차단 의심\n\n{blocked_reason}\n\n"
+                        f"⚠️ {blocked_label} 접속 차단 의심\n\n{blocked_reason}\n\n"
                         f"요청을 줄이기 위해 대기 시간을 늘립니다. 정상으로 돌아오면 다시 알려드립니다."
                     )
             elif block_streak:
                 log_msg(f"[복구] 정상 응답 확인 (차단 의심 {block_streak}회 후) → 원래 주기 {CHECK_INTERVAL}초로 복귀")
-                send_telegram_message(f"✅ 에펨코리아 접속이 정상으로 돌아왔습니다. (차단 의심 {block_streak}회 후 복구)")
+                send_telegram_message(f"✅ {blocked_label} 접속이 정상으로 돌아왔습니다. (차단 의심 {block_streak}회 후 복구)")
                 block_streak = 0
                 next_wait = CHECK_INTERVAL
 

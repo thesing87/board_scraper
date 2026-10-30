@@ -47,6 +47,30 @@ function esc(value) {
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// 수집 사이트 (sites.py와 같은 값). 카테고리 키 'dc:갤러리id', 글 ID 'dc-갤러리id-글번호'가 디시인사이드
+const SITES = {
+    fmkorea: { name: '에펨코리아', short: 'FM' },
+    dcinside: { name: '디시인사이드', short: 'DC' }
+};
+function siteTag(site) {
+    const info = SITES[site] || SITES.fmkorea;
+    return `<span class="site-tag site-${site in SITES ? site : 'fmkorea'}" title="${info.name}">${info.short}</span>`;
+}
+function boardSite(board) { return String(board).startsWith('dc:') ? 'dcinside' : 'fmkorea'; }
+// 게시판을 사이트 순서(에펨코리아 → 디시인사이드)로 묶음: [[site, [group, ...]], ...] (게시판이 있는 사이트만)
+function groupsBySite(groups) {
+    return Object.keys(SITES)
+        .map(site => [site, groups.filter(g => (g.site || 'fmkorea') === site)])
+        .filter(([, list]) => list.length);
+}
+// 게시판이 두 사이트 이상에 걸쳐 있는지 (사이트 표시를 붙일지)
+function multiSite() { return !!app.state && groupsBySite(app.state.groups || []).length > 1; }
+// 원문 주소: 대시보드에서 찾지 못한 글(텔레그램 링크)은 사이트의 원문으로
+function originalUrl(postId) {
+    const dc = /^dc-([a-z0-9_]+)-(\d+)$/.exec(postId);
+    return dc ? `https://gall.dcinside.com/board/view/?id=${dc[1]}&no=${dc[2]}` : 'https://www.fmkorea.com/' + postId;
+}
+
 function groupKey(group) { return 'group:' + group.id; }
 function memberKey(m) { return m.board + '::' + m.keyword; }
 function boardName(key) {
@@ -273,15 +297,24 @@ function renderNavigation() {
 
     // 데스크톱: 위는 어디를 볼지 고르는 게시판(전체 + 사용자가 만든 게시판, 안 읽은 새 글 수·새 댓글이 달린 글 수),
     // 아래는 고른 게시판 안을 걸러 보는 보기(그 게시판 기준 글 수). 보기는 파란 배경 대신 체크 표시로 선택을 보여 게시판과 구분
+    // 게시판이 두 사이트 이상에 걸쳐 있으면 사이트별로 묶어 제목(FM·DC 표시)을 붙임. '전체'는 모든 사이트를 합친 피드
     const currentGroup = findGroup(app.activeKey);
     const viewHead = `'${currentGroup ? esc(currentGroup.name) : '전체'}'에서 보기`;
+    const bySite = groupsBySite(groups);
+    const groupItem = g => navItem(esc(g.name), '', g.unread_count, isActive(g),
+        `data-action="open-group" data-group-id="${g.id}"`, g.comment_count);
+    const groupList = !groups.length
+        ? '<span class="kw-group-name">게시판이 없습니다. 관리에서 만들어 주세요.</span>'
+        : bySite.length > 1
+            ? bySite.map(([site, list]) => `
+                <div class="site-head">${siteTag(site)}<span>${SITES[site].name}</span></div>
+                ${list.map(groupItem).join('')}`).join('')
+            : groups.map(groupItem).join('');
     document.getElementById('keyword-groups').innerHTML = `
         <nav class="kw-group" aria-label="게시판">
             <div class="sidebar-head"><span>게시판</span>${ADD_BOARD_BUTTON}</div>
             ${navItem('전체', '', app.state.all.unread_count, allActive, 'data-action="open-all"', app.state.all.comment_count)}
-            ${groups.length ? groups.map(g => navItem(esc(g.name), '', g.unread_count, isActive(g),
-                `data-action="open-group" data-group-id="${g.id}"`, g.comment_count)).join('')
-                : '<span class="kw-group-name">게시판이 없습니다. 관리에서 만들어 주세요.</span>'}
+            ${groupList}
         </nav>
         <nav class="kw-group view-group" aria-label="보기">
             <div class="sidebar-head"><span class="view-head">${viewHead}</span></div>
@@ -294,16 +327,19 @@ function renderNavigation() {
             <span>${f.label}</span>
             ${countBadge(f.key, filterCount(current, f.key))}
         </button>`).join('');
-    const chip = (label, summary, active, attrs) => `
+    const chip = (label, summary, active, attrs, site) => `
         <button class="chip ${active ? 'active' : ''}" ${attrs} ${active ? 'aria-current="true"' : ''}>
-            <span>${label}</span>
+            ${site ? siteTag(site) : ''}<span>${label}</span>
             ${summary.unread_count > 0 ? '<span class="chip-dot" aria-label="안 읽은 새 글"></span>' : ''}
             ${summary.comment_count > 0 ? '<span class="chip-dot chip-dot-comments" aria-label="새 댓글"></span>' : ''}
         </button>`;
+    const groupChip = (g, site) => chip(esc(g.name), g, isActive(g), `data-action="open-group" data-group-id="${g.id}"`, site);
+    // 사이트가 여러 개면 사이트 사이에 구분선을 넣고 칩마다 사이트 표시
     document.getElementById('chip-row').innerHTML =
         chip('전체', app.state.all, allActive, 'data-action="open-all"') +
-        groups.map(g => chip(esc(g.name), g, isActive(g),
-            `data-action="open-group" data-group-id="${g.id}"`)).join('');
+        (bySite.length > 1
+            ? bySite.map(([site, list]) => '<span class="chip-sep" aria-hidden="true"></span>' + list.map(g => groupChip(g, site)).join('')).join('')
+            : groups.map(g => groupChip(g)).join(''));
 
     // 사이드바 하단 알림 요약 (게시판별)
     const summary = groups.map(g => `${g.name} · ${alertMode(g)}`);
@@ -453,7 +489,7 @@ function renderPost(post, isUnread) {
     // 통합 피드·검색·키워드가 여러 개인 게시판에서는 어느 키워드로 모인 글인지 표시
     const group = findGroup(app.activeKey);
     const keywordTags = (post.keywords && (isAllView() || app.searchQuery || (group && group.members.length > 1)))
-        ? post.keywords.map(k => `<span class="kw-chip">${esc(k.board_name)} · ${esc(k.keyword)}</span>`).join('')
+        ? post.keywords.map(k => `<span class="kw-chip">${multiSite() ? siteTag(boardSite(k.board)) : ''}${esc(k.board_name)} · ${esc(k.keyword)}</span>`).join('')
         : '';
     const link = esc(safeLink(post.link));
     const votes = post.votes && post.votes !== '0' ? `<span>추천 ${esc(post.votes)}</span>` : '';
@@ -999,8 +1035,10 @@ function renderBoardSelect() {
     const select = document.getElementById('group-board-select');
     const prev = select.value;
     const boards = app.state.boards.filter(b => b.status !== 'invalid');
+    // 사이트가 여러 개면 이름 앞에 사이트를 붙임 (한 게시판에는 한 사이트의 키워드만 등록 가능)
+    const sitePrefix = new Set(boards.map(b => b.site)).size > 1;
     select.innerHTML = boards.map(b =>
-        `<option value="${esc(b.key)}">${esc(b.name)}${b.status === 'pending' ? ' (확인 대기)' : ''}</option>`).join('');
+        `<option value="${esc(b.key)}">${sitePrefix ? `[${(SITES[b.site] || SITES.fmkorea).name}] ` : ''}${esc(b.name)}${b.status === 'pending' ? ' (확인 대기)' : ''}</option>`).join('');
     if (boards.some(b => b.key === prev)) select.value = prev;
 }
 
@@ -1016,7 +1054,7 @@ function renderCategorySettings() {
         return `
         <div class="group-row">
             <div class="group-row-main">
-                <span class="group-row-name">${esc(b.name)} <span class="cat-status ${status.cls}">${label}</span></span>
+                <span class="group-row-name">${siteTag(b.site)}${esc(b.name)} <span class="cat-status ${status.cls}">${label}</span></span>
                 <span class="group-row-members">${esc(b.key)} · ${usage}</span>
                 ${b.status === 'invalid' && b.message ? `<span class="cat-message">${esc(b.message)}</span>` : ''}
             </div>
@@ -1195,7 +1233,7 @@ async function refreshCurrent() {
 }
 
 async function handlePostAnchor() {
-    const match = /^#post-(\d+)$/.exec(window.location.hash);
+    const match = /^#post-(\d+|dc-[a-z0-9_]+-\d+)$/.exec(window.location.hash);
     if (!match) return false;
     const postId = match[1];
     let loc;
@@ -1205,7 +1243,7 @@ async function handlePostAnchor() {
         return false;
     }
     if (!loc.found) {
-        window.location.replace('https://www.fmkorea.com/' + postId);
+        window.location.replace(originalUrl(postId));
         return true;
     }
     const key = loc.group ? 'group:' + loc.group : ALL_KEY;

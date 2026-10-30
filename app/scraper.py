@@ -67,6 +67,57 @@ def _parse_list_rows(soup):
 
     return post_list
 
+def content_lines(content_area):
+    """본문 영역을 정화한 뒤 줄 단위 HTML 목록으로 (빈 줄은 최대 2개까지, 앞뒤 빈 줄 제거)"""
+    sanitize_tree(content_area)
+    for br in content_area.find_all("br"):
+        br.replace_with("\n")
+    for block in content_area.find_all(['p', 'div', 'li', 'h1', 'h2', 'h3']):
+        block.insert_after('\n')
+
+    raw_html = content_area.decode_contents()
+    raw_html = re.sub(r'<script.*?>.*?</script>', '', raw_html, flags=re.DOTALL)
+    raw_html = re.sub(r'<!--.*?-->', '', raw_html, flags=re.DOTALL)
+
+    paragraphs = []
+    empty_count = 0
+    for line in raw_html.split('\n'):
+        line_str = line.strip()
+        if line_str == '':
+            empty_count += 1
+            if empty_count <= 2:
+                paragraphs.append('')
+        else:
+            empty_count = 0
+            paragraphs.append(line_str)
+    while paragraphs and paragraphs[0] == '': paragraphs.pop(0)
+    while paragraphs and paragraphs[-1] == '': paragraphs.pop()
+    return paragraphs
+
+def comment_lines(c_content_area):
+    """댓글 내용 영역을 정화한 뒤 줄 단위 HTML 목록으로 (블록 태그는 풀어서 줄바꿈으로)"""
+    sanitize_tree(c_content_area)
+    for br in c_content_area.find_all("br"): br.replace_with("\n")
+    for block in c_content_area.find_all(['p', 'div', 'li']):
+        block.insert_after('\n')
+        block.unwrap()
+
+    c_raw_text = c_content_area.decode_contents()
+    c_raw_text = re.sub(r'<!--.*?-->', '', c_raw_text, flags=re.DOTALL)
+
+    c_paragraphs = []
+    c_empty_count = 0
+    for line in (line.strip() for line in c_raw_text.split('\n')):
+        if line == '':
+            c_empty_count += 1
+            if c_empty_count <= 2: c_paragraphs.append(line)
+        else:
+            c_empty_count = 0
+            c_paragraphs.append(line)
+    while c_paragraphs and c_paragraphs[0] == '': c_paragraphs.pop(0)
+    while c_paragraphs and c_paragraphs[-1] == '': c_paragraphs.pop()
+    return c_paragraphs
+
 def get_list_page_posts(driver, board, keyword, page=1):
     encoded_keyword = quote(keyword)
     list_url = f"https://www.fmkorea.com/index.php?mid={board}&search_target=title_content&search_keyword={encoded_keyword}&page={page}"
@@ -261,33 +312,8 @@ def scrape_post_detail(driver, post_info):
         # 인스타그램 게시물 화면 옆에 남은 임시 상자 제거 (같은 게시물이 두 번 뜨지 않도록)
         remove_duplicate_instagram_placeholders(content_area)
 
-        sanitize_tree(content_area)
+        paragraphs = content_lines(content_area)
 
-        for br in content_area.find_all("br"):
-            br.replace_with("\n")
-            
-        for block in content_area.find_all(['p', 'div', 'li', 'h1', 'h2', 'h3']): 
-            block.insert_after('\n')
-            
-        raw_html = content_area.decode_contents()
-        raw_html = re.sub(r'<script.*?>.*?</script>', '', raw_html, flags=re.DOTALL)
-        raw_html = re.sub(r'<!--.*?-->', '', raw_html, flags=re.DOTALL)
-        
-        lines = raw_html.split('\n')
-        empty_count = 0
-        for line in lines:
-            line_str = line.strip()
-            if line_str == '':
-                empty_count += 1
-                if empty_count <= 2: 
-                    paragraphs.append('')
-            else:
-                empty_count = 0
-                paragraphs.append(line_str)
-        
-        while paragraphs and paragraphs[0] == '': paragraphs.pop(0)
-        while paragraphs and paragraphs[-1] == '': paragraphs.pop()
-    
     comments = []
     comment_items = detail_soup.select('.fdb_lst_ul > li.fdb_itm, ul#comment > li.fdb_itm, .fdb_lst > li.fdb_itm')
     if not comment_items: comment_items = detail_soup.select('.fdb_lst_ul > li')
@@ -309,28 +335,7 @@ def scrape_post_detail(driver, post_info):
                     a_tag['style'] = "color: #1877f2; font-weight: bold; background-color: #e7f3ff; padding: 2px 6px; border-radius: 10px; text-decoration: none; margin-right: 5px; display: inline-block;"
                     if not a_tag.text.strip().startswith('@'): a_tag.string = f"@{a_tag.text.strip()}"
 
-            sanitize_tree(c_content_area)
-            for br in c_content_area.find_all("br"): br.replace_with("\n")
-            for block in c_content_area.find_all(['p', 'div', 'li']):
-                block.insert_after('\n')
-                block.unwrap()
-            
-            c_raw_text = c_content_area.decode_contents()
-            c_raw_text = re.sub(r'<!--.*?-->', '', c_raw_text, flags=re.DOTALL)
-            
-            c_lines = [line.strip() for line in c_raw_text.split('\n')]
-            
-            c_empty_count = 0
-            for line in c_lines:
-                if line == '':
-                    c_empty_count += 1
-                    if c_empty_count <= 2: c_paragraphs.append(line)
-                else:
-                    c_empty_count = 0
-                    c_paragraphs.append(line)
-            
-            while c_paragraphs and c_paragraphs[0] == '': c_paragraphs.pop(0)
-            while c_paragraphs and c_paragraphs[-1] == '': c_paragraphs.pop()
+            c_paragraphs = comment_lines(c_content_area)
 
         style = item.get('style', '')
         classes = item.get('class', [])

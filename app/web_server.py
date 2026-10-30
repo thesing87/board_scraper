@@ -18,6 +18,7 @@ from config import (
     LIST_PAGE_SIZE
 )
 import runtime_status
+from sites import is_post_id, DC_BOARD_PREFIX, DC_GALLERY_RE
 from storage import (
     set_group_alert,
     query_all_posts,
@@ -79,12 +80,22 @@ if not ADMIN_API_ENABLED:
     log_msg("[API] ADMIN_PASSWORD 미설정/기본값 - 관리 기능 비활성화", "WARN")
 
 def board_key_from_input(text):
-    """관리 화면에 입력한 게시판 mid 또는 주소에서 mid를 뽑음 ('hotdeal', 'https://www.fmkorea.com/hotdeal',
-    'fmkorea.com/index.php?mid=hotdeal&page=2' 등). 알아볼 수 없으면 None"""
+    """관리 화면에 입력한 게시판 주소나 이름에서 카테고리 키를 뽑음. 알아볼 수 없으면 None
+    - 에펨코리아: 'hotdeal', 'https://www.fmkorea.com/hotdeal', 'fmkorea.com/index.php?mid=hotdeal&page=2' → 'hotdeal'
+    - 디시인사이드 갤러리: 'https://gall.dcinside.com/board/lists/?id=car_new1', 'dc:car_new1' → 'dc:car_new1'
+      (마이너·미니 갤러리는 주소 형태가 달라 아직 지원하지 않음)"""
     text = (text or '').strip()
+    if text.lower().startswith(DC_BOARD_PREFIX):
+        gallery = text[len(DC_BOARD_PREFIX):].strip().lower()
+        return DC_BOARD_PREFIX + gallery if DC_GALLERY_RE.fullmatch(gallery) else None
     if any(ch in text for ch in '/?.:'):
         url = urlparse(text if '://' in text else 'https://' + text)
         host = (url.hostname or '').lower()
+        if host == 'dcinside.com' or host.endswith('.dcinside.com'):
+            gallery = parse_qs(url.query).get('id', [''])[0].lower()
+            if not url.path.startswith('/board/') or not DC_GALLERY_RE.fullmatch(gallery):
+                return None
+            return DC_BOARD_PREFIX + gallery
         if host != 'fmkorea.com' and not host.endswith('.fmkorea.com'):
             return None
         text = parse_qs(url.query).get('mid', [''])[0]
@@ -126,7 +137,7 @@ def _clear_auth_failures(ip):
         auth_failures.pop(ip, None)
 
 def build_state():
-    """대시보드 초기 화면 구성용 데이터: 게시판 목록(알림 설정 포함), 통합 피드 요약, 카테고리(에펨코리아 게시판)"""
+    """대시보드 초기 화면 구성용 데이터: 게시판 목록(알림 설정 포함), 통합 피드 요약, 카테고리(에펨코리아 게시판·디시 갤러리)"""
     groups = list_groups(MAX_READ_IDS)
     names = category_names()
     for group in groups:
@@ -135,7 +146,7 @@ def build_state():
     return {
         'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'posts_per_page': POSTS_PER_PAGE,
-        # 카테고리(에펨코리아 게시판): 확인 상태(pending·ok·invalid)와 등록된 키워드 수·사용 중인 게시판 포함
+        # 카테고리(에펨코리아 게시판·디시 갤러리): 사이트, 확인 상태(pending·ok·invalid)와 등록된 키워드 수·사용 중인 게시판 포함
         'boards': list_categories(),
         # 모든 게시판을 합친 통합 피드 요약 (같은 글은 한 번만 셈). 게시판과 같이
         # 모든 글·동영상 글·안 읽은 새 글·새 댓글이 달린 글 수와 안 읽은 글·새 댓글 글 ID를 담음
@@ -228,7 +239,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._send_data(200, build_state())
             elif pure_path == '/api/posts' and 'ids' in query:
                 # 새 댓글 모아보기: 화면을 연 때의 글 목록 중 한 페이지 분량을 그 순서대로
-                ids = [i for i in query['ids'][0].split(',') if i.isdigit()][:POSTS_PER_PAGE]
+                ids = [i for i in query['ids'][0].split(',') if is_post_id(i)][:POSTS_PER_PAGE]
                 self._send_data(200, {'posts': _decorate_posts(query_posts_by_ids(ids))})
             elif pure_path == '/api/posts':
                 try:
@@ -249,7 +260,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._send_data(200, runtime_status.snapshot())
             elif pure_path == '/api/locate':
                 post_id = query.get('id', [''])[0]
-                location = locate_post(post_id) if post_id.isdigit() else None
+                location = locate_post(post_id) if is_post_id(post_id) else None
                 if location is None:
                     self._send_data(404, {'found': False})
                 else:
@@ -364,7 +375,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         return f" / 수집 중단 키워드: {', '.join(f'{names.get(b, b)}/{k}' for b, k in dropped)}"
 
     def _handle_category(self):
-        """카테고리(에펨코리아 게시판) 추가·이름 변경·다시 확인·삭제 (관리자 암호 필요).
+        """카테고리(에펨코리아 게시판·디시 갤러리) 추가·이름 변경·다시 확인·삭제 (관리자 암호 필요).
         추가한 카테고리는 수집기가 다음 주기에 열어 보고 수집할 수 있는 게시판이면 그다음 주기부터 수집"""
         try:
             params = self._read_json_body()
@@ -382,7 +393,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 raw = str(params.get('input') or '')[:MAX_CATEGORY_INPUT_LENGTH]
                 key = board_key_from_input(raw)
                 if key is None:
-                    self._send_json(400, False, '❌ 에펨코리아 게시판 주소(예: https://www.fmkorea.com/hotdeal)나 게시판 영문 이름(mid)을 입력해 주세요.')
+                    self._send_json(400, False, '❌ 에펨코리아 게시판 주소(예: https://www.fmkorea.com/hotdeal)·영문 이름(mid)이나 디시 갤러리 주소(예: https://gall.dcinside.com/board/lists/?id=car_new1)를 입력해 주세요.')
                     return
                 try:
                     add_category(key, name)

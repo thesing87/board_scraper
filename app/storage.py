@@ -14,6 +14,7 @@ from config import (
     JSON_BACKUP_FILE,
     BOARD_MAP
 )
+from sites import board_site, is_post_id, SITE_NAMES
 
 SCHEMA_VERSION = 1
 
@@ -106,10 +107,10 @@ def _create_schema(conn):
             PRIMARY KEY (board, keyword, phrase)
         );
 
-        -- 수집할 에펨코리아 게시판(카테고리). rowid 순서가 화면 표시 순서
+        -- 수집할 게시판(카테고리: 에펨코리아 게시판 또는 디시 갤러리). rowid 순서가 화면 표시 순서
         -- 관리 화면에서 추가하면 pending, 수집기가 다음 주기에 열어 보고 ok(수집) 또는 invalid(수집 안 함)로 바꿈
         CREATE TABLE IF NOT EXISTS categories (
-            key         TEXT PRIMARY KEY,           -- 에펨코리아 게시판 mid
+            key         TEXT PRIMARY KEY,           -- 에펨코리아 게시판 mid 또는 'dc:' + 디시 갤러리 id (sites.py)
             name        TEXT NOT NULL DEFAULT '',   -- 비어 있으면 확인할 때 게시판 제목으로 채움
             status      TEXT NOT NULL DEFAULT 'pending',
             message     TEXT NOT NULL DEFAULT '',   -- 확인 실패 사유
@@ -274,7 +275,7 @@ def _db():
     return closing(_connect())
 
 # ==========================================
-# 카테고리 (수집할 에펨코리아 게시판. 처음 한 번 config.BOARD_MAP으로 채우고 이후 관리 화면에서 추가·삭제)
+# 카테고리 (수집할 에펨코리아 게시판·디시 갤러리. 처음 한 번 config.BOARD_MAP으로 채우고 이후 관리 화면에서 추가·삭제)
 # ==========================================
 def _seed_categories(conn):
     """카테고리 표를 1회 채움: BOARD_MAP의 기본 게시판과, 키워드가 이미 등록된 그 밖의 게시판(이름은 mid)"""
@@ -303,7 +304,7 @@ def list_categories():
                 SELECT DISTINCT g.name FROM keyword_group_members m JOIN keyword_groups g ON g.id = m.group_id
                 WHERE m.board = ? ORDER BY g.id
             """, (r['key'],))]
-            result.append({'key': r['key'], 'name': r['name'] or r['key'], 'status': r['status'],
+            result.append({'key': r['key'], 'name': r['name'] or r['key'], 'site': board_site(r['key']), 'status': r['status'],
                            'message': r['message'], 'checked_at': r['checked_at'],
                            'keyword_count': keyword_count, 'groups': groups})
     return result
@@ -509,7 +510,9 @@ def list_groups(id_limit=500):
                 JOIN keywords k ON k.board = m.board AND k.keyword = m.keyword
                 WHERE m.group_id = ? ORDER BY k.rowid
             """, (g['id'],)).fetchall()]
-            groups.append({'id': g['id'], 'name': g['name'], 'members': members,
+            # 게시판은 한 사이트의 키워드만 담음 (save_group에서 검사). 사이드바에서 사이트별로 묶어 보여줌
+            site = board_site(members[0]['board']) if members else 'fmkorea'
+            groups.append({'id': g['id'], 'name': g['name'], 'site': site, 'members': members,
                            'alert': bool(g['alert']), 'video_alert': bool(g['video_alert']),
                            **_feed_summary(conn, id_limit, g['id'])})
     return groups
@@ -522,6 +525,8 @@ def save_group(group_id, name, members):
     pairs = list(dict.fromkeys((m['board'], m['keyword']) for m in members))
     if not pairs:
         raise ValueError('키워드를 하나 이상 등록해 주세요.')
+    if len({board_site(b) for b, _ in pairs}) > 1:
+        raise ValueError('한 게시판에는 한 사이트(' + '·'.join(SITE_NAMES.values()) + ')의 키워드만 등록할 수 있습니다.')
     with _db() as conn, conn:
         clash = conn.execute("SELECT id FROM keyword_groups WHERE name = ? AND id != ?", (name, group_id or -1)).fetchone()
         if clash:
@@ -784,7 +789,7 @@ def new_comment_summary(id_limit=500):
 
 def query_posts_by_ids(post_ids):
     """지정한 글들을 그 순서대로 조회 (새 댓글 모아보기: 화면을 연 때의 목록을 페이지로 나눠 보여줌)"""
-    ids = [str(i) for i in post_ids if str(i).isdigit()]
+    ids = [str(i) for i in post_ids if is_post_id(str(i))]
     if not ids:
         return []
     feed_sql, params = _feed_from()
@@ -953,7 +958,7 @@ def prune_old_posts(days, keep_per_keyword):
 def mark_posts_read(post_ids):
     """읽음 기록 저장. 이미 읽은 글은 마지막 읽은 시각만 갱신(그 이후 달린 댓글만 '새 댓글'이 되도록),
     처음 읽은 시각은 그대로 둠"""
-    ids = [str(i) for i in post_ids if str(i).isdigit()]
+    ids = [str(i) for i in post_ids if is_post_id(str(i))]
     if not ids:
         return 0
     now = _now()
