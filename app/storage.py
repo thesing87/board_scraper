@@ -905,7 +905,7 @@ def recent_post_ids(limit_per_keyword):
     return ids
 
 def fix_stored_x_embeds():
-    """이미 저장된 글 중 X(트위터) '링크 자동 변환 중' 임시 상자가 남은 글을 트윗 카드로 1회 변환"""
+    """이미 저장된 글 중 X(트위터) '링크 자동 변환 중' 임시 상자가 남은 글을 트윗 화면으로 1회 변환"""
     from bs4 import BeautifulSoup
     from embeds import convert_x_embeds
     from sanitize import sanitize_tree
@@ -931,19 +931,19 @@ def fix_stored_x_embeds():
     if fixed:
         log_msg(f"[DB] 저장된 글의 X 트윗 카드 변환: {fixed}건")
 
-def remove_stored_duplicate_x_cards():
-    """이미 저장된 글 중 트윗 화면(iframe)과 같은 트윗의 글자 카드가 함께 남은 글에서 글자 카드를 1회 정리"""
+def replace_stored_x_cards():
+    """이미 저장된 글의 글자 트윗 카드(사진이 보이지 않음)를 트윗 화면(iframe)으로 1회 변환.
+    같은 트윗의 화면이 이미 있으면 글자 카드만 지움"""
     from bs4 import BeautifulSoup
-    from embeds import remove_duplicate_x_cards
+    from embeds import x_cards_to_iframes
     with _db() as conn:
-        if _get_meta(conn, 'x_duplicate_cards_removed'):
+        if _get_meta(conn, 'x_cards_to_iframes'):
             return
-        rows = conn.execute("SELECT id, title, content_json, comments_json FROM posts "
-                            "WHERE content_json LIKE '%x-embed%' AND content_json LIKE '%platform.twitter.com/embed%'").fetchall()
+        rows = conn.execute("SELECT id, title, content_json, comments_json FROM posts WHERE content_json LIKE '%x-embed%'").fetchall()
     fixed = 0
     for row in rows:
         soup = BeautifulSoup('\n'.join(json.loads(row['content_json'])), 'html.parser')
-        if not remove_duplicate_x_cards(soup):
+        if not x_cards_to_iframes(soup, soup):
             continue
         new_content = soup.decode().split('\n')
         post = {'title': row['title'], 'content': new_content, 'comments': json.loads(row['comments_json'])}
@@ -952,9 +952,9 @@ def remove_stored_duplicate_x_cards():
                          (json.dumps(new_content, ensure_ascii=False), _search_text(post), row['id']))
         fixed += 1
     with _db() as conn, conn:
-        _set_meta(conn, 'x_duplicate_cards_removed', '1')
+        _set_meta(conn, 'x_cards_to_iframes', '1')
     if fixed:
-        log_msg(f"[DB] 트윗 화면과 겹친 X 글자 카드 정리: {fixed}건")
+        log_msg(f"[DB] 저장된 글의 X 글자 카드를 트윗 화면으로 변환: {fixed}건")
 
 def remove_stored_duplicate_instagram_placeholders():
     """이미 저장된 글 중 인스타그램 게시물 화면(iframe)과 같은 게시물의 임시 상자가 함께 남은 글에서 상자를 1회 정리"""

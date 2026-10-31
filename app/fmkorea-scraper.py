@@ -34,7 +34,7 @@ from storage import (
     update_list_stats,
     mark_post_deleted,
     fix_stored_x_embeds,
-    remove_stored_duplicate_x_cards,
+    replace_stored_x_cards,
     remove_stored_duplicate_instagram_placeholders,
     remove_stored_sns_videos,
     post_exists,
@@ -247,7 +247,7 @@ def main():
     init_db()
     try:
         fix_stored_x_embeds()
-        remove_stored_duplicate_x_cards()
+        replace_stored_x_cards()
         remove_stored_duplicate_instagram_placeholders()
         remove_stored_sns_videos()
     except Exception as fix_err:
