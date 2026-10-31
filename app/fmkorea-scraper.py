@@ -42,6 +42,9 @@ from storage import (
     prune_old_posts,
     existing_post_ids,
     posts_with_blocked_imagecons,
+    first_page_filled_keys,
+    mark_first_page_filled,
+    fill_keyword_posts,
     mark_blocked_imagecons_refetched,
     site_labels
 )
@@ -247,6 +250,67 @@ def verify_pending_categories(driver):
             set_category_checked(board, False, message=detail)
             log_msg(f"[카테고리] {board} 수집할 수 없는 게시판: {detail}", "WARN")
 
+def save_first_page(driver, board, keyword, target, list_posts, ignores, rejected, stats):
+    """처음 등록한 키워드(저장된 글이 없음): 목록 첫 페이지에서 키워드가 그대로 들어 있는 글을 모두 이미 본 글
+    (알림·NEW 표시 없음)로 저장해 게시판을 채우고, 이후 주기부터 새로 올라온 글만 알림.
+    한 글이라도 상세 수집에 실패하면 이번 주기에는 아무것도 저장하지 않고 다음 주기에 처음부터 다시 함
+    (일부만 저장되면 빠진 글이 다음 주기에 새 글로 잡혀 알림이 가므로). 저장한 글 수를 반환"""
+    first_page = []
+    for candidate in list_posts:
+        if (board, keyword, candidate['id']) in rejected:
+            continue
+        try:
+            stats['details'] += 1
+            post_data = scrape_post_detail(driver, candidate)
+        except Exception as e:
+            stats['errors'] += 1
+            log_msg(f"[오류] {target} 첫 페이지 글 수집 실패, 다음 주기에 다시: {short_err(e)}", "WARN")
+            return 0
+        if not post_data:
+            continue
+        if not keyword_in_post(keyword, post_data['title'], post_data.get('content'), ignores):
+            rejected.add((board, keyword, candidate['id']))
+            continue
+        post_data['list_comment_count'] = candidate['list_comment_count']
+        first_page.append(post_data)
+    # 목록은 최신순이므로 오래된 글부터 넣어야 수집 순서(rowid)가 목록 순서와 같음
+    for post_data in reversed(first_page):
+        save_keyword_post(board, keyword, post_data, is_new=False)
+    if first_page:
+        log_msg(f"[기준점] {target} 첫 페이지 글 {len(first_page)}개 저장 (이후 새 글부터 알림)")
+    return len(first_page)
+
+def fill_first_page(driver, board, keyword, target, list_posts, board_data, ignores, rejected, stats):
+    """예전 방식(최신 글 1개만 기준점)으로 등록한 키워드를 목록 첫 페이지의 글로 채움 (1회, 이미 본 글로 저장해 알림 없음).
+    이미 저장된 글보다 새 글은 평소처럼 새 글로 처리하도록 남겨 두고, 그보다 오래된 글만 채움 (저장된 글이 첫 페이지에 없으면 전부).
+    한 글이라도 상세 수집에 실패하면 아무것도 바꾸지 않고 False (다음 주기에 다시)"""
+    known = {p['id'] for p in board_data}
+    first_known = next((i for i, p in enumerate(list_posts) if p['id'] in known), None)
+    page = list_posts if first_known is None else list_posts[first_known:]
+    fetched = {}
+    for candidate in page:
+        if candidate['id'] in known or (board, keyword, candidate['id']) in rejected:
+            continue
+        try:
+            stats['details'] += 1
+            post_data = scrape_post_detail(driver, candidate)
+        except Exception as e:
+            stats['errors'] += 1
+            log_msg(f"[오류] {target} 첫 페이지 채우기 실패, 다음 주기에 다시: {short_err(e)}", "WARN")
+            return False
+        if not post_data:
+            continue
+        if not keyword_in_post(keyword, post_data['title'], post_data.get('content'), ignores):
+            rejected.add((board, keyword, candidate['id']))
+            continue
+        post_data['list_comment_count'] = candidate['list_comment_count']
+        fetched[post_data['id']] = post_data
+    ordered = [p['id'] for p in reversed(page) if p['id'] in known or p['id'] in fetched]
+    fill_keyword_posts(board, keyword, ordered, fetched)
+    if fetched:
+        log_msg(f"[기준점] {target} 첫 페이지 글 {len(fetched)}개 채움 (이미 본 글로, 알림 없음)")
+    return True
+
 def short_title(title, limit=40):
     title = (title or '').strip()
     return title if len(title) <= limit else title[:limit] + '…'
@@ -315,6 +379,7 @@ def main():
                 continue
 
             config_data = load_keywords()
+            filled_keys = first_page_filled_keys()
             board_names = category_names()
             alert_targets = load_alert_targets()
             latest_ignores = load_keyword_ignores()
@@ -360,27 +425,15 @@ def main():
                         continue
 
                     if not board_data:
-                        # 기준점이 없으면 목록 전체를 새 글로 취급해 알림이 폭주하므로, 성공할 때까지 매 주기
-                        # 키워드가 그대로 들어 있는 가장 최신 글 1개만 기준점으로 저장
-                        for candidate in new_post_list:
-                            if (board, keyword, candidate['id']) in rejected:
-                                continue
-                            try:
-                                stats['details'] += 1
-                                post_data = scrape_post_detail(driver, candidate)
-                                if not post_data:
-                                    continue
-                                if not keyword_in_post(keyword, post_data['title'], post_data.get('content'), ignores):
-                                    rejected.add((board, keyword, candidate['id']))
-                                    continue
-                                post_data['list_comment_count'] = candidate['list_comment_count']
-                                save_keyword_post(board, keyword, post_data, is_new=False)
-                                log_msg(f"[기준점] {target} #{post_data['id']} 저장 (이후 새 글부터 알림)")
-                            except Exception as e:
-                                stats['errors'] += 1
-                                log_msg(f"[오류] {target} 기준점 수집 실패, 다음 주기 재시도: {short_err(e)}", "WARN")
-                            break
+                        save_first_page(driver, board, keyword, target, new_post_list, ignores, rejected, stats)
                         continue
+
+                    # 예전 방식으로 등록된 디시 키워드는 첫 페이지의 지난 글을 1회 채운 뒤 평소처럼 새 글 확인
+                    if board_site(board) == 'dcinside' and f"{board}|{keyword}" not in filled_keys:
+                        if fill_first_page(driver, board, keyword, target, new_post_list, board_data, ignores, rejected, stats):
+                            mark_first_page_filled(board, keyword)
+                            filled_keys.add(f"{board}|{keyword}")
+                            board_data = recent_keyword_posts(board, keyword, MAX_DATA_PER_KEYWORD)
 
                     existing_ids = {post['id'] for post in board_data}
                     new_posts = []

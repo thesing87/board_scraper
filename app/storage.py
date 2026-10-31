@@ -743,6 +743,38 @@ def save_keyword_post(board, keyword, post, is_new):
         _upsert_post(conn, post)
         _link_keyword_post(conn, board, keyword, post['id'], is_new)
 
+# 처음 등록할 때 최신 글 1개만 저장하던 시절에 등록한 디시 키워드는, 기동 후 첫 수집 때 목록 첫 페이지의 글로 1회 채움
+# (fmkorea-scraper.fill_first_page). 채운 키워드를 'board|keyword' 목록으로 기억
+FIRST_PAGE_FILLED_META = 'dc_first_page_filled'
+
+def first_page_filled_keys():
+    with _db() as conn:
+        return set(json.loads(_get_meta(conn, FIRST_PAGE_FILLED_META) or '[]'))
+
+def mark_first_page_filled(board, keyword):
+    with _db() as conn, conn:
+        done = set(json.loads(_get_meta(conn, FIRST_PAGE_FILLED_META) or '[]'))
+        done.add(f"{board}|{keyword}")
+        _set_meta(conn, FIRST_PAGE_FILLED_META, json.dumps(sorted(done), ensure_ascii=False))
+
+def fill_keyword_posts(board, keyword, ordered_ids, new_posts):
+    """키워드의 글 연결을 ordered_ids(오래된 글 → 최신 글) 순서로 다시 넣음. new_posts {id: 글}은 새로 저장하고 이미 본 글로,
+    이미 연결된 글은 원래의 새 글 여부·수집 시각을 유지. 수집 순서(rowid)가 목록 순서와 같아지도록 기존 연결도 지웠다가 다시 넣음"""
+    with _db() as conn, conn:
+        for post_id in ordered_ids:
+            if post_id in new_posts:
+                _upsert_post(conn, new_posts[post_id])
+                is_new, matched_at = 0, _now()
+            else:
+                row = conn.execute("SELECT is_new, matched_at FROM keyword_posts WHERE board = ? AND keyword = ? AND post_id = ?",
+                                   (board, keyword, post_id)).fetchone()
+                if not row:
+                    continue
+                is_new, matched_at = row['is_new'], row['matched_at']
+                conn.execute("DELETE FROM keyword_posts WHERE board = ? AND keyword = ? AND post_id = ?", (board, keyword, post_id))
+            conn.execute("INSERT INTO keyword_posts(board, keyword, post_id, is_new, matched_at) VALUES(?, ?, ?, ?, ?)",
+                         (board, keyword, post_id, is_new, matched_at))
+
 def update_post(post):
     """동기화로 갱신된 글 내용(조회수·댓글 등)을 저장"""
     with _db() as conn, conn:
