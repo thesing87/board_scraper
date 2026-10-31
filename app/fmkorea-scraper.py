@@ -41,6 +41,8 @@ from storage import (
     backup_db,
     prune_old_posts,
     existing_post_ids,
+    posts_with_blocked_imagecons,
+    mark_blocked_imagecons_refetched,
     site_labels
 )
 from images import remove_orphan_image_dirs
@@ -72,14 +74,18 @@ try:
 except Exception:
     pass
 
-# 이미지는 받지 않아 메모리·전송량을 아끼되, 디시 본문 이미지(확장자 없는 viewimage.php 주소)만 받게 해서
-# 디시 수집기가 크롬이 받은 파일을 꺼내 저장할 수 있게 함 (images.py). 확장자가 있는 이미지·아이콘과 에펨코리아 이미지는 막음
-BLOCKED_URL_PATTERNS = ['*.jpg*', '*.jpeg*', '*.png*', '*.gif*', '*.webp*', '*.svg*', '*.ico*', '*.bmp*', '*.avif*',
-                        '*image.fmkorea.com*', '*fmkorea.com/files/*', '*googlesyndication*', '*doubleclick*']
+# 이미지는 받지 않아 메모리·전송량을 아끼되, 디시 페이지에서만 받게 해서 디시 수집기가 크롬이 받은 본문 이미지 파일을
+# 꺼내 저장할 수 있게 함 (images.py). 크롬의 사이트별 이미지 설정을 써서 다른 사이트의 이미지는 아예 요청하지 않음.
+# (주소를 막는 방식은 이미지 '불러오기 실패'가 되어, 에펨코리아 페이지가 이미지콘을 '삭제된 이미지콘' 그림으로 바꿔 버림)
+IMAGE_PREFS = {
+    'profile.default_content_setting_values.images': 2,
+    'profile.content_settings.exceptions.images': {'[*.]dcinside.com,*': {'setting': 1}},
+}
 
 def create_driver():
     options = Options()
     options.page_load_strategy = 'eager'
+    options.add_experimental_option('prefs', IMAGE_PREFS)
     # 메모리를 덜 쓰도록 수집에 필요 없는 기능은 끔 (NAS 메모리가 1.8GB라 크롬이 커지면 스왑으로 전체가 느려짐)
     for arg in ('--disable-extensions', '--disable-background-networking', '--disable-component-update',
                 '--disable-sync', '--disable-default-apps', '--mute-audio', '--renderer-process-limit=2',
@@ -93,9 +99,7 @@ def create_driver():
         options.add_argument('--disable-gpu')
 
     driver = Chrome(options=options, service=services)
-    # 크롬 개발자 도구(CDP): 이미지 주소 차단, 받은 파일 꺼내기(Page.getResourceContent)에 씀
-    driver.execute_cdp_cmd('Network.enable', {})
-    driver.execute_cdp_cmd('Network.setBlockedURLs', {'urls': BLOCKED_URL_PATTERNS})
+    # 크롬 개발자 도구(CDP): 받은 파일 꺼내기(Page.getResourceContent)에 씀
     driver.execute_cdp_cmd('Page.enable', {})
     runtime_status.update(chrome_started_at=runtime_status.now())
     log_msg(f"[시스템] 크롬 드라이버 준비 완료{' (headless)' if IS_LINUX else ''}")
@@ -188,6 +192,24 @@ def restart_driver(driver):
     log_msg(f"[시스템] 크롬 정기 재시작 ({CHROME_RESTART_CYCLES}주기마다, 메모리 정리)", "DEBUG")
     return create_driver()
 
+def refetch_blocked_imagecon_posts(driver):
+    """이미지 주소 차단 때문에 이미지콘이 '삭제됨' 그림으로 저장된 글을 다시 수집 (기동 시 1회, storage.posts_with_blocked_imagecons)"""
+    posts = posts_with_blocked_imagecons()
+    fixed = 0
+    for old in posts:
+        try:
+            updated = scrape_post_detail(driver, old)
+            if updated is None:
+                continue
+            updated['list_comment_count'] = old['list_comment_count']
+            update_post(updated)
+            fixed += 1
+        except Exception as e:
+            log_msg(f"[DB] #{old['id']} 이미지콘 복구 다시 수집 실패: {short_err(e)}", "WARN")
+    mark_blocked_imagecons_refetched()
+    if posts:
+        log_msg(f"[DB] '삭제된 이미지콘'으로 저장된 글 다시 수집: {fixed}/{len(posts)}건")
+
 def run_daily_maintenance():
     """하루 한 번 DB 백업과 오래된 글 정리. 실패해도 수집은 계속"""
     try:
@@ -252,6 +274,10 @@ def main():
         remove_stored_sns_videos()
     except Exception as fix_err:
         log_msg(f"[DB] 저장된 글의 X·인스타그램 정리 실패 (다음 기동 시 재시도): {short_err(fix_err)}", "WARN")
+    try:
+        refetch_blocked_imagecon_posts(driver)
+    except Exception as fix_err:
+        log_msg(f"[DB] 이미지콘 복구 실패: {short_err(fix_err)}", "WARN")
 
     log_msg(f"[시스템] 모니터링 시작 (주기 {CHECK_INTERVAL}초)")
 

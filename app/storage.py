@@ -956,6 +956,27 @@ def replace_stored_x_cards():
     if fixed:
         log_msg(f"[DB] 저장된 글의 X 글자 카드를 트윗 화면으로 변환: {fixed}건")
 
+# 2026-10-31 오전~저녁 배포본은 크롬이 이미지 주소를 막는 방식이라, 에펨코리아 페이지가 불러오지 못한 이미지콘을
+# '삭제된 이미지콘' 그림으로 바꾼 채 저장됨. 그 사이 수집된 글만 다시 수집해 되돌림 (기동 시 1회, fmkorea-scraper.py)
+BLOCKED_IMAGECON_MARK = 'imagecon_deleted.svg'
+BLOCKED_IMAGES_SINCE = '2026-10-31 08:59:00'
+
+def posts_with_blocked_imagecons():
+    """이미지 차단 때문에 이미지콘이 '삭제됨' 그림으로 저장된 글 [{id, link, title, author, date, list_comment_count}].
+    이미 한 번 처리했으면 빈 목록"""
+    with _db() as conn:
+        if _get_meta(conn, 'blocked_imagecons_refetched'):
+            return []
+        rows = conn.execute("""
+            SELECT id, link, title, author, date, list_comment_count FROM posts
+            WHERE updated_at >= ? AND is_deleted = 0 AND content_json LIKE ?
+        """, (BLOCKED_IMAGES_SINCE, f'%{BLOCKED_IMAGECON_MARK}%')).fetchall()
+    return [dict(r) for r in rows]
+
+def mark_blocked_imagecons_refetched():
+    with _db() as conn, conn:
+        _set_meta(conn, 'blocked_imagecons_refetched', '1')
+
 def remove_stored_duplicate_instagram_placeholders():
     """이미 저장된 글 중 인스타그램 게시물 화면(iframe)과 같은 게시물의 임시 상자가 함께 남은 글에서 상자를 1회 정리"""
     from bs4 import BeautifulSoup

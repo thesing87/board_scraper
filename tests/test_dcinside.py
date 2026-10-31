@@ -240,4 +240,13 @@ assert storage.feed_summary()['image_count'] == total
 assert storage.site_feed_summaries()['dcinside']['image_count'] >= 1
 assert web_server.build_posts_page(1, False, image_only=True)['total'] == total
 print('IMAGE FILTER OK')
+
+# --- 13) 이미지 주소 차단 때문에 '삭제된 이미지콘' 그림으로 저장된 글은 기동 시 1회 다시 수집할 목록에 오름
+storage.save_keyword_post('car', '싼타페', img_post('20000000005', [
+    '<img class="imagecon" src="https://www.fmkorea.com/modules/imagecon/tpl/img/imagecon_deleted.svg"/>']), is_new=True)
+targets = storage.posts_with_blocked_imagecons()
+assert [t['id'] for t in targets] == ['20000000005'] and targets[0]['link'], targets
+storage.mark_blocked_imagecons_refetched()
+assert storage.posts_with_blocked_imagecons() == []
+print('IMAGECON REFETCH OK')
 print('DCINSIDE OK')
