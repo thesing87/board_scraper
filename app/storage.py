@@ -961,21 +961,25 @@ def replace_stored_x_cards():
 BLOCKED_IMAGECON_MARK = 'imagecon_deleted.svg'
 BLOCKED_IMAGES_SINCE = '2026-10-31 08:59:00'
 
+# 처음에는 본문만 확인해 댓글의 이미지콘이 빠졌으므로 댓글까지 보고 한 번 더 처리 (처리 여부 표시 이름을 바꿈)
+BLOCKED_IMAGECONS_META = 'blocked_imagecons_refetched_with_comments'
+
 def posts_with_blocked_imagecons():
-    """이미지 차단 때문에 이미지콘이 '삭제됨' 그림으로 저장된 글 [{id, link, title, author, date, list_comment_count}].
-    이미 한 번 처리했으면 빈 목록"""
+    """이미지 차단 때문에 본문이나 댓글의 이미지콘이 '삭제됨' 그림으로 저장된 글
+    [{id, link, title, author, date, list_comment_count}]. 이미 한 번 처리했으면 빈 목록"""
+    mark = f'%{BLOCKED_IMAGECON_MARK}%'
     with _db() as conn:
-        if _get_meta(conn, 'blocked_imagecons_refetched'):
+        if _get_meta(conn, BLOCKED_IMAGECONS_META):
             return []
         rows = conn.execute("""
             SELECT id, link, title, author, date, list_comment_count FROM posts
-            WHERE updated_at >= ? AND is_deleted = 0 AND content_json LIKE ?
-        """, (BLOCKED_IMAGES_SINCE, f'%{BLOCKED_IMAGECON_MARK}%')).fetchall()
+            WHERE updated_at >= ? AND is_deleted = 0 AND (content_json LIKE ? OR comments_json LIKE ?)
+        """, (BLOCKED_IMAGES_SINCE, mark, mark)).fetchall()
     return [dict(r) for r in rows]
 
 def mark_blocked_imagecons_refetched():
     with _db() as conn, conn:
-        _set_meta(conn, 'blocked_imagecons_refetched', '1')
+        _set_meta(conn, BLOCKED_IMAGECONS_META, '1')
 
 def remove_stored_duplicate_instagram_placeholders():
     """이미 저장된 글 중 인스타그램 게시물 화면(iframe)과 같은 게시물의 임시 상자가 함께 남은 글에서 상자를 1회 정리"""

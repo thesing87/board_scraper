@@ -244,8 +244,12 @@ print('IMAGE FILTER OK')
 # --- 13) 이미지 주소 차단 때문에 '삭제된 이미지콘' 그림으로 저장된 글은 기동 시 1회 다시 수집할 목록에 오름
 storage.save_keyword_post('car', '싼타페', img_post('20000000005', [
     '<img class="imagecon" src="https://www.fmkorea.com/modules/imagecon/tpl/img/imagecon_deleted.svg"/>']), is_new=True)
+# 댓글에만 '삭제된 이미지콘'이 있는 글도 대상
+storage.save_keyword_post('car', '싼타페', {**img_post('20000000006', ['<p>본문</p>']), 'comments': [
+    {'author': 'a', 'date': 'd', 'votes': '0', 'content': ['<img src="https://www.fmkorea.com/modules/imagecon/tpl/img/imagecon_deleted.svg"/>'],
+     'is_reply': False}]}, is_new=True)
 targets = storage.posts_with_blocked_imagecons()
-assert [t['id'] for t in targets] == ['20000000005'] and targets[0]['link'], targets
+assert sorted(t['id'] for t in targets) == ['20000000005', '20000000006'] and targets[0]['link'], targets
 storage.mark_blocked_imagecons_refetched()
 assert storage.posts_with_blocked_imagecons() == []
 print('IMAGECON REFETCH OK')
