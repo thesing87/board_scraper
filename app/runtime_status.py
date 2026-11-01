@@ -19,6 +19,7 @@ _status = {
     'last_cycle': None,          # {'finished_at', 'seconds', 'new', 'updated', 'deleted', 'errors'}
     'block_streak': 0,           # 차단 의심 연속 횟수 (0이면 정상)
     'next_check_at': None,       # 다음 수집 주기 시작 예정 시각
+    'progress_at': None,         # 주기 안에서 마지막으로 키워드 확인을 시작한 시각 (멈춤 감시용)
     'chrome_started_at': None,
     'chrome_restarts': 0,        # 주기적 재시작·응답 없음으로 새로 띄운 횟수
     'last_backup': None,         # {'at', 'file'}
@@ -62,6 +63,18 @@ def increment(field):
     with _lock:
         _status[field] += 1
         _save()
+
+def _parse(ts):
+    try:
+        return datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
+    except (TypeError, ValueError):
+        return None
+
+def stalled_seconds(data, watch_started):
+    """수집기가 예정보다 몇 초째 움직이지 않는지 (snapshot 기준). 기준은 다음 주기 예정 시각(쉬는 동안은 정상)·
+    마지막 키워드 확인·수집기 시작 중 가장 늦은 시각이고, 수집기 상태가 아예 없으면 감시를 시작한 시각"""
+    marks = [_parse(data.get(k)) for k in ('next_check_at', 'progress_at', 'started_at')] + [watch_started]
+    return max(0, (_parse(data['now']) - max(t for t in marks if t)).total_seconds())
 
 def _read_saved():
     """수집기가 써 둔 상태 (없거나 읽지 못하면 None)"""

@@ -88,9 +88,9 @@ a.brand-name:hover { color: var(--accent); }
     .search-form { display: none; position: absolute; right: 200px; top: 9px; width: 300px; z-index: 5; }
     .topbar.search-open .search-form { display: flex; }
     .topbar-row { position: relative; }
-    /* 보기 6칸이 로고와 버튼 사이에 들어가도록 칸 여백·글자를 조금 줄임 */
-    .view-bar-tab { padding: 0 7px; gap: 4px; font-size: 12px; }
-    .view-bar-tab .count-badge { font-size: 11px; }
+    /* 보기 7칸이 로고와 버튼 사이에 들어가도록 칸 여백·글자를 조금 줄임 (아래 기본 규칙보다 앞에 있어 선택자를 한 단계 더 구체적으로) */
+    .view-bar-tabs .view-bar-tab { padding: 0 7px; gap: 4px; font-size: 12px; }
+    .view-bar-tabs .view-bar-tab .count-badge { font-size: 11px; }
 }
 /* 더 좁으면 '키워드 모니터' 글자도 숨김 (로고·홈 버튼으로 홈 이동) */
 @media (min-width: 900px) and (max-width: 1099px) {
@@ -113,7 +113,7 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .chip.active .chip-dot-comments { background: #EA580C; box-shadow: 0 0 0 1.5px #FFFFFF; }
 .chip.active { border-color: var(--accent); background: var(--accent); color: #FFFFFF; font-weight: 700; }
 .chip.active .chip-count { color: #FFFFFF; opacity: 0.85; }
-/* 모바일 보기 선택 (모든 글·안 읽은 글·새 댓글·동영상·삭제됨 중 하나, 글 수는 고른 게시판 기준) */
+/* 모바일 보기 선택 (모든 글·안 읽은 글·새 댓글·동영상·이미지·보관함·삭제됨 중 하나, 글 수는 고른 게시판 기준) */
 .view-tabs { gap: 2px; margin: 0 16px 8px; padding: 3px; border-radius: 10px; background: #E9EBEF; }
 .view-tab { flex: 1 1 0; min-width: 0; height: 40px; padding: 0 1px; border: none; border-radius: 8px; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-size: 12px; font-weight: 500; color: var(--text-2); white-space: nowrap; cursor: pointer; }
 .view-tab[aria-pressed="true"] { background: var(--surface); box-shadow: 0 1px 2px rgba(17,24,39,0.08); color: var(--text); font-weight: 700; }
@@ -126,7 +126,7 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .view-tab .count-badge.is-comments, .view-bar-tab .count-badge.is-comments { color: #EA580C; }
 /* 데스크톱 보기 탭: 상단 바 가운데. 모바일 보기 칸과 같은 모양(회색 바탕 위 흰 칸)·숫자 색 */
 .view-bar-tabs { flex: 0 1 auto; min-width: 0; margin: 0 auto; display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: #E9EBEF; }
-.view-bar-tab { height: 32px; padding: 0 12px; border: none; border-radius: 8px; background: transparent; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--text-2); white-space: nowrap; cursor: pointer; }
+.view-bar-tab { height: 32px; padding: 0 10px; border: none; border-radius: 8px; background: transparent; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--text-2); white-space: nowrap; cursor: pointer; }
 .view-bar-tab:hover { background: rgba(255,255,255,0.6); }
 .view-bar-tab[aria-pressed="true"] { background: var(--surface); box-shadow: 0 1px 2px rgba(17,24,39,0.08); color: var(--text); font-weight: 700; }
 .view-bar-tab .count-badge { font-size: 12px; }
@@ -267,6 +267,11 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .badge-new-comments { background: #FFEDD5; color: #9A3412; font-weight: 700; }
 .title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .post-title { margin: 0; font-size: 19px; line-height: 1.45; font-weight: 700; }
+.title-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+.star-btn { width: 32px; height: 32px; border: 1px solid #D1D5DB; border-radius: 8px; background: var(--surface); color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+.star-btn:hover { background: var(--surface-muted); }
+.star-btn[aria-pressed="true"] { color: #D97706; border-color: #FCD34D; background: #FFFBEB; }
+.star-btn[aria-pressed="true"] svg { fill: currentColor; }
 .btn-original { flex: 0 0 auto; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid #D1D5DB; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: var(--text); text-decoration: none; background: var(--surface); }
 .btn-original:hover { background: var(--surface-muted); color: var(--text); }
 .btn-original.bottom { display: none; height: 44px; border-radius: 10px; border-color: var(--border); justify-content: center; font-size: 13px; }
@@ -379,6 +384,8 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .kw-tag-board { color: var(--muted); }
 .kw-tag button { width: 28px; height: 28px; border: none; border-radius: 50%; background: transparent; color: var(--text-3); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .kw-tag button:hover { background: #E5E7EB; }
+.kw-tag.is-paused { background: #F9FAFB; color: var(--muted); border: 1px dashed #D1D5DB; }
+.kw-tag-paused { margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: #E5E7EB; color: var(--text-3); font-size: 11px; }
 /* 묶음 게시판 만들기: 키워드를 눌러서 고르는 선택 목록과 만든 게시판 목록 */
 .group-form-actions { display: flex; gap: 8px; }
 .group-form-actions .btn { height: 40px; border-radius: 10px; padding: 0 18px; }
@@ -453,6 +460,7 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
     .post-card { padding: 16px; gap: 12px; }
     .post-title { font-size: 17px; }
     .title-row .btn-original { display: none; }
+    .star-btn { width: 40px; height: 40px; margin: -4px -4px 0 0; border-color: transparent; background: transparent; }
     .btn-original.bottom { display: flex; }
     .post-meta { gap: 10px; font-size: 12px; }
     .comments { --reply-indent: 24px; --reply-step: 12px; }

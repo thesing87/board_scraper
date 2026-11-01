@@ -71,9 +71,16 @@ def _create_schema(conn):
             first_read_at  TEXT             -- 처음 읽은 시각 (다시 읽어도 그대로, '안 읽은 글' 보기 기준)
         );
 
+        -- 보관함: 별표를 단 글 (기기 간 공유). 오래된 글 정리에서 빠짐 (키워드·게시판을 지우면 함께 지워짐)
+        CREATE TABLE IF NOT EXISTS saved_posts (
+            post_id   TEXT PRIMARY KEY REFERENCES posts(id) ON DELETE CASCADE,
+            saved_at  TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS keywords (
             board    TEXT NOT NULL,
             keyword  TEXT NOT NULL,
+            paused   INTEGER NOT NULL DEFAULT 0,   -- 일시정지: 모은 글은 그대로 두고 수집만 멈춤
             PRIMARY KEY (board, keyword)
         );
 
@@ -229,6 +236,9 @@ def _add_missing_columns(conn):
             conn.execute("ALTER TABLE read_posts ADD COLUMN first_read_at TEXT")
             conn.execute("UPDATE read_posts SET first_read_at = read_at")
         log_msg("[DB] read_posts.first_read_at 컬럼 추가")
+    if 'paused' not in {row['name'] for row in conn.execute("PRAGMA table_info(keywords)")}:
+        conn.execute("ALTER TABLE keywords ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")
+        log_msg("[DB] keywords.paused 컬럼 추가")
     group_columns = {row['name'] for row in conn.execute("PRAGMA table_info(keyword_groups)")}
     if 'alert' not in group_columns:
         # 알림을 게시판별로 설정. 초기값은 등록 키워드 카테고리의 예전 알림 설정 (하나라도 켜져 있으면 켬)
@@ -436,10 +446,10 @@ def set_category_checked(key, ok, page_name='', message=''):
 # 키워드 (게시판에 등록된 키워드가 곧 수집 대상. 직접 추가·삭제하지 않고 게시판 저장 시 자동 정리)
 # ==========================================
 def load_keywords():
-    """{board: [keyword, ...]} 형태로 등록 순서대로 반환. 확인을 통과한(ok) 카테고리만 수집 대상"""
+    """{board: [keyword, ...]} 형태로 등록 순서대로 반환. 확인을 통과한(ok) 카테고리의 일시정지하지 않은 키워드만 수집 대상"""
     with _db() as conn:
         result = {r['key']: [] for r in conn.execute("SELECT key FROM categories WHERE status = 'ok' ORDER BY rowid")}
-        for row in conn.execute("SELECT board, keyword FROM keywords ORDER BY rowid"):
+        for row in conn.execute("SELECT board, keyword FROM keywords WHERE paused = 0 ORDER BY rowid"):
             if row['board'] in result:
                 result[row['board']].append(row['keyword'])
     return result
@@ -557,6 +567,9 @@ def _feed_summary(conn, id_limit, group_id=None, site=None):
     deleted_count = conn.execute(f"""
         SELECT COUNT(DISTINCT kp.post_id) {base} JOIN posts p ON p.id = kp.post_id WHERE p.is_deleted = 1
     """, params).fetchone()[0]
+    saved_count = conn.execute(f"""
+        SELECT COUNT(DISTINCT kp.post_id) {base} JOIN saved_posts sp ON sp.post_id = kp.post_id
+    """, params).fetchone()[0]
     comment_ids = _new_comment_ids(conn, group_id, site)
     unread = conn.execute(f"""
         SELECT kp.post_id, MAX(kp.rowid) AS last_rowid {base}
@@ -574,6 +587,7 @@ def _feed_summary(conn, id_limit, group_id=None, site=None):
         'video_count': video_count,
         'image_count': image_count,
         'deleted_count': deleted_count,
+        'saved_count': saved_count,
         'unread_count': len(unread),
         'unread_ids': [r['post_id'] for r in unread[:id_limit]],
         'comment_count': len(comment_ids),
@@ -597,9 +611,10 @@ def list_groups(id_limit=500):
     groups = []
     with _db() as conn:
         for g in conn.execute("SELECT id, site, name, alert, video_alert FROM keyword_groups ORDER BY id").fetchall():
-            members = [dict(board=r['board'], keyword=r['keyword'], ignores=_keyword_ignores(conn, r['board'], r['keyword']))
+            members = [dict(board=r['board'], keyword=r['keyword'], paused=bool(r['paused']),
+                            ignores=_keyword_ignores(conn, r['board'], r['keyword']))
                        for r in conn.execute("""
-                SELECT m.board, m.keyword FROM keyword_group_members m
+                SELECT m.board, m.keyword, k.paused FROM keyword_group_members m
                 JOIN keywords k ON k.board = m.board AND k.keyword = m.keyword
                 WHERE m.group_id = ? ORDER BY k.rowid
             """, (g['id'],)).fetchall()]
@@ -613,6 +628,7 @@ def save_group(group_id, name, members):
     """게시판 생성(group_id=None) 또는 수정. 새 키워드는 수집 대상으로 등록하고,
     어느 게시판에도 남지 않은 키워드는 수집 데이터와 함께 삭제. (게시판 ID, 삭제된 키워드 목록) 반환.
     member에 ignores(무시할 표현 목록)가 있으면 그 키워드의 표현을 바꿈 (키워드에 붙으므로 같은 키워드를 쓰는 게시판 모두에 적용).
+    paused가 있으면 그 키워드의 일시정지를 바꿈 (마찬가지로 같은 키워드를 쓰는 게시판 모두에 적용).
     게시판의 사이트는 등록한 키워드의 사이트이며, 이름은 같은 사이트 안에서만 겹치지 않으면 됨.
     이름 중복 등은 ValueError"""
     pairs = list(dict.fromkeys((m['board'], m['keyword']) for m in members))
@@ -646,6 +662,9 @@ def save_group(group_id, name, members):
         for m in members:
             if 'ignores' in m:
                 _set_keyword_ignores(conn, m['board'], m['keyword'], m['ignores'])
+            if 'paused' in m:
+                conn.execute("UPDATE keywords SET paused = ? WHERE board = ? AND keyword = ?",
+                             (int(bool(m['paused'])), m['board'], m['keyword']))
         return group_id, _drop_orphan_keywords(conn)
 
 def delete_group(group_id):
@@ -822,7 +841,8 @@ def _row_to_post(row):
         'content': json.loads(row['content_json']), 'videos': json.loads(row['videos_json']),
         'comments': json.loads(row['comments_json']), 'is_new': bool(row['is_new']),
         'list_comment_count': row['list_comment_count'],
-        'read_at': row['read_at'] if 'read_at' in keys else None
+        'read_at': row['read_at'] if 'read_at' in keys else None,
+        'is_saved': bool(row['saved_at']) if 'saved_at' in keys else False
     }
     if 'keyword_links' in keys and row['keyword_links']:
         # 통합 피드: 이 글이 걸린 키워드 목록 [{board, keyword}]
@@ -861,12 +881,13 @@ def recent_keyword_posts(board, keyword, limit):
 _UNREAD_SQL = "kp.is_new = 1 AND rp.read_at IS NULL"
 
 def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=None, unread_since=None, deleted_only=False,
-                    site=None, image_only=False):
+                    site=None, image_only=False, saved_only=False):
     """게시판에 등록된 키워드의 글을 한 번씩만(중복 제거) 최신 수집순으로 조회.
     group_id가 있으면 그 게시판만, site가 있으면 그 사이트의 모든 게시판만, query가 있으면 검색 결과.
     unread_since가 있으면 안 읽은 새 글만: 그 시각 이후에 읽은 글은 계속 포함해
     보는 도중 읽음 처리가 되어도 페이지가 밀리지 않게 함.
-    deleted_only면 원문이 삭제된 글만, 최근 삭제 순 (삭제된 글은 더 갱신하지 않으므로 updated_at이 삭제 확인 시각)"""
+    deleted_only면 원문이 삭제된 글만, 최근 삭제 순 (삭제된 글은 더 갱신하지 않으므로 updated_at이 삭제 확인 시각).
+    saved_only면 보관함(별표를 단 글)만, 최근 보관 순"""
     search_sql, search_params = _search_conditions(query)
     feed_sql, params = _feed_from(group_id, site)
     params += search_params
@@ -878,15 +899,17 @@ def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=N
         {feed_sql}
         JOIN posts p ON p.id = kp.post_id
         LEFT JOIN read_posts rp ON rp.post_id = p.id
+        LEFT JOIN saved_posts sp ON sp.post_id = p.id
         WHERE 1 = 1 {f'AND {_HAS_VIDEO_SQL}' if video_only else ''} {f'AND {_HAS_IMAGE_SQL}' if image_only else ''}
-            {'AND p.is_deleted = 1' if deleted_only else ''}
+            {'AND p.is_deleted = 1' if deleted_only else ''} {'AND sp.saved_at IS NOT NULL' if saved_only else ''}
             {search_sql} {unread_sql}
     """
-    order = 'p.updated_at DESC, last_rowid DESC' if deleted_only else 'last_rowid DESC'
+    order = ('p.updated_at DESC, last_rowid DESC' if deleted_only else
+             'sp.saved_at DESC, last_rowid DESC' if saved_only else 'last_rowid DESC')
     with _db() as conn:
         total = conn.execute(f"SELECT COUNT(DISTINCT p.id) {base}", params).fetchone()[0]
         rows = conn.execute(f"""
-            SELECT p.*, rp.read_at, MAX(kp.is_new) AS is_new, MAX(kp.rowid) AS last_rowid,
+            SELECT p.*, rp.read_at, sp.saved_at, MAX(kp.is_new) AS is_new, MAX(kp.rowid) AS last_rowid,
                    GROUP_CONCAT(kp.board || char(31) || kp.keyword, char(30)) AS keyword_links
             {base}
             GROUP BY p.id
@@ -935,11 +958,12 @@ def query_posts_by_ids(post_ids):
     feed_sql, params = _feed_from()
     with _db() as conn:
         rows = conn.execute(f"""
-            SELECT p.*, rp.read_at, MAX(kp.is_new) AS is_new,
+            SELECT p.*, rp.read_at, sp.saved_at, MAX(kp.is_new) AS is_new,
                    GROUP_CONCAT(kp.board || char(31) || kp.keyword, char(30)) AS keyword_links
             {feed_sql}
             JOIN posts p ON p.id = kp.post_id
             LEFT JOIN read_posts rp ON rp.post_id = p.id
+            LEFT JOIN saved_posts sp ON sp.post_id = p.id
             WHERE p.id IN ({','.join('?' * len(ids))})
             GROUP BY p.id
         """, params + tuple(ids)).fetchall()
@@ -947,10 +971,10 @@ def query_posts_by_ids(post_ids):
     return [by_id[i] for i in ids if i in by_id]
 
 def recent_post_ids(limit_per_keyword):
-    """키워드별 최근 글 ID 집합 (메인 루프가 목록의 댓글 수로 매 주기 변화를 감시하는 범위)"""
+    """키워드별 최근 글 ID 집합 (메인 루프가 목록의 댓글 수로 매 주기 변화를 감시하는 범위, 일시정지한 키워드는 감시 안 함)"""
     ids = set()
     with _db() as conn:
-        for kw in conn.execute("SELECT board, keyword FROM keywords").fetchall():
+        for kw in conn.execute("SELECT board, keyword FROM keywords WHERE paused = 0").fetchall():
             ids.update(r['post_id'] for r in conn.execute(
                 "SELECT post_id FROM keyword_posts WHERE board = ? AND keyword = ? ORDER BY rowid DESC LIMIT ?",
                 (kw['board'], kw['keyword'], limit_per_keyword)))
@@ -1101,14 +1125,14 @@ def backup_db(backup_dir, keep):
 
 def prune_old_posts(days, keep_per_keyword):
     """수집한 지 days일이 지난 글을 삭제하고 삭제한 글 수를 반환 (days가 0 이하면 안 함).
-    각 키워드의 최근 keep_per_keyword개는 새 글 판별 기준이라 남김
+    보관함에 담은 글과, 각 키워드의 최근 keep_per_keyword개(새 글 판별 기준)는 남김
     (지우면 검색 1페이지에 아직 있는 오래된 글이 새 글로 다시 잡혀 알림이 감)"""
     if days <= 0:
         return 0
     cutoff = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
     with _db() as conn, conn:
         deleted = conn.execute("""
-            DELETE FROM posts WHERE created_at < ? AND id NOT IN (
+            DELETE FROM posts WHERE created_at < ? AND id NOT IN (SELECT post_id FROM saved_posts) AND id NOT IN (
                 SELECT post_id FROM (
                     SELECT post_id, ROW_NUMBER() OVER (PARTITION BY board, keyword ORDER BY rowid DESC) AS rn
                     FROM keyword_posts
@@ -1145,6 +1169,18 @@ def mark_posts_read(post_ids):
             [(i, now, now) for i in ids]
         )
     return len(ids)
+
+def set_post_saved(post_id, saved):
+    """보관함에 담기·빼기. 모은 글이 아니면 False"""
+    post_id = str(post_id)
+    with _db() as conn, conn:
+        if not conn.execute("SELECT 1 FROM posts WHERE id = ?", (post_id,)).fetchone():
+            return False
+        if saved:
+            conn.execute("INSERT OR IGNORE INTO saved_posts(post_id, saved_at) VALUES(?, ?)", (post_id, _now()))
+        else:
+            conn.execute("DELETE FROM saved_posts WHERE post_id = ?", (post_id,))
+    return True
 
 def locate_post(post_id):
     """글이 속한 첫 게시판과 그 게시판 피드 안에서의 순번(0부터, 최신순)을 반환.

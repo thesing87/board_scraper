@@ -7,10 +7,11 @@ const ALL_KEY = '__all__';            // 모든 게시판을 합친 통합 피�
 // 보기: 고른 게시판 안에서 어떤 글을 볼지 (하나만 고름)
 const FILTERS = [
     { key: 'all', label: '모든 글' },
-    { key: 'unread', label: '안 읽은 글' },
+    { key: 'unread', label: '안 읽은 글', short: '안 읽음' },   // short: 칸이 좁은 모바일 보기 탭용
     { key: 'comments', label: '새 댓글' },
     { key: 'video', label: '동영상' },
     { key: 'image', label: '이미지' },
+    { key: 'saved', label: '보관함' },
     { key: 'deleted', label: '삭제됨' }
 ];
 const POLL_INTERVAL_MS = 60 * 1000;   // 새 글 확인 주기
@@ -20,7 +21,7 @@ const app = {
     state: null,          // /api/state 응답
     activeKey: ALL_KEY,   // 고른 게시판: ALL_KEY(전체) 또는 "group:<게시판 ID>"
     filter: 'all',        // 고른 보기: FILTERS의 key
-    unreadSince: null,    // 안 읽은 글 보기를 연 서버 시각 (보는 중 읽은 글이 빠져 페이지가 밀리지 않게)
+    unreadSince: null,    // 안 읽은 글 보기를 연 서버 시각 (보는 중 읽은 글이 빠져 페이지가 밀리지 않게). 없으면 다음 요청 때 서버가 정함
     renderedUnreadIds: null, // 안 읽은 글·새 댓글 보기를 그릴 때의 글 ID (새 글 배너 계산용)
     commentIds: null,     // 새 댓글 보기를 연 때의 글 ID 목록 (보는 중 확인한 글이 빠져 페이지가 밀리지 않게)
     searchQuery: '',      // 검색 중이면 검색어
@@ -39,6 +40,9 @@ const ICONS = {
     next: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg>',
     close: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
     up: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>',
+    star: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"></path></svg>',
+    pause: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>',
+    play: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5l12 7-12 7z"></path></svg>',
     chevronDown: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>'
 };
 
@@ -121,14 +125,15 @@ function filterCount(summary, filter) {
     if (filter === 'video') return summary.video_count;
     if (filter === 'image') return summary.image_count;
     if (filter === 'deleted') return summary.deleted_count;
+    if (filter === 'saved') return summary.saved_count;
     return summary.total;
 }
 
 // '모두 읽음'·새 글 배너가 다루는 글: 새 댓글 보기는 새 댓글이 달린 글, 나머지는 안 읽은 새 글.
-// 삭제됨 보기는 보이는 글과 상관없는 글을 읽음 처리하게 되므로 '모두 읽음'을 숨김
+// 삭제됨·보관함 보기는 보이는 글과 상관없는 글을 읽음 처리하게 되므로 '모두 읽음'을 숨김
 function pendingIds(summary) { return app.filter === 'comments' ? summary.comment_ids : summary.unread_ids; }
 function pendingCount(summary) {
-    if (app.filter === 'deleted') return 0;
+    if (app.filter === 'deleted' || app.filter === 'saved') return 0;
     return app.filter === 'comments' ? summary.comment_count : summary.unread_count;
 }
 
@@ -359,10 +364,10 @@ function renderNavigation() {
             <span>${f.label}</span>${countBadge(f.key, filterCount(current, f.key))}
         </button>`).join('');
 
-    // 모바일: 위는 네 칸 보기, 아래는 가로로 넘기는 게시판 칩 (맨 앞이 전체, 안 읽은 새 글은 파란 점·새 댓글은 주황 점)
+    // 모바일: 위는 한 줄 보기 칸, 아래는 가로로 넘기는 게시판 칩 (맨 앞이 전체, 안 읽은 새 글은 파란 점·새 댓글은 주황 점)
     document.getElementById('view-tabs').innerHTML = FILTERS.map(f => `
         <button class="view-tab" ${filterAttrs(f.key)} aria-pressed="${filterActive(f.key)}">
-            <span>${f.label}</span>
+            <span>${f.short || f.label}</span>
             ${countBadge(f.key, filterCount(current, f.key))}
         </button>`).join('');
     const chip = (label, summary, active, attrs, site) => `
@@ -430,8 +435,9 @@ function scrollActiveChipIntoView() {
 }
 
 // 게시판을 바꾸거나 보기를 바꾸면 안 읽은 글·새 댓글 목록을 그 시점 기준으로 새로 잡음
+// (안 읽은 글 기준 시각은 다음 글 목록 요청 때 서버의 지금 시각으로. 마지막 상태 조회 시각을 쓰면 그 뒤에 읽은 글이 다시 섞임)
 function resetViewSnapshot() {
-    app.unreadSince = app.state.generated_at;
+    app.unreadSince = null;
     app.commentIds = null;
 }
 
@@ -566,6 +572,8 @@ function renderPost(post, isUnread) {
         ? post.keywords.map(k => `<span class="kw-chip">${multiSite() ? siteTag(boardSite(k.board)) : ''}${esc(k.board_name)} · ${esc(k.keyword)}</span>`).join('')
         : '';
     const link = esc(safeLink(post.link));
+    const star = `<button class="star-btn" data-action="toggle-saved" data-post-id="${esc(post.id)}" aria-pressed="${!!post.is_saved}"
+        aria-label="${post.is_saved ? '보관함에서 빼기' : '보관함에 담기'}" title="${post.is_saved ? '보관함에서 빼기' : '보관함에 담기 (오래된 글 정리에서 빠짐)'}">${ICONS.star}</button>`;
     const votes = post.votes && post.votes !== '0' ? `<span>추천 ${esc(post.votes)}</span>` : '';
     return `
         <article class="${classes.join(' ')}" id="post-${esc(post.id)}">
@@ -573,7 +581,10 @@ function renderPost(post, isUnread) {
                 ${badges || keywordTags ? `<div class="badges">${badges}${keywordTags}</div>` : ''}
                 <div class="title-row">
                     <h2 class="post-title">${highlightTerms(post.title)}</h2>
-                    <a class="btn-original top" href="${link}" target="_blank" rel="noopener noreferrer">원문 ${ICONS.external}</a>
+                    <div class="title-actions">
+                        ${star}
+                        <a class="btn-original top" href="${link}" target="_blank" rel="noopener noreferrer">원문 ${ICONS.external}</a>
+                    </div>
                 </div>
                 <div class="post-meta">
                     <span class="author">${esc(post.author)}</span>
@@ -658,7 +669,7 @@ function feedSubText(total) {
     const unread = summary.unread_count;
     const group = findGroup(app.activeKey);
     const site = siteOfKey(app.activeKey);
-    const label = group ? `키워드 ${group.members.map(m => esc(m.keyword)).join(', ')}`
+    const label = group ? `키워드 ${group.members.map(m => esc(m.keyword) + (m.paused ? ' (일시정지)' : '')).join(', ')}`
         : site ? `${esc(SITES[site].name)}의 모든 게시판` : '모든 게시판';
     if (app.filter === 'unread') return unread ? `${label} · 안 읽은 새 글 <strong>${unread}개</strong>` : '안 읽은 글을 모두 읽었습니다';
     if (app.filter === 'comments') return summary.comment_count
@@ -666,6 +677,7 @@ function feedSubText(total) {
     if (app.filter === 'video') return `${label} · 동영상 글 ${summary.video_count}개`;
     if (app.filter === 'image') return `${label} · 이미지 글 ${summary.image_count}개`;
     if (app.filter === 'deleted') return `${label} · 원문이 삭제된 글 ${summary.deleted_count}개 · 최근 삭제 순`;
+    if (app.filter === 'saved') return `${label} · 보관한 글 ${summary.saved_count}개 · 최근 보관 순`;
     return `${label} · ${summary.total}개 글${unread ? ` · <strong>새 글 ${unread}</strong>` : ''}`;
 }
 
@@ -692,19 +704,19 @@ async function loadPosts() {
     const params = new URLSearchParams({ page: app.page, video_only: !searching && app.filter === 'video' ? '1' : '0' });
     if (!searching && app.filter === 'deleted') params.set('deleted_only', '1');
     if (!searching && app.filter === 'image') params.set('image_only', '1');
+    if (!searching && app.filter === 'saved') params.set('saved_only', '1');
     if (searching) {
         params.set('q', app.searchQuery);
     } else {
         if (group) params.set('group', group.id);
         if (siteOfKey(app.activeKey)) params.set('site', siteOfKey(app.activeKey));
-        if (app.filter === 'unread') {
-            if (!app.unreadSince) app.unreadSince = app.state.generated_at;
-            params.set('unread_since', app.unreadSince);
-        }
+        if (app.filter === 'unread') params.set('unread_since', app.unreadSince || 'now');
     }
 
     let data;
     try {
+        // 방금 읽은 글이 아직 서버에 가지 않았으면 먼저 보냄 (안 그러면 안 읽은 글로 다시 옴)
+        await flushReads();
         data = !searching && app.filter === 'comments'
             ? await loadCommentPosts()
             : await withProgress(getJSON('/api/posts?' + params.toString()));
@@ -713,6 +725,7 @@ async function loadPosts() {
         return;
     }
     if (viewKey !== currentViewKey()) return false;  // 응답 도착 전에 다른 보기로 이동한 경우
+    if (data.unread_since) app.unreadSince = data.unread_since;  // 다음 페이지도 같은 기준으로
     return renderFeed(data);
 }
 
@@ -759,6 +772,7 @@ function renderFeed(data) {
             : filter === 'video' ? '<div class="empty-card">동영상이 포함된 게시글이 없습니다.</div>'
             : filter === 'image' ? '<div class="empty-card">첨부 이미지가 있는 게시글이 없습니다.</div>'
             : filter === 'deleted' ? '<div class="empty-card">원문이 삭제된 글이 없습니다.</div>'
+            : filter === 'saved' ? '<div class="empty-card">보관한 글이 없습니다. 글 제목 옆 별표를 누르면 보관함에 담깁니다.</div>'
             : '<div class="empty-card">수집된 게시글이 없습니다. 새 글이 등록되면 이곳에 표시됩니다.</div>';
     } else {
         let sawUnread = false;
@@ -948,9 +962,34 @@ async function pollState() {
         : filterCount(summary, app.filter) - app.renderedTotal;
     if (added > 0) {
         const banner = document.getElementById('new-banner');
-        const what = app.filter === 'comments' ? '새 댓글이 달린 글' : app.filter === 'deleted' ? '새로 삭제된 글' : '새 글';
+        const what = app.filter === 'comments' ? '새 댓글이 달린 글' : app.filter === 'deleted' ? '새로 삭제된 글'
+            : app.filter === 'saved' ? '새로 보관한 글' : '새 글';
         banner.innerHTML = `${ICONS.up}<span>${what} ${added}개 · 눌러서 보기</span>`;
         banner.hidden = false;
+    }
+}
+
+// 보관함에 담기·빼기: 별표를 먼저 바꿔 보여 주고, 실패하면 되돌림. 보기별 글 수는 서버 상태로 다시 받음
+async function toggleSaved(button) {
+    const saved = button.getAttribute('aria-pressed') !== 'true';
+    const setPressed = on => {
+        button.setAttribute('aria-pressed', String(on));
+        button.setAttribute('aria-label', on ? '보관함에서 빼기' : '보관함에 담기');
+        button.title = on ? '보관함에서 빼기' : '보관함에 담기 (오래된 글 정리에서 빠짐)';
+    };
+    setPressed(saved);
+    button.disabled = true;
+    try {
+        const data = await postJSON('/api/saved', { id: button.dataset.postId, saved: saved });
+        if (!data.success) throw new Error(data.message);
+        // 보관함 보기에서는 뺀 글을 그대로 두어 다시 담을 수 있게 하고, 글 수만 갱신 (새 글 배너가 뜨지 않게 기준도 맞춤)
+        if (app.filter === 'saved' && app.renderedTotal !== null) app.renderedTotal += saved ? 1 : -1;
+        await pollState();
+    } catch (e) {
+        setPressed(!saved);
+        alert('보관함에 반영하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    } finally {
+        button.disabled = false;
     }
 }
 
@@ -994,7 +1033,8 @@ function renderGroupSettings() {
     const editing = (app.state.groups || []).find(g => g.id === app.editingGroupId) || null;
     if (!editing) app.editingGroupId = null;
     if (app.groupDraft === undefined) {
-        app.groupDraft = editing ? editing.members.map(m => ({ board: m.board, keyword: m.keyword, ignores: m.ignores.slice() })) : [];
+        app.groupDraft = editing
+            ? editing.members.map(m => ({ board: m.board, keyword: m.keyword, paused: !!m.paused, ignores: m.ignores.slice() })) : [];
     }
 
     document.getElementById('group-form-title').textContent = editing ? `'${editing.name}' 게시판 수정` : '게시판 만들기';
@@ -1006,8 +1046,10 @@ function renderGroupSettings() {
 
     // 이 게시판에 등록할 키워드 (카테고리와 함께 표시)
     document.getElementById('group-keywords').innerHTML = app.groupDraft.length ? app.groupDraft.map((m, idx) => `
-        <span class="kw-tag">
-            <span class="kw-tag-board">${esc(boardName(m.board))}</span>${esc(m.keyword)}
+        <span class="kw-tag${m.paused ? ' is-paused' : ''}">
+            <span class="kw-tag-board">${esc(boardName(m.board))}</span>${esc(m.keyword)}${m.paused ? '<span class="kw-tag-paused">일시정지</span>' : ''}
+            <button data-action="toggle-draft-pause" data-index="${idx}" aria-pressed="${!!m.paused}"
+                aria-label="${esc(m.keyword)} 키워드 ${m.paused ? '다시 수집' : '일시정지'}" title="${m.paused ? '다시 수집' : '일시정지 (모은 글은 그대로, 수집만 멈춤)'}">${m.paused ? ICONS.play : ICONS.pause}</button>
             <button data-action="remove-draft-keyword" data-index="${idx}" aria-label="${esc(boardName(m.board) + ' ' + m.keyword)} 키워드 빼기">${ICONS.close}</button>
         </span>`).join('') : '<span class="settings-hint">아직 등록한 키워드가 없습니다.</span>';
 
@@ -1023,7 +1065,7 @@ function renderGroupSettings() {
         </span>`)).join('');
 
     const groups = app.state.groups || [];
-    const memberText = m => esc(m.keyword) + (m.ignores.length ? ` (무시: ${m.ignores.map(esc).join(', ')})` : '');
+    const memberText = m => esc(m.keyword) + (m.paused ? ' (일시정지)' : '') + (m.ignores.length ? ` (무시: ${m.ignores.map(esc).join(', ')})` : '');
     document.getElementById('settings-groups').innerHTML = groups.length ? groups.map(g => `
         <div class="group-row">
             <div class="group-row-main">
@@ -1044,7 +1086,7 @@ function addDraftKeyword() {
         alert('이미 등록한 키워드입니다.');
         return;
     }
-    app.groupDraft.push({ board: board, keyword: keyword, ignores: [] });
+    app.groupDraft.push({ board: board, keyword: keyword, paused: false, ignores: [] });
     input.value = '';
     renderGroupSettings();
     input.focus();
@@ -1091,7 +1133,7 @@ async function saveGroup(button) {
     // 입력만 하고 '추가'를 누르지 않은 키워드도 함께 등록
     if (document.getElementById('group-kw-input').value.trim()) addDraftKeyword();
     if (document.getElementById('group-ignore-input').value.trim()) addDraftIgnore();
-    const members = app.groupDraft.map(m => ({ board: m.board, keyword: m.keyword, ignores: m.ignores.slice() }));
+    const members = app.groupDraft.map(m => ({ board: m.board, keyword: m.keyword, paused: !!m.paused, ignores: m.ignores.slice() }));
     if (!name) { alert('게시판 이름을 입력해 주세요.'); document.getElementById('group-name-input').focus(); return; }
     if (members.length === 0) { alert('키워드를 하나 이상 등록해 주세요.'); document.getElementById('group-kw-input').focus(); return; }
     if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return; }
@@ -1289,6 +1331,8 @@ function renderRuntimeStatus(s) {
         // started_at이 없으면 웹서버가 수집기 상태를 받지 못한 것 (수집기 컨테이너가 시작 전이거나 멈춤)
         row('상태', !s.started_at
             ? '<span class="status-warn">수집기 상태 없음</span> (수집기가 시작 중이거나 멈춤)'
+            : s.stalled_minutes
+            ? `<span class="status-warn">멈춤 의심 · ${s.stalled_minutes}분째 진행 없음</span> (텔레그램으로 알림)`
             : s.block_streak
             ? `<span class="status-warn">차단 의심 · 연속 ${s.block_streak}회</span> (다음 확인 ${hm(s.next_check_at)})`
             : '<span class="status-ok">정상 수집 중</span>'),
@@ -1443,7 +1487,7 @@ async function init() {
         app.filter = defaultFilter(ALL_KEY);
     }
     app.page = 1;
-    app.unreadSince = app.state.generated_at;
+    app.unreadSince = null;
     // 글 목록까지 받은 뒤 게시판 목록과 함께 한 번에 표시 (그때까지는 뼈대 화면)
     await loadPosts();
     renderNavigation();
@@ -1515,6 +1559,12 @@ document.addEventListener('click', (e) => {
         document.getElementById('group-name-input').focus();
     } else if (action === 'add-draft-keyword') {
         addDraftKeyword();
+    } else if (action === 'toggle-draft-pause') {
+        const member = app.groupDraft[Number(el.dataset.index)];
+        member.paused = !member.paused;
+        renderGroupSettings();
+    } else if (action === 'toggle-saved') {
+        toggleSaved(el);
     } else if (action === 'remove-draft-keyword') {
         app.groupDraft.splice(Number(el.dataset.index), 1);
         renderGroupSettings();

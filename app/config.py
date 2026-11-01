@@ -94,6 +94,9 @@ CHROME_RESTART_CYCLES = int(os.environ.get('CHROME_RESTART_CYCLES', 40))
 # (수집 중 크롬·페이지 분석이 웹 응답을 붙잡지 않게, docker-compose.yml). 개발용으로 그냥 실행하면 함께 띄움
 RUN_WEB_SERVER = os.environ.get('RUN_WEB_SERVER', '1').strip() != '0'
 
+# 수집기가 이 시간(분) 넘게 키워드 확인도 다음 주기도 진행하지 않으면 웹서버가 텔레그램으로 알림 (0이면 안 함)
+COLLECTOR_STALL_MINUTES = int(os.environ.get('COLLECTOR_STALL_MINUTES', 10))
+
 IS_LINUX = platform.system() == 'Linux'
 
 OUTPUT_DIR = os.environ.get('OUTPUT_DIR', 'output')

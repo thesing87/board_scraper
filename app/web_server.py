@@ -15,9 +15,11 @@ from config import (
     ADMIN_PASSWORD,
     INSECURE_ADMIN_PASSWORDS,
     CHECK_INTERVAL,
-    LIST_PAGE_SIZE
+    LIST_PAGE_SIZE,
+    COLLECTOR_STALL_MINUTES
 )
 import runtime_status
+from notifier import send_telegram_message
 from sites import is_post_id, DC_BOARD_PREFIX, DC_GALLERY_RE
 from images import image_file, IMAGE_URL_PREFIX
 from storage import (
@@ -26,6 +28,7 @@ from storage import (
     query_all_posts,
     recent_post_ids,
     mark_posts_read,
+    set_post_saved,
     locate_post,
     list_groups,
     feed_summary,
@@ -59,6 +62,9 @@ BOARD_KEY_RE = re.compile(r'(?![0-9]+$)[a-z0-9_]{1,40}')
 POSTS_PER_PAGE = 10
 # 첫 화면 조회를 미리 돌려 두는 간격 (_keep_warm)
 WARMUP_INTERVAL_SECONDS = 30
+# 수집기 멈춤을 확인하는 간격 (_watch_collector)
+WATCH_INTERVAL_SECONDS = 60
+WATCH_STARTED = datetime.now()
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 STATIC_FILES = {
@@ -167,13 +173,13 @@ def build_state():
     }
 
 def build_posts_page(page, video_only, query='', group_id=None, unread_since=None, deleted_only=False, site=None,
-                     image_only=False):
-    """통합 피드(group_id 없음)·게시판·사이트 전체 게시판(site)·검색·안 읽은 글·삭제된 글: 여러 키워드의 글을 중복 없이"""
-    total, _ = query_all_posts(0, 0, video_only, query, group_id, unread_since, deleted_only, site, image_only)
+                     image_only=False, saved_only=False):
+    """통합 피드(group_id 없음)·게시판·사이트 전체 게시판(site)·검색·안 읽은 글·삭제된 글·보관함: 여러 키워드의 글을 중복 없이"""
+    total, _ = query_all_posts(0, 0, video_only, query, group_id, unread_since, deleted_only, site, image_only, saved_only)
     total_pages = max(1, -(-total // POSTS_PER_PAGE))
     page = min(max(1, page), total_pages)
     _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id, unread_since,
-                               deleted_only, site, image_only)
+                               deleted_only, site, image_only, saved_only)
     return {'page': page, 'total_pages': total_pages, 'total': total, 'posts': _decorate_posts(posts)}
 
 def _decorate_posts(posts):
@@ -267,18 +273,27 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 image_only = query.get('image_only', ['0'])[0] in ('1', 'true') and not search
                 group_param = query.get('group', [''])[0]
                 group_id = int(group_param) if group_param.isdigit() and not search else None
-                # 안 읽은 글 보기: 화면을 연 시각(서버 시각 'YYYY-MM-DD HH:MM:SS') 이후 읽은 글은 계속 포함
+                # 안 읽은 글 보기: 화면을 연 시각(서버 시각 'YYYY-MM-DD HH:MM:SS') 이후 읽은 글은 계속 포함.
+                # 'now'면 지금 시각을 기준으로 정해 응답에 담아 줌 (화면이 다음 페이지에도 같은 기준을 쓰도록)
                 since = query.get('unread_since', [''])[0]
+                if since == 'now':
+                    since = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 unread_since = since if re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', since) and not search else None
                 deleted_only = query.get('deleted_only', ['0'])[0] in ('1', 'true') and not search
+                saved_only = query.get('saved_only', ['0'])[0] in ('1', 'true') and not search
                 # 사이트 전체 게시판 (fmkorea·dcinside). 게시판을 고른 경우와 검색에는 쓰지 않음
                 site = query.get('site', [''])[0]
                 site = site if site in site_labels() and group_id is None and not search else None
-                self._send_data(200, build_posts_page(page, video_only, search, group_id, unread_since, deleted_only, site,
-                                                      image_only))
+                data = build_posts_page(page, video_only, search, group_id, unread_since, deleted_only, site, image_only, saved_only)
+                if unread_since:
+                    data['unread_since'] = unread_since
+                self._send_data(200, data)
             elif pure_path == '/api/status':
-                # 관리 패널 '수집 상태': 마지막 수집 주기, 차단 의심, 크롬·백업, 최근 경고·오류
-                self._send_data(200, runtime_status.snapshot())
+                # 관리 패널 '수집 상태': 마지막 수집 주기, 차단 의심, 멈춤 의심, 크롬·백업, 최근 경고·오류
+                status = runtime_status.snapshot()
+                stalled = runtime_status.stalled_seconds(status, WATCH_STARTED)
+                status['stalled_minutes'] = int(stalled // 60) if COLLECTOR_STALL_MINUTES and stalled >= COLLECTOR_STALL_MINUTES * 60 else 0
+                self._send_data(200, status)
             elif pure_path == '/api/locate':
                 post_id = query.get('id', [''])[0]
                 location = locate_post(post_id) if is_post_id(post_id) else None
@@ -326,6 +341,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._handle_toggle_alert()
         elif pure_path == '/api/read':
             self._handle_read()
+        elif pure_path == '/api/saved':
+            self._handle_saved()
         elif pure_path == '/api/group':
             self._handle_group()
         elif pure_path == '/api/category':
@@ -364,7 +381,10 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                     or not all(isinstance(m, dict) and isinstance(m.get('board'), str) and isinstance(m.get('keyword'), str) for m in members)):
                 self._send_json(400, False, f'❌ 키워드를 1~{MAX_GROUP_MEMBERS}개 등록해 주세요.')
                 return
-            # 무시할 표현(ignores)은 키워드마다 선택 사항. 보내지 않으면 그 키워드의 기존 표현을 그대로 둠
+            # 무시할 표현(ignores)·일시정지(paused)는 키워드마다 선택 사항. 보내지 않으면 그 키워드의 기존 값을 그대로 둠
+            if not all(isinstance(m.get('paused', False), bool) for m in members):
+                self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                return
             for m in members:
                 ignores = m.get('ignores', [])
                 if (not isinstance(ignores, list) or len(ignores) > MAX_IGNORES_PER_KEYWORD
@@ -374,7 +394,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                                                 f'줄바꿈 없이 {MAX_KEYWORD_LENGTH}자 이하로 입력해 주세요.')
                     return
             members = [{'board': m['board'].strip(), 'keyword': m['keyword'].strip(),
-                        **({'ignores': [p.strip() for p in m['ignores']]} if 'ignores' in m else {})} for m in members]
+                        **({'ignores': [p.strip() for p in m['ignores']]} if 'ignores' in m else {}),
+                        **({'paused': m['paused']} if 'paused' in m else {})} for m in members]
             names = category_names()
             for m in members:
                 if m['board'] not in names:
@@ -512,6 +533,27 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
+    def _handle_saved(self):
+        """보관함에 담기·빼기 (기기 간 공유). 읽음 기록처럼 관리자 암호 없이 허용"""
+        try:
+            params = self._read_json_body()
+            post_id = params.get('id')
+            saved = params.get('saved')
+            if not isinstance(post_id, str) or not is_post_id(post_id) or not isinstance(saved, bool):
+                self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                return
+            if not set_post_saved(post_id, saved):
+                self._send_json(404, False, '❌ 모은 글이 아닙니다.')
+                return
+            log_msg(f"[API] 보관함 {'담기' if saved else '빼기'}: {post_id}", "DEBUG")
+            self._send_data(200, {'success': True, 'saved': saved})
+        except Exception as e:
+            log_msg(f"[API] 보관함 처리 오류: {short_err(e)}", "ERROR")
+            try:
+                self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
+            except Exception:
+                pass
+
     def _handle_toggle_alert(self):
         """게시판별 텔레그램 알림 켜기·끄기 (관리자 암호 필요)"""
         try:
@@ -551,10 +593,43 @@ def _keep_warm():
         except Exception as e:
             log_msg(f"[API] 예열 조회 실패: {short_err(e)}", "DEBUG")
 
+def check_collector(alerted, watch_started=WATCH_STARTED):
+    """수집기가 COLLECTOR_STALL_MINUTES 넘게 움직이지 않으면 한 번 알리고, 다시 움직이면 복구를 알림.
+    알린 상태(멈춘 것으로 본 시각, 없으면 None)를 돌려줌"""
+    status = runtime_status.snapshot()
+    stalled = runtime_status.stalled_seconds(status, watch_started)
+    last = (status.get('last_cycle') or {}).get('finished_at')
+    if stalled >= COLLECTOR_STALL_MINUTES * 60:
+        if alerted is None:
+            log_msg(f"[감시] 수집기가 {stalled // 60:.0f}분째 진행 없음 → 알림", "WARN")
+            send_telegram_message(
+                f"⚠️ 수집기가 멈춘 것 같습니다\n\n{stalled // 60:.0f}분째 게시판 확인이 진행되지 않습니다."
+                f"{f' (마지막 수집 완료 {last[11:16]})' if last else ''}\n\n"
+                f"NAS에서 fmkorea-scraper 컨테이너를 확인해 주세요. 다시 동작하면 알려드립니다.")
+            return status['now']
+        return alerted
+    if alerted is not None:
+        minutes = (runtime_status._parse(status['now']) - runtime_status._parse(alerted)).total_seconds() // 60
+        log_msg(f"[감시] 수집기 다시 동작 (알림 후 {minutes:.0f}분)")
+        send_telegram_message(f"✅ 수집기가 다시 동작합니다. (멈춤 알림 후 {minutes:.0f}분)")
+    return None
+
+def _watch_collector():
+    """따로 도는 웹서버가 수집기를 지켜봄 (수집기가 죽거나 크롬이 멈추면 수집기 스스로는 알릴 수 없음)"""
+    alerted = None
+    while True:
+        time.sleep(WATCH_INTERVAL_SECONDS)
+        try:
+            alerted = check_collector(alerted)
+        except Exception as e:
+            log_msg(f"[감시] 수집기 상태 확인 실패: {short_err(e)}", "DEBUG")
+
 def run_api_server():
     server_address = ('', 8081)
     httpd = ThreadedHTTPServer(server_address, KeywordAPIServer)
     threading.Thread(target=_keep_warm, daemon=True).start()
+    if COLLECTOR_STALL_MINUTES:
+        threading.Thread(target=_watch_collector, daemon=True).start()
     log_msg("[API] 웹서버 시작 (포트 8081)")
     httpd.serve_forever()
 

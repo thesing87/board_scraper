@@ -47,7 +47,7 @@ print('recheck OK')
 
 # 3) 키워드에 붙으므로 같은 키워드를 쓰는 다른 게시판에서도 보임. ignores를 보내지 않으면 그대로 둠
 groups = {g['id']: g for g in storage.list_groups()}
-assert groups[other_id]['members'] == [{'board': 'car', 'keyword': '싼하', 'ignores': ['투싼하']}], groups[other_id]['members']
+assert groups[other_id]['members'] == [{'board': 'car', 'keyword': '싼하', 'paused': False, 'ignores': ['투싼하']}], groups[other_id]['members']
 storage.save_group(other_id, '하이브리드', [{'board': 'car', 'keyword': '싼하'}])
 assert storage.load_keyword_ignores() == {('car', '싼하'): ['투싼하']}
 print('shared OK')

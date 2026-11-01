@@ -226,17 +226,18 @@ def refetch_blocked_imagecon_posts(driver):
         log_msg(f"[DB] '삭제된 이미지콘'으로 저장된 글 다시 수집: {fixed}/{len(posts)}건")
 
 def run_daily_maintenance():
-    """하루 한 번 DB 백업과 오래된 글 정리. 실패해도 수집은 계속"""
+    """하루 한 번 DB 백업과 오래된 글 정리. 실패해도 수집은 계속 (단계마다 진행 시각을 남겨 멈춤 감시가 오해하지 않게)"""
+    runtime_status.update(progress_at=runtime_status.now())
     try:
         path = backup_db(BACKUP_DIR, BACKUP_KEEP)
         if path:
-            runtime_status.update(last_backup={'at': runtime_status.now(), 'file': os.path.basename(path)})
+            runtime_status.update(last_backup={'at': runtime_status.now(), 'file': os.path.basename(path)}, progress_at=runtime_status.now())
             log_msg(f"[DB] 백업 완료: {path} (최근 {BACKUP_KEEP}개 보관)")
     except Exception as e:
         log_msg(f"[DB] 백업 실패: {short_err(e)}", "ERROR")
     try:
         deleted = prune_old_posts(RETENTION_DAYS, MAX_DATA_PER_KEYWORD)
-        runtime_status.update(last_prune={'at': runtime_status.now(), 'deleted': deleted})
+        runtime_status.update(last_prune={'at': runtime_status.now(), 'deleted': deleted}, progress_at=runtime_status.now())
         if deleted:
             log_msg(f"[DB] {RETENTION_DAYS}일 지난 글 {deleted}건 정리")
     except Exception as e:
@@ -376,6 +377,9 @@ def main():
         # 크롬을 마지막으로 띄운 뒤 지난 주기 수, 유지 관리(백업·정리)를 마지막으로 한 날짜
         cycles_since_chrome = 0
         maintenance_date = None
+        # 지난 주기에 수집한 키워드. 일시정지를 풀어 다시 수집하는 키워드는 멈춘 동안 올라온 글을 한꺼번에 알리지 않으려고 씀
+        # (기동 후 첫 주기는 비교할 기록이 없어 None)
+        collected_keys = None
 
         while True:
             if not is_initial_run:
@@ -393,6 +397,9 @@ def main():
                 continue
 
             config_data = load_keywords()
+            current_keys = {(board, keyword) for board, keywords in config_data.items() for keyword in keywords}
+            resumed = current_keys - collected_keys if collected_keys is not None else set()
+            collected_keys = current_keys
             filled_keys = first_page_filled_keys()
             board_names = category_names()
             alert_targets = load_alert_targets()
@@ -418,6 +425,7 @@ def main():
                     target = f"{board_name}/{keyword}"
                     ignores = keyword_ignores.get((board, keyword), [])
                     log_msg(f"[수집] {target} 확인 중", "DEBUG")
+                    runtime_status.update(progress_at=runtime_status.now())
 
                     # 새 글 판별 기준이 되는 최근 수집 글 (최신순)
                     board_data = recent_keyword_posts(board, keyword, MAX_DATA_PER_KEYWORD)
@@ -485,9 +493,12 @@ def main():
                             full_alert = [t['name'] for t in targets if t['alert']]
                             video_only = [t['name'] for t in targets if has_video and t['video_alert'] and not t['alert']]
                             alert_boards = full_alert + video_only
-                            should_send_alert = bool(alert_boards)
+                            # 일시정지를 풀고 처음 확인하는 주기: 멈춘 동안 올라온 글은 대시보드의 새 글로만 (알림 몰림 방지)
+                            quiet = (board, keyword) in resumed
+                            should_send_alert = bool(alert_boards) and not quiet
 
-                            alert_result = "알림 발송" if should_send_alert else "알림 꺼짐"
+                            alert_result = ("알림 발송" if should_send_alert else
+                                            "일시정지 동안 올라온 글이라 알림 생략" if alert_boards else "알림 꺼짐")
                             log_msg(f"[새 글] {target} #{post_data['id']} {short_title(post_data['title'])}{' (동영상)' if has_video else ''} → {alert_result}")
 
                             if should_send_alert:
