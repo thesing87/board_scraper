@@ -21,6 +21,7 @@ import runtime_status
 from sites import is_post_id, DC_BOARD_PREFIX, DC_GALLERY_RE
 from images import image_file, IMAGE_URL_PREFIX
 from storage import (
+    init_db,
     set_group_alert,
     query_all_posts,
     recent_post_ids,
@@ -556,3 +557,9 @@ def run_api_server():
     threading.Thread(target=_keep_warm, daemon=True).start()
     log_msg("[API] 웹서버 시작 (포트 8081)")
     httpd.serve_forever()
+
+if __name__ == '__main__':
+    # 웹서버만 따로 실행 (NAS에서는 수집기와 다른 컨테이너, docker-compose.yml의 fmkorea-web).
+    # 수집기가 무거운 작업을 해도 같은 프로세스가 아니므로 응답이 붙잡히지 않음
+    init_db()
+    run_api_server()

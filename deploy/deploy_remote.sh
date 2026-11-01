@@ -24,9 +24,16 @@ dk() { sudo -n /usr/local/bin/docker "$@"; }
 # (NAS가 느려 재빌드는 10분 이상 걸리지만 재시작은 수 초)
 BUILD_HASH=$(cat Dockerfile requirements.txt | md5sum | cut -d' ' -f1)
 OLD_HASH=$(cat .build_hash 2>/dev/null || true)
+# 수집기·웹서버 컨테이너가 함께 쓰는 이미지 이름 (docker-compose.yml의 image)
+IMAGE=fmkorea-scraper:local
+# 컨테이너를 둘로 나누기 전에 docker-compose가 자동으로 붙인 이름으로 만든 이미지가 있으면 그대로 이어서 씀 (재빌드 없이)
+if ! dk image inspect "$IMAGE" >/dev/null 2>&1 && dk image inspect fmkorea-scraper_fmkorea-scraper >/dev/null 2>&1; then
+    dk tag fmkorea-scraper_fmkorea-scraper "$IMAGE"
+    echo "[빌드] 기존 이미지를 $IMAGE 이름으로 이어서 사용 (재빌드 없음)"
+fi
 if [ "$1" = "rebuild" ]; then
     REASON='재빌드 요청(-Rebuild)'
-elif ! dk image inspect fmkorea-scraper_fmkorea-scraper >/dev/null 2>&1; then
+elif ! dk image inspect "$IMAGE" >/dev/null 2>&1; then
     REASON='이미지 없음'
 elif [ -n "$OLD_HASH" ] && [ "$OLD_HASH" != "$BUILD_HASH" ]; then
     REASON='Dockerfile·requirements.txt 변경'
@@ -40,10 +47,12 @@ if [ -n "$REASON" ]; then
     # 재빌드마다 남는 이름 없는 옛 이미지 정리 (디스크 확보)
     dk image prune -f >/dev/null 2>&1 || true
 else
-    BEFORE=$(dk ps -q -f name='^fmkorea-scraper$')
+    # 수집기·웹서버 컨테이너 ID를 비교해, 하나라도 새로 만들어졌으면 설정이 바뀐 것
+    containers() { dk ps -q -f name='^fmkorea-scraper$'; dk ps -q -f name='^fmkorea-web$'; }
+    BEFORE=$(containers)
     # docker-compose.yml이 바뀌었으면 여기서 컨테이너를 새로 만듦 (재빌드 없음)
     dc up -d
-    if [ "$(dk ps -q -f name='^fmkorea-scraper$')" = "$BEFORE" ]; then
+    if [ "$(containers)" = "$BEFORE" ]; then
         echo '[재시작] 코드만 바뀌어 이미지 재빌드 없이 컨테이너만 재시작'
         dc restart
     else
@@ -51,6 +60,8 @@ else
     fi
 fi
 echo "$BUILD_HASH" > .build_hash
+# 컨테이너가 새 이름의 이미지로 바뀌었으므로 예전 이름은 뗌 (같은 이미지면 이름만 빠지고, 재빌드로 달라졌으면 옛 이미지가 지워짐)
+dk image rm fmkorea-scraper_fmkorea-scraper >/dev/null 2>&1 || true
 
 echo '--- 최근 로그 ---'
 sleep 5

@@ -4,7 +4,11 @@ import json
 import html
 import sqlite3
 import threading
-from contextlib import closing
+from contextlib import closing, contextmanager
+try:
+    import fcntl
+except ImportError:  # Windows(개발용)는 수집기·웹서버를 한 프로세스로만 돌리므로 프로세스 간 잠금이 필요 없음
+    fcntl = None
 from datetime import datetime, timedelta
 from config import (
     log_msg,
@@ -284,10 +288,26 @@ def _backfill_search_text(conn):
     if rows:
         log_msg(f"[DB] 검색 텍스트 생성: 글 {len(rows)}건")
 
+@contextmanager
+def _init_process_lock():
+    """수집기와 웹서버 컨테이너가 동시에 시작하면 둘 다 스키마 확인·추가와 1회 이전을 하므로, 파일 잠금으로 한쪽씩 하게 함
+    (먼저 끝낸 쪽이 만든 칸·표시를 다른 쪽은 이미 있는 것으로 보고 건너뜀)"""
+    if fcntl is None:
+        yield
+        return
+    with open(DB_FILE + '.init-lock', 'a') as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
 def init_db():
-    """스키마 생성 및 최초 1회 기존 데이터 이전. 여러 번 호출해도 안전"""
+    """스키마 생성 및 최초 1회 기존 데이터 이전. 여러 번(여러 프로세스에서) 호출해도 안전"""
     global _initialized
-    with _init_lock:
+    if _initialized:  # 이후 DB를 쓸 때마다 불리므로 끝난 뒤에는 잠금 없이 바로 돌아감
+        return
+    with _init_lock, _init_process_lock():
         if _initialized:
             return
         migrated_files = []
