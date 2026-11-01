@@ -11,6 +11,8 @@ from selenium.webdriver import Chrome
 from selenium.webdriver.chrome.options import Options
 
 storage.init_db()
+# 이 프로세스가 수집기 역할 (실제 수집기도 시작할 때 호출, fmkorea-scraper.main)
+runtime_status.start_writer()
 now = runtime_status.now()
 runtime_status.update(cycles=12, chrome_started_at=now, chrome_restarts=1, next_check_at=now,
                       last_cycle={'finished_at': now, 'seconds': 64, 'new': 2, 'updated': 3, 'deleted': 0, 'errors': 1},
