@@ -47,17 +47,20 @@ if [ -n "$REASON" ]; then
     # 재빌드마다 남는 이름 없는 옛 이미지 정리 (디스크 확보)
     dk image prune -f >/dev/null 2>&1 || true
 else
-    # 수집기·웹서버 컨테이너 ID를 비교해, 하나라도 새로 만들어졌으면 설정이 바뀐 것
-    containers() { dk ps -q -f name='^fmkorea-scraper$'; dk ps -q -f name='^fmkorea-web$'; }
-    BEFORE=$(containers)
-    # docker-compose.yml이 바뀌었으면 여기서 컨테이너를 새로 만듦 (재빌드 없음)
+    # 컨테이너마다 ID를 비교: 새로 만들어진 컨테이너는 이미 새 코드로 시작했고, 그대로인 컨테이너는 재시작해야 새 코드를 읽음
+    # (예: .env만 바뀌면 한쪽만 새로 만들어지므로, 전부 아니면 전무로 판단하면 다른 쪽이 옛 코드로 계속 돎)
+    SERVICES='fmkorea-scraper fmkorea-web'
+    BEFORE=$(for s in $SERVICES; do echo "$s=$(dk ps -q -f name="^$s\$")"; done)
+    # docker-compose.yml·.env가 바뀌었으면 여기서 그 컨테이너를 새로 만듦 (재빌드 없음)
     dc up -d
-    if [ "$(containers)" = "$BEFORE" ]; then
-        echo '[재시작] 코드만 바뀌어 이미지 재빌드 없이 컨테이너만 재시작'
-        dc restart
-    else
-        echo '[재시작] 컨테이너 설정이 바뀌어 새로 만듦 (이미지 재빌드 없음)'
-    fi
+    for s in $SERVICES; do
+        if echo "$BEFORE" | grep -qx "$s=$(dk ps -q -f name="^$s\$")"; then
+            echo "[재시작] $s: 코드만 바뀌어 컨테이너 재시작"
+            dc restart "$s"
+        else
+            echo "[재시작] $s: 설정이 바뀌어 새로 만듦 (이미지 재빌드 없음)"
+        fi
+    done
 fi
 echo "$BUILD_HASH" > .build_hash
 # 컨테이너가 새 이름의 이미지로 바뀌었으므로 예전 이름은 뗌 (같은 이미지면 이름만 빠지고, 재빌드로 달라졌으면 옛 이미지가 지워짐)
