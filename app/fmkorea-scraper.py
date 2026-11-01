@@ -196,6 +196,17 @@ def restart_driver(driver):
     log_msg(f"[시스템] 크롬 정기 재시작 ({CHROME_RESTART_CYCLES}주기마다, 메모리 정리)", "DEBUG")
     return create_driver()
 
+def release_chrome_memory(driver):
+    """주기가 끝나 쉬는 동안 크롬이 붙잡고 있는 메모리를 돌려줌. 같은 탭에서 페이지를 계속 열면 렌더러가 지난 페이지와
+    캐시를 쌓아 두어 주기마다 커지고(24페이지마다 약 +100MB), NAS가 스왑을 쓰면서 대시보드까지 함께 멈춤.
+    빈 페이지로 옮긴 뒤 메모리 부족 신호를 보내면 크롬이 캐시·지난 페이지를 버리고 큰 렌더러도 내려놓음"""
+    try:
+        driver.get('about:blank')
+        driver.execute_cdp_cmd('Memory.simulatePressureNotification', {'level': 'critical'})
+        driver.execute_cdp_cmd('HeapProfiler.collectGarbage', {})
+    except Exception as e:
+        log_msg(f"[시스템] 크롬 메모리 정리 실패: {short_err(e)}", "DEBUG")
+
 def refetch_blocked_imagecon_posts(driver):
     """이미지 주소 차단 때문에 이미지콘이 '삭제됨' 그림으로 저장된 글을 다시 수집 (기동 시 1회, storage.posts_with_blocked_imagecons)"""
     posts = posts_with_blocked_imagecons()
@@ -528,6 +539,7 @@ def main():
             # 새로 추가한 카테고리는 차단 의심이 없는 주기에만 확인 (차단 화면을 잘못된 게시판으로 오판하지 않도록)
             if not blocked_reason:
                 verify_pending_categories(driver)
+            release_chrome_memory(driver)
 
             cycles_since_chrome += 1
             runtime_status.increment('cycles')
