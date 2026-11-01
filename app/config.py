@@ -90,6 +90,9 @@ RETENTION_DAYS = int(os.environ.get('RETENTION_DAYS', 180))
 BACKUP_KEEP = int(os.environ.get('BACKUP_KEEP', 7))
 # 크롬 메모리가 계속 불어나 NAS가 스왑을 쓰지 않도록 이 주기 수마다 크롬을 새로 띄움 (0이면 안 함)
 CHROME_RESTART_CYCLES = int(os.environ.get('CHROME_RESTART_CYCLES', 40))
+# 수집기 안에서 대시보드 웹서버도 함께 띄울지. NAS에서는 웹서버를 따로 컨테이너로 돌리므로 수집기 컨테이너는 0
+# (수집 중 크롬·페이지 분석이 웹 응답을 붙잡지 않게, docker-compose.yml). 개발용으로 그냥 실행하면 함께 띄움
+RUN_WEB_SERVER = os.environ.get('RUN_WEB_SERVER', '1').strip() != '0'
 
 IS_LINUX = platform.system() == 'Linux'
 
@@ -100,7 +103,8 @@ if IS_LINUX and (OUTPUT_DIR == 'output' or os.path.exists('/output')):
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 DB_FILE = os.path.join(OUTPUT_DIR, 'board.db')
-DEBUG_LOG_FILE = os.path.join(OUTPUT_DIR, 'logs', 'debug.log')
+# 두 프로세스가 한 파일을 함께 순환시키면 서로의 기록이 사라지므로 따로 도는 웹서버는 다른 이름을 씀 (DEBUG_LOG_NAME)
+DEBUG_LOG_FILE = os.path.join(OUTPUT_DIR, 'logs', os.environ.get('DEBUG_LOG_NAME', 'debug.log'))
 BACKUP_DIR = os.path.join(OUTPUT_DIR, 'backups')
 # 수집할 때 받아 둔 글 이미지 (디시인사이드 이미지는 다른 사이트에서 열리지 않아 저장해서 보여줌, images.py)
 IMAGE_DIR = os.path.join(OUTPUT_DIR, 'images')

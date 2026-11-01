@@ -1286,13 +1286,16 @@ function renderRuntimeStatus(s) {
     const row = (label, value) => `<div class="status-row"><span class="status-label">${label}</span><span class="status-value">${value}</span></div>`;
     const c = s.last_cycle;
     const rows = [
-        row('상태', s.block_streak
+        // started_at이 없으면 웹서버가 수집기 상태를 받지 못한 것 (수집기 컨테이너가 시작 전이거나 멈춤)
+        row('상태', !s.started_at
+            ? '<span class="status-warn">수집기 상태 없음</span> (수집기가 시작 중이거나 멈춤)'
+            : s.block_streak
             ? `<span class="status-warn">차단 의심 · 연속 ${s.block_streak}회</span> (다음 확인 ${hm(s.next_check_at)})`
             : '<span class="status-ok">정상 수집 중</span>'),
         row('마지막 수집', c
             ? `${hm(c.finished_at)} (${agoText(c.finished_at, s.now)}) · ${c.seconds}초 · 새 글 ${c.new}, 갱신 ${c.updated}, 오류 ${c.errors}`
             : '아직 없음 (시작 직후)'),
-        row('실행', `${hm(s.started_at)}부터 (${agoText(s.started_at, s.now)}) · 주기 ${s.cycles}회`),
+        row('실행', s.started_at ? `${hm(s.started_at)}부터 (${agoText(s.started_at, s.now)}) · 주기 ${s.cycles}회` : '-'),
         row('크롬', s.chrome_started_at ? `${hm(s.chrome_started_at)} 시작 · 재시작 ${s.chrome_restarts}회` : '-'),
         row('DB 백업', s.last_backup ? `${esc(s.last_backup.file)} (${hm(s.last_backup.at)})` : '오늘 백업 있음 또는 아직 안 함'),
         row('오래된 글 정리', s.last_prune ? `${s.last_prune.deleted}건 정리 (${hm(s.last_prune.at)})` : '-')

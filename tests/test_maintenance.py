@@ -45,7 +45,8 @@ assert deleted == total_posts - len(recent) - 1 and left == recent | {fresh_id}
 assert db.execute('select count(*) from keyword_posts where post_id not in (select id from posts)').fetchone()[0] == 0
 assert db.execute('select count(*) from read_posts where post_id = ?', (old_read,)).fetchone()[0] == 0
 
-# 3) 최근 경고·오류와 상태 API
+# 3) 최근 경고·오류와 상태 API (수집기 안에서 웹서버도 도는 구성: 수집기는 main()처럼 먼저 start_writer)
+runtime_status.start_writer()
 config.log_msg('[테스트] 경고 메시지\n두 번째 줄은 버림', 'WARN')
 config.log_msg('[테스트] 정보는 안 들어감', 'INFO')
 runtime_status.update(last_cycle={'finished_at': runtime_status.now(), 'seconds': 12, 'new': 1, 'updated': 2, 'deleted': 0, 'errors': 0})

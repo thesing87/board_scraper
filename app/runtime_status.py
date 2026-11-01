@@ -1,11 +1,18 @@
-"""수집기 동작 상태 (관리 패널 '수집 상태' 표시용).
-수집기와 웹서버가 같은 프로세스에서 돌아가므로 메모리로 공유하고, 재시작하면 처음부터 다시 쌓임"""
+"""수집기 동작 상태 (관리 패널 '수집 상태' 표시용). 재시작하면 처음부터 다시 쌓임.
+수집기는 상태가 바뀔 때마다 파일(OUTPUT_DIR/runtime_status.json)에도 써 두고, 따로 도는 웹서버 프로세스는 그 파일을 읽음.
+(수집기 안에서 웹서버를 함께 띄우면 메모리 그대로 씀)"""
+import os
+import json
 import threading
 from datetime import datetime
 
-from config import RECENT_PROBLEMS
+from config import RECENT_PROBLEMS, OUTPUT_DIR
+
+STATUS_FILE = os.path.join(OUTPUT_DIR, 'runtime_status.json')
 
 _lock = threading.Lock()
+_writer = False                  # 이 프로세스가 수집기인지 (start_writer)
+_save_failed = False
 _status = {
     'started_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     'cycles': 0,
@@ -21,17 +28,63 @@ _status = {
 def now():
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+def _save():
+    """수집기의 상태와 최근 경고·오류를 파일로 (반쯤 쓴 파일을 읽지 않게 임시 파일에 쓴 뒤 교체). _lock 안에서 호출"""
+    global _save_failed
+    if not _writer:
+        return
+    data = dict(_status, recent_problems=list(RECENT_PROBLEMS))
+    try:
+        partial = STATUS_FILE + '.part'
+        with open(partial, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(partial, STATUS_FILE)
+        _save_failed = False
+    except OSError as e:
+        if not _save_failed:
+            # log_msg를 쓰면 RECENT_PROBLEMS를 거쳐 다시 여기로 올 수 있어 화면에만 한 번 알림
+            print(f"[{now()}] [WARN ] [시스템] 수집 상태 파일 저장 실패: {e}", flush=True)
+            _save_failed = True
+
+def start_writer():
+    """이 프로세스가 수집기임을 표시. 이후 상태가 바뀔 때마다 파일에도 씀"""
+    global _writer
+    with _lock:
+        _writer = True
+        _save()
+
 def update(**fields):
     with _lock:
         _status.update(fields)
+        _save()
 
 def increment(field):
     with _lock:
         _status[field] += 1
+        _save()
+
+def _read_saved():
+    """수집기가 써 둔 상태 (없거나 읽지 못하면 None)"""
+    try:
+        with open(STATUS_FILE, encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
 
 def snapshot():
+    """관리 패널에 보여 줄 상태. 따로 도는 웹서버면 수집기가 써 둔 파일 기준이고,
+    최근 경고·오류에는 웹서버 자신의 것도 합쳐 시각순으로 보여줌"""
     with _lock:
         data = dict(_status)
+    problems = list(RECENT_PROBLEMS)
+    if not _writer:
+        saved = _read_saved()
+        if saved:
+            problems = sorted(saved.pop('recent_problems', []) + problems, key=lambda p: p.get('time', ''))[-RECENT_PROBLEMS.maxlen:]
+            data = saved
+        else:
+            # 수집기가 아직 상태를 쓰지 않음 (막 시작했거나 멈춤) → 수집 기록이 없는 것으로 보여줌
+            data = dict(data, started_at=None)
     data['now'] = now()
-    data['recent_problems'] = list(RECENT_PROBLEMS)[::-1]  # 최신이 먼저
+    data['recent_problems'] = problems[::-1]  # 최신이 먼저
     return data

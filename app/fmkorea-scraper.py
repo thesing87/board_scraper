@@ -18,6 +18,7 @@ from config import (
     BACKUP_KEEP,
     BACKUP_DIR,
     CHROME_RESTART_CYCLES,
+    RUN_WEB_SERVER,
     IS_LINUX
 )
 from storage import (
@@ -317,8 +318,10 @@ def short_title(title, limit=40):
 
 def main():
     global DDNS_URL
-    api_thread = threading.Thread(target=run_api_server, daemon=True)
-    api_thread.start()
+    # 관리 패널의 '수집 상태'를 따로 도는 웹서버도 볼 수 있게 상태를 파일로도 씀
+    runtime_status.start_writer()
+    if RUN_WEB_SERVER:
+        threading.Thread(target=run_api_server, daemon=True).start()
 
     if not IS_LINUX:
         DDNS_URL = "http://127.0.0.1:8081"
