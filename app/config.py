@@ -83,6 +83,10 @@ TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 # 미설정 또는 기본 예시값이면 관리 API가 비활성화됨 (web_server.py 참고)
 ADMIN_PASSWORD = (os.environ.get('ADMIN_PASSWORD') or '').strip()
 INSECURE_ADMIN_PASSWORDS = {'', 'admin1234'}
+# 대시보드 앞에 역방향 프록시(DSM)가 있을 때 1: 프록시가 넘겨 준 실제 접속자 IP(X-Real-IP·X-Forwarded-For)로 암호 실패 잠금.
+# Docker 포트 연결을 거치면 모든 접속이 같은 내부 IP로 보여 한 명이 틀려도 모두가 잠기므로 필요.
+# 대시보드 포트가 프록시를 거치지 않고 인터넷에 열려 있으면 이 값을 켜지 말 것 (헤더를 꾸며 잠금을 피할 수 있음)
+TRUST_PROXY_HEADERS = os.environ.get('TRUST_PROXY_HEADERS', '0').strip() == '1'
 DDNS_URL = os.environ.get('DDNS_URL')
 
 MAX_DATA_PER_KEYWORD = 100
@@ -98,6 +102,9 @@ RUN_WEB_SERVER = os.environ.get('RUN_WEB_SERVER', '1').strip() != '0'
 
 # 수집기가 이 시간(분) 넘게 키워드 확인도 다음 주기도 진행하지 않으면 웹서버가 텔레그램으로 알림 (0이면 안 함)
 COLLECTOR_STALL_MINUTES = int(os.environ.get('COLLECTOR_STALL_MINUTES', 10))
+
+# 대시보드 웹서버 포트. NAS에서는 웹서버 컨테이너가 NAS 네트워크를 직접 써서(docker-compose.yml) 8082
+WEB_PORT = int(os.environ.get('WEB_PORT', 8081))
 
 IS_LINUX = platform.system() == 'Linux'
 

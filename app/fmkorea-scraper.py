@@ -18,6 +18,7 @@ from config import (
     BACKUP_KEEP,
     BACKUP_DIR,
     CHROME_RESTART_CYCLES,
+    WEB_PORT,
     RUN_WEB_SERVER,
     IS_LINUX
 )
@@ -353,7 +354,7 @@ def main():
         threading.Thread(target=run_api_server, daemon=True).start()
 
     if not IS_LINUX:
-        DDNS_URL = "http://127.0.0.1:8081"
+        DDNS_URL = f"http://127.0.0.1:{WEB_PORT}"
 
     try:
         driver = create_driver()

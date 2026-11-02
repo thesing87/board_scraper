@@ -4,6 +4,7 @@ import json
 import hmac
 import time
 import threading
+import ipaddress
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
@@ -14,7 +15,9 @@ from config import (
     short_err,
     ADMIN_PASSWORD,
     INSECURE_ADMIN_PASSWORDS,
+    TRUST_PROXY_HEADERS,
     CHECK_INTERVAL,
+    WEB_PORT,
     LIST_PAGE_SIZE,
     COLLECTOR_STALL_MINUTES
 )
@@ -121,6 +124,18 @@ def board_key_from_input(text):
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     """요청마다 새로운 스레드를 독립 할당하여 동기 블로킹 및 접속 지연을 차단"""
     daemon_threads = True
+
+def client_ip(peer, headers, trust_proxy=None):
+    """암호 실패 잠금·로그에 쓸 접속자 IP. 역방향 프록시를 믿도록 설정했고(TRUST_PROXY_HEADERS) 내부 주소에서 온 요청이면
+    프록시가 넣은 실제 IP를 씀: X-Real-IP, 없으면 X-Forwarded-For의 마지막 값 (앞쪽은 접속자가 꾸며 보낼 수 있음)"""
+    trust_proxy = TRUST_PROXY_HEADERS if trust_proxy is None else trust_proxy
+    try:
+        if not trust_proxy or not ipaddress.ip_address(peer).is_private:
+            return peer
+        forwarded = (headers.get('X-Real-IP') or '').strip() or (headers.get('X-Forwarded-For') or '').split(',')[-1].strip()
+        return str(ipaddress.ip_address(forwarded)) if forwarded else peer
+    except ValueError:
+        return peer
 
 def _is_locked_out(ip):
     with auth_lock:
@@ -230,7 +245,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
 
     def _authorize(self, password, action_name):
         """인증 성공 시 True, 실패 시 응답을 보낸 뒤 False 반환"""
-        ip = self.client_address[0]
+        ip = client_ip(self.client_address[0], self.headers)
         if not ADMIN_API_ENABLED:
             self._send_json(403, False, '❌ 서버에 ADMIN_PASSWORD가 설정되지 않아 관리 기능이 비활성화되어 있습니다.')
             return False
@@ -250,7 +265,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         pure_path = parsed.path
         query = parse_qs(parsed.query)
-        log_msg(f"[API] GET {pure_path}", "DEBUG")
+        log_msg(f"[API] GET {pure_path} ({client_ip(self.client_address[0], self.headers)})", "DEBUG")
 
         try:
             if pure_path in STATIC_FILES:
@@ -335,7 +350,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
 
     def do_POST(self):
         pure_path = self.path.split('?')[0]
-        log_msg(f"[API] POST {pure_path}", "DEBUG")
+        log_msg(f"[API] POST {pure_path} ({client_ip(self.client_address[0], self.headers)})", "DEBUG")
 
         if pure_path == '/api/toggle-alert':
             self._handle_toggle_alert()
@@ -625,12 +640,12 @@ def _watch_collector():
             log_msg(f"[감시] 수집기 상태 확인 실패: {short_err(e)}", "DEBUG")
 
 def run_api_server():
-    server_address = ('', 8081)
+    server_address = ('', WEB_PORT)
     httpd = ThreadedHTTPServer(server_address, KeywordAPIServer)
     threading.Thread(target=_keep_warm, daemon=True).start()
     if COLLECTOR_STALL_MINUTES:
         threading.Thread(target=_watch_collector, daemon=True).start()
-    log_msg("[API] 웹서버 시작 (포트 8081)")
+    log_msg(f"[API] 웹서버 시작 (포트 {WEB_PORT})")
     httpd.serve_forever()
 
 if __name__ == '__main__':

@@ -42,6 +42,9 @@ services:
     depends_on:
       - fmkorea-scraper
     command: ["python", "-u", "app/web_server.py"]
+    # NAS 네트워크를 직접 씀: Docker 포트 연결을 거치면 모든 접속이 같은 내부 IP(172.18.0.1)로 보여
+    # 누군가 관리자 암호를 5번 틀리면 모두가 잠겼음. 포트는 아래 WEB_PORT (공유기가 외부 80 → NAS 8082로 넘김)
+    network_mode: host
     env_file:
       - .env
     environment:
@@ -51,8 +54,7 @@ services:
       - PYTHONDONTWRITEBYTECODE=1
       # 수집기와 같은 로그 파일을 함께 순환시키지 않도록 웹서버 전체 로그는 output/logs/web-debug.log
       - DEBUG_LOG_NAME=web-debug.log
-    ports:
-      - "8082:8081"
+      - WEB_PORT=8082
     cpu_shares: 1024
     restart: unless-stopped
     volumes:

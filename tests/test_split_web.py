@@ -54,7 +54,7 @@ print('STATUS FILE OK')
 with socket.socket() as s:
     s.bind(('127.0.0.1', 0))
     port = s.getsockname()[1]
-# run_api_server는 8081 고정이므로 시험에서는 포트만 바꾸고, 실제와 같이 web_server.py를 __main__으로 실행 (init_db → 서버)
+# run_api_server는 WEB_PORT(기본 8081)를 쓰므로 시험에서는 포트만 바꾸고, 실제와 같이 web_server.py를 __main__으로 실행 (init_db → 서버)
 server = subprocess.Popen([sys.executable, '-B', '-c',
                            'import socketserver, runpy\n'
                            'orig = socketserver.TCPServer.__init__\n'
