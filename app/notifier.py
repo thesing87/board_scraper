@@ -144,10 +144,8 @@ def build_post_alert(post, boards, keyword, board_name):
     stats += [f"👁 {_count(post.get('views'))}", f"💬 {_count(post.get('comment_count'))}"]
     return body + f"🏷 {esc(keyword)} · {esc(board_name)}\n" + '   '.join(stats)
 
-def send_post_alert(post, boards, keyword, board_name, dashboard_url='', original_url=''):
-    """새 글 알림 발송. 썸네일이 있으면 사진+설명으로, 사진 발송이 안 되면 글로 대신 보냄"""
-    if not _configured():
-        return
+def _html_base(dashboard_url='', original_url=''):
+    """HTML 서식 메시지의 공통 값과 대시보드·원문 버튼"""
     buttons = []
     if dashboard_url.startswith(('http://', 'https://')):
         buttons.append({"text": "📱 대시보드", "url": dashboard_url})
@@ -156,6 +154,62 @@ def send_post_alert(post, boards, keyword, board_name, dashboard_url='', origina
     base = {"chat_id": TELEGRAM_CHAT_ID, "parse_mode": "HTML"}
     if buttons:
         base["reply_markup"] = {"inline_keyboard": [buttons]}
+    return base
+
+def _send_html(base, text, what):
+    """HTML 메시지 발송. 서식 오류 등으로 실패하면 서식 없는 글로 한 번 더 시도"""
+    if _call("sendMessage", {**base, "text": text, "link_preview_options": {"is_disabled": True}}):
+        return True
+    fallback = {k: v for k, v in base.items() if k != "parse_mode"}
+    plain = html.unescape(_TAG_RE.sub('', text.replace('</blockquote>', '\n')))
+    if _call("sendMessage", {**fallback, "text": plain, "link_preview_options": {"is_disabled": True}}):
+        return True
+    log_msg(f"[알림] 텔레그램 {what} 발송 실패", "ERROR")
+    return False
+
+def build_comment_alert(post, new_comments):
+    """보관한 글의 새 댓글 알림 본문(HTML): 머리글 / 굵은 제목 / 새 댓글 최대 3개 (작성자: 내용)"""
+    esc = html.escape
+    site = site_labels()[post_site(post.get('id', ''))]['short']
+    body = (f"⭐ [{site}] 보관한 글에 새 댓글 {len(new_comments)}개 · {datetime.now().strftime('%H:%M')}\n\n"
+            f"<b>{esc(post.get('title', ''))}</b>\n")
+    lines = []
+    for c in new_comments[-3:]:
+        text = _plain_text(c.get('content'))
+        if len(text) > PREVIEW_LENGTH:
+            text = text[:PREVIEW_LENGTH].rstrip() + '…'
+        lines.append(f"{esc(c.get('author') or '익명')}: {esc(text)}")
+    if len(new_comments) > 3:
+        lines.insert(0, f"(앞의 {len(new_comments) - 3}개 생략)")
+    return body + f"<blockquote>{chr(10).join(lines)}</blockquote>"
+
+def send_comment_alert(post, new_comments, dashboard_url='', original_url=''):
+    if not _configured():
+        return
+    _send_html(_html_base(dashboard_url, original_url), build_comment_alert(post, new_comments), "새 댓글 알림")
+
+def build_digest(group_name, total, posts, post_url):
+    """하루 요약 본문(HTML): 게시판·새 글 수 / 추천·댓글이 많은 글 목록 (제목은 post_url(글)로 가는 링크)"""
+    esc = html.escape
+    lines = [f"📰 <b>{esc(group_name)}</b> 하루 요약 · {datetime.now().strftime('%m/%d')}",
+             f"최근 24시간 새 글 {total:,}개 중 인기 {len(posts)}개", ""]
+    for i, p in enumerate(posts, 1):
+        url = post_url(p)
+        title = esc(p.get('title') or '(제목 없음)')
+        lines.append(f"{i}. <a href=\"{esc(url)}\">{title}</a>" if url else f"{i}. {title}")
+        lines.append(f"    👍 {_count(p.get('votes'))} · 💬 {_count(p.get('comment_count'))} · 👁 {_count(p.get('views'))}")
+    return '\n'.join(lines)
+
+def send_digest(group_name, total, posts, post_url):
+    if not _configured():
+        return False
+    return _send_html(_html_base(), build_digest(group_name, total, posts, post_url), "하루 요약")
+
+def send_post_alert(post, boards, keyword, board_name, dashboard_url='', original_url=''):
+    """새 글 알림 발송. 썸네일이 있으면 사진+설명으로, 사진 발송이 안 되면 글로 대신 보냄"""
+    if not _configured():
+        return
+    base = _html_base(dashboard_url, original_url)
 
     text = build_post_alert(post, boards, keyword, board_name)
     thumbnail = find_thumbnail(post.get('content'))
@@ -167,10 +221,4 @@ def send_post_alert(post, boards, keyword, board_name, dashboard_url='', origina
         if sent:
             return
         log_msg("[알림] 썸네일 사진 발송 실패 → 글로 발송", "DEBUG")
-    if _call("sendMessage", {**base, "text": text, "link_preview_options": {"is_disabled": True}}):
-        return
-    # HTML 파싱 실패 등에 대비해 서식 없는 글로 한 번 더 시도
-    fallback = {k: v for k, v in base.items() if k != "parse_mode"}
-    plain = html.unescape(_TAG_RE.sub('', text.replace('</blockquote>', '\n')))
-    if not _call("sendMessage", {**fallback, "text": plain}):
-        log_msg("[알림] 텔레그램 새 글 알림 발송 실패", "ERROR")
+    _send_html(base, text, "새 글 알림")

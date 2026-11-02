@@ -19,7 +19,8 @@ from config import (
     CHECK_INTERVAL,
     WEB_PORT,
     LIST_PAGE_SIZE,
-    COLLECTOR_STALL_MINUTES
+    COLLECTOR_STALL_MINUTES,
+    DIGEST_HOUR
 )
 import runtime_status
 from notifier import send_telegram_message
@@ -28,6 +29,8 @@ from images import image_file, IMAGE_URL_PREFIX
 from storage import (
     init_db,
     set_group_alert,
+    saved_comment_alert,
+    set_saved_comment_alert,
     query_all_posts,
     recent_post_ids,
     mark_posts_read,
@@ -184,7 +187,10 @@ def build_state():
         # 모든 글·동영상 글·안 읽은 새 글·새 댓글이 달린 글 수와 안 읽은 글·새 댓글 글 ID를 담음
         'all': feed_summary(MAX_READ_IDS),
         # 사용자가 만든 게시판 (등록한 키워드의 글을 중복 없이 한 피드로)
-        'groups': groups
+        'groups': groups,
+        # 텔레그램: 보관한 글의 새 댓글 알림, 하루 요약을 보내는 시각
+        'saved_comment_alert': saved_comment_alert(),
+        'digest_hour': DIGEST_HOUR
     }
 
 def build_posts_page(page, video_only, query='', group_id=None, unread_since=None, deleted_only=False, site=None,
@@ -423,12 +429,18 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             if action == 'update' and not isinstance(group_id, int):
                 self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
                 return
+            # 합칠 게시판: 그 게시판의 키워드는 화면에서 members에 이미 넣어 보내고, 저장한 뒤 그 게시판은 지움
+            merge_ids = params.get('merge_ids', [])
+            if not isinstance(merge_ids, list) or len(merge_ids) > MAX_GROUP_MEMBERS or not all(isinstance(i, int) for i in merge_ids):
+                self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                return
             try:
-                saved_id, dropped = save_group(group_id, name, members)
+                saved_id, dropped = save_group(group_id, name, members, merge_ids)
             except ValueError as ve:
                 self._send_json(400, False, f'❌ {ve}')
                 return
-            log_msg(f"[API] 게시판 {'추가' if action == 'create' else '수정'}: {name} (키워드 {len(members)}개){self._dropped_text(dropped)}")
+            merged = f" / 게시판 {len(merge_ids)}개 합침" if merge_ids else ''
+            log_msg(f"[API] 게시판 {'추가' if action == 'create' else '수정'}: {name} (키워드 {len(members)}개){merged}{self._dropped_text(dropped)}")
             self._send_data(200, {'success': True, 'id': saved_id,
                                   'message': f"📚 '{name}' 게시판을 {'만들었' if action == 'create' else '수정했'}습니다."})
         except Exception as e:
@@ -570,7 +582,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 pass
 
     def _handle_toggle_alert(self):
-        """게시판별 텔레그램 알림 켜기·끄기 (관리자 암호 필요)"""
+        """게시판별 텔레그램 알림(전체·동영상·하루 요약)과 보관한 글 새 댓글 알림 켜기·끄기 (관리자 암호 필요)"""
         try:
             params = self._read_json_body()
             group_id = params.get('group')
@@ -578,7 +590,12 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             enabled = params.get('enabled') is True
             if not self._authorize(params.get('password', ''), '알림 토글'):
                 return
-            if alert_type not in ('alert', 'video_alert') or not isinstance(group_id, int):
+            if alert_type == 'saved_comment':
+                set_saved_comment_alert(enabled)
+                log_msg(f"[API] 알림 설정 변경: 보관한 글 새 댓글 {'켜짐' if enabled else '꺼짐'}")
+                self._send_json(200, True, f"⭐ 보관한 글의 새 댓글 알림이 {'켜짐' if enabled else '꺼짐'} 상태로 변경되었습니다.")
+                return
+            if alert_type not in ('alert', 'video_alert', 'digest') or not isinstance(group_id, int):
                 self._send_json(400, False, '❌ 잘못된 요청입니다.')
                 return
             name = set_group_alert(group_id, alert_type, enabled)
@@ -586,8 +603,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
                 return
             status_str = "켜짐" if enabled else "꺼짐"
-            type_str = "동영상 알림" if alert_type == "video_alert" else "전체 알림"
-            icon_str = "🎬" if alert_type == "video_alert" else "🔔"
+            type_str = {'video_alert': "동영상 알림", 'digest': "하루 요약"}.get(alert_type, "전체 알림")
+            icon_str = {'video_alert': "🎬", 'digest': "📰"}.get(alert_type, "🔔")
             log_msg(f"[API] 알림 설정 변경: {name} {type_str} {status_str}")
             self._send_json(200, True, f"{icon_str} '{name}' 게시판의 {type_str}이 {status_str} 상태로 변경되었습니다.")
         except Exception as e:

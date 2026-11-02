@@ -12,6 +12,9 @@ SITE_NAMES = {FMKOREA: '에펨코리아', DCINSIDE: '디시인사이드'}
 # 기본 이름·짧은 표시. 관리 화면에서 바꾼 값은 DB에 저장되며 storage.site_labels()로 읽음
 SITE_SHORT = {FMKOREA: 'FM', DCINSIDE: 'DC'}
 
+# 여러 사이트의 키워드를 함께 담은 게시판의 사이트 값 (keyword_groups.site)
+MULTI_SITE = 'multi'
+
 DC_BOARD_PREFIX = 'dc:'
 DC_POST_PREFIX = 'dc-'
 # 디시 갤러리 id (예: car_new1)

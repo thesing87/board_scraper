@@ -49,7 +49,8 @@ try:
     assert '싼타페 · 동영상 글만' in summary and '삼성 · 전체 알림' in summary and '싼 모음 · 동영상 글만' in summary
     # 4) 관리 패널: 게시판별 스위치로 '싼타페' 전체 알림 켜기
     js("document.querySelector('.topbar [data-action=\"open-settings\"]').click()"); time.sleep(0.4)
-    rows = js("return [...document.querySelectorAll('#settings-alerts .alert-row-name')].map(e => e.textContent)")
+    # 게시판별 줄 (맨 아래 '보관한 글에 새 댓글' 줄은 게시판이 아님)
+    rows = js("return [...document.querySelectorAll('#settings-alerts .alert-row:not(.alert-row-saved) .alert-row-name')].map(e => e.textContent)")
     print('alert rows', rows)
     assert rows == [x['name'] for x in storage.list_groups()]
     js(f"""document.getElementById('admin-pwd-input').value = 'Secr3t!';

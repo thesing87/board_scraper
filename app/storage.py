@@ -18,7 +18,7 @@ from config import (
     JSON_BACKUP_FILE,
     BOARD_MAP
 )
-from sites import board_site, is_post_id, SITE_NAMES, SITE_SHORT
+from sites import board_site, is_post_id, SITE_NAMES, SITE_SHORT, MULTI_SITE
 
 SCHEMA_VERSION = 1
 
@@ -74,8 +74,9 @@ def _create_schema(conn):
 
         -- 보관함: 별표를 단 글 (기기 간 공유). 오래된 글 정리에서 빠짐 (키워드·게시판을 지우면 함께 지워짐)
         CREATE TABLE IF NOT EXISTS saved_posts (
-            post_id   TEXT PRIMARY KEY REFERENCES posts(id) ON DELETE CASCADE,
-            saved_at  TEXT NOT NULL
+            post_id     TEXT PRIMARY KEY REFERENCES posts(id) ON DELETE CASCADE,
+            saved_at    TEXT NOT NULL,
+            checked_at  TEXT              -- 수집기가 새 댓글을 확인하려고 마지막으로 연 시각
         );
 
         CREATE TABLE IF NOT EXISTS keywords (
@@ -106,6 +107,7 @@ def _create_schema(conn):
             created_at  TEXT NOT NULL,
             alert       INTEGER NOT NULL DEFAULT 1,   -- 새 글 텔레그램 알림
             video_alert INTEGER NOT NULL DEFAULT 1,   -- 동영상 글 알림 (alert가 꺼져 있어도 동영상 글은 알림)
+            digest      INTEGER NOT NULL DEFAULT 0,   -- 하루 요약 알림 (매일 DIGEST_HOUR에 전날 인기 글)
             UNIQUE (site, name)
         );
         CREATE TABLE IF NOT EXISTS keyword_group_members (
@@ -250,6 +252,9 @@ def _add_missing_columns(conn):
             conn.execute("ALTER TABLE read_posts ADD COLUMN first_read_at TEXT")
             conn.execute("UPDATE read_posts SET first_read_at = read_at")
         log_msg("[DB] read_posts.first_read_at 컬럼 추가")
+    if 'checked_at' not in {row['name'] for row in conn.execute("PRAGMA table_info(saved_posts)")}:
+        conn.execute("ALTER TABLE saved_posts ADD COLUMN checked_at TEXT")
+        log_msg("[DB] saved_posts.checked_at 컬럼 추가")
     if 'paused' not in {row['name'] for row in conn.execute("PRAGMA table_info(keywords)")}:
         conn.execute("ALTER TABLE keywords ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")
         log_msg("[DB] keywords.paused 컬럼 추가")
@@ -268,6 +273,9 @@ def _add_missing_columns(conn):
         log_msg("[DB] 게시판별 알림 설정 컬럼 추가")
     if 'site' not in {row['name'] for row in conn.execute("PRAGMA table_info(keyword_groups)")}:
         _add_group_site(conn)
+    if 'digest' not in {row['name'] for row in conn.execute("PRAGMA table_info(keyword_groups)")}:
+        conn.execute("ALTER TABLE keyword_groups ADD COLUMN digest INTEGER NOT NULL DEFAULT 0")
+        log_msg("[DB] keyword_groups.digest 컬럼 추가")
 
 def _add_group_site(conn):
     """게시판에 사이트 칸을 넣고 이름 중복 규칙을 '사이트 안에서만'으로 바꿈. SQLite는 기존 UNIQUE를 고칠 수 없어
@@ -627,7 +635,7 @@ def list_groups(id_limit=500):
     """게시판 목록: 등록 키워드, 알림 설정, 중복 제거한 글 수, 안 읽은 새 글 수·ID, 최신 글 날짜"""
     groups = []
     with _db() as conn:
-        for g in conn.execute("SELECT id, site, name, alert, video_alert FROM keyword_groups ORDER BY id").fetchall():
+        for g in conn.execute("SELECT id, site, name, alert, video_alert, digest FROM keyword_groups ORDER BY id").fetchall():
             members = [dict(board=r['board'], keyword=r['keyword'], paused=bool(r['paused']),
                             ignores=_keyword_ignores(conn, r['board'], r['keyword']))
                        for r in conn.execute("""
@@ -637,41 +645,49 @@ def list_groups(id_limit=500):
             """, (g['id'],)).fetchall()]
             # 게시판은 한 사이트의 키워드만 담음 (save_group에서 검사). 사이드바에서 사이트별로 묶어 보여줌
             groups.append({'id': g['id'], 'name': g['name'], 'site': g['site'], 'members': members,
-                           'alert': bool(g['alert']), 'video_alert': bool(g['video_alert']),
+                           'alert': bool(g['alert']), 'video_alert': bool(g['video_alert']), 'digest': bool(g['digest']),
                            **_feed_summary(conn, id_limit, g['id'])})
     return groups
 
-def save_group(group_id, name, members):
+def _site_label(labels, site):
+    return '여러 사이트' if site == MULTI_SITE else labels[site]['name']
+
+def save_group(group_id, name, members, merge_ids=()):
     """게시판 생성(group_id=None) 또는 수정. 새 키워드는 수집 대상으로 등록하고,
     어느 게시판에도 남지 않은 키워드는 수집 데이터와 함께 삭제. (게시판 ID, 삭제된 키워드 목록) 반환.
     member에 ignores(무시할 표현 목록)가 있으면 그 키워드의 표현을 바꿈 (키워드에 붙으므로 같은 키워드를 쓰는 게시판 모두에 적용).
     paused가 있으면 그 키워드의 일시정지를 바꿈 (마찬가지로 같은 키워드를 쓰는 게시판 모두에 적용).
-    게시판의 사이트는 등록한 키워드의 사이트이며, 이름은 같은 사이트 안에서만 겹치지 않으면 됨.
+    게시판의 사이트는 등록한 키워드의 사이트(여러 사이트면 MULTI_SITE)이며, 이름은 같은 사이트 안에서만 겹치지 않으면 됨.
+    merge_ids의 게시판은 저장한 뒤 지움 (그 게시판의 키워드를 이 게시판으로 옮겨 합칠 때, 알림 설정은 이 게시판 것).
     이름 중복 등은 ValueError"""
     pairs = list(dict.fromkeys((m['board'], m['keyword']) for m in members))
     if not pairs:
         raise ValueError('키워드를 하나 이상 등록해 주세요.')
     labels = site_labels()
     sites = {board_site(b) for b, _ in pairs}
-    if len(sites) > 1:
-        raise ValueError('한 게시판에는 한 사이트(' + '·'.join(v['name'] for v in labels.values()) + ')의 키워드만 등록할 수 있습니다.')
-    site = sites.pop()
+    site = sites.pop() if len(sites) == 1 else MULTI_SITE
+    merge_ids = [i for i in dict.fromkeys(merge_ids) if i != group_id]
     with _db() as conn, conn:
-        if group_id is not None:
-            row = conn.execute("SELECT site FROM keyword_groups WHERE id = ?", (group_id,)).fetchone()
-            if not row:
-                raise ValueError('존재하지 않는 게시판입니다.')
-            if row['site'] != site:
-                raise ValueError(f"이 게시판은 {labels[row['site']]['name']} 게시판이라 다른 사이트의 키워드로 바꿀 수 없습니다.")
-        clash = conn.execute("SELECT id FROM keyword_groups WHERE site = ? AND name = ? AND id != ?",
-                             (site, name, group_id or -1)).fetchone()
+        if group_id is not None and not conn.execute("SELECT 1 FROM keyword_groups WHERE id = ?", (group_id,)).fetchone():
+            raise ValueError('존재하지 않는 게시판입니다.')
+        for merge_id in merge_ids:
+            if not conn.execute("SELECT 1 FROM keyword_groups WHERE id = ?", (merge_id,)).fetchone():
+                raise ValueError('합칠 게시판이 없습니다.')
+        # 합쳐서 지울 게시판과는 이름이 같아도 됨 (FM 싼타페 + DC 싼타페 → 싼타페)
+        clash = conn.execute(f"""
+            SELECT id FROM keyword_groups WHERE site = ? AND name = ? AND id != ?
+            {f"AND id NOT IN ({','.join('?' * len(merge_ids))})" if merge_ids else ''}
+        """, (site, name, group_id or -1, *merge_ids)).fetchone()
         if clash:
-            raise ValueError(f"{labels[site]['name']}에 같은 이름의 게시판이 이미 있습니다.")
+            raise ValueError(f"{_site_label(labels, site)}에 같은 이름의 게시판이 이미 있습니다.")
+        for merge_id in merge_ids:
+            conn.execute("DELETE FROM keyword_group_members WHERE group_id = ?", (merge_id,))
+            conn.execute("DELETE FROM keyword_groups WHERE id = ?", (merge_id,))
         if group_id is None:
             group_id = conn.execute("INSERT INTO keyword_groups(site, name, created_at) VALUES(?, ?, ?)",
                                     (site, name, _now())).lastrowid
         else:
-            conn.execute("UPDATE keyword_groups SET name = ? WHERE id = ?", (name, group_id))
+            conn.execute("UPDATE keyword_groups SET site = ?, name = ? WHERE id = ?", (site, name, group_id))
             conn.execute("DELETE FROM keyword_group_members WHERE group_id = ?", (group_id,))
         conn.executemany("INSERT OR IGNORE INTO keywords(board, keyword) VALUES(?, ?)", pairs)
         conn.executemany("INSERT OR IGNORE INTO keyword_group_members(group_id, board, keyword) VALUES(?, ?, ?)",
@@ -714,8 +730,8 @@ def load_alert_targets():
     return targets
 
 def set_group_alert(group_id, alert_type, enabled):
-    """게시판 알림 켜기·끄기. 게시판 이름 반환, 없는 게시판이면 None"""
-    if alert_type not in ('alert', 'video_alert'):
+    """게시판 알림(전체·동영상·하루 요약) 켜기·끄기. 게시판 이름 반환, 없는 게시판이면 None"""
+    if alert_type not in ('alert', 'video_alert', 'digest'):
         raise ValueError(f"지원하지 않는 알림 종류: {alert_type}")
     with _db() as conn, conn:
         row = conn.execute("SELECT name FROM keyword_groups WHERE id = ?", (group_id,)).fetchone()
@@ -723,6 +739,46 @@ def set_group_alert(group_id, alert_type, enabled):
             return None
         conn.execute(f"UPDATE keyword_groups SET {alert_type} = ? WHERE id = ?", (int(bool(enabled)), group_id))
         return row['name']
+
+SAVED_COMMENT_ALERT_META = 'saved_comment_alert'
+
+def saved_comment_alert():
+    """보관한 글에 새 댓글이 달리면 텔레그램으로 알릴지 (기본 켬)"""
+    with _db() as conn:
+        return _get_meta(conn, SAVED_COMMENT_ALERT_META) != '0'
+
+def set_saved_comment_alert(enabled):
+    with _db() as conn, conn:
+        _set_meta(conn, SAVED_COMMENT_ALERT_META, '1' if enabled else '0')
+
+def digest_groups():
+    """하루 요약을 켠 게시판 [{'id', 'name'}]"""
+    with _db() as conn:
+        return [dict(r) for r in conn.execute("SELECT id, name FROM keyword_groups WHERE digest = 1 ORDER BY id")]
+
+def digest_posts(group_id, since, limit=5):
+    """게시판에 since 이후 새로 모인 글 수와, 그중 추천·댓글이 많은 글 limit개 (원문이 삭제된 글 제외)"""
+    base, params = _feed_from(group_id)
+    with _db() as conn:
+        rows = conn.execute(f"""
+            SELECT p.id, p.title, p.link, p.votes, p.comment_count, p.views
+            {base} JOIN posts p ON p.id = kp.post_id
+            WHERE kp.is_new = 1 AND kp.matched_at >= ? AND p.is_deleted = 0
+            GROUP BY p.id
+        """, params + (since,)).fetchall()
+    def score(r):
+        num = lambda v: int(str(v or 0).replace(',', '')) if str(v or 0).replace(',', '').isdigit() else 0
+        return (num(r['votes']) + num(r['comment_count']), num(r['views']))
+    top = sorted(rows, key=score, reverse=True)[:limit]
+    return len(rows), [dict(r) for r in top]
+
+def get_meta(key):
+    with _db() as conn:
+        return _get_meta(conn, key)
+
+def set_meta(key, value):
+    with _db() as conn, conn:
+        _set_meta(conn, key, value)
 
 # ==========================================
 # 게시글
@@ -747,7 +803,8 @@ def _carry_comment_first_seen(old_comments, new_comments, now, old_all_pages=Tru
     """다시 수집한 댓글에 처음 수집된 시각(first_seen)을 이어붙임. 이전에 없던 댓글만 지금 시각이 됨
     (first_seen이 없는 예전 댓글은 '예전부터 있던 댓글'로 남겨 새 댓글로 표시되지 않게 함).
     첫 화면의 댓글 페이지만 저장하던 글(old_all_pages=False)을 처음으로 모든 페이지까지 읽었을 때, 다른 페이지(other_page)에서
-    처음 본 댓글은 원래 있던 댓글이므로 새 댓글로 표시하지 않음"""
+    처음 본 댓글은 원래 있던 댓글이므로 새 댓글로 표시하지 않음. 새 댓글로 표시한 댓글 목록을 돌려줌"""
+    added = []
     remaining = {}
     for c in old_comments:
         remaining.setdefault(_comment_key(c), []).append(c.get('first_seen'))
@@ -757,14 +814,18 @@ def _carry_comment_first_seen(old_comments, new_comments, now, old_all_pages=Tru
             c['first_seen'] = seen.pop(0)
         else:
             c['first_seen'] = None if c.get('other_page') and not old_all_pages else now
-    return new_comments
+            if c['first_seen']:
+                added.append(c)
+    return added
 
 def _upsert_post(conn, post):
+    """글 저장. 이미 있던 글이면 이번에 처음 본 댓글 목록을 돌려줌"""
     now = _now()
     existing = conn.execute("SELECT comments_json, all_comment_pages FROM posts WHERE id = ?", (str(post['id']),)).fetchone()
     comments = [dict(c) for c in post.get('comments', [])]
+    added = []
     if existing:
-        _carry_comment_first_seen(json.loads(existing['comments_json']), comments, now, bool(existing['all_comment_pages']))
+        added = _carry_comment_first_seen(json.loads(existing['comments_json']), comments, now, bool(existing['all_comment_pages']))
     else:
         for c in comments:
             c.setdefault('first_seen', now)
@@ -795,6 +856,7 @@ def _upsert_post(conn, post):
         _search_text(dict(post, comments=comments)),
         now, now
     ))
+    return added
 
 def _link_keyword_post(conn, board, keyword, post_id, is_new):
     conn.execute(
@@ -841,9 +903,30 @@ def fill_keyword_posts(board, keyword, ordered_ids, new_posts):
                          (board, keyword, post_id, is_new, matched_at))
 
 def update_post(post):
-    """동기화로 갱신된 글 내용(조회수·댓글 등)을 저장"""
+    """동기화로 갱신된 글 내용(조회수·댓글 등)을 저장하고 이번에 처음 본 댓글 목록을 돌려줌"""
     with _db() as conn, conn:
-        _upsert_post(conn, post)
+        return _upsert_post(conn, post)
+
+def is_post_saved(post_id):
+    with _db() as conn:
+        return conn.execute("SELECT 1 FROM saved_posts WHERE post_id = ?", (str(post_id),)).fetchone() is not None
+
+def saved_posts_to_check(minutes, exclude_ids, limit):
+    """새 댓글을 확인할 보관한 글: 원문이 남아 있고, 마지막 확인이 minutes분 넘게 지났고, exclude_ids(키워드 목록으로 이미
+    감시하는 글)가 아닌 글을 오래 확인 안 한 순으로 limit개. 상세 페이지를 여는 데 필요한 칸만"""
+    cutoff = (datetime.now() - timedelta(minutes=minutes)).strftime('%Y-%m-%d %H:%M:%S')
+    with _db() as conn:
+        rows = conn.execute("""
+            SELECT p.id, p.title, p.author, p.date, p.link, p.list_comment_count FROM saved_posts sp
+            JOIN posts p ON p.id = sp.post_id
+            WHERE p.is_deleted = 0 AND (sp.checked_at IS NULL OR sp.checked_at < ?)
+            ORDER BY COALESCE(sp.checked_at, '') , sp.saved_at
+        """, (cutoff,)).fetchall()
+    return [dict(r) for r in rows if r['id'] not in exclude_ids][:limit]
+
+def mark_saved_checked(post_id):
+    with _db() as conn, conn:
+        conn.execute("UPDATE saved_posts SET checked_at = ? WHERE post_id = ?", (_now(), str(post_id)))
 
 def update_list_stats(post_id, views=None, votes=None, list_comment_count=None):
     """상세 페이지를 열지 않고 목록 페이지 값(조회·추천·목록 댓글 수)만 반영. None인 값은 유지"""

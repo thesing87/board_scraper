@@ -103,6 +103,11 @@ RUN_WEB_SERVER = os.environ.get('RUN_WEB_SERVER', '1').strip() != '0'
 # 수집기가 이 시간(분) 넘게 키워드 확인도 다음 주기도 진행하지 않으면 웹서버가 텔레그램으로 알림 (0이면 안 함)
 COLLECTOR_STALL_MINUTES = int(os.environ.get('COLLECTOR_STALL_MINUTES', 10))
 
+# 하루 요약 알림을 보내는 시각(시). 이 시각이 지난 뒤 첫 주기에 그날 요약을 한 번 보냄 (게시판별로 켬)
+DIGEST_HOUR = int(os.environ.get('DIGEST_HOUR', 8))
+# 보관한 글 중 키워드 목록 감시 범위(최근 20개)를 벗어난 글은 이 간격(분)마다 다시 열어 새 댓글 확인
+SAVED_CHECK_MINUTES = int(os.environ.get('SAVED_CHECK_MINUTES', 30))
+
 # 대시보드 웹서버 포트. NAS에서는 웹서버 컨테이너가 NAS 네트워크를 직접 써서(docker-compose.yml) 8082
 WEB_PORT = int(os.environ.get('WEB_PORT', 8081))
 

@@ -83,16 +83,14 @@ assert comments[0]['content'] == ['투싼 인스퍼레이션', '살 바에는'] 
 assert comments[2]['content'] == ['(디시콘)']
 print('COMMENTS OK')
 
-# --- 5) 게시판에는 한 사이트의 키워드만, 게시판 목록에 사이트 표시
+# --- 5) 여러 사이트의 키워드를 담은 게시판은 사이트가 'multi', 게시판 목록에 사이트 표시
 storage.init_db()
 storage.add_category('dc:car_new1')
 storage.set_category_checked('dc:car_new1', True, page_name='자동차 갤러리')
 assert next(c for c in storage.list_categories() if c['key'] == 'dc:car_new1')['site'] == 'dcinside'
-try:
-    storage.save_group(None, '섞인 게시판', [{'board': 'car', 'keyword': '싼타페'}, {'board': 'dc:car_new1', 'keyword': '싼타페'}])
-    raise AssertionError('사이트가 섞인 게시판이 저장됨')
-except ValueError as e:
-    assert '한 사이트' in str(e), e
+mixed_id, _ = storage.save_group(None, '섞인 게시판', [{'board': 'car', 'keyword': '싼타페'}, {'board': 'dc:car_new1', 'keyword': '싼타페'}])
+assert next(g for g in storage.list_groups() if g['id'] == mixed_id)['site'] == 'multi'
+storage.delete_group(mixed_id)
 dc_id, _ = storage.save_group(None, '디시 싼타페', [{'board': 'dc:car_new1', 'keyword': '싼타페'}])
 fm_id, _ = storage.save_group(None, '에펨 싼타페', [{'board': 'car', 'keyword': '싼타페'}])
 sites_by_name = {g['name']: g['site'] for g in storage.list_groups()}
@@ -141,7 +139,7 @@ same = sorted((g['site'], g['id']) for g in storage.list_groups() if g['name'] =
 assert same == sorted([('fmkorea', fm_santafe), ('dcinside', dc_id)]), same
 for group_id, members, message in [
         (None, [{'board': 'dc:car_new1', 'keyword': '투싼'}], '디시인사이드에 같은 이름'),       # 같은 사이트 안에서는 중복 불가
-        (dc_id, [{'board': 'car', 'keyword': '싼타페'}], '다른 사이트의 키워드로')]:            # 게시판의 사이트는 바꿀 수 없음
+        (dc_id, [{'board': 'car', 'keyword': '싼타페'}], '에펨코리아에 같은 이름')]:            # 사이트를 바꾸면 그 사이트 안에서 중복 검사
     try:
         storage.save_group(group_id, '싼타페', members)
         raise AssertionError(f'저장되면 안 됨: {message}')

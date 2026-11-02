@@ -3,7 +3,7 @@ import time
 import sys
 import threading
 import traceback
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from selenium.webdriver import Chrome
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -19,6 +19,9 @@ from config import (
     BACKUP_DIR,
     CHROME_RESTART_CYCLES,
     WEB_PORT,
+    DIGEST_HOUR,
+    SAVED_CHECK_MINUTES,
+    LIST_PAGE_SIZE,
     RUN_WEB_SERVER,
     IS_LINUX
 )
@@ -51,10 +54,19 @@ from storage import (
     mark_first_page_filled,
     fill_keyword_posts,
     mark_blocked_imagecons_refetched,
-    site_labels
+    site_labels,
+    recent_post_ids,
+    is_post_saved,
+    saved_posts_to_check,
+    mark_saved_checked,
+    saved_comment_alert,
+    digest_groups,
+    digest_posts,
+    get_meta,
+    set_meta
 )
 from images import remove_orphan_image_dirs
-from notifier import send_telegram_message, send_post_alert
+from notifier import send_telegram_message, send_post_alert, send_comment_alert, send_digest
 from scraper import parse_count, BlockedError
 # 목록·상세·게시판 확인은 카테고리(글)의 사이트에 맞는 수집기(에펨코리아·디시인사이드)로
 from sites import (
@@ -75,6 +87,10 @@ HEARTBEAT_SECONDS = 3600
 DELETION_CHECKS_PER_KEYWORD = 3
 # 키워드마다 기억해 두는 거른 글 수 (검색 목록 첫 페이지보다 넉넉하게. 더 오래된 기록은 하루 한 번 정리)
 REJECTED_KEEP_PER_KEYWORD = 300
+# 키워드 목록 감시 범위를 벗어난 보관한 글을 한 주기에 다시 여는 최대 개수 (SAVED_CHECK_MINUTES마다 한 번씩 돌아가며)
+SAVED_CHECKS_PER_CYCLE = 3
+# 하루 요약을 마지막으로 보낸 날짜 (meta)
+DIGEST_DATE_META = 'digest_date'
 # 차단이 의심되면 대기 시간을 주기 x 2, x 4, x 8 ... 로 늘리되 이 값을 넘기지 않음
 BACKOFF_MAX_SECONDS = 3600
 
@@ -157,7 +173,7 @@ def sync_existing_posts(driver, target, list_posts, board_data, stats, verified_
                     log_msg(f"[삭제] {target} #{old['id']} 원문 삭제됨 (보존 처리)")
                     continue
                 updated['list_comment_count'] = item['list_comment_count']
-                update_post(updated)
+                notify_saved_comments(updated, update_post(updated))
                 stats['updated'] += 1
                 log_msg(f"[갱신] {target} #{old['id']} 댓글 {prev}→{item['list_comment_count']}, 추천 {updated['votes']}"
                         + (" (제목 수정됨)" if title_changed else ""), "DEBUG")
@@ -191,6 +207,67 @@ def sync_existing_posts(driver, target, list_posts, board_data, stats, verified_
         except Exception as check_ex:
             stats['errors'] += 1
             log_msg(f"[오류] {target} #{old['id']} 삭제 확인 실패: {short_err(check_ex)}", "WARN")
+
+def post_urls(post):
+    """알림 버튼에 넣을 (대시보드에서 그 글을 여는 주소, 원문 주소). 대시보드 주소(DDNS_URL)가 없으면 빈 값"""
+    base_url = (DDNS_URL or "").strip()
+    if base_url and not base_url.startswith(("http://", "https://")):
+        base_url = f"http://{base_url}"
+    board_post_url = f"{base_url}#post-{post['id']}" if base_url else ""
+    original_post_url = (post.get('link') or "").strip()
+    # 디시 글 주소는 수집할 때부터 전체 주소. 에펨코리아는 상대 주소일 수 있어 보정
+    if original_post_url and not original_post_url.startswith(("http://", "https://")):
+        original_post_url = f"https://www.fmkorea.com{original_post_url if original_post_url.startswith('/') else '/' + original_post_url}"
+    return board_post_url, original_post_url
+
+def notify_saved_comments(post, new_comments):
+    """보관한 글에 새 댓글이 달렸으면 텔레그램으로 알림 (관리 화면에서 끌 수 있음)"""
+    if not new_comments or not is_post_saved(post['id']):
+        return
+    if not saved_comment_alert():
+        log_msg(f"[새 댓글] 보관한 글 #{post['id']} 새 댓글 {len(new_comments)}개 → 알림 꺼짐", "DEBUG")
+        return
+    log_msg(f"[새 댓글] 보관한 글 #{post['id']} {short_title(post.get('title'))} 새 댓글 {len(new_comments)}개 → 알림 발송")
+    send_comment_alert(post, new_comments, *post_urls(post))
+
+def check_saved_posts(driver, stats):
+    """보관한 글 중 키워드 목록으로 감시하지 않는(키워드별 최근 글 범위를 벗어난) 글을 SAVED_CHECK_MINUTES마다 다시 열어
+    새 댓글을 반영. 한 주기에 SAVED_CHECKS_PER_CYCLE개까지만 (오래 확인 안 한 글부터)"""
+    for post in saved_posts_to_check(SAVED_CHECK_MINUTES, recent_post_ids(LIST_PAGE_SIZE), SAVED_CHECKS_PER_CYCLE):
+        try:
+            stats['details'] += 1
+            updated = scrape_post_detail(driver, post)
+            if updated is None:
+                mark_post_deleted(post['id'])
+                stats['deleted'] += 1
+                log_msg(f"[삭제] 보관한 글 #{post['id']} 원문 삭제됨 (보존 처리)")
+                continue
+            new_comments = update_post(updated)
+            log_msg(f"[보관함] #{post['id']} 확인: 새 댓글 {len(new_comments)}개", "DEBUG")
+            notify_saved_comments(updated, new_comments)
+        except Exception as e:
+            stats['errors'] += 1
+            log_msg(f"[오류] 보관한 글 #{post['id']} 확인 실패: {short_err(e)}", "WARN")
+        finally:
+            # 실패해도 확인한 것으로 기록해 같은 글만 매 주기 다시 열지 않음
+            mark_saved_checked(post['id'])
+
+def send_daily_digests():
+    """하루 한 번 DIGEST_HOUR가 지난 뒤 하루 요약을 켠 게시판마다 최근 24시간 새 글 중 추천·댓글이 많은 글을 알림.
+    보낼 글이 없는 게시판은 건너뜀"""
+    today = date.today().isoformat()
+    if datetime.now().hour < DIGEST_HOUR or get_meta(DIGEST_DATE_META) == today:
+        return
+    # 먼저 기록해 발송 실패로 매 주기 다시 보내지 않게 함
+    set_meta(DIGEST_DATE_META, today)
+    since = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+    for group in digest_groups():
+        total, posts = digest_posts(group['id'], since)
+        if not posts:
+            log_msg(f"[요약] {group['name']} 최근 24시간 새 글 없음 → 생략", "DEBUG")
+            continue
+        sent = send_digest(group['name'], total, posts, lambda p: post_urls(p)[0] or post_urls(p)[1])
+        log_msg(f"[요약] {group['name']} 하루 요약 {'발송' if sent else '발송 실패'} (새 글 {total}개 중 {len(posts)}개)")
 
 def restart_driver(driver):
     """오래 띄워 둔 크롬은 메모리가 계속 불어나므로 주기적으로 새로 띄움"""
@@ -521,17 +598,7 @@ def main():
                             log_msg(f"[새 글] {target} #{post_data['id']} {short_title(post_data['title'])}{' (동영상)' if has_video else ''} → {alert_result}")
 
                             if should_send_alert:
-                                base_url = (DDNS_URL or "").strip()
-                                if base_url and not base_url.startswith(("http://", "https://")):
-                                    base_url = f"http://{base_url}"
-
-                                board_post_url = f"{base_url}#post-{post_data['id']}" if base_url else ""
-                                original_post_url = (post_data.get('link') or "").strip()
-                                # 디시 글 주소는 수집할 때부터 전체 주소. 에펨코리아는 상대 주소일 수 있어 보정
-                                if original_post_url and not original_post_url.startswith(("http://", "https://")):
-                                    original_post_url = f"https://www.fmkorea.com{original_post_url if original_post_url.startswith('/') else '/' + original_post_url}"
-
-                                send_post_alert(post_data, alert_boards, keyword, board_name, board_post_url, original_post_url)
+                                send_post_alert(post_data, alert_boards, keyword, board_name, *post_urls(post_data))
                         except Exception as deep_ex:
                             stats['errors'] += 1
                             log_msg(f"[오류] {target} #{post_info['id']} 새 글 수집 실패: {short_err(deep_ex)}", "WARN")
@@ -569,6 +636,7 @@ def main():
             # 새로 추가한 카테고리는 차단 의심이 없는 주기에만 확인 (차단 화면을 잘못된 게시판으로 오판하지 않도록)
             if not blocked_reason:
                 verify_pending_categories(driver)
+                check_saved_posts(driver, stats)
             release_chrome_memory(driver)
 
             cycles_since_chrome += 1
@@ -581,6 +649,10 @@ def main():
             if maintenance_date != date.today():
                 maintenance_date = date.today()
                 run_daily_maintenance()
+            try:
+                send_daily_digests()
+            except Exception as e:
+                log_msg(f"[요약] 하루 요약 실패: {short_err(e)}", "ERROR")
 
             heartbeat['cycles'] += 1
             heartbeat['new'] += stats['new']

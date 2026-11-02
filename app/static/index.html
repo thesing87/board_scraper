@@ -120,7 +120,7 @@
 
                 <section class="settings-card">
                     <span class="settings-label" id="group-form-title">게시판 만들기</span>
-                    <span class="settings-hint">게시판에 키워드를 등록하면 그 키워드들의 글을 중복 없이 모아 보여줍니다.</span>
+                    <span class="settings-hint">게시판에 키워드를 등록하면 그 키워드들의 글을 중복 없이 모아 보여줍니다. 에펨코리아와 디시인사이드 키워드를 한 게시판에 함께 담을 수도 있습니다.</span>
                     <input id="group-name-input" class="input" placeholder="게시판 이름 (예: 싼타페)" maxlength="30" aria-label="게시판 이름">
                     <div class="add-row">
                         <select id="group-board-select" class="input select" aria-label="카테고리"></select>
@@ -136,6 +136,14 @@
                         <button class="btn btn-outline" data-action="add-draft-ignore">추가</button>
                     </div>
                     <div class="keyword-tags" id="group-ignores" aria-label="무시할 표현"></div>
+                    <div class="merge-box" id="group-merge-row" hidden>
+                        <span class="settings-hint">다른 게시판 합치기: 고른 게시판의 키워드를 이 게시판으로 옮기고, 저장하면 그 게시판은 지웁니다. 모은 글은 그대로 남습니다. (예: FM 싼타페 + DC 싼타페)</span>
+                        <div class="add-row">
+                            <select id="group-merge-select" class="input select" aria-label="합칠 게시판"></select>
+                            <button class="btn btn-outline" data-action="add-draft-merge">합치기</button>
+                        </div>
+                        <span class="settings-hint merge-note" id="group-merge-note"></span>
+                    </div>
                     <div class="group-form-actions">
                         <button class="btn btn-primary" data-action="save-group" id="group-save-btn">만들기</button>
                         <button class="btn btn-outline" data-action="cancel-group-edit" id="group-cancel-btn" hidden>취소</button>
@@ -162,7 +170,7 @@
                 <section class="settings-card">
                     <div class="alert-head">
                         <span class="settings-label">텔레그램 알림</span>
-                        <span class="alert-cols"><span>전체</span><span>동영상</span></span>
+                        <span class="alert-cols"><span>전체</span><span>동영상</span><span>요약</span></span>
                     </div>
                     <div id="settings-alerts"></div>
                 </section>

@@ -31,6 +31,7 @@ const app = {
     renderedTotal: null,  // 현재 화면을 그릴 때의 글 수 (새 글 배너 계산용)
     readQueue: new Set(), // 서버에 보낼 읽음 기록
     readFlushTimer: null,
+    mergeDraft: [],       // 게시판 수정 중 합치려고 고른 다른 게시판 ID (저장하면 지워짐)
     loadingCount: 0       // 진행 중인 화면 요청 수 (상단 진행 막대 표시용)
 };
 
@@ -70,14 +71,29 @@ function siteTag(site) {
     return `<span class="site-tag site-${site in SITES ? site : 'fmkorea'}" title="${info.name}">${info.short}</span>`;
 }
 function boardSite(board) { return String(board).startsWith('dc:') ? 'dcinside' : 'fmkorea'; }
-// 게시판을 사이트 순서(에펨코리아 → 디시인사이드)로 묶음: [[site, [group, ...]], ...] (게시판이 있는 사이트만)
+// 여러 사이트의 키워드를 함께 담은 게시판 (sites.py MULTI_SITE). 사이드바·칩에서는 사이트 묶음 앞에 따로 둠
+const MULTI_SITE = 'multi';
+function isMultiGroup(group) { return group.site === MULTI_SITE; }
+function groupShort(group) {
+    return isMultiGroup(group) ? Object.values(SITES).map(s => s.short).join('·') : siteLabel(group.site).short;
+}
+// 게시판 이름 앞 사이트 표시 (여러 사이트 게시판은 FM·DC)
+function groupTag(group) {
+    return isMultiGroup(group)
+        ? `<span class="site-tag site-multi" title="여러 사이트">${esc(groupShort(group))}</span>`
+        : siteTag(group.site);
+}
+// 게시판을 사이트 순서(에펨코리아 → 디시인사이드)로 묶음: [[site, [group, ...]], ...] (게시판이 있는 사이트만, 여러 사이트 게시판 제외)
 function groupsBySite(groups) {
     return Object.keys(SITES)
         .map(site => [site, groups.filter(g => (g.site || 'fmkorea') === site)])
         .filter(([, list]) => list.length);
 }
 // 게시판이 두 사이트 이상에 걸쳐 있는지 (사이트 표시를 붙일지)
-function multiSite() { return !!app.state && groupsBySite(app.state.groups || []).length > 1; }
+function multiSite() {
+    const groups = app.state ? app.state.groups || [] : [];
+    return groupsBySite(groups).length > 1 || groups.some(isMultiGroup);
+}
 // 원문 주소: 대시보드에서 찾지 못한 글(텔레그램 링크)은 사이트의 원문으로
 function originalUrl(postId) {
     const dc = /^dc-([a-z0-9_]+)-(\d+)$/.exec(postId);
@@ -323,14 +339,15 @@ function renderNavigation() {
     // 고른 게시판 안을 걸러 보는 보기는 상단 바 가운데 보기 탭(view-bar-tabs)
     // 게시판이 두 사이트 이상에 걸쳐 있으면 사이트별로 묶어 제목(FM·DC 표시)을 붙임. '전체'는 모든 사이트를 합친 피드
     const bySite = groupsBySite(groups);
-    const groupItem = g => navItem(esc(g.name), '', g.unread_count, isActive(g),
+    const multiGroups = groups.filter(isMultiGroup);
+    const groupItem = g => navItem((isMultiGroup(g) ? groupTag(g) : '') + esc(g.name), '', g.unread_count, isActive(g),
         `data-action="open-group" data-group-id="${g.id}"`, g.comment_count);
     // 접힌 사이트는 지금 보고 있는 게시판만 남겨 어디를 보고 있는지 보이게 함
     const visibleGroups = (list, expanded) => expanded ? list : list.filter(isActive);
     const groupList = !groups.length
         ? '<span class="kw-group-name">게시판이 없습니다. 관리에서 만들어 주세요.</span>'
         : bySite.length > 1
-            ? bySite.map(([site, list]) => {
+            ? multiGroups.map(groupItem).join('') + bySite.map(([site, list]) => {
                 // 사이트마다 색 상자로 감싸고, 제목 줄(누르면 사이트 전체 게시판) 옆에 그 사이트의 안 읽은 새 글 수
                 // (게시판끼리 겹치는 글은 한 번만), 오른쪽 끝 화살표 칸은 접기·펼치기
                 const unread = (viewSummary(siteKey(site)) || {}).unread_count || 0;
@@ -376,7 +393,8 @@ function renderNavigation() {
             ${summary.unread_count > 0 ? '<span class="chip-dot" aria-label="안 읽은 새 글"></span>' : ''}
             ${summary.comment_count > 0 ? '<span class="chip-dot chip-dot-comments" aria-label="새 댓글"></span>' : ''}
         </button>`;
-    const groupChip = (g, site) => chip(esc(g.name), g, isActive(g), `data-action="open-group" data-group-id="${g.id}"`, site);
+    const groupChip = (g, site) => chip((isMultiGroup(g) ? groupTag(g) : '') + esc(g.name), g, isActive(g),
+        `data-action="open-group" data-group-id="${g.id}"`, site);
     // 사이트가 여러 개면 사이트마다 맨 앞에 사이트 칩을 둠: 이름 부분은 사이트 전체 게시판을 열고,
     // 오른쪽 아이콘 칸은 그 사이트의 게시판 칩을 펼치거나 접음 (접혀 있으면 지금 보는 게시판 칩만 남김)
     const siteChip = site => {
@@ -397,13 +415,13 @@ function renderNavigation() {
     document.getElementById('chip-row').innerHTML =
         chip('전체', app.state.all, allActive, 'data-action="open-all"') +
         (bySite.length > 1
-            ? bySite.map(([site, list]) => siteChip(site)
+            ? multiGroups.map(g => groupChip(g)).join('') + bySite.map(([site, list]) => siteChip(site)
                 + visibleGroups(list, isSiteExpanded('mobile', site)).map(g => groupChip(g, site)).join('')).join('')
             : groups.map(g => groupChip(g)).join(''));
 
     // 사이드바 하단 알림 요약 (게시판별)
     // 사이트가 여러 개면 같은 이름의 게시판(FM 싼타페·DC 싼타페)을 구분하도록 짧은 표시를 붙임
-    const summary = groups.map(g => `${multiSite() ? siteLabel(g.site).short + ' ' : ''}${g.name} · ${alertMode(g)}`);
+    const summary = groups.map(g => `${multiSite() ? groupShort(g) + ' ' : ''}${g.name} · ${alertMode(g)}`);
     document.getElementById('alert-summary').textContent = summary.length ? summary.join('\n') : '게시판이 없습니다.';
 }
 
@@ -426,7 +444,8 @@ function toggleSiteExpanded(scope, site) {
 }
 
 function alertMode(group) {
-    return group.alert ? '전체 알림' : (group.video_alert ? '동영상 글만' : '알림 꺼짐');
+    const mode = group.alert ? '전체 알림' : (group.video_alert ? '동영상 글만' : '알림 꺼짐');
+    return group.digest ? mode + ' · 하루 요약' : mode;
 }
 
 function scrollActiveChipIntoView() {
@@ -669,7 +688,10 @@ function feedSubText(total) {
     const unread = summary.unread_count;
     const group = findGroup(app.activeKey);
     const site = siteOfKey(app.activeKey);
-    const label = group ? `키워드 ${group.members.map(m => esc(m.keyword) + (m.paused ? ' (일시정지)' : '')).join(', ')}`
+    // 여러 사이트 게시판은 키워드마다 사이트를 붙여 구분 (FM 싼타페, DC 싼타페)
+    const memberLabel = m => (group && isMultiGroup(group) ? esc(siteLabel(boardSite(m.board)).short) + ' ' : '')
+        + esc(m.keyword) + (m.paused ? ' (일시정지)' : '');
+    const label = group ? `키워드 ${group.members.map(memberLabel).join(', ')}`
         : site ? `${esc(SITES[site].name)}의 모든 게시판` : '모든 게시판';
     if (app.filter === 'unread') return unread ? `${label} · 안 읽은 새 글 <strong>${unread}개</strong>` : '안 읽은 글을 모두 읽었습니다';
     if (app.filter === 'comments') return summary.comment_count
@@ -791,7 +813,7 @@ function renderFeed(data) {
 
     // 제목: 게시판 이름, '모든 글'이 아닌 보기는 뒤에 보기 이름
     const title = searching ? `검색: ${esc(app.searchQuery)}`
-        : (group ? (multiSite() ? siteTag(group.site) : '') + esc(group.name)
+        : (group ? (multiSite() ? groupTag(group) : '') + esc(group.name)
             : siteOfKey(app.activeKey) ? siteTag(siteOfKey(app.activeKey)) + esc(SITES[siteOfKey(app.activeKey)].name) : '전체')
           + (filter !== 'all' ? ` · ${filterLabel(filter)}` : '');
     const headActions = searching
@@ -1018,14 +1040,20 @@ function renderSettings() {
     renderCategorySettings();
 
     const groups = app.state.groups || [];
-    document.getElementById('settings-alerts').innerHTML = groups.length ? groups.map(g => `
+    document.getElementById('settings-alerts').innerHTML = (groups.length ? groups.map(g => `
         <div class="alert-row">
-            <span class="alert-row-name">${multiSite() ? siteTag(g.site) : ''}${esc(g.name)}</span>
+            <span class="alert-row-name">${multiSite() ? groupTag(g) : ''}${esc(g.name)}</span>
             <span class="alert-switches">
                 ${alertSwitch(g.id, 'alert', g.alert, g.name + ' 전체 알림')}
                 ${alertSwitch(g.id, 'video_alert', g.video_alert, g.name + ' 동영상 알림')}
+                ${alertSwitch(g.id, 'digest', g.digest, g.name + ' 하루 요약')}
             </span>
-        </div>`).join('') : '<span class="settings-hint">게시판을 만들면 게시판별로 알림을 설정할 수 있습니다.</span>';
+        </div>`).join('') : '<span class="settings-hint">게시판을 만들면 게시판별로 알림을 설정할 수 있습니다.</span>') + `
+        <span class="settings-hint alert-hint">하루 요약: 매일 ${app.state.digest_hour}시에 최근 24시간 새 글 중 추천·댓글이 많은 글 5개를 한 번에 보냅니다. 글이 많아 전체 알림을 꺼 둔 게시판에 알맞습니다.</span>
+        <div class="alert-row alert-row-saved">
+            <span class="alert-row-name">⭐ 보관한 글에 새 댓글</span>
+            <span class="alert-switches">${alertSwitch('', 'saved_comment', app.state.saved_comment_alert, '보관한 글 새 댓글 알림')}</span>
+        </div>`;
 }
 
 // ---------- 게시판 만들기·수정·삭제 (키워드는 게시판에 등록) ----------
@@ -1064,13 +1092,29 @@ function renderGroupSettings() {
             <button data-action="remove-draft-ignore" data-index="${idx}" data-phrase-index="${pIdx}" aria-label="${esc(m.keyword)} 키워드의 무시할 표현 ${esc(phrase)} 빼기">${ICONS.close}</button>
         </span>`)).join('');
 
+    // 다른 게시판 합치기 (수정 중일 때만): 고른 게시판의 키워드를 이 게시판으로 옮기고, 저장하면 그 게시판은 지움
+    const mergeRow = document.getElementById('group-merge-row');
+    mergeRow.hidden = !editing;
+    if (editing) {
+        const others = (app.state.groups || []).filter(g => g.id !== editing.id && !app.mergeDraft.includes(g.id));
+        const mergeSelect = document.getElementById('group-merge-select');
+        mergeSelect.innerHTML = others.length
+            ? others.map(g => `<option value="${g.id}">${esc(groupShort(g))} ${esc(g.name)}</option>`).join('')
+            : '<option value="">합칠 게시판 없음</option>';
+        mergeSelect.disabled = !others.length;
+        const merging = app.mergeDraft.map(id => (app.state.groups || []).find(g => g.id === id)).filter(Boolean);
+        document.getElementById('group-merge-note').textContent = merging.length
+            ? `저장하면 ${merging.map(g => `'${groupShort(g)} ${g.name}'`).join(', ')} 게시판을 이 게시판에 합치고 지웁니다. (알림 설정은 이 게시판 것을 씀)`
+            : '';
+    }
+
     const groups = app.state.groups || [];
-    const memberText = m => esc(m.keyword) + (m.paused ? ' (일시정지)' : '') + (m.ignores.length ? ` (무시: ${m.ignores.map(esc).join(', ')})` : '');
+    const memberText = (m, g) => (isMultiGroup(g) ? esc(siteLabel(boardSite(m.board)).short) + ' ' : '') + esc(m.keyword) + (m.paused ? ' (일시정지)' : '') + (m.ignores.length ? ` (무시: ${m.ignores.map(esc).join(', ')})` : '');
     document.getElementById('settings-groups').innerHTML = groups.length ? groups.map(g => `
         <div class="group-row">
             <div class="group-row-main">
-                <span class="group-row-name">${multiSite() ? siteTag(g.site) : ''}${esc(g.name)}</span>
-                <span class="group-row-members">${g.members.map(memberText).join(' · ') || '(키워드 없음)'} · ${g.total}개 글</span>
+                <span class="group-row-name">${multiSite() ? groupTag(g) : ''}${esc(g.name)}</span>
+                <span class="group-row-members">${g.members.map(m => memberText(m, g)).join(' · ') || '(키워드 없음)'} · ${g.total}개 글</span>
             </div>
             <button class="btn btn-outline btn-small" data-action="edit-group" data-group-id="${g.id}">수정</button>
             <button class="btn btn-outline btn-small btn-danger" data-action="delete-group" data-group-id="${g.id}">삭제</button>
@@ -1110,7 +1154,22 @@ function addDraftIgnore() {
     input.focus();
 }
 
+// 고른 게시판의 키워드를 지금 수정 중인 게시판에 넣고, 저장할 때 그 게시판을 지우도록 기억
+function addDraftMerge() {
+    const id = Number(document.getElementById('group-merge-select').value);
+    const source = (app.state.groups || []).find(g => g.id === id);
+    if (!source) return;
+    source.members.forEach(m => {
+        if (!app.groupDraft.some(d => d.board === m.board && d.keyword === m.keyword)) {
+            app.groupDraft.push({ board: m.board, keyword: m.keyword, paused: !!m.paused, ignores: m.ignores.slice() });
+        }
+    });
+    app.mergeDraft.push(id);
+    renderGroupSettings();
+}
+
 function resetGroupForm() {
+    app.mergeDraft = [];
     app.editingGroupId = null;
     app.groupDraft = undefined;
     app.groupNameDraft = undefined;
@@ -1119,12 +1178,14 @@ function resetGroupForm() {
     renderGroupSettings();
 }
 
-// 다른 게시판에 없는 키워드는 게시판에서 빠지면 수집을 멈추고 모은 글도 삭제됨
-function droppedKeywords(groupId, keepMembers) {
+// 다른 게시판에 없는 키워드는 게시판에서 빠지면 수집을 멈추고 모은 글도 삭제됨 (합쳐서 지울 게시판의 키워드도 포함)
+function droppedKeywords(groupId, keepMembers, mergeIds = []) {
     const keep = new Set(keepMembers.map(memberKey));
-    const others = new Set((app.state.groups || []).filter(g => g.id !== groupId).flatMap(g => g.members.map(memberKey)));
-    const group = (app.state.groups || []).find(g => g.id === groupId);
-    return group ? group.members.filter(m => !keep.has(memberKey(m)) && !others.has(memberKey(m))) : [];
+    const leaving = new Set([groupId, ...mergeIds]);
+    const others = new Set((app.state.groups || []).filter(g => !leaving.has(g.id)).flatMap(g => g.members.map(memberKey)));
+    const seen = new Set();
+    return (app.state.groups || []).filter(g => leaving.has(g.id)).flatMap(g => g.members)
+        .filter(m => !keep.has(memberKey(m)) && !others.has(memberKey(m)) && !seen.has(memberKey(m)) && seen.add(memberKey(m)));
 }
 
 async function saveGroup(button) {
@@ -1139,12 +1200,13 @@ async function saveGroup(button) {
     if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return; }
 
     const editingId = app.editingGroupId;
-    const dropped = editingId ? droppedKeywords(editingId, members) : [];
+    const mergeIds = editingId ? app.mergeDraft.slice() : [];
+    const dropped = editingId ? droppedKeywords(editingId, members, mergeIds) : [];
     if (dropped.length && !confirm(`뺀 키워드 ${dropped.map(m => m.keyword).join(', ')}는 수집을 멈추고 모은 글도 삭제됩니다. 저장할까요?`)) return;
     button.disabled = true;
     try {
         const data = await postJSON('/api/group', {
-            action: editingId ? 'update' : 'create', id: editingId, name: name, members: members, password: pwd
+            action: editingId ? 'update' : 'create', id: editingId, name: name, members: members, merge_ids: mergeIds, password: pwd
         });
         if (!data.success) { alert(data.message); return; }
         resetGroupForm();
@@ -1197,7 +1259,7 @@ function renderBoardSelect() {
     const select = document.getElementById('group-board-select');
     const prev = select.value;
     const boards = app.state.boards.filter(b => b.status !== 'invalid');
-    // 사이트가 여러 개면 이름 앞에 사이트를 붙임 (한 게시판에는 한 사이트의 키워드만 등록 가능)
+    // 사이트가 여러 개면 이름 앞에 사이트를 붙임 (한 게시판에 여러 사이트의 키워드를 함께 담을 수 있음)
     const sitePrefix = new Set(boards.map(b => b.site)).size > 1;
     select.innerHTML = boards.map(b =>
         `<option value="${esc(b.key)}">${sitePrefix ? `[${(SITES[b.site] || SITES.fmkorea).name}] ` : ''}${esc(b.name)}${b.status === 'pending' ? ' (확인 대기)' : ''}</option>`).join('');
@@ -1392,7 +1454,8 @@ async function toggleGroupAlert(checkbox) {
         const data = await postJSON('/api/toggle-alert', { group: groupId, type: type, enabled: target, password: pwd });
         const group = (app.state.groups || []).find(g => g.id === groupId);
         if (data.success) {
-            if (group) group[type] = target;
+            if (type === 'saved_comment') app.state.saved_comment_alert = target;
+            else if (group) group[type] = target;
             renderNavigation();
         } else {
             alert(data.message);
@@ -1551,7 +1614,10 @@ document.addEventListener('click', (e) => {
         openBoard('group:' + el.dataset.groupId);
     } else if (action === 'save-group') {
         saveGroup(el);
+    } else if (action === 'add-draft-merge') {
+        addDraftMerge();
     } else if (action === 'edit-group') {
+        app.mergeDraft = [];
         app.editingGroupId = Number(el.dataset.groupId);
         app.groupDraft = undefined;
         app.groupNameDraft = undefined;
