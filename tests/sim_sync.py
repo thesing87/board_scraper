@@ -52,7 +52,7 @@ def fake_list(driver, board, keyword, page=1):
                       'list_comment_count': lc, 'list_views': str(int(m.parse_count(p['views'])) + 5), 'list_votes': p['votes']})
     return items
 
-def fake_detail(driver, info):
+def fake_detail(driver, info, all_comment_pages=True):
     calls['detail'].append((calls['cycle'], info['id']))
     if info['id'] == DELETED:
         return None

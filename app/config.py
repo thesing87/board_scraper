@@ -74,6 +74,8 @@ BOARD_MAP = {
 }
 
 CHECK_INTERVAL = int(os.environ.get('CHECK_INTERVAL', 90))
+# 댓글이 여러 페이지인 글은 이 페이지 수까지 모두 열어 읽음 (넘으면 최신 쪽 페이지만). 페이지마다 요청이 하나씩 늘어남
+COMMENT_PAGE_LIMIT = max(1, int(os.environ.get('COMMENT_PAGE_LIMIT', 10)))
 # 검색 목록 1페이지의 글 수. 이 범위의 글은 매 주기 목록의 댓글 수로 변화를 감시함 (대시보드 '동기화중' 배지 기준)
 LIST_PAGE_SIZE = 20
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')

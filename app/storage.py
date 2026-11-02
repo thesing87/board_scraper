@@ -58,6 +58,7 @@ def _create_schema(conn):
             videos_json    TEXT NOT NULL DEFAULT '[]',
             comments_json  TEXT NOT NULL DEFAULT '[]',
             list_comment_count INTEGER,
+            all_comment_pages INTEGER NOT NULL DEFAULT 0,
             search_text    TEXT,
             is_deleted     INTEGER NOT NULL DEFAULT 0,
             created_at     TEXT NOT NULL,
@@ -225,6 +226,10 @@ def _add_missing_columns(conn):
         # 목록 페이지에 표시된 댓글 수. 이 값이 바뀐 글만 상세 페이지를 다시 열어 댓글을 갱신함
         conn.execute("ALTER TABLE posts ADD COLUMN list_comment_count INTEGER")
         log_msg("[DB] posts.list_comment_count 컬럼 추가")
+    if 'all_comment_pages' not in columns:
+        # 댓글이 여러 페이지인 글의 모든 페이지를 읽어 저장했는지 (_upsert_post 참고)
+        conn.execute("ALTER TABLE posts ADD COLUMN all_comment_pages INTEGER NOT NULL DEFAULT 0")
+        log_msg("[DB] posts.all_comment_pages 컬럼 추가")
     if 'search_text' not in columns:
         # 제목·본문·댓글의 태그를 뺀 텍스트 (대시보드 검색용)
         conn.execute("ALTER TABLE posts ADD COLUMN search_text TEXT")
@@ -726,36 +731,45 @@ def _search_text(post):
         parts.append(_plain_text(comment.get('content')))
     return ' '.join(' '.join(parts).split()).lower()
 
-def _carry_comment_first_seen(old_comments, new_comments, now):
+def _carry_comment_first_seen(old_comments, new_comments, now, old_all_pages=True):
     """다시 수집한 댓글에 처음 수집된 시각(first_seen)을 이어붙임. 이전에 없던 댓글만 지금 시각이 됨
-    (first_seen이 없는 예전 댓글은 '예전부터 있던 댓글'로 남겨 새 댓글로 표시되지 않게 함)"""
+    (first_seen이 없는 예전 댓글은 '예전부터 있던 댓글'로 남겨 새 댓글로 표시되지 않게 함).
+    첫 화면의 댓글 페이지만 저장하던 글(old_all_pages=False)을 처음으로 모든 페이지까지 읽었을 때, 다른 페이지(other_page)에서
+    처음 본 댓글은 원래 있던 댓글이므로 새 댓글로 표시하지 않음"""
     remaining = {}
     for c in old_comments:
         remaining.setdefault(_comment_key(c), []).append(c.get('first_seen'))
     for c in new_comments:
         seen = remaining.get(_comment_key(c))
-        c['first_seen'] = seen.pop(0) if seen else now
+        if seen:
+            c['first_seen'] = seen.pop(0)
+        else:
+            c['first_seen'] = None if c.get('other_page') and not old_all_pages else now
     return new_comments
 
 def _upsert_post(conn, post):
     now = _now()
-    existing = conn.execute("SELECT comments_json FROM posts WHERE id = ?", (str(post['id']),)).fetchone()
+    existing = conn.execute("SELECT comments_json, all_comment_pages FROM posts WHERE id = ?", (str(post['id']),)).fetchone()
     comments = [dict(c) for c in post.get('comments', [])]
     if existing:
-        _carry_comment_first_seen(json.loads(existing['comments_json']), comments, now)
+        _carry_comment_first_seen(json.loads(existing['comments_json']), comments, now, bool(existing['all_comment_pages']))
     else:
         for c in comments:
             c.setdefault('first_seen', now)
+    for c in comments:
+        c.pop('other_page', None)
     conn.execute("""
         INSERT INTO posts(id, title, author, date, views, votes, comment_count, link,
-                          content_json, videos_json, comments_json, list_comment_count, search_text, created_at, updated_at)
-        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                          content_json, videos_json, comments_json, list_comment_count, all_comment_pages,
+                          search_text, created_at, updated_at)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title, author = excluded.author, date = excluded.date,
             views = excluded.views, votes = excluded.votes, comment_count = excluded.comment_count,
             link = excluded.link, content_json = excluded.content_json, videos_json = excluded.videos_json,
             comments_json = excluded.comments_json,
             list_comment_count = COALESCE(excluded.list_comment_count, posts.list_comment_count),
+            all_comment_pages = 1,
             search_text = excluded.search_text,
             updated_at = excluded.updated_at
     """, (

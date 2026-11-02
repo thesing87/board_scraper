@@ -174,7 +174,7 @@ def sync_existing_posts(driver, target, list_posts, board_data, stats, verified_
     for old in missing[:DELETION_CHECKS_PER_KEYWORD]:
         try:
             stats['details'] += 1
-            if scrape_post_detail(driver, old) is None:
+            if scrape_post_detail(driver, old, all_comment_pages=False) is None:
                 mark_post_deleted(old['id'])
                 stats['deleted'] += 1
                 log_msg(f"[삭제] {target} #{old['id']} 원문 삭제됨 (보존 처리)")

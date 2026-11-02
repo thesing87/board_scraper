@@ -52,8 +52,9 @@ def _collector(site):
 def get_list_page_posts(driver, board, keyword, page=1):
     return _collector(board_site(board)).get_list_page_posts(driver, board, keyword, page)
 
-def scrape_post_detail(driver, post_info):
-    return _collector(post_site(post_info['id'])).scrape_post_detail(driver, post_info)
+def scrape_post_detail(driver, post_info, all_comment_pages=True):
+    """all_comment_pages=False면 첫 화면의 댓글 페이지만 읽음 (삭제 여부 확인처럼 댓글이 필요 없을 때)"""
+    return _collector(post_site(post_info['id'])).scrape_post_detail(driver, post_info, all_comment_pages)
 
 def check_board(driver, board):
     return _collector(board_site(board)).check_board(driver, board)

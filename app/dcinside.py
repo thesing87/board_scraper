@@ -14,7 +14,7 @@ from selenium.common.exceptions import UnexpectedAlertPresentException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from config import log_msg, short_err
+from config import log_msg, short_err, COMMENT_PAGE_LIMIT
 from images import save_post_image, clear_post_images, MAX_IMAGES_PER_POST
 from scraper import BlockedError, parse_count, content_lines, comment_lines
 from sites import dc_gallery, dc_post_id
@@ -137,22 +137,68 @@ def _comment(li, is_reply):
         'depth': 1 if is_reply else 0
     }
 
-def _parse_comments(soup):
-    """댓글 목록: 댓글(li.ub-content) 바로 뒤의 형제 li 안 .reply_list에 그 댓글의 답글이 들어 있음"""
-    comments = []
+def _parse_comments(soup, seen):
+    """(이미지 댓글, 댓글) 목록. 댓글(li.ub-content) 바로 뒤의 형제 li 안 .reply_list에 그 댓글의 답글이 들어 있음.
+    이미지 댓글 상자(.img_comment_box)는 댓글 페이지마다 똑같이 반복되므로 seen(이미 읽은 li id)으로 한 번만 넣음"""
+    pinned, comments = [], []
+
+    def add(li, is_reply):
+        li_id = li.get('id')
+        if li_id and li_id in seen:
+            return
+        item = _comment(li, is_reply)
+        if item:
+            if li_id:
+                seen.add(li_id)
+            (pinned if li.find_parent(class_='img_comment_box') else comments).append(item)
+
     for li in soup.select('.cmt_list > li'):
         classes = li.get('class') or []
         if 'ub-content' in classes:
             if 'dory' in classes:
                 continue
-            item = _comment(li, False)
-            if item:
-                comments.append(item)
+            add(li, False)
         for reply in li.select('.reply_list > li.ub-content'):
-            item = _comment(reply, True)
-            if item:
-                comments.append(item)
-    return comments
+            add(reply, True)
+    return pinned, comments
+
+def _comment_pages(soup):
+    """댓글 페이지 번호 줄에 보이는 가장 큰 페이지 번호 (페이지가 하나면 1)"""
+    paging = soup.select_one('.cmt_paging')
+    if not paging:
+        return 1
+    numbers = [int(n) for n in re.findall(r'viewComments\((\d+)', str(paging))]
+    current = paging.select_one('em')
+    if current:
+        numbers.append(parse_count(current.get_text()))
+    return max(numbers or [1])
+
+def _read_older_comment_pages(driver, soup, post_id, seen):
+    """댓글이 여러 페이지면 글을 열 때 1페이지(최신 댓글)만 보이므로, 2페이지부터 오래된 쪽 페이지를 열어
+    오래된 댓글부터 순서대로 반환. COMMENT_PAGE_LIMIT를 넘는 오래된 페이지는 읽지 않음.
+    여기서 처음 읽은 댓글은 other_page 표시 (storage._upsert_post 참고)"""
+    last = min(_comment_pages(soup), COMMENT_PAGE_LIMIT)
+    pages = []
+    page = 2
+    while page <= last:
+        # 페이지 번호 링크와 같은 함수를 불러 댓글 목록만 바꿈 (주소로는 댓글 페이지를 열 수 없음)
+        driver.execute_script("viewComments(arguments[0], 'D', false)", page)
+        try:
+            WebDriverWait(driver, 5).until(
+                lambda d: [e.text.strip() for e in d.find_elements(By.CSS_SELECTOR, '.cmt_paging em')][:1] == [str(page)])
+        except Exception:
+            # 일부 페이지만 저장하면 빠진 댓글이 다음에 새 댓글로 잡히므로 이번 갱신은 실패로 처리 (다음 주기에 재시도)
+            raise Exception(f"댓글 {page}페이지가 열리지 않음")
+        time.sleep(random.uniform(0.5, 1.2))
+        page_soup = BeautifulSoup(driver.page_source, 'html.parser')
+        _, page_comments = _parse_comments(page_soup, seen)
+        pages.append([dict(c, other_page=True) for c in page_comments])
+        # 페이지 번호 줄은 10개씩 보이므로 넘어갈 때마다 끝 페이지를 다시 셈
+        last = min(max(last, _comment_pages(page_soup)), COMMENT_PAGE_LIMIT)
+        page += 1
+    if pages:
+        log_msg(f"[수집] 상세 #{post_id}: 댓글 1~{len(pages) + 1}페이지 읽음", "DEBUG")
+    return [c for page_comments in reversed(pages) for c in page_comments]
 
 def _save_body_images(driver, post_id):
     """본문 이미지를 크롬이 받은 파일 그대로 꺼내(CDP Page.getResourceContent) 저장. {본문 img 순번: 대시보드 주소}.
@@ -185,7 +231,7 @@ def _save_body_images(driver, post_id):
             log_msg(f"[수집] #{post_id} 이미지 {index + 1} 저장 실패: {short_err(e)}", "DEBUG")
     return saved
 
-def scrape_post_detail(driver, post_info):
+def scrape_post_detail(driver, post_info, all_comment_pages=True):
     link = post_info['link']
     post_id = post_info['id']
     try:
@@ -251,7 +297,11 @@ def scrape_post_detail(driver, post_info):
             a_tag['style'] = LINK_STYLE
 
     paragraphs = content_lines(content_area)
-    comments = _parse_comments(soup)
+    seen = set()
+    pinned, comments = _parse_comments(soup, seen)
+    if all_comment_pages:
+        comments = _read_older_comment_pages(driver, soup, post_id, seen) + comments
+    comments = pinned + comments
 
     log_msg(f"[수집] 상세 #{post_id}: 이미지 {img_count}(저장 {len(saved)}), 동영상 {len(video_list)}, 댓글 {len(comments)}", "DEBUG")
     return {

@@ -75,7 +75,8 @@ COMMENT_HTML = """
   <span class="gall_writer ub-writer" data-nick="고닉" data-ip=""></span>
   <img class="written_dccon" src="https://dcimg5.dcinside.com/dccon.php?no=1"><span class="date_time">10.29 23:05:49</span></div></li>
 </ul>"""
-comments = dcinside._parse_comments(BeautifulSoup(COMMENT_HTML, 'html.parser'))
+pinned, comments = dcinside._parse_comments(BeautifulSoup(COMMENT_HTML, 'html.parser'), set())
+assert pinned == []
 assert [(c['author'], c['is_reply'], c['depth']) for c in comments] == [
     ('ㅇㅇ(58.29)', False, 0), ('차갤러1(223.39)', True, 1), ('고닉', False, 0)], comments
 assert comments[0]['content'] == ['투싼 인스퍼레이션', '살 바에는'] and comments[0]['date'] == '10.29 22:50:41'

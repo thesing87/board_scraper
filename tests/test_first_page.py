@@ -22,7 +22,7 @@ DELETED = '102'
 calls = []
 fail_on = set()
 
-def fake_detail(driver, info):
+def fake_detail(driver, info, all_comment_pages=True):
     calls.append(info['id'])
     if info['id'] in fail_on:
         raise RuntimeError('일시적 실패')

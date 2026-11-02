@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from config import log_msg
+from config import log_msg, COMMENT_PAGE_LIMIT
 from sanitize import sanitize_tree
 from embeds import convert_x_embeds, remove_duplicate_instagram_placeholders, is_sns_embed
 
@@ -165,7 +165,7 @@ def check_board(driver, board):
         return False, "목록 표에서 글을 읽지 못함"
     return True, board_title(page_title)
 
-def scrape_post_detail(driver, post_info):
+def scrape_post_detail(driver, post_info, all_comment_pages=True):
     link = post_info['link']
     title = post_info['title']
     author = post_info['author']
@@ -314,7 +314,55 @@ def scrape_post_detail(driver, post_info):
 
         paragraphs = content_lines(content_area)
 
+    best, comments = _parse_comments(detail_soup)
+    if all_comment_pages:
+        comments = _read_earlier_comment_pages(driver, detail_soup, post_id) + comments
+    comments = best + comments
+
+    log_msg(f"[수집] 상세 #{post_id}: 이미지 {img_count}, 동영상 {len(video_list)}, 댓글 {len(comments)}", "DEBUG")
+    return {
+        'id': post_id, 'title': title, 'author': author, 'date': date, 'views': views, 'votes': votes,
+        'comment_count': comment_count, 'link': link, 'content': paragraphs, 'videos': video_list, 'comments': comments
+    }
+
+def _comment_page_url(pager, page):
+    """댓글 페이지 번호 링크(cpage=N)를 본떠 page번째 댓글 페이지 주소를 만듦"""
+    link = pager.select_one('a[href*="cpage="]')
+    if not link:
+        return None
+    href = re.sub(r'cpage=\d+', f'cpage={page}', link['href']).split('#')[0]
+    return href if href.startswith('http') else 'https://www.fmkorea.com' + href
+
+def _read_earlier_comment_pages(driver, detail_soup, post_id):
+    """댓글이 여러 페이지면 글을 열 때 마지막(최신) 페이지만 보이므로, 앞 페이지들을 열어 1페이지부터 순서대로 반환.
+    COMMENT_PAGE_LIMIT를 넘으면 최신 쪽 페이지만 읽음. 앞 페이지에서 처음 읽은 댓글은 other_page 표시 (storage._upsert_post 참고)"""
+    pager = detail_soup.select_one('.cmt_pg')
+    current = pager.select_one('strong.this') if pager else None
+    last = parse_count(current.text) if current else 0
+    if last <= 1:
+        return []
+    first = max(1, last - COMMENT_PAGE_LIMIT + 1)
     comments = []
+    for page in range(first, last):
+        url = _comment_page_url(pager, page)
+        if not url:
+            raise Exception("댓글 페이지 주소를 만들 수 없음")
+        driver.get(url)
+        WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, '.fdb_lst_ul, body')))
+        time.sleep(random.uniform(0.5, 1.2))
+        page_soup = BeautifulSoup(driver.page_source, 'html.parser')
+        shown = page_soup.select_one('.cmt_pg strong.this')
+        if not shown or parse_count(shown.text) != page:
+            # 일부 페이지만 저장하면 빠진 댓글이 다음에 새 댓글로 잡히므로 이번 갱신은 실패로 처리 (다음 주기에 재시도)
+            raise Exception(f"댓글 {page}페이지가 열리지 않음")
+        _, page_comments = _parse_comments(page_soup)
+        comments += [dict(c, other_page=True) for c in page_comments]
+    log_msg(f"[수집] 상세 #{post_id}: 댓글 {first}~{last}페이지 읽음", "DEBUG")
+    return comments
+
+def _parse_comments(detail_soup):
+    """(베스트 댓글, 댓글) 목록. 베스트 댓글은 첫 화면 맨 위에 같은 댓글을 한 번 더 보여 주는 것 (class comment_best)"""
+    best, comments = [], []
     comment_items = detail_soup.select('.fdb_lst_ul > li.fdb_itm, ul#comment > li.fdb_itm, .fdb_lst > li.fdb_itm')
     if not comment_items: comment_items = detail_soup.select('.fdb_lst_ul > li')
 
@@ -353,7 +401,7 @@ def scrape_post_detail(driver, post_info):
             indent = re.search(r'margin-left\s*:\s*([\d.]+)%', style)
             depth = max(1, round(float(indent.group(1)) / 2)) if indent else 1
 
-        comments.append({
+        (best if 'comment_best' in classes else comments).append({
             'author': c_author,
             'date': c_date,
             'votes': c_votes,
@@ -361,9 +409,4 @@ def scrape_post_detail(driver, post_info):
             'is_reply': is_reply,
             'depth': depth
         })
-    
-    log_msg(f"[수집] 상세 #{post_id}: 이미지 {img_count}, 동영상 {len(video_list)}, 댓글 {len(comments)}", "DEBUG")
-    return {
-        'id': post_id, 'title': title, 'author': author, 'date': date, 'views': views, 'votes': votes,
-        'comment_count': comment_count, 'link': link, 'content': paragraphs, 'videos': video_list, 'comments': comments
-    }
+    return best, comments

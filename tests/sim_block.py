@@ -50,7 +50,7 @@ def fake_list(driver, board, keyword, page=1):
              'list_comment_count': p.get('list_comment_count') if p.get('list_comment_count') is not None else m.parse_count(p['comment_count']),
              'list_views': None, 'list_votes': None} for p in recent if not p.get('is_deleted')]
 m.get_list_page_posts = fake_list
-m.scrape_post_detail = lambda d, info: dict(info, views='1', votes='0', comment_count='0', content=[], videos=[], comments=[])
+m.scrape_post_detail = lambda d, info, **_: dict(info, views='1', votes='0', comment_count='0', content=[], videos=[], comments=[])
 m.send_telegram_message = lambda text, reply_markup=None: state['telegram'].append(text.splitlines()[0])
 def fake_sleep(s):
     state['sleeps'].append(s)

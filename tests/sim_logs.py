@@ -32,7 +32,7 @@ def fake_list(driver, board, keyword, page=1):
         raise Exception("Message: timeout: Timed out receiving message from renderer: 4.998\n  (Session info: chrome=130.0)\nStacktrace:\n#0 0x55d0 <unknown>\n#1 0x55d1 <unknown>")
     return items
 
-def fake_detail(driver, info):
+def fake_detail(driver, info, all_comment_pages=True):
     if info['id'] == '99990001':
         return dict(info, views='1', votes='0', comment_count='0', content=['본문'], images=[], videos=['https://x/v.mp4'], comments=[])
     _, recent = storage.query_keyword_posts('car', '싼하', 0, 3)
