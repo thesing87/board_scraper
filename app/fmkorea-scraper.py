@@ -29,6 +29,9 @@ from storage import (
     set_category_checked,
     load_alert_targets,
     load_keyword_ignores,
+    load_rejected_posts,
+    add_rejected_post,
+    prune_rejected_posts,
     recent_keyword_posts,
     save_keyword_post,
     update_post,
@@ -69,6 +72,8 @@ import runtime_status
 HEARTBEAT_SECONDS = 3600
 # 목록에서 사라진 글(삭제 의심)을 키워드당 한 주기에 확인하는 최대 개수
 DELETION_CHECKS_PER_KEYWORD = 3
+# 키워드마다 기억해 두는 거른 글 수 (검색 목록 첫 페이지보다 넉넉하게. 더 오래된 기록은 하루 한 번 정리)
+REJECTED_KEEP_PER_KEYWORD = 300
 # 차단이 의심되면 대기 시간을 주기 x 2, x 4, x 8 ... 로 늘리되 이 값을 넘기지 않음
 BACKOFF_MAX_SECONDS = 3600
 
@@ -243,6 +248,10 @@ def run_daily_maintenance():
     except Exception as e:
         log_msg(f"[DB] 오래된 글 정리 실패: {short_err(e)}", "ERROR")
     try:
+        prune_rejected_posts(REJECTED_KEEP_PER_KEYWORD)
+    except Exception as e:
+        log_msg(f"[DB] 거른 글 기록 정리 실패: {short_err(e)}", "ERROR")
+    try:
         # 정리됐거나 키워드와 함께 지워진 글의 저장 이미지 폴더 삭제
         remove_orphan_image_dirs(existing_post_ids)
     except Exception as e:
@@ -263,6 +272,14 @@ def verify_pending_categories(driver):
             set_category_checked(board, False, message=detail)
             log_msg(f"[카테고리] {board} 수집할 수 없는 게시판: {detail}", "WARN")
 
+def reject(rejected, board, keyword, post_id):
+    """키워드가 그대로 없는 글로 기억 (DB에도 남겨 재시작 후 다시 열지 않음)"""
+    rejected.add((board, keyword, post_id))
+    try:
+        add_rejected_post(board, keyword, post_id)
+    except Exception as e:
+        log_msg(f"[DB] 거른 글 기록 실패 #{post_id}: {short_err(e)}", "WARN")
+
 def save_first_page(driver, board, keyword, target, list_posts, ignores, rejected, stats):
     """처음 등록한 키워드(저장된 글이 없음): 목록 첫 페이지에서 키워드가 그대로 들어 있는 글을 모두 이미 본 글
     (알림·NEW 표시 없음)로 저장해 게시판을 채우고, 이후 주기부터 새로 올라온 글만 알림.
@@ -282,7 +299,7 @@ def save_first_page(driver, board, keyword, target, list_posts, ignores, rejecte
         if not post_data:
             continue
         if not keyword_in_post(keyword, post_data['title'], post_data.get('content'), ignores):
-            rejected.add((board, keyword, candidate['id']))
+            reject(rejected, board, keyword, candidate['id'])
             continue
         post_data['list_comment_count'] = candidate['list_comment_count']
         first_page.append(post_data)
@@ -314,7 +331,7 @@ def fill_first_page(driver, board, keyword, target, list_posts, board_data, igno
         if not post_data:
             continue
         if not keyword_in_post(keyword, post_data['title'], post_data.get('content'), ignores):
-            rejected.add((board, keyword, candidate['id']))
+            reject(rejected, board, keyword, candidate['id'])
             continue
         post_data['list_comment_count'] = candidate['list_comment_count']
         fetched[post_data['id']] = post_data
@@ -365,8 +382,8 @@ def main():
         heartbeat = {'since': time.time(), 'cycles': 0, 'new': 0, 'errors': 0}
         # 목록에서 빠졌지만 원문이 남아 있다고 확인된 글 (매 주기 다시 열지 않도록 기억)
         verified_present = set()
-        # 검색에는 걸렸지만 키워드가 그대로 들어 있지 않아 거른 글 {(board, keyword, id)} (매 주기 다시 열지 않도록 기억)
-        rejected = set()
+        # 검색에는 걸렸지만 키워드가 그대로 들어 있지 않아 거른 글 {(board, keyword, id)} (매 주기·재시작 후에도 다시 열지 않도록 DB에 기억)
+        rejected = load_rejected_posts()
         # 키워드별 무시할 표현. 관리 화면에서 바뀌면 거른 글 기억을 비워 새 기준으로 다시 확인
         keyword_ignores = {}
         # 차단 의심이 연속된 횟수와 그에 따른 다음 주기까지의 대기 시간
@@ -405,8 +422,9 @@ def main():
             alert_targets = load_alert_targets()
             latest_ignores = load_keyword_ignores()
             if latest_ignores != keyword_ignores:
+                # 표현이 바뀐 키워드의 거른 글은 관리 화면에서 저장할 때 DB에서 지워지므로 다시 읽음
                 keyword_ignores = latest_ignores
-                rejected.clear()
+                rejected = load_rejected_posts()
 
             cycle_started = time.time()
             stats = {'keywords': 0, 'new': 0, 'updated': 0, 'deleted': 0, 'errors': 0, 'details': 0,
@@ -472,7 +490,7 @@ def main():
                             if post_data is None:
                                 continue
                             if not keyword_in_post(keyword, post_data['title'], post_data.get('content'), ignores):
-                                rejected.add((board, keyword, post_info['id']))
+                                reject(rejected, board, keyword, post_info['id'])
                                 log_msg(f"[제외] {target} #{post_info['id']} 키워드가 그대로 없음 (띄어쓰기 무시 검색 또는 무시할 표현) "
                                         f"{short_title(post_data['title'])}", "DEBUG")
                                 continue

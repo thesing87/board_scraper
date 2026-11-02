@@ -139,6 +139,15 @@ def _create_schema(conn):
             alert        INTEGER NOT NULL DEFAULT 1,
             video_alert  INTEGER NOT NULL DEFAULT 1
         );
+
+        -- 검색에는 걸렸지만 키워드가 그대로 들어 있지 않아 거른 글. 재시작 후에도 같은 글을 다시 열지 않도록 기억
+        CREATE TABLE IF NOT EXISTS rejected_posts (
+            board        TEXT NOT NULL,
+            keyword      TEXT NOT NULL,
+            post_id      TEXT NOT NULL,
+            rejected_at  TEXT NOT NULL,
+            PRIMARY KEY (board, keyword, post_id)
+        );
     """)
 
 def _now():
@@ -483,6 +492,8 @@ def _set_keyword_ignores(conn, board, keyword, phrases):
     if {norm(p) for p in old} == set(unique):
         return 0
     conn.execute("DELETE FROM keyword_ignores WHERE board = ? AND keyword = ?", (board, keyword))
+    # 거른 글은 바뀐 표현으로 다시 판별해야 하므로 잊음 (표현을 빼면 다시 모아질 수 있음)
+    conn.execute("DELETE FROM rejected_posts WHERE board = ? AND keyword = ?", (board, keyword))
     conn.executemany("INSERT INTO keyword_ignores(board, keyword, phrase) VALUES(?, ?, ?)",
                      [(board, keyword, p) for p in unique.values()])
     # 무시할 표현 때문에만 빠지는 글 (표현 없이는 키워드가 있던 글)만 정리. 예전 방식으로 모은 다른 글은 건드리지 않음
@@ -512,6 +523,7 @@ def _drop_orphan_keywords(conn):
         conn.execute("DELETE FROM keywords WHERE board = ? AND keyword = ?", (board, keyword))
         conn.execute("DELETE FROM keyword_posts WHERE board = ? AND keyword = ?", (board, keyword))
         conn.execute("DELETE FROM keyword_ignores WHERE board = ? AND keyword = ?", (board, keyword))
+        conn.execute("DELETE FROM rejected_posts WHERE board = ? AND keyword = ?", (board, keyword))
     if orphans:
         conn.execute("DELETE FROM posts WHERE id NOT IN (SELECT post_id FROM keyword_posts)")
         conn.execute("DELETE FROM read_posts WHERE post_id NOT IN (SELECT id FROM posts)")
@@ -1157,6 +1169,29 @@ def prune_old_posts(days, keep_per_keyword):
             # 글과 키워드 연결은 외래 키(ON DELETE CASCADE)로 함께 지워짐
             conn.execute("DELETE FROM read_posts WHERE post_id NOT IN (SELECT id FROM posts)")
     return deleted
+
+def load_rejected_posts():
+    """거른 글 {(board, keyword, post_id)}"""
+    with _db() as conn:
+        return {(r['board'], r['keyword'], r['post_id']) for r in conn.execute("SELECT board, keyword, post_id FROM rejected_posts")}
+
+def add_rejected_post(board, keyword, post_id):
+    with _db() as conn, conn:
+        conn.execute("INSERT OR IGNORE INTO rejected_posts(board, keyword, post_id, rejected_at) VALUES(?, ?, ?, ?)",
+                     (board, keyword, str(post_id), _now()))
+
+def prune_rejected_posts(keep_per_keyword):
+    """키워드마다 최근에 거른 keep_per_keyword개만 남기고 삭제한 수 반환.
+    거른 글 기억은 검색 목록 첫 페이지에 아직 보이는 글에만 쓸모가 있으므로 오래된 것은 지워도 됨"""
+    with _db() as conn, conn:
+        return conn.execute("""
+            DELETE FROM rejected_posts WHERE rowid IN (
+                SELECT rowid FROM (
+                    SELECT rowid, ROW_NUMBER() OVER (PARTITION BY board, keyword ORDER BY rejected_at DESC, rowid DESC) AS rn
+                    FROM rejected_posts
+                ) WHERE rn > ?
+            )
+        """, (keep_per_keyword,)).rowcount
 
 def existing_post_ids(post_ids):
     """주어진 글 ID 중 DB에 남아 있는 것의 집합 (정리된 글의 이미지 폴더를 찾을 때 씀)"""
