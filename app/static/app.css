@@ -158,8 +158,7 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .site-multi { background: #DCFCE7; color: #166534; }
 /* 사이드바: 사이트마다 옅은 색 상자로 게시판을 묶고, 제목 옆에 그 사이트의 안 읽은 새 글 수 */
 .site-box { margin-top: 8px; padding: 4px; border-radius: 10px; display: flex; flex-direction: column; gap: 2px; }
-.site-box-fmkorea { background: #F3F7FF; border: 1px solid #D6E4FF; }
-.site-box-dcinside { background: #F6F3FF; border: 1px solid #E2DAFE; }
+.site-box-folder { background: #F5F7FA; border: 1px solid #E3E7ED; }
 /* 사이트 제목 줄: 이름 부분(누르면 사이트 전체 게시판)과 오른쪽 끝 접기·펼치기 칸 */
 .site-head { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
 .site-head.active { background: #FFFFFF; box-shadow: 0 1px 2px rgba(17,24,39,0.06); }
@@ -173,21 +172,17 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .site-box .kw-item:hover { background: rgba(255,255,255,0.7); }
 .site-box .kw-item.active { background: #FFFFFF; box-shadow: 0 1px 2px rgba(17,24,39,0.06); }
 /* 모바일 칩: 테두리를 사이트 색으로 */
-.chip-fmkorea:not(.active) { border-color: #BFD3FF; }
-.chip-dcinside:not(.active) { border-color: #D4C8FD; }
 .chip-sep { flex: 0 0 auto; width: 1px; align-self: stretch; margin: 6px 2px; background: var(--border); }
 /* 모바일 사이트 칩: 이름 부분(사이트 전체 게시판 열기) | 오른쪽 아이콘 칸(게시판 칩 펼치기·접기) */
 .site-chip { flex: 0 0 auto; height: 36px; border-radius: 999px; display: inline-flex; align-items: stretch; overflow: hidden; }
-.site-chip-fmkorea { background: #EEF4FF; border: 1px solid #BFD3FF; color: #1D4ED8; }
-.site-chip-dcinside { background: #F3EFFF; border: 1px solid #D4C8FD; color: #5B21B6; }
+.site-chip-folder { background: #F3F4F6; border: 1px solid #D1D5DB; color: var(--text); }
+.site-chip-folder .site-chip-toggle { border-left-color: rgba(17,24,39,0.15); }
+.site-chip.active.site-chip-folder { background: #374151; border-color: #374151; color: #FFFFFF; }
 .site-chip button { border: none; background: transparent; color: inherit; cursor: pointer; font-size: 14px; font-weight: 700; }
 .site-chip-open { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px 0 10px; white-space: nowrap; }
 .site-chip-open .site-tag { margin-right: 0; background: #FFFFFF; }
 .site-chip-count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: #FFFFFF; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
 .site-chip .site-chip-toggle { width: 36px; display: inline-flex; align-items: center; justify-content: center; border-left: 1px solid rgba(91,33,182,0.25); }
-.site-chip-fmkorea .site-chip-toggle { border-left-color: rgba(29,78,216,0.25); }
-.site-chip.active.site-chip-fmkorea { background: #1D4ED8; border-color: #1D4ED8; color: #FFFFFF; }
-.site-chip.active.site-chip-dcinside { background: #5B21B6; border-color: #5B21B6; color: #FFFFFF; }
 .site-chip.active .site-chip-toggle { border-left-color: rgba(255,255,255,0.35); }
 .site-chip.active .site-chip-count { background: #FFFFFF; color: var(--accent); }
 .chip.active .site-tag { background: rgba(255,255,255,0.25); color: #FFFFFF; }
@@ -399,6 +394,11 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .group-row-members { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .btn-danger { color: var(--danger-text); }
 .group-row .btn-small { flex: 0 0 auto; white-space: nowrap; }
+.group-row-arrange { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.select-small { height: 30px; width: auto; max-width: 160px; padding-top: 0; padding-bottom: 0; font-size: 12px; }
+.group-row .icon-btn.small:disabled { opacity: 0.35; cursor: default; }
+#group-folder-select { flex: 0 0 auto; width: auto; max-width: 40%; }
+#group-folder-select[hidden] { display: none; }
 /* 관리 패널 '카테고리': 확인 상태 표시 */
 .cat-status { display: inline-block; white-space: nowrap; margin-left: 4px; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 500; vertical-align: 1px; }
 .cat-ok { background: var(--ok-bg); color: var(--ok-text); }

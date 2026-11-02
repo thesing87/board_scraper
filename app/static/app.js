@@ -40,6 +40,7 @@ const ICONS = {
     prev: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>',
     next: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg>',
     close: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
+    down: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"></path></svg>',
     up: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>',
     star: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"></path></svg>',
     pause: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>',
@@ -83,7 +84,7 @@ function groupTag(group) {
         ? `<span class="site-tag site-multi" title="여러 사이트">${esc(groupShort(group))}</span>`
         : siteTag(group.site);
 }
-// 게시판을 사이트 순서(에펨코리아 → 디시인사이드)로 묶음: [[site, [group, ...]], ...] (게시판이 있는 사이트만, 여러 사이트 게시판 제외)
+// 게시판을 사이트별로 나눔: [[site, [group, ...]], ...] (게시판이 있는 사이트만, 여러 사이트 게시판 제외. 사이트 표시를 붙일지 판단용)
 function groupsBySite(groups) {
     return Object.keys(SITES)
         .map(site => [site, groups.filter(g => (g.site || 'fmkorea') === site)])
@@ -108,13 +109,10 @@ function boardName(key) {
 }
 function findGroup(key) { return app.state ? (app.state.groups || []).find(g => groupKey(g) === key) : null; }
 function isAllView() { return app.activeKey === ALL_KEY; }
-// 사이트 전체 게시판 (그 사이트의 모든 게시판을 합친 피드): 'site:fmkorea'·'site:dcinside'
-function siteKey(site) { return 'site:' + site; }
-function siteOfKey(key) {
-    const site = typeof key === 'string' && key.startsWith('site:') ? key.slice(5) : null;
-    return site && SITES[site] ? site : null;
-}
-function isKnownView(key) { return key === ALL_KEY || !!findGroup(key) || !!siteOfKey(key); }
+// 묶음 (사이드바 묶음 제목: 묶음 안 모든 게시판을 합친 피드): 'folder:<묶음 ID>'
+function folderKey(folder) { return 'folder:' + folder.id; }
+function findFolder(key) { return app.state ? (app.state.folders || []).find(f => folderKey(f) === key) : null; }
+function isKnownView(key) { return key === ALL_KEY || !!findGroup(key) || !!findFolder(key); }
 function isKnownFilter(key) { return FILTERS.some(f => f.key === key); }
 function filterLabel(key) { return FILTERS.find(f => f.key === key).label; }
 
@@ -127,12 +125,11 @@ function defaultFilter(key) {
     return 'all';
 }
 
-// 고른 게시판(통합 피드·게시판)의 요약: 보기별 글 수, 안 읽은 새 글·새 댓글 글 ID
+// 고른 게시판(통합 피드·게시판·묶음)의 요약: 보기별 글 수, 안 읽은 새 글·새 댓글 글 ID
 // (ID는 최신 일부만 오므로 개수는 *_count로 셈)
 function viewSummary(key) {
     if (!app.state) return null;
-    if (siteOfKey(key)) return (app.state.site_feeds || {})[siteOfKey(key)] || null;
-    return key === ALL_KEY ? app.state.all : findGroup(key);
+    return key === ALL_KEY ? app.state.all : findGroup(key) || findFolder(key);
 }
 
 function filterCount(summary, filter) {
@@ -198,8 +195,7 @@ function forgetUnread(ids) {
     if (!app.state) return;
     const set = new Set(ids);
     // 안 읽은 새 글 수와 새 댓글이 달린 글 수를 함께 줄임 (읽으면 그 글의 새 댓글도 확인한 것)
-    // 사이트별 요약(사이드바 사이트 제목 옆 안 읽은 수)은 안 읽은 새 글만 담음
-    [...(app.state.groups || []), app.state.all, ...Object.values(app.state.site_feeds || {})].forEach(summary => {
+    [...(app.state.groups || []), app.state.all, ...(app.state.folders || [])].forEach(summary => {
         [['unread_ids', 'unread_count'], ['comment_ids', 'comment_count']].forEach(([idsField, countField]) => {
             if (!summary[idsField]) return;
             const before = summary[idsField].length;
@@ -337,37 +333,37 @@ function renderNavigation() {
 
     // 데스크톱 사이드바: 어디를 볼지 고르는 게시판(전체 + 사용자가 만든 게시판, 안 읽은 새 글 수·새 댓글이 달린 글 수).
     // 고른 게시판 안을 걸러 보는 보기는 상단 바 가운데 보기 탭(view-bar-tabs)
-    // 게시판이 두 사이트 이상에 걸쳐 있으면 사이트별로 묶어 제목(FM·DC 표시)을 붙임. '전체'는 모든 사이트를 합친 피드
-    const bySite = groupsBySite(groups);
-    const multiGroups = groups.filter(isMultiGroup);
-    const groupItem = g => navItem((isMultiGroup(g) ? groupTag(g) : '') + esc(g.name), '', g.unread_count, isActive(g),
+    // 게시판은 사용자가 만든 묶음별로 색 상자에 담아 보여 줌 (묶음 없는 게시판은 '전체' 바로 아래). '전체'는 모든 게시판을 합친 피드
+    const folders = app.state.folders || [];
+    const looseGroups = groups.filter(g => !folders.some(f => f.id === g.folder_id));
+    const folderGroups = f => groups.filter(g => g.folder_id === f.id);
+    const shownFolders = folders.filter(f => folderGroups(f).length);
+    const groupLabel = g => (multiSite() ? groupTag(g) : '') + esc(g.name);
+    const groupItem = g => navItem(groupLabel(g), '', g.unread_count, isActive(g),
         `data-action="open-group" data-group-id="${g.id}"`, g.comment_count);
-    // 접힌 사이트는 지금 보고 있는 게시판만 남겨 어디를 보고 있는지 보이게 함
+    // 접힌 묶음은 지금 보고 있는 게시판만 남겨 어디를 보고 있는지 보이게 함
     const visibleGroups = (list, expanded) => expanded ? list : list.filter(isActive);
     const groupList = !groups.length
         ? '<span class="kw-group-name">게시판이 없습니다. 관리에서 만들어 주세요.</span>'
-        : bySite.length > 1
-            ? multiGroups.map(groupItem).join('') + bySite.map(([site, list]) => {
-                // 사이트마다 색 상자로 감싸고, 제목 줄(누르면 사이트 전체 게시판) 옆에 그 사이트의 안 읽은 새 글 수
-                // (게시판끼리 겹치는 글은 한 번만), 오른쪽 끝 화살표 칸은 접기·펼치기
-                const unread = (viewSummary(siteKey(site)) || {}).unread_count || 0;
-                const expanded = isSiteExpanded('desktop', site);
-                const active = !searching && app.activeKey === siteKey(site);
-                return `
-                <div class="site-box site-box-${site}">
+        : looseGroups.map(groupItem).join('') + shownFolders.map(f => {
+            // 제목 줄(누르면 묶음 안 모든 게시판의 글) 옆에 묶음의 안 읽은 새 글 수 (게시판끼리 겹치는 글은 한 번만),
+            // 오른쪽 끝 화살표 칸은 접기·펼치기
+            const expanded = isFolderExpanded('desktop', f.id);
+            const active = !searching && app.activeKey === folderKey(f);
+            return `
+                <div class="site-box site-box-folder">
                     <div class="site-head ${active ? 'active' : ''}">
-                        <button class="site-open" data-action="open-site" data-site="${site}" ${active ? 'aria-current="true"' : ''}>
-                            ${siteTag(site)}<span class="site-head-name">${esc(SITES[site].name)}</span>
-                            ${unread ? `<span class="kw-unread" aria-label="안 읽은 새 글 ${unread}개">${unread}</span>` : ''}
+                        <button class="site-open" data-action="open-folder" data-folder-id="${f.id}" ${active ? 'aria-current="true"' : ''}>
+                            <span class="site-head-name">${esc(f.name)}</span>
+                            ${f.unread_count ? `<span class="kw-unread" aria-label="안 읽은 새 글 ${f.unread_count}개">${f.unread_count}</span>` : ''}
                         </button>
-                        <button class="site-toggle" data-action="toggle-site" data-scope="desktop" data-site="${site}"
-                                aria-expanded="${expanded}" aria-label="${esc(SITES[site].name)} 게시판 ${expanded ? '접기' : '펼치기'}">
+                        <button class="site-toggle" data-action="toggle-folder" data-scope="desktop" data-folder-id="${f.id}"
+                                aria-expanded="${expanded}" aria-label="${esc(f.name)} 묶음 ${expanded ? '접기' : '펼치기'}">
                             ${expanded ? ICONS.chevronDown : ICONS.next}</button>
                     </div>
-                    ${visibleGroups(list, expanded).map(groupItem).join('')}
+                    ${visibleGroups(folderGroups(f), expanded).map(groupItem).join('')}
                 </div>`;
-            }).join('')
-            : groups.map(groupItem).join('');
+        }).join('');
     document.getElementById('keyword-groups').innerHTML = `
         <nav class="kw-group" aria-label="게시판">
             <div class="sidebar-head"><span>게시판</span>${ADD_BOARD_BUTTON}</div>
@@ -387,37 +383,33 @@ function renderNavigation() {
             <span>${f.short || f.label}</span>
             ${countBadge(f.key, filterCount(current, f.key))}
         </button>`).join('');
-    const chip = (label, summary, active, attrs, site) => `
-        <button class="chip ${site ? 'chip-' + site : ''} ${active ? 'active' : ''}" ${attrs} ${active ? 'aria-current="true"' : ''}>
-            ${site ? siteTag(site) : ''}<span>${label}</span>
+    const chip = (label, summary, active, attrs) => `
+        <button class="chip ${active ? 'active' : ''}" ${attrs} ${active ? 'aria-current="true"' : ''}>
+            <span>${label}</span>
             ${summary.unread_count > 0 ? '<span class="chip-dot" aria-label="안 읽은 새 글"></span>' : ''}
             ${summary.comment_count > 0 ? '<span class="chip-dot chip-dot-comments" aria-label="새 댓글"></span>' : ''}
         </button>`;
-    const groupChip = (g, site) => chip((isMultiGroup(g) ? groupTag(g) : '') + esc(g.name), g, isActive(g),
-        `data-action="open-group" data-group-id="${g.id}"`, site);
-    // 사이트가 여러 개면 사이트마다 맨 앞에 사이트 칩을 둠: 이름 부분은 사이트 전체 게시판을 열고,
-    // 오른쪽 아이콘 칸은 그 사이트의 게시판 칩을 펼치거나 접음 (접혀 있으면 지금 보는 게시판 칩만 남김)
-    const siteChip = site => {
-        const summary = viewSummary(siteKey(site)) || {};
-        const expanded = isSiteExpanded('mobile', site);
-        const active = !searching && app.activeKey === siteKey(site);
+    const groupChip = g => chip(groupLabel(g), g, isActive(g), `data-action="open-group" data-group-id="${g.id}"`);
+    // 묶음마다 맨 앞에 묶음 칩을 둠: 이름 부분은 묶음 안 모든 게시판의 글을 열고,
+    // 오른쪽 아이콘 칸은 그 묶음의 게시판 칩을 펼치거나 접음 (접혀 있으면 지금 보는 게시판 칩만 남김)
+    const folderChip = f => {
+        const expanded = isFolderExpanded('mobile', f.id);
+        const active = !searching && app.activeKey === folderKey(f);
         return `
-        <span class="site-chip site-chip-${site} ${active ? 'active' : ''}">
-            <button class="site-chip-open" data-action="open-site" data-site="${site}" ${active ? 'aria-current="true"' : ''}>
-                ${siteTag(site)}<span>${esc(SITES[site].name)}</span>
-                ${summary.unread_count ? `<span class="site-chip-count" aria-label="안 읽은 새 글 ${summary.unread_count}개">${summary.unread_count}</span>` : ''}
+        <span class="site-chip site-chip-folder ${active ? 'active' : ''}">
+            <button class="site-chip-open" data-action="open-folder" data-folder-id="${f.id}" ${active ? 'aria-current="true"' : ''}>
+                <span>${esc(f.name)}</span>
+                ${f.unread_count ? `<span class="site-chip-count" aria-label="안 읽은 새 글 ${f.unread_count}개">${f.unread_count}</span>` : ''}
             </button>
-            <button class="site-chip-toggle" data-action="toggle-site" data-scope="mobile" data-site="${site}"
-                    aria-expanded="${expanded}" aria-label="${esc(SITES[site].name)} 게시판 ${expanded ? '접기' : '펼치기'}">
+            <button class="site-chip-toggle" data-action="toggle-folder" data-scope="mobile" data-folder-id="${f.id}"
+                    aria-expanded="${expanded}" aria-label="${esc(f.name)} 묶음 ${expanded ? '접기' : '펼치기'}">
                 ${expanded ? ICONS.prev : ICONS.next}</button>
         </span>`;
     };
     document.getElementById('chip-row').innerHTML =
         chip('전체', app.state.all, allActive, 'data-action="open-all"') +
-        (bySite.length > 1
-            ? multiGroups.map(g => groupChip(g)).join('') + bySite.map(([site, list]) => siteChip(site)
-                + visibleGroups(list, isSiteExpanded('mobile', site)).map(g => groupChip(g, site)).join('')).join('')
-            : groups.map(g => groupChip(g)).join(''));
+        looseGroups.map(groupChip).join('') +
+        shownFolders.map(f => folderChip(f) + visibleGroups(folderGroups(f), isFolderExpanded('mobile', f.id)).map(groupChip).join('')).join('');
 
     // 사이드바 하단 알림 요약 (게시판별)
     // 사이트가 여러 개면 같은 이름의 게시판(FM 싼타페·DC 싼타페)을 구분하도록 짧은 표시를 붙임
@@ -425,21 +417,21 @@ function renderNavigation() {
     document.getElementById('alert-summary').textContent = summary.length ? summary.join('\n') : '게시판이 없습니다.';
 }
 
-// 사이트 상자(데스크톱)·사이트 칩(모바일)의 펼침 상태. 기기마다 따로 기억 (데스크톱은 기본 펼침, 모바일은 기본 접힘)
-// 데스크톱 목록은 접은 사이트, 모바일 목록은 펼친 사이트
-const SITE_EXPAND_KEYS = { desktop: 'collapsed_sites_desktop', mobile: 'expanded_sites_mobile' };
-function siteExpandList(scope) {
-    try { return JSON.parse(storageGet(localStorage, SITE_EXPAND_KEYS[scope], '[]')) || []; } catch (e) { return []; }
+// 묶음 상자(데스크톱)·묶음 칩(모바일)의 펼침 상태. 기기마다 따로 기억 (데스크톱은 기본 펼침, 모바일은 기본 접힘)
+// 데스크톱 목록은 접은 묶음 ID, 모바일 목록은 펼친 묶음 ID
+const FOLDER_EXPAND_KEYS = { desktop: 'collapsed_folders_desktop', mobile: 'expanded_folders_mobile' };
+function folderExpandList(scope) {
+    try { return JSON.parse(storageGet(localStorage, FOLDER_EXPAND_KEYS[scope], '[]')) || []; } catch (e) { return []; }
 }
-function isSiteExpanded(scope, site) {
-    const listed = siteExpandList(scope).includes(site);
+function isFolderExpanded(scope, folderId) {
+    const listed = folderExpandList(scope).includes(folderId);
     return scope === 'desktop' ? !listed : listed;
 }
-function toggleSiteExpanded(scope, site) {
-    const expanded = isSiteExpanded(scope, site);
-    const list = siteExpandList(scope).filter(s => s !== site);
-    if (scope === 'desktop' ? expanded : !expanded) list.push(site);
-    storageSet(localStorage, SITE_EXPAND_KEYS[scope], JSON.stringify(list));
+function toggleFolderExpanded(scope, folderId) {
+    const expanded = isFolderExpanded(scope, folderId);
+    const list = folderExpandList(scope).filter(id => id !== folderId);
+    if (scope === 'desktop' ? expanded : !expanded) list.push(folderId);
+    storageSet(localStorage, FOLDER_EXPAND_KEYS[scope], JSON.stringify(list));
     renderNavigation();
 }
 
@@ -587,7 +579,7 @@ function renderPost(post, isUnread) {
     ].join('');
     // 통합 피드·검색·키워드가 여러 개인 게시판에서는 어느 키워드로 모인 글인지 표시
     const group = findGroup(app.activeKey);
-    const keywordTags = (post.keywords && (isAllView() || siteOfKey(app.activeKey) || app.searchQuery || (group && group.members.length > 1)))
+    const keywordTags = (post.keywords && (isAllView() || findFolder(app.activeKey) || app.searchQuery || (group && group.members.length > 1)))
         ? post.keywords.map(k => `<span class="kw-chip">${multiSite() ? siteTag(boardSite(k.board)) : ''}${esc(k.board_name)} · ${esc(k.keyword)}</span>`).join('')
         : '';
     const link = esc(safeLink(post.link));
@@ -687,12 +679,12 @@ function feedSubText(total) {
     if (!summary) return '';
     const unread = summary.unread_count;
     const group = findGroup(app.activeKey);
-    const site = siteOfKey(app.activeKey);
+    const folder = findFolder(app.activeKey);
     // 여러 사이트 게시판은 키워드마다 사이트를 붙여 구분 (FM 싼타페, DC 싼타페)
     const memberLabel = m => (group && isMultiGroup(group) ? esc(siteLabel(boardSite(m.board)).short) + ' ' : '')
         + esc(m.keyword) + (m.paused ? ' (일시정지)' : '');
     const label = group ? `키워드 ${group.members.map(memberLabel).join(', ')}`
-        : site ? `${esc(SITES[site].name)}의 모든 게시판` : '모든 게시판';
+        : folder ? `${esc(folder.name)} 묶음의 모든 게시판` : '모든 게시판';
     if (app.filter === 'unread') return unread ? `${label} · 안 읽은 새 글 <strong>${unread}개</strong>` : '안 읽은 글을 모두 읽었습니다';
     if (app.filter === 'comments') return summary.comment_count
         ? `${label} · 읽은 뒤 새 댓글이 달린 글 <strong>${summary.comment_count}개</strong> · 최근 댓글 순` : '새 댓글을 모두 확인했습니다';
@@ -731,7 +723,7 @@ async function loadPosts() {
         params.set('q', app.searchQuery);
     } else {
         if (group) params.set('group', group.id);
-        if (siteOfKey(app.activeKey)) params.set('site', siteOfKey(app.activeKey));
+        if (findFolder(app.activeKey)) params.set('folder', findFolder(app.activeKey).id);
         if (app.filter === 'unread') params.set('unread_since', app.unreadSince || 'now');
     }
 
@@ -814,7 +806,7 @@ function renderFeed(data) {
     // 제목: 게시판 이름, '모든 글'이 아닌 보기는 뒤에 보기 이름
     const title = searching ? `검색: ${esc(app.searchQuery)}`
         : (group ? (multiSite() ? groupTag(group) : '') + esc(group.name)
-            : siteOfKey(app.activeKey) ? siteTag(siteOfKey(app.activeKey)) + esc(SITES[siteOfKey(app.activeKey)].name) : '전체')
+            : findFolder(app.activeKey) ? esc(findFolder(app.activeKey).name) : '전체')
           + (filter !== 'all' ? ` · ${filterLabel(filter)}` : '');
     const headActions = searching
         ? '<button class="btn btn-outline btn-small" data-action="clear-search">검색 닫기</button>'
@@ -1066,6 +1058,13 @@ function renderGroupSettings() {
     }
 
     document.getElementById('group-form-title').textContent = editing ? `'${editing.name}' 게시판 수정` : '게시판 만들기';
+    // 새 게시판을 넣을 묶음 (수정할 때는 아래 게시판 목록의 묶음 고르기로 옮김)
+    const folderSelect = document.getElementById('group-folder-select');
+    const prevFolder = folderSelect.value;
+    folderSelect.innerHTML = '<option value="">묶음 없음</option>'
+        + (app.state.folders || []).map(f => `<option value="${f.id}">${esc(f.name)}</option>`).join('');
+    if ((app.state.folders || []).some(f => String(f.id) === prevFolder)) folderSelect.value = prevFolder;
+    folderSelect.hidden = !!editing;
     document.getElementById('group-save-btn').textContent = editing ? '저장' : '만들기';
     document.getElementById('group-cancel-btn').hidden = !editing;
     const nameInput = document.getElementById('group-name-input');
@@ -1110,15 +1109,27 @@ function renderGroupSettings() {
 
     const groups = app.state.groups || [];
     const memberText = (m, g) => (isMultiGroup(g) ? esc(siteLabel(boardSite(m.board)).short) + ' ' : '') + esc(m.keyword) + (m.paused ? ' (일시정지)' : '') + (m.ignores.length ? ` (무시: ${m.ignores.map(esc).join(', ')})` : '');
-    document.getElementById('settings-groups').innerHTML = groups.length ? groups.map(g => `
+    // 게시판 목록: 묶음 순서대로(묶음 없는 게시판 먼저) 묶음 고르기와 같은 묶음 안 순서 옮기기
+    const folders = app.state.folders || [];
+    const folderOptions = g => `<option value="" ${folders.some(f => f.id === g.folder_id) ? '' : 'selected'}>묶음 없음</option>`
+        + folders.map(f => `<option value="${f.id}" ${f.id === g.folder_id ? 'selected' : ''}>${esc(f.name)}</option>`).join('');
+    const ordered = [null, ...folders.map(f => f.id)].flatMap(id => groups.filter(g =>
+        id === null ? !folders.some(f => f.id === g.folder_id) : g.folder_id === id));
+    document.getElementById('settings-groups').innerHTML = ordered.length ? ordered.map(g => `
         <div class="group-row">
             <div class="group-row-main">
                 <span class="group-row-name">${multiSite() ? groupTag(g) : ''}${esc(g.name)}</span>
                 <span class="group-row-members">${g.members.map(m => memberText(m, g)).join(' · ') || '(키워드 없음)'} · ${g.total}개 글</span>
+                <span class="group-row-arrange">
+                    <select class="input select select-small" data-action="set-group-folder" data-group-id="${g.id}" aria-label="${esc(g.name)} 게시판의 묶음">${folderOptions(g)}</select>
+                    <button class="icon-btn small" data-action="move-group" data-group-id="${g.id}" data-direction="up" aria-label="${esc(g.name)} 위로">${ICONS.up}</button>
+                    <button class="icon-btn small" data-action="move-group" data-group-id="${g.id}" data-direction="down" aria-label="${esc(g.name)} 아래로">${ICONS.down}</button>
+                </span>
             </div>
             <button class="btn btn-outline btn-small" data-action="edit-group" data-group-id="${g.id}">수정</button>
             <button class="btn btn-outline btn-small btn-danger" data-action="delete-group" data-group-id="${g.id}">삭제</button>
         </div>`).join('') : '<span class="settings-hint">만든 게시판이 없습니다.</span>';
+    renderFolderSettings();
 }
 
 function addDraftKeyword() {
@@ -1206,7 +1217,9 @@ async function saveGroup(button) {
     button.disabled = true;
     try {
         const data = await postJSON('/api/group', {
-            action: editingId ? 'update' : 'create', id: editingId, name: name, members: members, merge_ids: mergeIds, password: pwd
+            action: editingId ? 'update' : 'create', id: editingId, name: name, members: members, merge_ids: mergeIds, password: pwd,
+            folder_id: editingId || !document.getElementById('group-folder-select').value
+                ? null : Number(document.getElementById('group-folder-select').value)
         });
         if (!data.success) { alert(data.message); return; }
         resetGroupForm();
@@ -1348,6 +1361,68 @@ async function addCategory(button) {
         input.value = '';
         alert(data.message);
     }
+}
+
+// ---------- 묶음 (사이드바에서 게시판을 묶어 보여 줌) ----------
+function renderFolderSettings() {
+    const folders = app.state.folders || [];
+    const groups = app.state.groups || [];
+    document.getElementById('settings-folders').innerHTML = folders.length ? folders.map((f, i) => {
+        const names = groups.filter(g => g.folder_id === f.id).map(g => esc(g.name));
+        return `
+        <div class="group-row">
+            <div class="group-row-main">
+                <span class="group-row-name">${esc(f.name)}</span>
+                <span class="group-row-members">${names.length ? names.join(' · ') : '(비어 있음 · 사이드바에 보이지 않음)'}</span>
+            </div>
+            <button class="icon-btn small" data-action="move-folder" data-folder-id="${f.id}" data-direction="up" aria-label="${esc(f.name)} 묶음 위로" ${i === 0 ? 'disabled' : ''}>${ICONS.up}</button>
+            <button class="icon-btn small" data-action="move-folder" data-folder-id="${f.id}" data-direction="down" aria-label="${esc(f.name)} 묶음 아래로" ${i === folders.length - 1 ? 'disabled' : ''}>${ICONS.down}</button>
+            <button class="btn btn-outline btn-small" data-action="rename-folder" data-folder-id="${f.id}">이름</button>
+            <button class="btn btn-outline btn-small btn-danger" data-action="delete-folder" data-folder-id="${f.id}">삭제</button>
+        </div>`;
+    }).join('') : '<span class="settings-hint">만든 묶음이 없습니다. 게시판은 사이드바에 묶음 없이 보입니다.</span>';
+}
+
+// 묶음·게시판 배치 요청 (관리자 암호 필요). 성공하면 상태를 다시 받아 사이드바와 관리 화면을 그림
+async function adminRequest(url, body, button) {
+    const pwd = adminPassword();
+    if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return null; }
+    if (button) button.disabled = true;
+    try {
+        const data = await postJSON(url, { ...body, password: pwd });
+        if (!data.success) { alert(data.message); return null; }
+        await loadState();
+        renderSettings();
+        return data;
+    } catch (e) {
+        alert('요청 중 오류가 발생했습니다.');
+        return null;
+    } finally {
+        if (button) button.disabled = false;
+    }
+}
+function folderRequest(body, button) { return adminRequest('/api/folder', body, button); }
+function arrangeGroup(body, control) { return adminRequest('/api/group', { action: 'arrange', ...body }, control); }
+
+async function addFolder(button) {
+    const input = document.getElementById('folder-name-input');
+    const name = input.value.trim();
+    if (!name) { input.focus(); return; }
+    if (await folderRequest({ action: 'create', name: name }, button)) input.value = '';
+}
+
+async function renameFolder(folderId, button) {
+    const folder = (app.state.folders || []).find(f => f.id === folderId);
+    if (!folder) return;
+    const name = prompt(`'${folder.name}' 묶음의 새 이름`, folder.name);
+    if (name === null || !name.trim() || name.trim() === folder.name) return;
+    await folderRequest({ action: 'rename', id: folderId, name: name.trim() }, button);
+}
+
+async function deleteFolder(folderId, button) {
+    const folder = (app.state.folders || []).find(f => f.id === folderId);
+    if (!folder || !confirm(`'${folder.name}' 묶음을 삭제할까요? 안에 있던 게시판은 지워지지 않고 묶음 없이 남습니다.`)) return;
+    await folderRequest({ action: 'delete', id: folderId }, button);
 }
 
 async function renameCategory(key, button) {
@@ -1683,15 +1758,29 @@ document.addEventListener('click', (e) => {
         goNextPost();
     } else if (action === 'save-site') {
         saveSite(el.dataset.site, el);
-    } else if (action === 'open-site') {
-        if (siteOfKey(siteKey(el.dataset.site))) openBoard(siteKey(el.dataset.site));
-    } else if (action === 'toggle-site') {
-        toggleSiteExpanded(el.dataset.scope, el.dataset.site);
+    } else if (action === 'open-folder') {
+        openBoard('folder:' + el.dataset.folderId);
+    } else if (action === 'toggle-folder') {
+        toggleFolderExpanded(el.dataset.scope, Number(el.dataset.folderId));
+    } else if (action === 'add-folder') {
+        addFolder(el);
+    } else if (action === 'rename-folder') {
+        renameFolder(Number(el.dataset.folderId), el);
+    } else if (action === 'delete-folder') {
+        deleteFolder(Number(el.dataset.folderId), el);
+    } else if (action === 'move-folder') {
+        folderRequest({ action: 'move', id: Number(el.dataset.folderId), direction: el.dataset.direction }, el);
+    } else if (action === 'move-group') {
+        arrangeGroup({ id: Number(el.dataset.groupId), direction: el.dataset.direction }, el);
     }
 });
 
 document.addEventListener('change', (e) => {
     if (e.target.dataset.action === 'toggle-alert') toggleGroupAlert(e.target);
+    else if (e.target.dataset.action === 'set-group-folder') {
+        const value = e.target.value;
+        arrangeGroup({ id: Number(e.target.dataset.groupId), folder_id: value ? Number(value) : null }, e.target);
+    }
     else if (e.target.dataset.action === 'go-page') changePage(e.target.value);
 });
 

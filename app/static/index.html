@@ -121,7 +121,10 @@
                 <section class="settings-card">
                     <span class="settings-label" id="group-form-title">게시판 만들기</span>
                     <span class="settings-hint">게시판에 키워드를 등록하면 그 키워드들의 글을 중복 없이 모아 보여줍니다. 에펨코리아와 디시인사이드 키워드를 한 게시판에 함께 담을 수도 있습니다.</span>
-                    <input id="group-name-input" class="input" placeholder="게시판 이름 (예: 싼타페)" maxlength="30" aria-label="게시판 이름">
+                    <div class="add-row">
+                        <input id="group-name-input" class="input" placeholder="게시판 이름 (예: 싼타페)" maxlength="30" aria-label="게시판 이름">
+                        <select id="group-folder-select" class="input select" aria-label="넣을 묶음"></select>
+                    </div>
                     <div class="add-row">
                         <select id="group-board-select" class="input select" aria-label="카테고리"></select>
                         <input id="group-kw-input" class="input" aria-label="등록할 키워드" placeholder="키워드 입력" maxlength="50">
@@ -149,6 +152,16 @@
                         <button class="btn btn-outline" data-action="cancel-group-edit" id="group-cancel-btn" hidden>취소</button>
                     </div>
                     <div class="group-list" id="settings-groups"></div>
+                </section>
+
+                <section class="settings-card">
+                    <span class="settings-label">묶음</span>
+                    <span class="settings-hint">사이드바에서 게시판을 묶어 보여 줍니다. 묶음 제목을 누르면 묶음 안 모든 게시판의 글을 함께 봅니다. 게시판을 옮기거나 순서를 바꾸려면 위 게시판 목록의 묶음 고르기와 화살표를 쓰세요.</span>
+                    <div class="add-row">
+                        <input id="folder-name-input" class="input" aria-label="새 묶음 이름" placeholder="새 묶음 이름 (예: 자동차)" maxlength="30">
+                        <button class="btn btn-outline" data-action="add-folder">만들기</button>
+                    </div>
+                    <div class="group-list" id="settings-folders"></div>
                 </section>
 
                 <section class="settings-card">

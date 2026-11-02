@@ -49,7 +49,11 @@ from storage import (
     delete_category,
     site_labels,
     set_site_label,
-    site_feed_summaries
+    list_folders,
+    save_folder,
+    delete_folder,
+    move_folder,
+    arrange_group
 )
 
 MAX_BODY_BYTES = 10 * 1024
@@ -181,8 +185,8 @@ def build_state():
         'boards': list_categories(),
         # 사이트 이름·짧은 표시 (관리 화면에서 편집)
         'sites': site_labels(),
-        # 사이트 전체 게시판(그 사이트의 모든 게시판을 합친 피드) 요약. 사이드바 사이트 제목 옆 안 읽은 수에도 씀
-        'site_feeds': site_feed_summaries(MAX_READ_IDS),
+        # 사이드바 묶음 (순서대로): 이름과 묶음 안 모든 게시판을 합친 피드 요약 (묶음 제목 옆 안 읽은 수·묶음 전체 글 보기)
+        'folders': list_folders(MAX_READ_IDS),
         # 모든 게시판을 합친 통합 피드 요약 (같은 글은 한 번만 셈). 게시판과 같이
         # 모든 글·동영상 글·안 읽은 새 글·새 댓글이 달린 글 수와 안 읽은 글·새 댓글 글 ID를 담음
         'all': feed_summary(MAX_READ_IDS),
@@ -194,13 +198,15 @@ def build_state():
     }
 
 def build_posts_page(page, video_only, query='', group_id=None, unread_since=None, deleted_only=False, site=None,
-                     image_only=False, saved_only=False):
-    """통합 피드(group_id 없음)·게시판·사이트 전체 게시판(site)·검색·안 읽은 글·삭제된 글·보관함: 여러 키워드의 글을 중복 없이"""
-    total, _ = query_all_posts(0, 0, video_only, query, group_id, unread_since, deleted_only, site, image_only, saved_only)
+                     image_only=False, saved_only=False, folder_id=None):
+    """통합 피드(group_id 없음)·게시판·묶음(folder_id)·사이트 전체 게시판(site)·검색·안 읽은 글·삭제된 글·보관함:
+    여러 키워드의 글을 중복 없이"""
+    total, _ = query_all_posts(0, 0, video_only, query, group_id, unread_since, deleted_only, site, image_only, saved_only,
+                               folder_id)
     total_pages = max(1, -(-total // POSTS_PER_PAGE))
     page = min(max(1, page), total_pages)
     _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id, unread_since,
-                               deleted_only, site, image_only, saved_only)
+                               deleted_only, site, image_only, saved_only, folder_id)
     return {'page': page, 'total_pages': total_pages, 'total': total, 'posts': _decorate_posts(posts)}
 
 def _decorate_posts(posts):
@@ -302,10 +308,14 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 unread_since = since if re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', since) and not search else None
                 deleted_only = query.get('deleted_only', ['0'])[0] in ('1', 'true') and not search
                 saved_only = query.get('saved_only', ['0'])[0] in ('1', 'true') and not search
+                # 묶음 (사이드바 묶음 제목): 묶음 안 모든 게시판의 글. 게시판을 고른 경우와 검색에는 쓰지 않음
+                folder_param = query.get('folder', [''])[0]
+                folder_id = int(folder_param) if folder_param.isdigit() and group_id is None and not search else None
                 # 사이트 전체 게시판 (fmkorea·dcinside). 게시판을 고른 경우와 검색에는 쓰지 않음
                 site = query.get('site', [''])[0]
                 site = site if site in site_labels() and group_id is None and not search else None
-                data = build_posts_page(page, video_only, search, group_id, unread_since, deleted_only, site, image_only, saved_only)
+                data = build_posts_page(page, video_only, search, group_id, unread_since, deleted_only, site, image_only, saved_only,
+                                        folder_id)
                 if unread_since:
                     data['unread_since'] = unread_since
                 self._send_data(200, data)
@@ -366,6 +376,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._handle_saved()
         elif pure_path == '/api/group':
             self._handle_group()
+        elif pure_path == '/api/folder':
+            self._handle_folder()
         elif pure_path == '/api/category':
             self._handle_category()
         elif pure_path == '/api/site':
@@ -381,6 +393,26 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             if not self._authorize(params.get('password', ''), '게시판 관리'):
                 return
             action = params.get('action')
+            if action == 'arrange':
+                # 사이드바 묶음·순서: folder_id가 있으면 그 묶음으로(null이면 묶음 없음), direction이 있으면 한 칸 위·아래로
+                group_id = params.get('id')
+                folder_id = params.get('folder_id', ...)
+                direction = params.get('direction')
+                if (not isinstance(group_id, int) or direction not in (None, 'up', 'down')
+                        or not (folder_id is ... or folder_id is None or isinstance(folder_id, int))):
+                    self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                    return
+                try:
+                    name = arrange_group(group_id, folder_id, direction)
+                except ValueError as ve:
+                    self._send_json(400, False, f'❌ {ve}')
+                    return
+                if name is None:
+                    self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
+                    return
+                log_msg(f"[API] 게시판 묶음·순서 변경: {name}", "DEBUG")
+                self._send_json(200, True, '게시판을 옮겼습니다.')
+                return
             if action == 'delete':
                 group_id = params.get('id')
                 dropped = delete_group(group_id) if isinstance(group_id, int) else None
@@ -434,8 +466,12 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             if not isinstance(merge_ids, list) or len(merge_ids) > MAX_GROUP_MEMBERS or not all(isinstance(i, int) for i in merge_ids):
                 self._send_json(400, False, '❌ 잘못된 요청입니다.')
                 return
+            folder_id = params.get('folder_id')
+            if folder_id is not None and not isinstance(folder_id, int):
+                self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                return
             try:
-                saved_id, dropped = save_group(group_id, name, members, merge_ids)
+                saved_id, dropped = save_group(group_id, name, members, merge_ids, folder_id)
             except ValueError as ve:
                 self._send_json(400, False, f'❌ {ve}')
                 return
@@ -456,6 +492,49 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             return ''
         names = category_names()
         return f" / 수집 중단 키워드: {', '.join(f'{names.get(b, b)}/{k}' for b, k in dropped)}"
+
+    def _handle_folder(self):
+        """묶음 만들기·이름 바꾸기·삭제·순서 (관리자 암호 필요)"""
+        try:
+            params = self._read_json_body()
+            if not self._authorize(params.get('password', ''), '묶음 관리'):
+                return
+            action = params.get('action')
+            folder_id = params.get('id')
+            if action in ('rename', 'delete', 'move') and not isinstance(folder_id, int):
+                self._send_json(400, False, '❌ 존재하지 않는 묶음입니다.')
+                return
+            if action in ('create', 'rename'):
+                name = str(params.get('name', '')).strip()
+                if not name or len(name) > MAX_GROUP_NAME_LENGTH or any(ch in name for ch in '\r\n\t'):
+                    self._send_json(400, False, f'❌ 묶음 이름은 줄바꿈 없이 {MAX_GROUP_NAME_LENGTH}자 이하로 입력해 주세요.')
+                    return
+                try:
+                    saved_id = save_folder(folder_id if action == 'rename' else None, name)
+                except ValueError as ve:
+                    self._send_json(400, False, f'❌ {ve}')
+                    return
+                log_msg(f"[API] 묶음 {'추가' if action == 'create' else '이름 변경'}: {name}")
+                self._send_data(200, {'success': True, 'id': saved_id, 'message': f"📁 '{name}' 묶음을 저장했습니다."})
+            elif action == 'delete':
+                if not delete_folder(folder_id):
+                    self._send_json(400, False, '❌ 존재하지 않는 묶음입니다.')
+                    return
+                log_msg(f"[API] 묶음 삭제: #{folder_id}")
+                self._send_json(200, True, '🗑️ 묶음을 삭제했습니다. 안에 있던 게시판은 묶음 없이 남습니다.')
+            elif action == 'move' and params.get('direction') in ('up', 'down'):
+                if not move_folder(folder_id, params['direction']):
+                    self._send_json(400, False, '❌ 존재하지 않는 묶음입니다.')
+                    return
+                self._send_json(200, True, '묶음을 옮겼습니다.')
+            else:
+                self._send_json(400, False, '❌ 지원하지 않는 작업입니다.')
+        except Exception as e:
+            log_msg(f"[API] 묶음 처리 오류: {short_err(e)}", "ERROR")
+            try:
+                self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
+            except Exception:
+                pass
 
     def _handle_site(self):
         """사이트 이름·짧은 표시 바꾸기 (관리자 암호 필요). 화면의 사이트 제목·FM·DC 표시와 텔레그램 알림에 쓰임"""

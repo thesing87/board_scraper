@@ -110,6 +110,13 @@ def _create_schema(conn):
             digest      INTEGER NOT NULL DEFAULT 0,   -- 하루 요약 알림 (매일 DIGEST_HOUR에 전날 인기 글)
             UNIQUE (site, name)
         );
+        -- 사이드바에서 게시판을 묶어 보여 주는 묶음 (사용자가 만들고 이름·순서를 정함). 게시판은 묶음 하나에 들어가거나 묶음 없이 둠
+        CREATE TABLE IF NOT EXISTS group_folders (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL UNIQUE,
+            position    INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS keyword_group_members (
             group_id  INTEGER NOT NULL REFERENCES keyword_groups(id) ON DELETE CASCADE,
             board     TEXT NOT NULL,
@@ -273,6 +280,13 @@ def _add_missing_columns(conn):
         log_msg("[DB] 게시판별 알림 설정 컬럼 추가")
     if 'site' not in {row['name'] for row in conn.execute("PRAGMA table_info(keyword_groups)")}:
         _add_group_site(conn)
+    group_columns = {row['name'] for row in conn.execute("PRAGMA table_info(keyword_groups)")}
+    if 'folder_id' not in group_columns:
+        # 게시판이 속한 묶음(group_folders, 없으면 묶음 없음)과 사이드바 표시 순서
+        conn.execute("ALTER TABLE keyword_groups ADD COLUMN folder_id INTEGER")
+        conn.execute("ALTER TABLE keyword_groups ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+        conn.execute("UPDATE keyword_groups SET position = id")
+        log_msg("[DB] keyword_groups.folder_id·position 컬럼 추가")
     if 'digest' not in {row['name'] for row in conn.execute("PRAGMA table_info(keyword_groups)")}:
         conn.execute("ALTER TABLE keyword_groups ADD COLUMN digest INTEGER NOT NULL DEFAULT 0")
         log_msg("[DB] keyword_groups.digest 컬럼 추가")
@@ -356,6 +370,7 @@ def init_db():
                 _backfill_search_text(conn)
                 _migrate_keywords_to_boards(conn)
                 _seed_categories(conn)
+                _migrate_site_folders(conn)
         # 커밋이 끝난 뒤에만 기존 파일을 정리하여, 이전 도중 실패하면 다음 기동 시 다시 시도
         for path in migrated_files:
             _mark_legacy_migrated(path)
@@ -567,21 +582,27 @@ def _site_sql(site):
     """카테고리 키(kp.board)가 그 사이트인지 (디시 카테고리 키는 'dc:'로 시작, sites.py)"""
     return "kp.board LIKE 'dc:%'" if site == 'dcinside' else "kp.board NOT LIKE 'dc:%'"
 
-def _feed_from(group_id=None, site=None):
+def _feed_from(group_id=None, site=None, folder_id=None):
     """피드 글 연결의 FROM 절과 파라미터. group_id가 없으면 모든 게시판(등록 키워드 전체),
-    site가 있으면 그 사이트의 모든 게시판(사이트 전체 게시판)"""
+    site가 있으면 그 사이트의 모든 게시판(사이트 전체 게시판), folder_id가 있으면 그 묶음의 모든 게시판"""
     sql = f"""
         FROM keyword_posts kp
         JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword{f' AND {_site_sql(site)}' if site else ''}
     """
+    if folder_id is not None:
+        # 묶음 안의 게시판끼리 같은 키워드를 써도 글이 두 번 잡히지 않게 키워드를 한 번씩만
+        return sql + """JOIN (SELECT DISTINCT board, keyword FROM keyword_group_members
+                      WHERE group_id IN (SELECT id FROM keyword_groups WHERE folder_id = ?)) fm
+                ON fm.board = kp.board AND fm.keyword = kp.keyword
+        """, (folder_id,)
     if group_id is None:
         return sql, ()
     return sql + "JOIN keyword_group_members gm ON gm.board = kp.board AND gm.keyword = kp.keyword AND gm.group_id = ?\n", (group_id,)
 
-def _feed_summary(conn, id_limit, group_id=None, site=None):
+def _feed_summary(conn, id_limit, group_id=None, site=None, folder_id=None):
     """중복 제거한 글 수, 동영상 글 수, 안 읽은 새 글 수(전부)와 최신순 ID(최대 id_limit개),
     새 댓글이 달린 글 수와 최근 댓글순 ID(최대 id_limit개), 최신 글 날짜"""
-    base, params = _feed_from(group_id, site)
+    base, params = _feed_from(group_id, site, folder_id)
     total = conn.execute(f"SELECT COUNT(DISTINCT kp.post_id) {base}", params).fetchone()[0]
     video_count = conn.execute(f"""
         SELECT COUNT(DISTINCT kp.post_id) {base} JOIN posts p ON p.id = kp.post_id WHERE {_HAS_VIDEO_SQL}
@@ -595,7 +616,7 @@ def _feed_summary(conn, id_limit, group_id=None, site=None):
     saved_count = conn.execute(f"""
         SELECT COUNT(DISTINCT kp.post_id) {base} JOIN saved_posts sp ON sp.post_id = kp.post_id
     """, params).fetchone()[0]
-    comment_ids = _new_comment_ids(conn, group_id, site)
+    comment_ids = _new_comment_ids(conn, group_id, site, folder_id)
     unread = conn.execute(f"""
         SELECT kp.post_id, MAX(kp.rowid) AS last_rowid {base}
         LEFT JOIN read_posts rp ON rp.post_id = kp.post_id
@@ -635,7 +656,9 @@ def list_groups(id_limit=500):
     """게시판 목록: 등록 키워드, 알림 설정, 중복 제거한 글 수, 안 읽은 새 글 수·ID, 최신 글 날짜"""
     groups = []
     with _db() as conn:
-        for g in conn.execute("SELECT id, site, name, alert, video_alert, digest FROM keyword_groups ORDER BY id").fetchall():
+        for g in conn.execute("""
+            SELECT id, site, name, alert, video_alert, digest, folder_id FROM keyword_groups ORDER BY position, id
+        """).fetchall():
             members = [dict(board=r['board'], keyword=r['keyword'], paused=bool(r['paused']),
                             ignores=_keyword_ignores(conn, r['board'], r['keyword']))
                        for r in conn.execute("""
@@ -646,19 +669,21 @@ def list_groups(id_limit=500):
             # 게시판은 한 사이트의 키워드만 담음 (save_group에서 검사). 사이드바에서 사이트별로 묶어 보여줌
             groups.append({'id': g['id'], 'name': g['name'], 'site': g['site'], 'members': members,
                            'alert': bool(g['alert']), 'video_alert': bool(g['video_alert']), 'digest': bool(g['digest']),
+                           'folder_id': g['folder_id'],
                            **_feed_summary(conn, id_limit, g['id'])})
     return groups
 
 def _site_label(labels, site):
     return '여러 사이트' if site == MULTI_SITE else labels[site]['name']
 
-def save_group(group_id, name, members, merge_ids=()):
+def save_group(group_id, name, members, merge_ids=(), folder_id=None):
     """게시판 생성(group_id=None) 또는 수정. 새 키워드는 수집 대상으로 등록하고,
     어느 게시판에도 남지 않은 키워드는 수집 데이터와 함께 삭제. (게시판 ID, 삭제된 키워드 목록) 반환.
     member에 ignores(무시할 표현 목록)가 있으면 그 키워드의 표현을 바꿈 (키워드에 붙으므로 같은 키워드를 쓰는 게시판 모두에 적용).
     paused가 있으면 그 키워드의 일시정지를 바꿈 (마찬가지로 같은 키워드를 쓰는 게시판 모두에 적용).
     게시판의 사이트는 등록한 키워드의 사이트(여러 사이트면 MULTI_SITE)이며, 이름은 같은 사이트 안에서만 겹치지 않으면 됨.
     merge_ids의 게시판은 저장한 뒤 지움 (그 게시판의 키워드를 이 게시판으로 옮겨 합칠 때, 알림 설정은 이 게시판 것).
+    새 게시판은 folder_id 묶음의 맨 뒤에 둠 (없으면 묶음 없이). 기존 게시판의 묶음·순서는 arrange_group으로 바꿈.
     이름 중복 등은 ValueError"""
     pairs = list(dict.fromkeys((m['board'], m['keyword']) for m in members))
     if not pairs:
@@ -684,8 +709,11 @@ def save_group(group_id, name, members, merge_ids=()):
             conn.execute("DELETE FROM keyword_group_members WHERE group_id = ?", (merge_id,))
             conn.execute("DELETE FROM keyword_groups WHERE id = ?", (merge_id,))
         if group_id is None:
-            group_id = conn.execute("INSERT INTO keyword_groups(site, name, created_at) VALUES(?, ?, ?)",
-                                    (site, name, _now())).lastrowid
+            if folder_id is not None and not conn.execute("SELECT 1 FROM group_folders WHERE id = ?", (folder_id,)).fetchone():
+                raise ValueError('존재하지 않는 묶음입니다.')
+            position = conn.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM keyword_groups").fetchone()[0]
+            group_id = conn.execute("INSERT INTO keyword_groups(site, name, created_at, folder_id, position) VALUES(?, ?, ?, ?, ?)",
+                                    (site, name, _now(), folder_id, position)).lastrowid
         else:
             conn.execute("UPDATE keyword_groups SET site = ?, name = ? WHERE id = ?", (site, name, group_id))
             conn.execute("DELETE FROM keyword_group_members WHERE group_id = ?", (group_id,))
@@ -699,6 +727,87 @@ def save_group(group_id, name, members, merge_ids=()):
                 conn.execute("UPDATE keywords SET paused = ? WHERE board = ? AND keyword = ?",
                              (int(bool(m['paused'])), m['board'], m['keyword']))
         return group_id, _drop_orphan_keywords(conn)
+
+# ==========================================
+# 묶음 (사이드바에서 게시판을 묶어 보여 줌. 묶음 제목을 누르면 묶음 안 모든 게시판의 글)
+# ==========================================
+def _migrate_site_folders(conn):
+    """묶음을 도입하기 전 사이드바의 사이트별 묶음을 1회 묶음으로 옮김 (여러 사이트 게시판은 '통합').
+    게시판이 한 사이트뿐이면 사이트 묶음이 보이지 않았으므로 묶음을 만들지 않음"""
+    if _get_meta(conn, 'site_folders_migrated'):
+        return
+    names = {MULTI_SITE: '통합', **SITE_NAMES}
+    sites = [r['site'] for r in conn.execute("SELECT site FROM keyword_groups GROUP BY site ORDER BY MIN(position), MIN(id)")]
+    if len(sites) < 2:
+        sites = []
+    for position, site in enumerate(sites, 1):
+        folder_id = conn.execute("INSERT INTO group_folders(name, position, created_at) VALUES(?, ?, ?)",
+                                 (names.get(site, site), position, _now())).lastrowid
+        conn.execute("UPDATE keyword_groups SET folder_id = ? WHERE site = ?", (folder_id, site))
+    _set_meta(conn, 'site_folders_migrated', '1')
+    if sites:
+        log_msg(f"[DB] 사이트별 게시판 묶음 {len(sites)}개를 묶음으로 이전")
+
+def list_folders(id_limit=500):
+    """묶음 목록 (표시 순서): 이름과 묶음 안 모든 게시판을 합친 피드 요약 (게시판과 같은 형태)"""
+    with _db() as conn:
+        return [{'id': r['id'], 'name': r['name'], **_feed_summary(conn, id_limit, folder_id=r['id'])}
+                for r in conn.execute("SELECT id, name FROM group_folders ORDER BY position, id").fetchall()]
+
+def save_folder(folder_id, name):
+    """묶음 만들기(folder_id=None, 맨 뒤에) 또는 이름 바꾸기. 묶음 ID 반환, 이름 중복·없는 묶음은 ValueError"""
+    with _db() as conn, conn:
+        if conn.execute("SELECT 1 FROM group_folders WHERE name = ? AND id != ?", (name, folder_id or -1)).fetchone():
+            raise ValueError('같은 이름의 묶음이 이미 있습니다.')
+        if folder_id is None:
+            position = conn.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM group_folders").fetchone()[0]
+            return conn.execute("INSERT INTO group_folders(name, position, created_at) VALUES(?, ?, ?)",
+                                (name, position, _now())).lastrowid
+        if conn.execute("UPDATE group_folders SET name = ? WHERE id = ?", (name, folder_id)).rowcount == 0:
+            raise ValueError('존재하지 않는 묶음입니다.')
+        return folder_id
+
+def delete_folder(folder_id):
+    """묶음 삭제. 안에 있던 게시판은 지우지 않고 묶음 없이 둠. 없는 묶음이면 False"""
+    with _db() as conn, conn:
+        conn.execute("UPDATE keyword_groups SET folder_id = NULL WHERE folder_id = ?", (folder_id,))
+        return conn.execute("DELETE FROM group_folders WHERE id = ?", (folder_id,)).rowcount > 0
+
+def _move(conn, table, item_id, direction, where='1 = 1', params=()):
+    """같은 범위(where) 안에서 항목을 한 칸 위('up')·아래('down')로 옮기고 순서를 1부터 다시 매김"""
+    ids = [r[0] for r in conn.execute(f"SELECT id FROM {table} WHERE {where} ORDER BY position, id", params)]
+    if item_id not in ids:
+        return
+    i = ids.index(item_id)
+    j = i - 1 if direction == 'up' else i + 1
+    if 0 <= j < len(ids):
+        ids[i], ids[j] = ids[j], ids[i]
+    conn.executemany(f"UPDATE {table} SET position = ? WHERE id = ?", [(n, item_id_) for n, item_id_ in enumerate(ids, 1)])
+
+def move_folder(folder_id, direction):
+    """묶음 순서를 한 칸 옮김. 없는 묶음이면 False"""
+    with _db() as conn, conn:
+        if not conn.execute("SELECT 1 FROM group_folders WHERE id = ?", (folder_id,)).fetchone():
+            return False
+        _move(conn, 'group_folders', folder_id, direction)
+        return True
+
+def arrange_group(group_id, folder_id=..., direction=None):
+    """게시판을 다른 묶음으로 옮기거나(folder_id, None이면 묶음 없음, 옮긴 묶음의 맨 뒤로) 같은 묶음 안에서 한 칸 옮김(direction).
+    게시판 이름 반환, 없는 게시판은 None, 없는 묶음은 ValueError"""
+    with _db() as conn, conn:
+        row = conn.execute("SELECT name, folder_id FROM keyword_groups WHERE id = ?", (group_id,)).fetchone()
+        if not row:
+            return None
+        if folder_id is not ... and folder_id != row['folder_id']:
+            if folder_id is not None and not conn.execute("SELECT 1 FROM group_folders WHERE id = ?", (folder_id,)).fetchone():
+                raise ValueError('존재하지 않는 묶음입니다.')
+            position = conn.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM keyword_groups").fetchone()[0]
+            conn.execute("UPDATE keyword_groups SET folder_id = ?, position = ? WHERE id = ?", (folder_id, position, group_id))
+        if direction:
+            current = conn.execute("SELECT folder_id FROM keyword_groups WHERE id = ?", (group_id,)).fetchone()['folder_id']
+            _move(conn, 'keyword_groups', group_id, direction, 'folder_id IS ?', (current,))
+        return row['name']
 
 def delete_group(group_id):
     """게시판 삭제. 다른 게시판에 없는 키워드는 수집 데이터와 함께 삭제.
@@ -990,15 +1099,16 @@ def recent_keyword_posts(board, keyword, limit):
 _UNREAD_SQL = "kp.is_new = 1 AND rp.read_at IS NULL"
 
 def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=None, unread_since=None, deleted_only=False,
-                    site=None, image_only=False, saved_only=False):
+                    site=None, image_only=False, saved_only=False, folder_id=None):
     """게시판에 등록된 키워드의 글을 한 번씩만(중복 제거) 최신 수집순으로 조회.
-    group_id가 있으면 그 게시판만, site가 있으면 그 사이트의 모든 게시판만, query가 있으면 검색 결과.
+    group_id가 있으면 그 게시판만, site가 있으면 그 사이트의 모든 게시판만, folder_id가 있으면 그 묶음의 게시판만,
+    query가 있으면 검색 결과.
     unread_since가 있으면 안 읽은 새 글만: 그 시각 이후에 읽은 글은 계속 포함해
     보는 도중 읽음 처리가 되어도 페이지가 밀리지 않게 함.
     deleted_only면 원문이 삭제된 글만, 최근 삭제 순 (삭제된 글은 더 갱신하지 않으므로 updated_at이 삭제 확인 시각).
     saved_only면 보관함(별표를 단 글)만, 최근 보관 순"""
     search_sql, search_params = _search_conditions(query)
-    feed_sql, params = _feed_from(group_id, site)
+    feed_sql, params = _feed_from(group_id, site, folder_id)
     params += search_params
     unread_sql = ''
     if unread_since is not None:
@@ -1038,10 +1148,10 @@ def unread_summary(id_limit=500):
         """, params).fetchall()
     return {'total': len(rows), 'unread_ids': [r['post_id'] for r in rows[:id_limit]]}
 
-def _new_comment_ids(conn, group_id=None, site=None):
+def _new_comment_ids(conn, group_id=None, site=None, folder_id=None):
     """이미 읽은 글 중 마지막으로 읽은 뒤 수집된 댓글이 있는 글 ID (가장 최근 새 댓글 순).
     아직 안 읽은 글은 '안 읽은 글'에 나오므로 제외"""
-    base, params = _feed_from(group_id, site)
+    base, params = _feed_from(group_id, site, folder_id)
     rows = conn.execute(f"""
         SELECT id FROM (
             SELECT p.id, rp.read_at,

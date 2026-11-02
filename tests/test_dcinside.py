@@ -178,7 +178,6 @@ assert set(per_site) == {'fmkorea', 'dcinside'} and 'dc-car_new1-11561500' in pe
 assert all(not i.startswith('dc-') for i in per_site['fmkorea']['unread_ids'])
 for field in ('total', 'unread_count'):
     assert sum(v[field] for v in per_site.values()) == storage.feed_summary()[field], field
-assert web_server.build_state()['site_feeds']['dcinside']['unread_count'] == per_site['dcinside']['unread_count']
 total, rows = storage.query_all_posts(0, 50, site='dcinside')
 assert total == per_site['dcinside']['total'] and rows and all(r['id'].startswith('dc-') for r in rows), (total, rows)
 page = web_server.build_posts_page(1, False, site='dcinside')
