@@ -376,8 +376,14 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .add-row #group-kw-input, .add-row #category-input { flex: 1 1 auto; min-width: 0; }
 .add-row .btn { flex: 0 0 auto; height: 44px; border-radius: 10px; padding: 0 16px; white-space: nowrap; }
 .keyword-tags { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
+.board-checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.board-check { height: 32px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); font-size: 13px; display: inline-flex; align-items: center; cursor: pointer; }
+.board-check .site-tag { margin-right: 4px; }
+.board-check[aria-pressed="true"] { border-color: var(--accent); background: #EEF4FF; color: var(--text); font-weight: 700; }
+#group-kw-target { flex: 0 0 130px; }
 .kw-tag { height: 32px; padding: 0 4px 0 12px; border-radius: 999px; background: #F3F4F6; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text-body); }
 .kw-tag-board { color: var(--muted); }
+.kw-tag .site-tag { margin-right: 2px; }
 .kw-tag button { width: 28px; height: 28px; border: none; border-radius: 50%; background: transparent; color: var(--text-3); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .kw-tag button:hover { background: #E5E7EB; }
 .kw-tag.is-paused { background: #F9FAFB; color: var(--muted); border: 1px dashed #D1D5DB; }

@@ -965,7 +965,7 @@ async function pollState() {
     renderFeedSub();
     // 관리 패널을 열어 둔 채 기다리면 추가한 카테고리의 확인 결과가 바로 보이게
     if (!document.getElementById('settings').hidden) {
-        renderBoardSelect();
+        renderBoardChecks();
         renderCategorySettings();
     }
     if (app.searchQuery || app.renderedTotal === null) return;
@@ -1026,7 +1026,7 @@ function alertSwitch(groupId, type, on, label) {
 }
 
 function renderSettings() {
-    renderBoardSelect();
+    renderBoardChecks();
     renderGroupSettings();
     renderSiteSettings();
     renderCategorySettings();
@@ -1055,7 +1055,13 @@ function renderGroupSettings() {
     if (app.groupDraft === undefined) {
         app.groupDraft = editing
             ? editing.members.map(m => ({ board: m.board, keyword: m.keyword, paused: !!m.paused, ignores: m.ignores.slice() })) : [];
+        // 이 게시판이 수집할 카테고리: 수정이면 등록된 키워드의 카테고리, 새 게시판이면 첫 카테고리
+        const first = app.state.boards.find(b => b.status !== 'invalid');
+        app.draftBoards = editing ? [...new Set(app.groupDraft.map(m => m.board))] : (first ? [first.key] : []);
+        // 새로 연 양식은 찾을 곳을 처음 값(카테고리가 둘 이상이면 '공통')으로
+        document.getElementById('group-kw-target').innerHTML = '';
     }
+    renderBoardChecks();
 
     document.getElementById('group-form-title').textContent = editing ? `'${editing.name}' 게시판 수정` : '게시판 만들기';
     // 새 게시판을 넣을 묶음 (수정할 때는 아래 게시판 목록의 묶음 고르기로 옮김)
@@ -1071,24 +1077,32 @@ function renderGroupSettings() {
     if (app.groupNameDraft !== undefined) nameInput.value = app.groupNameDraft;
     else nameInput.value = editing ? editing.name : '';
 
-    // 이 게시판에 등록할 키워드 (카테고리와 함께 표시)
-    document.getElementById('group-keywords').innerHTML = app.groupDraft.length ? app.groupDraft.map((m, idx) => `
-        <span class="kw-tag${m.paused ? ' is-paused' : ''}">
-            <span class="kw-tag-board">${esc(boardName(m.board))}</span>${esc(m.keyword)}${m.paused ? '<span class="kw-tag-paused">일시정지</span>' : ''}
-            <button data-action="toggle-draft-pause" data-index="${idx}" aria-pressed="${!!m.paused}"
-                aria-label="${esc(m.keyword)} 키워드 ${m.paused ? '다시 수집' : '일시정지'}" title="${m.paused ? '다시 수집' : '일시정지 (모은 글은 그대로, 수집만 멈춤)'}">${m.paused ? ICONS.play : ICONS.pause}</button>
-            <button data-action="remove-draft-keyword" data-index="${idx}" aria-label="${esc(boardName(m.board) + ' ' + m.keyword)} 키워드 빼기">${ICONS.close}</button>
-        </span>`).join('') : '<span class="settings-hint">아직 등록한 키워드가 없습니다.</span>';
+    // 이 게시판에 등록할 키워드: 고른 카테고리 모두에서 찾는 '공통' 키워드를 먼저, 카테고리별 키워드는 사이트·카테고리와 함께
+    const entries = app.draftEntries = draftEntries();
+    const entryBadge = e => e.common
+        ? '<span class="site-tag site-multi" title="고른 카테고리 모두에서 찾음">공통</span>'
+        : `${siteTag(boardSite(e.members[0].board))}<span class="kw-tag-board">${esc(boardName(e.members[0].board))}</span>`;
+    const entryName = e => (e.common ? '공통 ' : boardName(e.members[0].board) + ' ') + e.keyword;
+    document.getElementById('group-keywords').innerHTML = entries.length ? entries.map((e, idx) => {
+        const paused = e.members.every(m => m.paused);
+        return `
+        <span class="kw-tag${paused ? ' is-paused' : ''}">
+            ${entryBadge(e)}${esc(e.keyword)}${paused ? '<span class="kw-tag-paused">일시정지</span>' : ''}
+            <button data-action="toggle-draft-pause" data-index="${idx}" aria-pressed="${paused}"
+                aria-label="${esc(entryName(e))} 키워드 ${paused ? '다시 수집' : '일시정지'}" title="${paused ? '다시 수집' : '일시정지 (모은 글은 그대로, 수집만 멈춤)'}">${paused ? ICONS.play : ICONS.pause}</button>
+            <button data-action="remove-draft-keyword" data-index="${idx}" aria-label="${esc(entryName(e))} 키워드 빼기">${ICONS.close}</button>
+        </span>`;
+    }).join('') : '<span class="settings-hint">아직 등록한 키워드가 없습니다.</span>';
 
-    // 무시할 표현: 붙일 키워드를 고르는 상자(고른 키워드 유지)와 키워드별 표현
+    // 무시할 표현: 붙일 키워드를 고르는 상자(고른 키워드 유지)와 키워드별 표현 (공통 키워드는 모든 카테고리의 그 키워드에 함께)
     const ignoreSelect = document.getElementById('group-ignore-keyword');
     const selected = ignoreSelect.value;
-    ignoreSelect.innerHTML = app.groupDraft.map((m, idx) => `<option value="${idx}">${esc(m.keyword)}</option>`).join('');
-    if (selected && Number(selected) < app.groupDraft.length) ignoreSelect.value = selected;
-    document.getElementById('group-ignores').innerHTML = app.groupDraft.flatMap((m, idx) => m.ignores.map((phrase, pIdx) => `
+    ignoreSelect.innerHTML = entries.map((e, idx) => `<option value="${idx}">${esc(entryName(e))}</option>`).join('');
+    if (selected && Number(selected) < entries.length) ignoreSelect.value = selected;
+    document.getElementById('group-ignores').innerHTML = entries.flatMap((e, idx) => entryIgnores(e).map((phrase, pIdx) => `
         <span class="kw-tag">
-            <span class="kw-tag-board">${esc(m.keyword)} 무시</span>${esc(phrase)}
-            <button data-action="remove-draft-ignore" data-index="${idx}" data-phrase-index="${pIdx}" aria-label="${esc(m.keyword)} 키워드의 무시할 표현 ${esc(phrase)} 빼기">${ICONS.close}</button>
+            ${entryBadge(e)}<span class="kw-tag-board">${esc(e.keyword)} 무시</span>${esc(phrase)}
+            <button data-action="remove-draft-ignore" data-index="${idx}" data-phrase-index="${pIdx}" aria-label="${esc(entryName(e))} 키워드의 무시할 표현 ${esc(phrase)} 빼기">${ICONS.close}</button>
         </span>`)).join('');
 
     // 다른 게시판 합치기 (수정 중일 때만): 고른 게시판의 키워드를 이 게시판으로 옮기고, 저장하면 그 게시판은 지움
@@ -1132,16 +1146,43 @@ function renderGroupSettings() {
     renderFolderSettings();
 }
 
+// 무시할 표현 비교 기준 (서버와 같이 대소문자 무시, 연속 공백은 하나로)
+function normPhrase(text) { return text.split(/\s+/).filter(Boolean).join(' ').toLowerCase(); }
+
+// 키워드 태그 단위: 고른 카테고리가 둘 이상이고 모든 카테고리에 있는 키워드는 '공통' 하나로 묶고, 나머지는 카테고리별로 하나씩
+// (고른 카테고리 순서대로). 공통 키워드의 일시정지·무시할 표현·빼기는 묶인 모든 카테고리에 함께 적용
+function draftEntries() {
+    const boards = app.draftBoards;
+    const has = (board, keyword) => app.groupDraft.some(m => m.board === board && m.keyword === keyword);
+    const common = boards.length > 1
+        ? [...new Set(app.groupDraft.map(m => m.keyword))].filter(k => boards.every(b => has(b, k))) : [];
+    return [
+        ...common.map(k => ({ common: true, keyword: k, members: app.groupDraft.filter(m => m.keyword === k) })),
+        ...boards.flatMap(b => app.groupDraft.filter(m => m.board === b && !common.includes(m.keyword))
+            .map(m => ({ common: false, keyword: m.keyword, members: [m] })))
+    ];
+}
+
+// 키워드 태그의 무시할 표현 (공통 키워드는 카테고리마다 다를 수 있어 모두 합쳐 한 번씩)
+function entryIgnores(entry) {
+    const seen = new Set();
+    return entry.members.flatMap(m => m.ignores).filter(p => !seen.has(normPhrase(p)) && seen.add(normPhrase(p)));
+}
+
+// 키워드를 찾을 곳: '공통'(고른 카테고리 모두) 또는 카테고리 하나
 function addDraftKeyword() {
     const input = document.getElementById('group-kw-input');
     const keyword = input.value.trim();
-    const board = document.getElementById('group-board-select').value;
+    const target = document.getElementById('group-kw-target').value;
+    const boards = target === '*' ? app.draftBoards : app.draftBoards.filter(b => b === target);
+    if (!boards.length) { alert('수집할 카테고리를 먼저 골라 주세요.'); return; }
     if (!keyword) { input.focus(); return; }
-    if (app.groupDraft.some(m => m.board === board && m.keyword === keyword)) {
+    const added = boards.filter(b => !app.groupDraft.some(m => m.board === b && m.keyword === keyword));
+    if (!added.length) {
         alert('이미 등록한 키워드입니다.');
         return;
     }
-    app.groupDraft.push({ board: board, keyword: keyword, paused: false, ignores: [] });
+    added.forEach(b => app.groupDraft.push({ board: b, keyword: keyword, paused: false, ignores: [] }));
     input.value = '';
     renderGroupSettings();
     input.focus();
@@ -1150,19 +1191,53 @@ function addDraftKeyword() {
 function addDraftIgnore() {
     const input = document.getElementById('group-ignore-input');
     const phrase = input.value.trim();
-    const member = app.groupDraft[Number(document.getElementById('group-ignore-keyword').value)];
-    if (!member) { alert('키워드를 먼저 등록해 주세요.'); return; }
+    const entry = (app.draftEntries || [])[Number(document.getElementById('group-ignore-keyword').value)];
+    if (!entry) { alert('키워드를 먼저 등록해 주세요.'); return; }
     if (!phrase) { input.focus(); return; }
-    // 서버와 같은 기준(대소문자 무시, 연속 공백은 하나로)으로 이미 있는 표현인지 확인
-    const norm = text => text.split(/\s+/).filter(Boolean).join(' ').toLowerCase();
-    if (member.ignores.some(p => norm(p) === norm(phrase))) {
+    if (entry.members.every(m => m.ignores.some(p => normPhrase(p) === normPhrase(phrase)))) {
         alert('이미 등록한 무시할 표현입니다.');
         return;
     }
-    member.ignores.push(phrase);
+    entry.members.forEach(m => { if (!m.ignores.some(p => normPhrase(p) === normPhrase(phrase))) m.ignores.push(phrase); });
     input.value = '';
     renderGroupSettings();
     input.focus();
+}
+
+// 수집할 카테고리 고르기 (게시판 만들기·수정): 누를 때마다 넣고 빼기. 뺄 때 그 카테고리의 키워드도 함께 빠짐.
+// 이미 고른 카테고리가 둘 이상이면 새로 넣는 카테고리에도 공통 키워드를 등록
+function toggleDraftBoard(board) {
+    if (app.draftBoards.includes(board)) {
+        const members = app.groupDraft.filter(m => m.board === board);
+        if (members.length && !confirm(`'${boardName(board)}' 카테고리의 키워드 ${members.length}개도 함께 뺍니다. 뺄까요?`)) return;
+        app.groupDraft = app.groupDraft.filter(m => m.board !== board);
+        app.draftBoards = app.draftBoards.filter(b => b !== board);
+    } else {
+        const common = draftEntries().filter(e => e.common);
+        app.draftBoards.push(board);
+        common.forEach(e => app.groupDraft.push({
+            board: board, keyword: e.keyword, paused: e.members.every(m => m.paused), ignores: entryIgnores(e)
+        }));
+    }
+    renderGroupSettings();
+}
+
+// 카테고리 고르기 칩과 키워드를 찾을 곳 상자 (확인을 통과하지 못한 카테고리는 뺌)
+function renderBoardChecks() {
+    if (!app.draftBoards) return;
+    const boards = app.state.boards.filter(b => b.status !== 'invalid');
+    app.draftBoards = app.draftBoards.filter(key => boards.some(b => b.key === key) || app.groupDraft.some(m => m.board === key));
+    document.getElementById('group-board-checks').innerHTML = boards.map(b => `
+        <button type="button" class="board-check" data-action="toggle-draft-board" data-board="${esc(b.key)}" aria-pressed="${app.draftBoards.includes(b.key)}">
+            ${siteTag(b.site)}${esc(b.name)}${b.status === 'pending' ? ' (확인 대기)' : ''}
+        </button>`).join('');
+    const target = document.getElementById('group-kw-target');
+    const prev = target.value;
+    const options = (app.draftBoards.length > 1 ? [['*', '공통']] : [])
+        .concat(app.draftBoards.map(key => [key, `${siteLabel(boardSite(key)).short} ${boardName(key)}`]));
+    target.innerHTML = options.map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join('');
+    if (options.some(([value]) => value === prev)) target.value = prev;
+    target.disabled = !options.length;
 }
 
 // 고른 게시판의 키워드를 지금 수정 중인 게시판에 넣고, 저장할 때 그 게시판을 지우도록 기억
@@ -1175,12 +1250,14 @@ function addDraftMerge() {
             app.groupDraft.push({ board: m.board, keyword: m.keyword, paused: !!m.paused, ignores: m.ignores.slice() });
         }
     });
+    source.members.forEach(m => { if (!app.draftBoards.includes(m.board)) app.draftBoards.push(m.board); });
     app.mergeDraft.push(id);
     renderGroupSettings();
 }
 
 function resetGroupForm() {
     app.mergeDraft = [];
+    app.draftBoards = undefined;
     app.editingGroupId = null;
     app.groupDraft = undefined;
     app.groupNameDraft = undefined;
@@ -1268,17 +1345,6 @@ const CATEGORY_STATUS = {
 };
 
 // 키워드 등록용 카테고리 선택: 수집할 수 없는 카테고리는 빼고, 확인 전인 카테고리는 표시해서 보여줌
-function renderBoardSelect() {
-    const select = document.getElementById('group-board-select');
-    const prev = select.value;
-    const boards = app.state.boards.filter(b => b.status !== 'invalid');
-    // 사이트가 여러 개면 이름 앞에 사이트를 붙임 (한 게시판에 여러 사이트의 키워드를 함께 담을 수 있음)
-    const sitePrefix = new Set(boards.map(b => b.site)).size > 1;
-    select.innerHTML = boards.map(b =>
-        `<option value="${esc(b.key)}">${sitePrefix ? `[${(SITES[b.site] || SITES.fmkorea).name}] ` : ''}${esc(b.name)}${b.status === 'pending' ? ' (확인 대기)' : ''}</option>`).join('');
-    if (boards.some(b => b.key === prev)) select.value = prev;
-}
-
 // 사이트 이름·짧은 표시 편집 (저장하면 사이드바·FM·DC 표시·텔레그램 알림에 바로 반영)
 function renderSiteSettings() {
     document.getElementById('settings-sites').innerHTML = Object.entries(SITES).map(([site, label]) => `
@@ -1701,18 +1767,24 @@ document.addEventListener('click', (e) => {
     } else if (action === 'add-draft-keyword') {
         addDraftKeyword();
     } else if (action === 'toggle-draft-pause') {
-        const member = app.groupDraft[Number(el.dataset.index)];
-        member.paused = !member.paused;
+        const entry = app.draftEntries[Number(el.dataset.index)];
+        const paused = !entry.members.every(m => m.paused);
+        entry.members.forEach(m => { m.paused = paused; });
         renderGroupSettings();
+    } else if (action === 'toggle-draft-board') {
+        toggleDraftBoard(el.dataset.board);
     } else if (action === 'toggle-saved') {
         toggleSaved(el);
     } else if (action === 'remove-draft-keyword') {
-        app.groupDraft.splice(Number(el.dataset.index), 1);
+        const entry = app.draftEntries[Number(el.dataset.index)];
+        app.groupDraft = app.groupDraft.filter(m => !entry.members.includes(m));
         renderGroupSettings();
     } else if (action === 'add-draft-ignore') {
         addDraftIgnore();
     } else if (action === 'remove-draft-ignore') {
-        app.groupDraft[Number(el.dataset.index)].ignores.splice(Number(el.dataset.phraseIndex), 1);
+        const entry = app.draftEntries[Number(el.dataset.index)];
+        const phrase = normPhrase(entryIgnores(entry)[Number(el.dataset.phraseIndex)]);
+        entry.members.forEach(m => { m.ignores = m.ignores.filter(p => normPhrase(p) !== phrase); });
         renderGroupSettings();
     } else if (action === 'cancel-group-edit') {
         resetGroupForm();

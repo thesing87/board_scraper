@@ -76,7 +76,7 @@ try:
            document.querySelector('[data-action="edit-group"][data-group-id="{gid}"]').click();""")
     wait(0.3)
     js("""const n = document.getElementById('group-name-input'); n.value = '싼타페 모음'; n.dispatchEvent(new Event('input', {bubbles: true}));
-          document.getElementById('group-board-select').value = 'car';
+          document.getElementById('group-kw-target').value = 'car';
           const k = document.getElementById('group-kw-input');
           k.value = '싼하'; document.querySelector('[data-action="add-draft-keyword"]').click();
           k.value = '테스트키워드';""")

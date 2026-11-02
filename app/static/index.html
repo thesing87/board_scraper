@@ -125,8 +125,10 @@
                         <input id="group-name-input" class="input" placeholder="게시판 이름 (예: 싼타페)" maxlength="30" aria-label="게시판 이름">
                         <select id="group-folder-select" class="input select" aria-label="넣을 묶음"></select>
                     </div>
+                    <span class="settings-hint">수집할 카테고리를 고르세요. 둘 이상 고르면 '공통'으로 고른 카테고리 모두에서 찾을 키워드를, 카테고리를 골라 그 카테고리에서만 찾을 키워드를 등록할 수 있습니다.</span>
+                    <div class="board-checks" id="group-board-checks" aria-label="수집할 카테고리"></div>
                     <div class="add-row">
-                        <select id="group-board-select" class="input select" aria-label="카테고리"></select>
+                        <select id="group-kw-target" class="input select" aria-label="키워드를 찾을 곳"></select>
                         <input id="group-kw-input" class="input" aria-label="등록할 키워드" placeholder="키워드 입력" maxlength="50">
                         <button class="btn btn-outline" data-action="add-draft-keyword">추가</button>
                     </div>
