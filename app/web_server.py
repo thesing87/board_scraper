@@ -5,7 +5,7 @@ import hmac
 import time
 import threading
 import ipaddress
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs
@@ -70,6 +70,8 @@ MAX_SITE_SHORT_LENGTH = 4
 # 에펨코리아 게시판 mid (글 주소 'fmkorea.com/12345'와 헷갈리지 않게 숫자만인 값은 제외)
 BOARD_KEY_RE = re.compile(r'(?![0-9]+$)[a-z0-9_]{1,40}')
 POSTS_PER_PAGE = 10
+# 인기순으로 볼 수 있는 기간(일). 없으면 전체 기간
+POPULAR_DAYS = ('1', '7', '30')
 # 첫 화면 조회를 미리 돌려 두는 간격 (_keep_warm)
 WARMUP_INTERVAL_SECONDS = 30
 # 수집기 멈춤을 확인하는 간격 (_watch_collector)
@@ -198,15 +200,15 @@ def build_state():
     }
 
 def build_posts_page(page, video_only, query='', group_id=None, unread_since=None, deleted_only=False, site=None,
-                     image_only=False, saved_only=False, folder_id=None):
+                     image_only=False, saved_only=False, folder_id=None, popular=False, since=None):
     """통합 피드(group_id 없음)·게시판·묶음(folder_id)·사이트 전체 게시판(site)·검색·안 읽은 글·삭제된 글·보관함:
     여러 키워드의 글을 중복 없이"""
     total, _ = query_all_posts(0, 0, video_only, query, group_id, unread_since, deleted_only, site, image_only, saved_only,
-                               folder_id)
+                               folder_id, popular, since)
     total_pages = max(1, -(-total // POSTS_PER_PAGE))
     page = min(max(1, page), total_pages)
     _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id, unread_since,
-                               deleted_only, site, image_only, saved_only, folder_id)
+                               deleted_only, site, image_only, saved_only, folder_id, popular, since)
     return {'page': page, 'total_pages': total_pages, 'total': total, 'posts': _decorate_posts(posts)}
 
 def _decorate_posts(posts):
@@ -308,6 +310,11 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 unread_since = since if re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', since) and not search else None
                 deleted_only = query.get('deleted_only', ['0'])[0] in ('1', 'true') and not search
                 saved_only = query.get('saved_only', ['0'])[0] in ('1', 'true') and not search
+                # 정렬: sort=popular면 추천+댓글이 많은 순, days(1·7·30)가 있으면 최근 그 기간에 수집한 글만
+                popular = query.get('sort', [''])[0] == 'popular'
+                days = query.get('days', [''])[0]
+                since = ((datetime.now() - timedelta(days=int(days))).strftime('%Y-%m-%d %H:%M:%S')
+                         if popular and days in POPULAR_DAYS else None)
                 # 묶음 (사이드바 묶음 제목): 묶음 안 모든 게시판의 글. 게시판을 고른 경우와 검색에는 쓰지 않음
                 folder_param = query.get('folder', [''])[0]
                 folder_id = int(folder_param) if folder_param.isdigit() and group_id is None and not search else None
@@ -315,7 +322,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 site = query.get('site', [''])[0]
                 site = site if site in site_labels() and group_id is None and not search else None
                 data = build_posts_page(page, video_only, search, group_id, unread_since, deleted_only, site, image_only, saved_only,
-                                        folder_id)
+                                        folder_id, popular, since)
                 if unread_since:
                     data['unread_since'] = unread_since
                 self._send_data(200, data)

@@ -1075,6 +1075,10 @@ _HAS_VIDEO_SQL = "p.videos_json != '[]'"
 _HAS_IMAGE_SQL = ("(p.content_json LIKE '%<img%' AND "
                   "(p.content_json LIKE '%/files/attach/%' OR p.content_json LIKE '%/images/dc-%'))")
 
+# 인기순 점수: 추천 수 + 댓글 수 (쉼표가 든 숫자 문자열)
+_POPULAR_SQL = ("(CAST(REPLACE(p.votes, ',', '') AS INTEGER) + "
+                "CAST(REPLACE(p.comment_count, ',', '') AS INTEGER))")
+
 def _search_conditions(query):
     """검색어를 공백으로 나눠 모든 단어가 포함된 글만 (대소문자 무시, LIKE 특수문자 이스케이프)"""
     terms = [t for t in (query or '').lower().split() if t][:5]
@@ -1099,20 +1103,25 @@ def recent_keyword_posts(board, keyword, limit):
 _UNREAD_SQL = "kp.is_new = 1 AND rp.read_at IS NULL"
 
 def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=None, unread_since=None, deleted_only=False,
-                    site=None, image_only=False, saved_only=False, folder_id=None):
+                    site=None, image_only=False, saved_only=False, folder_id=None, popular=False, since=None):
     """게시판에 등록된 키워드의 글을 한 번씩만(중복 제거) 최신 수집순으로 조회.
     group_id가 있으면 그 게시판만, site가 있으면 그 사이트의 모든 게시판만, folder_id가 있으면 그 묶음의 게시판만,
     query가 있으면 검색 결과.
     unread_since가 있으면 안 읽은 새 글만: 그 시각 이후에 읽은 글은 계속 포함해
     보는 도중 읽음 처리가 되어도 페이지가 밀리지 않게 함.
     deleted_only면 원문이 삭제된 글만, 최근 삭제 순 (삭제된 글은 더 갱신하지 않으므로 updated_at이 삭제 확인 시각).
-    saved_only면 보관함(별표를 단 글)만, 최근 보관 순"""
+    saved_only면 보관함(별표를 단 글)만, 최근 보관 순.
+    popular면 추천+댓글이 많은 순(보기의 순서보다 우선), since가 있으면 그 시각 이후 처음 수집한 글만"""
     search_sql, search_params = _search_conditions(query)
     feed_sql, params = _feed_from(group_id, site, folder_id)
     params += search_params
-    unread_sql = ''
+    # 수집 기간·안 읽은 글 조건
+    filter_sql = ''
+    if since is not None:
+        filter_sql += "AND p.created_at >= ? "
+        params += (since,)
     if unread_since is not None:
-        unread_sql = "AND kp.is_new = 1 AND (rp.read_at IS NULL OR rp.first_read_at > ?)"
+        filter_sql += "AND kp.is_new = 1 AND (rp.read_at IS NULL OR rp.first_read_at > ?)"
         params += (unread_since,)
     base = f"""
         {feed_sql}
@@ -1121,9 +1130,10 @@ def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=N
         LEFT JOIN saved_posts sp ON sp.post_id = p.id
         WHERE 1 = 1 {f'AND {_HAS_VIDEO_SQL}' if video_only else ''} {f'AND {_HAS_IMAGE_SQL}' if image_only else ''}
             {'AND p.is_deleted = 1' if deleted_only else ''} {'AND sp.saved_at IS NOT NULL' if saved_only else ''}
-            {search_sql} {unread_sql}
+            {search_sql} {filter_sql}
     """
-    order = ('p.updated_at DESC, last_rowid DESC' if deleted_only else
+    order = (f'{_POPULAR_SQL} DESC, last_rowid DESC' if popular else
+             'p.updated_at DESC, last_rowid DESC' if deleted_only else
              'sp.saved_at DESC, last_rowid DESC' if saved_only else 'last_rowid DESC')
     with _db() as conn:
         total = conn.execute(f"SELECT COUNT(DISTINCT p.id) {base}", params).fetchone()[0]

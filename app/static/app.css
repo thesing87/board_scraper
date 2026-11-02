@@ -213,6 +213,7 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .page-jump { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .page-select { height: 32px; min-width: 56px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer; }
 .page-select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.sort-select { min-width: 0; padding: 0 8px; font-weight: 500; }
 .page-total { color: var(--muted); }
 .pager .page-select { height: 40px; min-width: 64px; border-radius: 10px; }
 /* 맨 아래 페이지 선택: 버튼 위쪽으로 열리는 목록 */

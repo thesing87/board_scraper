@@ -14,6 +14,15 @@ const FILTERS = [
     { key: 'saved', label: '보관함' },
     { key: 'deleted', label: '삭제됨' }
 ];
+// 글 순서: 최신순(수집 순) 또는 추천+댓글이 많은 인기순(기간: 최근 하루·일주일·한 달·전체). 기기마다 기억
+const SORTS = [
+    { key: 'latest', label: '최신순' },
+    { key: 'popular-1', label: '인기 · 하루', days: 1 },
+    { key: 'popular-7', label: '인기 · 일주일', days: 7 },
+    { key: 'popular-30', label: '인기 · 한 달', days: 30 },
+    { key: 'popular-all', label: '인기 · 전체' }
+];
+const SORT_STORAGE_KEY = 'feed_sort';
 const POLL_INTERVAL_MS = 60 * 1000;   // 새 글 확인 주기
 const LEGACY_READ_IDS_KEY = 'read_post_ids';
 
@@ -21,6 +30,7 @@ const app = {
     state: null,          // /api/state 응답
     activeKey: ALL_KEY,   // 고른 게시판: ALL_KEY(전체) 또는 "group:<게시판 ID>"
     filter: 'all',        // 고른 보기: FILTERS의 key
+    sort: 'latest',       // 글 순서: SORTS의 key (안 읽은 글·새 댓글 보기에는 쓰지 않음)
     unreadSince: null,    // 안 읽은 글 보기를 연 서버 시각 (보는 중 읽은 글이 빠져 페이지가 밀리지 않게). 없으면 다음 요청 때 서버가 정함
     renderedUnreadIds: null, // 안 읽은 글·새 댓글 보기를 그릴 때의 글 ID (새 글 배너 계산용)
     commentIds: null,     // 새 댓글 보기를 연 때의 글 ID 목록 (보는 중 확인한 글이 빠져 페이지가 밀리지 않게)
@@ -623,6 +633,13 @@ function renderPageSelect(page, totalPages, label) {
         </span>`;
 }
 
+function renderSortSelect() {
+    const current = currentSort().key;
+    return `<select class="page-select sort-select" data-action="set-sort" aria-label="정렬">
+        ${SORTS.map(s => `<option value="${s.key}" ${s.key === current ? 'selected' : ''}>${s.label}</option>`).join('')}
+    </select>`;
+}
+
 function renderPagerMini(page, totalPages, empty) {
     if (empty) return '';
     return `
@@ -674,7 +691,11 @@ function renderPager(page, totalPages) {
 }
 
 function feedSubText(total) {
-    if (app.searchQuery) return `모든 게시판에서 ${total}건`;
+    if (total === undefined) total = app.renderedPostTotal;
+    // 인기순은 뒤에 표시하고, 기간을 정했으면 그 기간에 수집한 글 수도 (예: 최근 일주일 인기순 12개)
+    const sortNote = !isPopular() ? '' : currentSort().days
+        ? ` · 최근 ${currentSort().label.replace('인기 · ', '')} 인기순 ${total}개` : ' · 인기순';
+    if (app.searchQuery) return `모든 게시판에서 ${total}건${isPopular() ? ` · ${currentSort().label}` : ''}`;
     const summary = viewSummary(app.activeKey);
     if (!summary) return '';
     const unread = summary.unread_count;
@@ -688,11 +709,11 @@ function feedSubText(total) {
     if (app.filter === 'unread') return unread ? `${label} · 안 읽은 새 글 <strong>${unread}개</strong>` : '안 읽은 글을 모두 읽었습니다';
     if (app.filter === 'comments') return summary.comment_count
         ? `${label} · 읽은 뒤 새 댓글이 달린 글 <strong>${summary.comment_count}개</strong> · 최근 댓글 순` : '새 댓글을 모두 확인했습니다';
-    if (app.filter === 'video') return `${label} · 동영상 글 ${summary.video_count}개`;
-    if (app.filter === 'image') return `${label} · 이미지 글 ${summary.image_count}개`;
-    if (app.filter === 'deleted') return `${label} · 원문이 삭제된 글 ${summary.deleted_count}개 · 최근 삭제 순`;
-    if (app.filter === 'saved') return `${label} · 보관한 글 ${summary.saved_count}개 · 최근 보관 순`;
-    return `${label} · ${summary.total}개 글${unread ? ` · <strong>새 글 ${unread}</strong>` : ''}`;
+    if (app.filter === 'video') return `${label} · 동영상 글 ${summary.video_count}개${sortNote}`;
+    if (app.filter === 'image') return `${label} · 이미지 글 ${summary.image_count}개${sortNote}`;
+    if (app.filter === 'deleted') return `${label} · 원문이 삭제된 글 ${summary.deleted_count}개${sortNote || ' · 최근 삭제 순'}`;
+    if (app.filter === 'saved') return `${label} · 보관한 글 ${summary.saved_count}개${sortNote || ' · 최근 보관 순'}`;
+    return `${label} · ${summary.total}개 글${unread ? ` · <strong>새 글 ${unread}</strong>` : ''}${sortNote}`;
 }
 
 function renderFeedSub() {
@@ -706,7 +727,22 @@ function renderFeedSub() {
 
 // 검색 중이면 검색 결과, 아니면 '게시판|보기' (응답이 늦게 와서 다른 화면을 덮어쓰지 않게 비교용)
 function currentViewKey() {
-    return app.searchQuery ? 'search:' + app.searchQuery : app.activeKey + '|' + app.filter;
+    return (app.searchQuery ? 'search:' + app.searchQuery : app.activeKey + '|' + app.filter) + '|' + currentSort().key;
+}
+
+// 지금 화면에 쓰는 정렬: 안 읽은 글(읽는 중 순서가 밀리지 않게)·새 댓글(최근 댓글 순) 보기는 항상 그 보기의 순서
+function sortable() { return !!app.searchQuery || !['unread', 'comments'].includes(app.filter); }
+function currentSort() {
+    return (sortable() && SORTS.find(s => s.key === app.sort)) || SORTS[0];
+}
+function isPopular() { return currentSort().key !== 'latest'; }
+
+function setSort(key) {
+    if (!SORTS.some(s => s.key === key)) return;
+    app.sort = key;
+    storageSet(localStorage, SORT_STORAGE_KEY, key);
+    app.page = 1;
+    loadPosts();
 }
 
 async function loadPosts() {
@@ -719,6 +755,10 @@ async function loadPosts() {
     if (!searching && app.filter === 'deleted') params.set('deleted_only', '1');
     if (!searching && app.filter === 'image') params.set('image_only', '1');
     if (!searching && app.filter === 'saved') params.set('saved_only', '1');
+    if (isPopular()) {
+        params.set('sort', 'popular');
+        if (currentSort().days) params.set('days', currentSort().days);
+    }
     if (searching) {
         params.set('q', app.searchQuery);
     } else {
@@ -765,7 +805,8 @@ function renderFeed(data) {
     app.page = data.page;
     app.totalPages = data.total_pages;
     const summary = viewSummary(app.activeKey);
-    app.renderedTotal = searching ? null : (summary ? filterCount(summary, filter) : null);
+    app.renderedTotal = searching || isPopular() ? null : (summary ? filterCount(summary, filter) : null);
+    app.renderedPostTotal = data.total;
     app.renderedUnreadIds = filter === 'unread' ? new Set(summary.unread_ids)
         : filter === 'comments' ? new Set(app.commentIds) : null;
     if (!searching) {
@@ -794,7 +835,7 @@ function renderFeed(data) {
         data.posts.forEach(post => {
             const isUnread = post.is_new && !post.read_at;
             // 안 읽은 새 글 다음부터는 이미 본 글이라는 구분선을 한 번만 표시
-            if (!searching && !isUnread && sawUnread && !dividerShown) {
+            if (!searching && !isPopular() && !isUnread && sawUnread && !dividerShown) {
                 body += '<div class="new-divider" role="separator">여기까지 새 글</div>';
                 dividerShown = true;
             }
@@ -821,6 +862,7 @@ function renderFeed(data) {
                 <span class="feed-sub">${feedSubText(data.total)}</span>
             </div>
             <div class="feed-tools">
+                ${sortable() ? renderSortSelect() : ''}
                 ${renderPagerMini(data.page, data.total_pages, empty)}
             </div>
         </div>
@@ -1650,13 +1692,15 @@ async function handlePostAnchor() {
         return true;
     }
     const key = loc.group ? 'group:' + loc.group : ALL_KEY;
-    app.filter = 'all';  // 글 위치(페이지)는 그 게시판의 모든 글 기준
+    app.filter = 'all';  // 글 위치(페이지)는 그 게시판의 모든 글·최신순 기준
+    app.sort = 'latest';
     app.highlightPostId = postId;
     openView(key, loc.page);
     return true;
 }
 
 async function init() {
+    app.sort = storageGet(localStorage, SORT_STORAGE_KEY, 'latest');
     let savedTab = storageGet(sessionStorage, 'last_active_tab', null);
     let savedFilter = storageGet(sessionStorage, 'last_active_filter', null);
     // 예전 버전의 '안 읽은 글'·'새 댓글' 탭은 전체 게시판의 해당 보기로
@@ -1854,6 +1898,7 @@ document.addEventListener('change', (e) => {
         arrangeGroup({ id: Number(e.target.dataset.groupId), folder_id: value ? Number(value) : null }, e.target);
     }
     else if (e.target.dataset.action === 'go-page') changePage(e.target.value);
+    else if (e.target.dataset.action === 'set-sort') setSort(e.target.value);
 });
 
 document.addEventListener('input', (e) => {
