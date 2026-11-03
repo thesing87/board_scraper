@@ -1,4 +1,4 @@
-version: '3'
+version: '3.7'
 # 수집기(크롬)와 대시보드 웹서버를 컨테이너 두 개로 나눠 실행: 수집이 무거워도(크롬·페이지 분석) 외부 접속 응답이 느려지지 않게.
 # 둘은 같은 이미지·코드·output 폴더(DB: output/board.db, SQLite WAL이라 함께 써도 읽기가 막히지 않음)를 씀.
 # CPU가 모자랄 때는 cpu_shares 비율대로 나눠 쓰므로 웹서버가 먼저 받음 (남을 때는 수집기도 제한 없이 씀)
@@ -22,6 +22,9 @@ services:
       # 웹서버는 아래 fmkorea-web 컨테이너가 맡음
       - RUN_WEB_SERVER=0
     cpu_shares: 256
+    # 크롬을 주기적으로 다시 띄우면 끝난 크롬 프로세스가 좀비로 남아 쌓임 (파이썬이 1번 프로세스라 거두지 않음).
+    # Docker의 작은 init을 1번 프로세스로 두어 거두게 함 (init은 compose 파일 3.7부터)
+    init: true
     restart: unless-stopped
     volumes:
       # NAS의 공유 폴더에 DB·로그·이미지 저장 (경로는 NAS 환경에 맞게 수정)

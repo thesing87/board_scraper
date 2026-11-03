@@ -103,7 +103,8 @@ def comment(author, other_page=False):
 
 def stored():
     with storage._db() as conn:
-        row = conn.execute("SELECT comments_json, all_comment_pages FROM posts WHERE id = '7'").fetchone()
+        row = conn.execute("SELECT b.comments_json, p.all_comment_pages FROM posts p JOIN post_bodies b ON b.post_id = p.id "
+                           "WHERE p.id = '7'").fetchone()
         return {c['author']: c.get('first_seen') for c in json.loads(row['comments_json'])}, row['all_comment_pages']
 
 storage.save_keyword_post('humor', 't', post([comment('last')]), is_new=True)
@@ -114,7 +115,7 @@ storage.update_post(post([comment('old', other_page=True), comment('last'), comm
 seen_at, all_pages = stored()
 assert seen_at['old'] is None and seen_at['new'] == '2026-11-02 12:00:00' and all_pages == 1, (seen_at, all_pages)
 with storage._db() as conn:
-    assert 'other_page' not in conn.execute("SELECT comments_json FROM posts WHERE id = '7'").fetchone()[0]
+    assert 'other_page' not in conn.execute("SELECT comments_json FROM post_bodies WHERE post_id = '7'").fetchone()[0]
 storage._now = lambda: '2026-11-02 13:00:00'
 storage.update_post(post([comment('old', other_page=True), comment('reply', other_page=True), comment('last'), comment('new')]))
 seen_at, _ = stored()

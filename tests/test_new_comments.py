@@ -18,11 +18,13 @@ def set_seen(pid, first_seen_by_author, read_at=None):
     # 댓글이 처음 수집된 시각과 읽은 시각을 원하는 값으로 맞춤 (실제로는 수집·읽음 시각이 _now()로 들어감)
     import json
     with storage._db() as conn, conn:
-        row = conn.execute("SELECT comments_json FROM posts WHERE id = ?", (pid,)).fetchone()
+        row = conn.execute("SELECT comments_json FROM post_bodies WHERE post_id = ?", (pid,)).fetchone()
         comments = json.loads(row['comments_json'])
         for c in comments:
             c['first_seen'] = first_seen_by_author[c['author']]
-        conn.execute("UPDATE posts SET comments_json = ? WHERE id = ?", (json.dumps(comments, ensure_ascii=False), pid))
+        # 저장할 때처럼 마지막 댓글 시각(새 댓글 판별 기준)도 함께
+        conn.execute("UPDATE post_bodies SET comments_json = ? WHERE post_id = ?", (json.dumps(comments, ensure_ascii=False), pid))
+        conn.execute("UPDATE posts SET last_comment_at = ? WHERE id = ?", (max(c['first_seen'] for c in comments), pid))
         if read_at:
             conn.execute("INSERT OR REPLACE INTO read_posts(post_id, read_at, first_read_at) VALUES(?, ?, ?)", (pid, read_at, read_at))
 

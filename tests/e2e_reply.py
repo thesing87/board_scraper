@@ -25,7 +25,7 @@ for p in reversed(picked):
     db.execute("INSERT OR REPLACE INTO read_posts(post_id, read_at) VALUES(?, '2000-01-01 00:00:00')", (p['id'],)); db.commit()
     time.sleep(1.1)
     storage.update_post(dict(p, comments=old))
-    db.execute("UPDATE read_posts SET read_at = (SELECT MIN(json_extract(value, '$.first_seen')) FROM posts, json_each(posts.comments_json) WHERE posts.id = ?) WHERE post_id = ?", (p['id'], p['id'])); db.commit()
+    db.execute("UPDATE read_posts SET read_at = (SELECT MIN(json_extract(value, '$.first_seen')) FROM post_bodies, json_each(post_bodies.comments_json) WHERE post_bodies.post_id = ?) WHERE post_id = ?", (p['id'], p['id'])); db.commit()
 
 srv = web_server.ThreadedHTTPServer(('127.0.0.1', 18098), web_server.KeywordAPIServer)
 threading.Thread(target=srv.serve_forever, daemon=True).start()

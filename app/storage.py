@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import html
 import sqlite3
 import threading
@@ -12,7 +13,9 @@ except ImportError:  # Windows(개발용)는 수집기·웹서버를 한 프로�
 from datetime import datetime, timedelta
 from config import (
     log_msg,
+    short_err,
     DB_FILE,
+    BACKUP_DIR,
     KEYWORDS_FILE,
     BOARD_CONFIG_FILE,
     JSON_BACKUP_FILE,
@@ -22,6 +25,8 @@ from sites import board_site, is_post_id, SITE_NAMES, SITE_SHORT, MULTI_SITE
 
 SCHEMA_VERSION = 1
 
+# 연결 하나의 SQLite 페이지 캐시 크기(KiB). 연결은 조회마다 새로 열고 닫으므로 오래 붙잡지 않음
+CACHE_KIB = 16 * 1024
 _init_lock = threading.Lock()
 _initialized = False
 
@@ -34,7 +39,38 @@ def _connect():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 30000")
+    # 연결마다의 페이지 캐시(기본 2MB)가 글 표의 작은 칸 페이지보다 작으면 한 조회 안에서도 같은 페이지를 거듭 읽음
+    conn.execute(f"PRAGMA cache_size = -{CACHE_KIB}")
     return conn
+
+# 글 표의 칸 (새 DB의 표와 예전 DB를 옮길 때 같은 정의). 글 수 세기·목록 고르기에 쓰는 작은 칸만 두고,
+# 본문·댓글 JSON과 검색 텍스트는 post_bodies에 따로 둠: 한 표에 함께 두면 작은 칸만 읽는 조회도 글마다 본문이 든
+# 페이지를 디스크에서 읽어, 메모리에서 밀려난 뒤 첫 화면이 수십 초 걸렸음 (상태 조회 한 번에 DB 크기의 10배를 읽음)
+POSTS_COLUMNS = """
+            id             TEXT PRIMARY KEY,
+            title          TEXT NOT NULL DEFAULT '',
+            author         TEXT NOT NULL DEFAULT '',
+            date           TEXT NOT NULL DEFAULT '',
+            views          TEXT NOT NULL DEFAULT '0',
+            votes          TEXT NOT NULL DEFAULT '0',
+            comment_count  TEXT NOT NULL DEFAULT '0',
+            link           TEXT NOT NULL DEFAULT '',
+            list_comment_count INTEGER,
+            all_comment_pages INTEGER NOT NULL DEFAULT 0,
+            is_deleted     INTEGER NOT NULL DEFAULT 0,
+            has_video      INTEGER NOT NULL DEFAULT 0,   -- 동영상 목록이 있음 ('동영상' 보기)
+            has_image      INTEGER NOT NULL DEFAULT 0,   -- 첨부 이미지가 있음 ('이미지' 보기, _has_image)
+            last_comment_at TEXT,                        -- 가장 최근에 처음 본 댓글의 시각 ('새 댓글' 보기)
+            created_at     TEXT NOT NULL,
+            updated_at     TEXT NOT NULL
+"""
+POST_BODIES_COLUMNS = """
+            post_id        TEXT PRIMARY KEY REFERENCES posts(id) ON DELETE CASCADE,
+            videos_json    TEXT NOT NULL DEFAULT '[]',
+            content_json   TEXT NOT NULL DEFAULT '[]',
+            comments_json  TEXT NOT NULL DEFAULT '[]',
+            search_text    TEXT                          -- 제목·본문·댓글의 태그를 뺀 텍스트 (대시보드 검색용)
+"""
 
 def _create_schema(conn):
     conn.executescript("""
@@ -45,25 +81,8 @@ def _create_schema(conn):
             value TEXT
         );
 
-        CREATE TABLE IF NOT EXISTS posts (
-            id             TEXT PRIMARY KEY,
-            title          TEXT NOT NULL DEFAULT '',
-            author         TEXT NOT NULL DEFAULT '',
-            date           TEXT NOT NULL DEFAULT '',
-            views          TEXT NOT NULL DEFAULT '0',
-            votes          TEXT NOT NULL DEFAULT '0',
-            comment_count  TEXT NOT NULL DEFAULT '0',
-            link           TEXT NOT NULL DEFAULT '',
-            content_json   TEXT NOT NULL DEFAULT '[]',
-            videos_json    TEXT NOT NULL DEFAULT '[]',
-            comments_json  TEXT NOT NULL DEFAULT '[]',
-            list_comment_count INTEGER,
-            all_comment_pages INTEGER NOT NULL DEFAULT 0,
-            search_text    TEXT,
-            is_deleted     INTEGER NOT NULL DEFAULT 0,
-            created_at     TEXT NOT NULL,
-            updated_at     TEXT NOT NULL
-        );
+        CREATE TABLE IF NOT EXISTS posts (""" + POSTS_COLUMNS + """        );
+        CREATE TABLE IF NOT EXISTS post_bodies (""" + POST_BODIES_COLUMNS + """        );
 
         -- 대시보드 읽음 기록 (PC·휴대폰 어디서 읽어도 공유). read_at 이후 달린 댓글을 '새 댓글'로 표시
         CREATE TABLE IF NOT EXISTS read_posts (
@@ -248,10 +267,12 @@ def _add_missing_columns(conn):
         # 댓글이 여러 페이지인 글의 모든 페이지를 읽어 저장했는지 (_upsert_post 참고)
         conn.execute("ALTER TABLE posts ADD COLUMN all_comment_pages INTEGER NOT NULL DEFAULT 0")
         log_msg("[DB] posts.all_comment_pages 컬럼 추가")
-    if 'search_text' not in columns:
+    if 'content_json' in columns and 'search_text' not in columns:
         # 제목·본문·댓글의 태그를 뺀 텍스트 (대시보드 검색용)
         conn.execute("ALTER TABLE posts ADD COLUMN search_text TEXT")
         log_msg("[DB] posts.search_text 컬럼 추가")
+    if 'content_json' in {row['name'] for row in conn.execute("PRAGMA table_info(posts)")}:
+        _split_posts(conn)
     read_columns = {row['name'] for row in conn.execute("PRAGMA table_info(read_posts)")}
     if 'first_read_at' not in read_columns:
         # 다시 읽으면 read_at이 갱신되어, '안 읽은 글' 보기(연 시각 이후 읽은 글 포함)에 이미 읽은 글이 섞이던 문제
@@ -325,12 +346,62 @@ def _add_group_site(conn):
         conn.execute("PRAGMA foreign_keys = ON")
     log_msg("[DB] 게시판에 사이트 칸 추가 (게시판 이름은 사이트 안에서만 겹치지 않으면 됨)")
 
+def _split_posts(conn):
+    """예전 글 표(본문·댓글 JSON이 함께 있음)를 작은 글 표와 본문 표(post_bodies)로 나눠 옮김 (POSTS_COLUMNS 설명 참고).
+    동영상·이미지 여부와 마지막 댓글 시각은 본문·댓글 JSON에서 계산해 채우고, 다 옮긴 뒤 빈 공간을 정리(VACUUM)해
+    작은 글 표가 디스크에 모여 있게 함. 옮기기 전 DB는 백업 폴더에 남김.
+    옛 표를 지울 때 키워드 연결·보관함(ON DELETE CASCADE)이 지워지지 않도록 외래 키 검사를 잠시 끔"""
+    started = time.time()
+    conn.commit()
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    backup = os.path.join(BACKUP_DIR, f"board-before-posts-split-{datetime.now().strftime('%Y%m%d%H%M%S')}.db")
+    with closing(sqlite3.connect(backup)) as dest:
+        conn.backup(dest)
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        with conn:
+            conn.execute("CREATE TABLE posts_new (" + POSTS_COLUMNS + ")")
+            conn.execute(f"""
+                INSERT INTO posts_new(id, title, author, date, views, votes, comment_count, link, list_comment_count,
+                                      all_comment_pages, is_deleted, has_video, has_image, last_comment_at, created_at, updated_at)
+                SELECT id, title, author, date, views, votes, comment_count, link, list_comment_count,
+                       all_comment_pages, is_deleted, videos_json != '[]', {_HAS_IMAGE_JSON_SQL},
+                       (SELECT MAX(json_extract(c.value, '$.first_seen')) FROM json_each(comments_json) c),
+                       created_at, updated_at
+                FROM posts ORDER BY rowid
+            """)
+            conn.execute("DROP TABLE IF EXISTS post_bodies")
+            conn.execute("CREATE TABLE post_bodies (" + POST_BODIES_COLUMNS + ")")
+            conn.execute("""
+                INSERT INTO post_bodies(post_id, videos_json, content_json, comments_json, search_text)
+                SELECT id, videos_json, content_json, comments_json, search_text FROM posts ORDER BY rowid
+            """)
+            conn.execute("DROP TABLE posts")
+            conn.execute("ALTER TABLE posts_new RENAME TO posts")
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+    log_msg(f"[DB] 글 표를 작은 표와 본문 표로 나눔 (동영상·이미지·마지막 댓글 칸 추가, {time.time() - started:.0f}초, "
+            f"이전 DB: {os.path.basename(backup)})")
+    try:
+        conn.execute("VACUUM")
+        log_msg(f"[DB] 빈 공간 정리 완료 ({time.time() - started:.0f}초)")
+    except sqlite3.OperationalError as e:
+        # 다른 프로세스가 DB를 읽고 있으면 실패할 수 있음. 표는 이미 옮겨졌으므로 정리만 건너뜀
+        log_msg(f"[DB] 빈 공간 정리는 건너뜀: {short_err(e)}", "WARN")
+
 def _backfill_search_text(conn):
-    """검색 텍스트가 없는 기존 글을 1회 채움"""
-    rows = conn.execute("SELECT id, title, content_json, comments_json FROM posts WHERE search_text IS NULL").fetchall()
+    """검색 텍스트가 없는 기존 글을 1회 채움. 한 번 끝나면 다시 확인하지 않음
+    (새 글은 저장할 때 채우므로, 매번 확인하면 프로세스가 시작할 때마다 모든 글을 디스크에서 읽음)"""
+    if _get_meta(conn, 'search_text_backfilled'):
+        return
+    rows = conn.execute("""
+        SELECT p.id, p.title, b.content_json, b.comments_json FROM post_bodies b JOIN posts p ON p.id = b.post_id
+        WHERE b.search_text IS NULL
+    """).fetchall()
     for row in rows:
         post = {'title': row['title'], 'content': json.loads(row['content_json']), 'comments': json.loads(row['comments_json'])}
-        conn.execute("UPDATE posts SET search_text = ? WHERE id = ?", (_search_text(post), row['id']))
+        conn.execute("UPDATE post_bodies SET search_text = ? WHERE post_id = ?", (_search_text(post), row['id']))
+    _set_meta(conn, 'search_text_backfilled', '1')
     if rows:
         log_msg(f"[DB] 검색 텍스트 생성: 글 {len(rows)}건")
 
@@ -522,7 +593,8 @@ def _set_keyword_ignores(conn, board, keyword, phrases):
     # 무시할 표현 때문에만 빠지는 글 (표현 없이는 키워드가 있던 글)만 정리. 예전 방식으로 모은 다른 글은 건드리지 않음
     removed = []
     for row in conn.execute("""
-        SELECT p.id, p.title, p.content_json FROM keyword_posts kp JOIN posts p ON p.id = kp.post_id
+        SELECT p.id, p.title, b.content_json FROM keyword_posts kp JOIN posts p ON p.id = kp.post_id
+        JOIN post_bodies b ON b.post_id = p.id
         WHERE kp.board = ? AND kp.keyword = ?
     """, (board, keyword)).fetchall():
         content = json.loads(row['content_json'])
@@ -603,19 +675,16 @@ def _feed_summary(conn, id_limit, group_id=None, site=None, folder_id=None):
     """중복 제거한 글 수, 동영상 글 수, 안 읽은 새 글 수(전부)와 최신순 ID(최대 id_limit개),
     새 댓글이 달린 글 수와 최근 댓글순 ID(최대 id_limit개), 최신 글 날짜"""
     base, params = _feed_from(group_id, site, folder_id)
-    total = conn.execute(f"SELECT COUNT(DISTINCT kp.post_id) {base}", params).fetchone()[0]
-    video_count = conn.execute(f"""
-        SELECT COUNT(DISTINCT kp.post_id) {base} JOIN posts p ON p.id = kp.post_id WHERE {_HAS_VIDEO_SQL}
-    """, params).fetchone()[0]
-    image_count = conn.execute(f"""
-        SELECT COUNT(DISTINCT kp.post_id) {base} JOIN posts p ON p.id = kp.post_id WHERE {_HAS_IMAGE_SQL}
-    """, params).fetchone()[0]
-    deleted_count = conn.execute(f"""
-        SELECT COUNT(DISTINCT kp.post_id) {base} JOIN posts p ON p.id = kp.post_id WHERE p.is_deleted = 1
-    """, params).fetchone()[0]
-    saved_count = conn.execute(f"""
-        SELECT COUNT(DISTINCT kp.post_id) {base} JOIN saved_posts sp ON sp.post_id = kp.post_id
-    """, params).fetchone()[0]
+    # 보기별 글 수를 한 번에 셈 (글마다 작은 칸만 읽음)
+    total, video_count, image_count, deleted_count, saved_count = conn.execute(f"""
+        SELECT COUNT(DISTINCT kp.post_id),
+               COUNT(DISTINCT CASE WHEN {_HAS_VIDEO_SQL} THEN kp.post_id END),
+               COUNT(DISTINCT CASE WHEN {_HAS_IMAGE_SQL} THEN kp.post_id END),
+               COUNT(DISTINCT CASE WHEN p.is_deleted = 1 THEN kp.post_id END),
+               COUNT(DISTINCT sp.post_id)
+        {base} JOIN posts p ON p.id = kp.post_id
+        LEFT JOIN saved_posts sp ON sp.post_id = kp.post_id
+    """, params).fetchone()
     comment_ids = _new_comment_ids(conn, group_id, site, folder_id)
     unread = conn.execute(f"""
         SELECT kp.post_id, MAX(kp.rowid) AS last_rowid {base}
@@ -930,7 +999,9 @@ def _carry_comment_first_seen(old_comments, new_comments, now, old_all_pages=Tru
 def _upsert_post(conn, post):
     """글 저장. 이미 있던 글이면 이번에 처음 본 댓글 목록을 돌려줌"""
     now = _now()
-    existing = conn.execute("SELECT comments_json, all_comment_pages FROM posts WHERE id = ?", (str(post['id']),)).fetchone()
+    existing = conn.execute("""
+        SELECT b.comments_json, p.all_comment_pages FROM posts p JOIN post_bodies b ON b.post_id = p.id WHERE p.id = ?
+    """, (str(post['id']),)).fetchone()
     comments = [dict(c) for c in post.get('comments', [])]
     added = []
     if existing:
@@ -940,30 +1011,36 @@ def _upsert_post(conn, post):
             c.setdefault('first_seen', now)
     for c in comments:
         c.pop('other_page', None)
+    content_json = json.dumps(post.get('content', []), ensure_ascii=False)
+    videos = post.get('videos', [])
+    last_comment_at = max((c['first_seen'] for c in comments if c.get('first_seen')), default=None)
     conn.execute("""
-        INSERT INTO posts(id, title, author, date, views, votes, comment_count, link,
-                          content_json, videos_json, comments_json, list_comment_count, all_comment_pages,
-                          search_text, created_at, updated_at)
-        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+        INSERT INTO posts(id, title, author, date, views, votes, comment_count, link, list_comment_count, all_comment_pages,
+                          has_video, has_image, last_comment_at, created_at, updated_at)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title, author = excluded.author, date = excluded.date,
             views = excluded.views, votes = excluded.votes, comment_count = excluded.comment_count,
-            link = excluded.link, content_json = excluded.content_json, videos_json = excluded.videos_json,
-            comments_json = excluded.comments_json,
+            link = excluded.link,
             list_comment_count = COALESCE(excluded.list_comment_count, posts.list_comment_count),
             all_comment_pages = 1,
-            search_text = excluded.search_text,
+            has_video = excluded.has_video, has_image = excluded.has_image, last_comment_at = excluded.last_comment_at,
             updated_at = excluded.updated_at
     """, (
         str(post['id']), post.get('title', ''), post.get('author', ''), post.get('date', ''),
         str(post.get('views', '0')), str(post.get('votes', '0')), str(post.get('comment_count', '0')),
-        post.get('link', ''),
-        json.dumps(post.get('content', []), ensure_ascii=False),
-        json.dumps(post.get('videos', []), ensure_ascii=False),
-        json.dumps(comments, ensure_ascii=False),
-        post.get('list_comment_count'),
-        _search_text(dict(post, comments=comments)),
+        post.get('link', ''), post.get('list_comment_count'),
+        int(bool(videos)), int(_has_image(content_json)), last_comment_at,
         now, now
+    ))
+    conn.execute("""
+        INSERT INTO post_bodies(post_id, videos_json, content_json, comments_json, search_text) VALUES(?, ?, ?, ?, ?)
+        ON CONFLICT(post_id) DO UPDATE SET
+            videos_json = excluded.videos_json, content_json = excluded.content_json,
+            comments_json = excluded.comments_json, search_text = excluded.search_text
+    """, (
+        str(post['id']), json.dumps(videos, ensure_ascii=False), content_json,
+        json.dumps(comments, ensure_ascii=False), _search_text(dict(post, comments=comments))
     ))
     return added
 
@@ -1069,11 +1146,17 @@ def _row_to_post(row):
         post['is_deleted'] = True
     return post
 
-_HAS_VIDEO_SQL = "p.videos_json != '[]'"
+_HAS_VIDEO_SQL = "p.has_video = 1"
 # 첨부 이미지가 있는 글: 에펨코리아 첨부(/files/attach/)나 수집할 때 저장한 디시 이미지(/images/dc-) 본문 img
 # (이모티콘·아이콘·링크 미리보기 그림만 있는 글은 빼려고 첨부 경로로 판별)
-_HAS_IMAGE_SQL = ("(p.content_json LIKE '%<img%' AND "
-                  "(p.content_json LIKE '%/files/attach/%' OR p.content_json LIKE '%/images/dc-%'))")
+_HAS_IMAGE_SQL = "p.has_image = 1"
+# 글 표를 다시 만들 때 본문 JSON에서 이미지 여부를 계산하는 식 (_has_image와 같은 기준, LIKE는 영문 대소문자 무시)
+_HAS_IMAGE_JSON_SQL = ("(content_json LIKE '%<img%' AND "
+                       "(content_json LIKE '%/files/attach/%' OR content_json LIKE '%/images/dc-%'))")
+
+def _has_image(content_json):
+    lowered = content_json.lower()
+    return '<img' in lowered and ('/files/attach/' in lowered or '/images/dc-' in lowered)
 
 # 인기순 점수: 추천 수 + 댓글 수 (쉼표가 든 숫자 문자열)
 _POPULAR_SQL = ("(CAST(REPLACE(p.votes, ',', '') AS INTEGER) + "
@@ -1082,7 +1165,7 @@ _POPULAR_SQL = ("(CAST(REPLACE(p.votes, ',', '') AS INTEGER) + "
 def _search_conditions(query):
     """검색어를 공백으로 나눠 모든 단어가 포함된 글만 (대소문자 무시, LIKE 특수문자 이스케이프)"""
     terms = [t for t in (query or '').lower().split() if t][:5]
-    sql = ''.join(" AND p.search_text LIKE ? ESCAPE '\\'" for _ in terms)
+    sql = ''.join(" AND b.search_text LIKE ? ESCAPE '\\'" for _ in terms)
     params = tuple('%' + t.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%' for t in terms)
     return sql, params
 
@@ -1126,6 +1209,7 @@ def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=N
     base = f"""
         {feed_sql}
         JOIN posts p ON p.id = kp.post_id
+        {'JOIN post_bodies b ON b.post_id = p.id' if search_sql else ''}
         LEFT JOIN read_posts rp ON rp.post_id = p.id
         LEFT JOIN saved_posts sp ON sp.post_id = p.id
         WHERE 1 = 1 {f'AND {_HAS_VIDEO_SQL}' if video_only else ''} {f'AND {_HAS_IMAGE_SQL}' if image_only else ''}
@@ -1137,14 +1221,23 @@ def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=N
              'sp.saved_at DESC, last_rowid DESC' if saved_only else 'last_rowid DESC')
     with _db() as conn:
         total = conn.execute(f"SELECT COUNT(DISTINCT p.id) {base}", params).fetchone()[0]
-        rows = conn.execute(f"""
-            SELECT p.*, rp.read_at, sp.saved_at, MAX(kp.is_new) AS is_new, MAX(kp.rowid) AS last_rowid,
+        # 한 페이지의 글을 작은 칸만으로 먼저 고르고, 본문·댓글은 그 글들만 읽음 (모든 글의 본문을 읽지 않게)
+        page = conn.execute(f"""
+            SELECT p.id, MAX(kp.is_new) AS is_new, MAX(kp.rowid) AS last_rowid,
                    GROUP_CONCAT(kp.board || char(31) || kp.keyword, char(30)) AS keyword_links
             {base}
             GROUP BY p.id
             ORDER BY {order} LIMIT ? OFFSET ?
         """, params + (limit, offset)).fetchall()
-    return total, [_row_to_post(r) for r in rows]
+        full = {r['id']: dict(r) for r in conn.execute(f"""
+            SELECT p.*, b.videos_json, b.content_json, b.comments_json, rp.read_at, sp.saved_at FROM posts p
+            JOIN post_bodies b ON b.post_id = p.id
+            LEFT JOIN read_posts rp ON rp.post_id = p.id
+            LEFT JOIN saved_posts sp ON sp.post_id = p.id
+            WHERE p.id IN ({','.join('?' * len(page))})
+        """, [r['id'] for r in page])}
+    return total, [_row_to_post({**full[r['id']], 'is_new': r['is_new'], 'keyword_links': r['keyword_links']})
+                   for r in page if r['id'] in full]
 
 def unread_summary(id_limit=500):
     """안 읽은 새 글 모아보기 요약: 글 수(중복 제거)와 최신순 글 ID(최대 id_limit개)"""
@@ -1162,14 +1255,13 @@ def _new_comment_ids(conn, group_id=None, site=None, folder_id=None):
     """이미 읽은 글 중 마지막으로 읽은 뒤 수집된 댓글이 있는 글 ID (가장 최근 새 댓글 순).
     아직 안 읽은 글은 '안 읽은 글'에 나오므로 제외"""
     base, params = _feed_from(group_id, site, folder_id)
+    # 피드의 글만 골라 그 글의 마지막 댓글 시각과 읽은 시각을 비교 (읽은 모든 글을 훑지 않게)
     rows = conn.execute(f"""
-        SELECT id FROM (
-            SELECT p.id, rp.read_at,
-                   (SELECT MAX(json_extract(c.value, '$.first_seen')) FROM json_each(p.comments_json) c) AS last_comment_at
-            FROM posts p JOIN read_posts rp ON rp.post_id = p.id
-            WHERE p.id IN (SELECT kp.post_id {base})
-        ) WHERE last_comment_at > read_at
-        ORDER BY last_comment_at DESC
+        SELECT p.id FROM (SELECT DISTINCT kp.post_id {base}) f
+        JOIN posts p ON p.id = f.post_id
+        JOIN read_posts rp ON rp.post_id = p.id
+        WHERE p.last_comment_at > rp.read_at
+        ORDER BY p.last_comment_at DESC
     """, params).fetchall()
     return [r['id'] for r in rows]
 
@@ -1187,10 +1279,11 @@ def query_posts_by_ids(post_ids):
     feed_sql, params = _feed_from()
     with _db() as conn:
         rows = conn.execute(f"""
-            SELECT p.*, rp.read_at, sp.saved_at, MAX(kp.is_new) AS is_new,
+            SELECT p.*, b.videos_json, b.content_json, b.comments_json, rp.read_at, sp.saved_at, MAX(kp.is_new) AS is_new,
                    GROUP_CONCAT(kp.board || char(31) || kp.keyword, char(30)) AS keyword_links
             {feed_sql}
             JOIN posts p ON p.id = kp.post_id
+            JOIN post_bodies b ON b.post_id = p.id
             LEFT JOIN read_posts rp ON rp.post_id = p.id
             LEFT JOIN saved_posts sp ON sp.post_id = p.id
             WHERE p.id IN ({','.join('?' * len(ids))})
@@ -1209,6 +1302,13 @@ def recent_post_ids(limit_per_keyword):
                 (kw['board'], kw['keyword'], limit_per_keyword)))
     return ids
 
+def _update_content(conn, post_id, content, post):
+    """저장된 글의 본문만 바꿈 (검색 텍스트·이미지 여부도 함께)"""
+    content_json = json.dumps(content, ensure_ascii=False)
+    conn.execute("UPDATE post_bodies SET content_json = ?, search_text = ? WHERE post_id = ?",
+                 (content_json, _search_text(post), post_id))
+    conn.execute("UPDATE posts SET has_image = ? WHERE id = ?", (int(_has_image(content_json)), post_id))
+
 def fix_stored_x_embeds():
     """이미 저장된 글 중 X(트위터) '링크 자동 변환 중' 임시 상자가 남은 글을 트윗 화면으로 1회 변환"""
     from bs4 import BeautifulSoup
@@ -1217,7 +1317,8 @@ def fix_stored_x_embeds():
     with _db() as conn:
         if _get_meta(conn, 'x_embeds_fixed'):
             return
-        rows = conn.execute("SELECT id, title, content_json, comments_json FROM posts WHERE content_json LIKE '%twitter-tweet%'").fetchall()
+        rows = conn.execute("SELECT p.id, p.title, b.content_json, b.comments_json FROM posts p JOIN post_bodies b ON b.post_id = p.id "
+                            "WHERE b.content_json LIKE '%twitter-tweet%'").fetchall()
     fixed = 0
     for row in rows:
         content = json.loads(row['content_json'])
@@ -1228,8 +1329,7 @@ def fix_stored_x_embeds():
         new_content = soup.decode().split('\n')
         post = {'title': row['title'], 'content': new_content, 'comments': json.loads(row['comments_json'])}
         with _db() as conn, conn:
-            conn.execute("UPDATE posts SET content_json = ?, search_text = ? WHERE id = ?",
-                         (json.dumps(new_content, ensure_ascii=False), _search_text(post), row['id']))
+            _update_content(conn, row['id'], new_content, post)
         fixed += 1
     with _db() as conn, conn:
         _set_meta(conn, 'x_embeds_fixed', '1')
@@ -1244,7 +1344,8 @@ def replace_stored_x_cards():
     with _db() as conn:
         if _get_meta(conn, 'x_cards_to_iframes'):
             return
-        rows = conn.execute("SELECT id, title, content_json, comments_json FROM posts WHERE content_json LIKE '%x-embed%'").fetchall()
+        rows = conn.execute("SELECT p.id, p.title, b.content_json, b.comments_json FROM posts p JOIN post_bodies b ON b.post_id = p.id "
+                            "WHERE b.content_json LIKE '%x-embed%'").fetchall()
     fixed = 0
     for row in rows:
         soup = BeautifulSoup('\n'.join(json.loads(row['content_json'])), 'html.parser')
@@ -1253,8 +1354,7 @@ def replace_stored_x_cards():
         new_content = soup.decode().split('\n')
         post = {'title': row['title'], 'content': new_content, 'comments': json.loads(row['comments_json'])}
         with _db() as conn, conn:
-            conn.execute("UPDATE posts SET content_json = ?, search_text = ? WHERE id = ?",
-                         (json.dumps(new_content, ensure_ascii=False), _search_text(post), row['id']))
+            _update_content(conn, row['id'], new_content, post)
         fixed += 1
     with _db() as conn, conn:
         _set_meta(conn, 'x_cards_to_iframes', '1')
@@ -1277,8 +1377,9 @@ def posts_with_blocked_imagecons():
         if _get_meta(conn, BLOCKED_IMAGECONS_META):
             return []
         rows = conn.execute("""
-            SELECT id, link, title, author, date, list_comment_count FROM posts
-            WHERE updated_at >= ? AND is_deleted = 0 AND (content_json LIKE ? OR comments_json LIKE ?)
+            SELECT p.id, p.link, p.title, p.author, p.date, p.list_comment_count FROM posts p
+            JOIN post_bodies b ON b.post_id = p.id
+            WHERE p.updated_at >= ? AND p.is_deleted = 0 AND (b.content_json LIKE ? OR b.comments_json LIKE ?)
         """, (BLOCKED_IMAGES_SINCE, mark, mark)).fetchall()
     return [dict(r) for r in rows]
 
@@ -1293,8 +1394,8 @@ def remove_stored_duplicate_instagram_placeholders():
     with _db() as conn:
         if _get_meta(conn, 'instagram_duplicate_placeholders_removed'):
             return
-        rows = conn.execute("SELECT id, title, content_json, comments_json FROM posts "
-                            "WHERE content_json LIKE '%instagram-media%' AND content_json LIKE '%instagram.com%'").fetchall()
+        rows = conn.execute("SELECT p.id, p.title, b.content_json, b.comments_json FROM posts p JOIN post_bodies b ON b.post_id = p.id "
+                            "WHERE b.content_json LIKE '%instagram-media%' AND b.content_json LIKE '%instagram.com%'").fetchall()
     fixed = 0
     for row in rows:
         soup = BeautifulSoup('\n'.join(json.loads(row['content_json'])), 'html.parser')
@@ -1303,8 +1404,7 @@ def remove_stored_duplicate_instagram_placeholders():
         new_content = soup.decode().split('\n')
         post = {'title': row['title'], 'content': new_content, 'comments': json.loads(row['comments_json'])}
         with _db() as conn, conn:
-            conn.execute("UPDATE posts SET content_json = ?, search_text = ? WHERE id = ?",
-                         (json.dumps(new_content, ensure_ascii=False), _search_text(post), row['id']))
+            _update_content(conn, row['id'], new_content, post)
         fixed += 1
     with _db() as conn, conn:
         _set_meta(conn, 'instagram_duplicate_placeholders_removed', '1')
@@ -1317,14 +1417,15 @@ def remove_stored_sns_videos():
     with _db() as conn:
         if _get_meta(conn, 'sns_videos_removed'):
             return
-        rows = conn.execute("SELECT id, videos_json FROM posts WHERE videos_json != '[]'").fetchall()
+        rows = conn.execute("SELECT post_id AS id, videos_json FROM post_bodies WHERE videos_json != '[]'").fetchall()
     fixed = 0
     with _db() as conn, conn:
         for row in rows:
             videos = json.loads(row['videos_json'])
             kept = [v for v in videos if not is_sns_embed(v)]
             if len(kept) != len(videos):
-                conn.execute("UPDATE posts SET videos_json = ? WHERE id = ?", (json.dumps(kept, ensure_ascii=False), row['id']))
+                conn.execute("UPDATE post_bodies SET videos_json = ? WHERE post_id = ?", (json.dumps(kept, ensure_ascii=False), row['id']))
+                conn.execute("UPDATE posts SET has_video = ? WHERE id = ?", (int(bool(kept)), row['id']))
                 fixed += 1
         _set_meta(conn, 'sns_videos_removed', '1')
     if fixed:
