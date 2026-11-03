@@ -479,12 +479,14 @@ function openView(key, page) {
 // 보기 바꾸기 (고른 게시판은 유지)
 function setFilter(filter) {
     app.filter = filter;
+    app.galleryReturn = null;
     openView(app.activeKey, 1);
 }
 
 // 게시판 바꾸기: 그 게시판의 기본 보기(안 읽은 글 → 새 댓글 → 모든 글)로 엶
 function openBoard(key) {
     app.filter = defaultFilter(key);
+    app.galleryReturn = null;
     openView(key, 1);
 }
 
@@ -622,6 +624,146 @@ function renderPost(post, isUnread) {
             <a class="btn-original bottom" href="${link}" target="_blank" rel="noopener noreferrer">원문 보기 ${ICONS.external}</a>
             <div class="read-sentinel" data-post-id="${esc(post.id)}" aria-hidden="true"></div>
         </article>`;
+}
+
+// ==========================================
+// 동영상·이미지 모아보기: 글·댓글 없이 그 페이지 글들의 미디어만 격자로. 칸을 누르면 크게 보기, '글 보기'로 원래 글로 이동
+// (읽음 처리는 하지 않음: 글을 실제로 열어 볼 때만)
+// ==========================================
+const YOUTUBE_EMBED = /youtube(?:-nocookie)?\.com\/embed\/([\w-]{6,})/;
+
+// 첨부 이미지(서버의 '이미지' 보기 기준과 같게: 사이트 첨부 경로만, 이모티콘·아이콘 제외)
+function postImages(post) {
+    const doc = new DOMParser().parseFromString((post.content || []).join(''), 'text/html');
+    const urls = [...doc.querySelectorAll('img')].map(img => img.getAttribute('src') || '')
+        .filter(src => /^https?:\/\//i.test(src) && /\/files\/attach\/|\/images\/dc-/i.test(src));
+    return [...new Set(urls)];
+}
+
+function postVideos(post) {
+    return (post.videos || []).filter(src => /^https?:\/\//i.test(src)).map(src => {
+        const yt = YOUTUBE_EMBED.exec(src);
+        if (yt) return { type: 'youtube', src, thumb: `https://i.ytimg.com/vi/${yt[1]}/hqdefault.jpg` };
+        return { type: /\.(mp4|webm|mov)(\?|#|$)/i.test(src) ? 'file' : 'embed', src };
+    });
+}
+
+function isGalleryView() {
+    return !app.searchQuery && (app.filter === 'video' || app.filter === 'image');
+}
+
+function galleryItems(posts, kind) {
+    const items = [];
+    posts.forEach(post => {
+        const media = kind === 'image' ? postImages(post).map(src => ({ type: 'image', src })) : postVideos(post);
+        media.forEach((m, i) => items.push({ ...m, post, index: i + 1, of: media.length }));
+    });
+    return items;
+}
+
+function mediaSource(post) {
+    const k = (post.keywords || [])[0];
+    return k ? `${multiSite() ? siteLabel(boardSite(k.board)).short + ' ' : ''}${k.board_name} · ${k.keyword}` : post.title;
+}
+
+function renderGallery(posts, kind) {
+    app.galleryItems = galleryItems(posts, kind);
+    if (!app.galleryItems.length) return '<div class="empty-card">이 페이지의 글에서 볼 수 있는 미디어를 찾지 못했습니다.</div>';
+    const cells = app.galleryItems.map((it, i) => {
+        const thumb = it.type === 'image' ? `<img src="${esc(it.src)}" alt="" loading="lazy">`
+            : it.type === 'youtube' ? `<img src="${esc(it.thumb)}" alt="" loading="lazy">`
+            : it.type === 'file' ? `<video src="${esc(it.src)}#t=0.5" preload="metadata" muted playsinline tabindex="-1"></video>`
+            : '';
+        const count = it.of > 1 ? `<span class="g-count">${it.index}/${it.of}</span>` : '';
+        const play = it.type !== 'image' ? `<span class="g-play" aria-hidden="true">${ICONS.play}</span>` : '';
+        return `
+            <figure class="g-cell${it.type !== 'image' ? ' is-video' : ''}">
+                <button class="g-open" data-action="open-media" data-index="${i}" aria-label="${esc(it.post.title)} 크게 보기">${thumb}${play}</button>
+                ${count}
+                <figcaption class="g-cap">
+                    <span class="g-src" title="${esc(it.post.title)}">${esc(mediaSource(it.post))}</span>
+                    <button class="g-go" data-action="goto-post" data-post-id="${esc(it.post.id)}">글 보기</button>
+                </figcaption>
+            </figure>`;
+    }).join('');
+    return `<div class="gallery${kind === 'video' ? ' is-video' : ''}">${cells}</div>`;
+}
+
+function mediaViewer() {
+    let el = document.getElementById('media-viewer');
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = 'media-viewer';
+    el.className = 'media-viewer';
+    el.hidden = true;
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    el.innerHTML = `
+        <div class="mv-head">
+            <span class="mv-title"></span>
+            <div class="mv-actions">
+                <button class="mv-btn" data-action="goto-post">이 글로 이동 ${ICONS.next}</button>
+                <button class="mv-btn mv-icon" data-action="close-media" aria-label="닫기">${ICONS.close}</button>
+            </div>
+        </div>
+        <div class="mv-body">
+            <button class="mv-nav" data-action="media-step" data-step="-1" aria-label="이전">${ICONS.prev}</button>
+            <div class="mv-stage"></div>
+            <button class="mv-nav" data-action="media-step" data-step="1" aria-label="다음">${ICONS.next}</button>
+        </div>
+        <div class="mv-foot"></div>`;
+    document.body.appendChild(el);
+    return el;
+}
+
+function openMedia(index) {
+    const items = app.galleryItems || [];
+    if (!items.length) return;
+    app.mediaIndex = (index + items.length) % items.length;
+    const it = items[app.mediaIndex];
+    const el = mediaViewer();
+    el.querySelector('.mv-title').textContent = it.post.title;
+    el.querySelector('[data-action="goto-post"]').dataset.postId = it.post.id;
+    el.querySelector('.mv-stage').innerHTML =
+        it.type === 'image' ? `<img src="${esc(it.src)}" alt="">`
+        : it.type === 'file' ? `<video src="${esc(it.src)}" controls autoplay playsinline></video>`
+        : `<iframe src="${esc(it.src)}" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+    el.querySelector('.mv-foot').innerHTML = `${app.mediaIndex + 1} / ${items.length} · ${esc(mediaSource(it.post))}`
+        + (it.type === 'embed' ? ` · <a href="${esc(safeLink(it.post.link))}" target="_blank" rel="noopener noreferrer">재생이 안 되면 원문에서 보기</a>` : '');
+    el.querySelectorAll('.mv-nav').forEach(b => { b.hidden = items.length < 2; });
+    if (el.hidden) {
+        el.hidden = false;
+        document.body.classList.add('viewer-open');
+    }
+}
+
+function closeMedia() {
+    const el = document.getElementById('media-viewer');
+    if (!el || el.hidden) return;
+    el.querySelector('.mv-stage').innerHTML = '';  // 재생 중인 동영상 멈춤
+    el.hidden = true;
+    document.body.classList.remove('viewer-open');
+}
+
+// 모아보기에서 고른 글을 그 글이 있는 게시판·페이지에서 열고, 돌아올 모아보기 화면을 기억
+function gotoPostFromGallery(postId) {
+    closeMedia();
+    app.galleryReturn = { key: app.activeKey, filter: app.filter, page: app.page, sort: app.sort, scrollY: window.scrollY };
+    window.location.hash = 'post-' + postId;
+}
+
+function returnToGallery() {
+    const back = app.galleryReturn;
+    if (!back) return;
+    app.galleryReturn = null;
+    if (window.location.hash) history.replaceState(null, '', window.location.pathname);
+    app.filter = back.filter;
+    app.sort = back.sort;
+    app.activeKey = back.key;
+    resetViewSnapshot();
+    app.page = back.page;
+    renderNavigation();
+    loadPosts().then(() => window.scrollTo({ top: back.scrollY }));
 }
 
 function renderPageSelect(page, totalPages, label) {
@@ -831,6 +973,8 @@ function renderFeed(data) {
             : filter === 'deleted' ? '<div class="empty-card">원문이 삭제된 글이 없습니다.</div>'
             : filter === 'saved' ? '<div class="empty-card">보관한 글이 없습니다. 글 제목 옆 별표를 누르면 보관함에 담깁니다.</div>'
             : '<div class="empty-card">수집된 게시글이 없습니다. 새 글이 등록되면 이곳에 표시됩니다.</div>';
+    } else if (isGalleryView()) {
+        body = renderGallery(data.posts, filter);
     } else {
         let sawUnread = false;
         let dividerShown = false;
@@ -853,6 +997,8 @@ function renderFeed(data) {
           + (filter !== 'all' ? ` · ${filterLabel(filter)}` : '');
     const headActions = searching
         ? '<button class="btn btn-outline btn-small" data-action="clear-search">검색 닫기</button>'
+        : app.galleryReturn
+        ? `<button class="btn btn-outline btn-small" data-action="return-gallery">${ICONS.prev} ${filterLabel(app.galleryReturn.filter)} 모아보기로</button>`
         : `<button class="btn btn-outline btn-small" data-action="mark-all-read" ${summary && pendingCount(summary) ? '' : 'hidden'}>${filter === 'comments' ? '모두 확인' : '모두 읽음'}</button>`;
     feed.innerHTML = `
         <div class="feed-head">
@@ -874,7 +1020,7 @@ function renderFeed(data) {
     // 새 글들의 끝 표식이 모두 화면 위쪽에 있는 것으로 판정되어 한꺼번에 읽음 처리되므로, 확인 전에 즉시 이동
     window.scrollTo({ top: 0 });
     // 글이 없는 화면에서는 다음 글 버튼을 숨김
-    document.querySelector('.fab-next').hidden = empty;
+    document.querySelector('.fab-next').hidden = empty || isGalleryView();
     // 텔레그램 알림 링크(#post-ID)로 연 글이 있으면 그 글로 이동 (읽음 확인보다 먼저)
     const target = app.highlightPostId && document.getElementById('post-' + app.highlightPostId);
     app.highlightPostId = null;
@@ -1681,7 +1827,11 @@ async function refreshCurrent() {
 
 async function handlePostAnchor() {
     const match = /^#post-(\d+|dc-[a-z0-9_]+-\d+)$/.exec(window.location.hash);
-    if (!match) return false;
+    if (!match) {
+        // 모아보기에서 글로 이동한 뒤 브라우저 '뒤로'를 누르면 모아보기로
+        if (!window.location.hash && app.galleryReturn) returnToGallery();
+        return false;
+    }
     const postId = match[1];
     let loc;
     try {
@@ -1783,6 +1933,8 @@ window.addEventListener('message', (e) => {
 
 document.addEventListener('click', (e) => {
     if (handleVideoClick(e)) return;
+    // 크게 보기 창의 어두운 바깥을 누르면 닫음
+    if (e.target.id === 'media-viewer' || e.target.classList.contains('mv-stage')) { closeMedia(); return; }
     // 페이지 목록 바깥을 누르면 닫음
     closePageMenus(e.target.closest('.page-menu'));
     const backdrop = document.getElementById('settings');
@@ -1790,7 +1942,17 @@ document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-action]');
     if (!el || el.tagName === 'INPUT') return;
     const action = el.dataset.action;
-    if (action === 'go-home') {
+    if (action === 'open-media') {
+        openMedia(Number(el.dataset.index));
+    } else if (action === 'media-step') {
+        openMedia(app.mediaIndex + Number(el.dataset.step));
+    } else if (action === 'close-media') {
+        closeMedia();
+    } else if (action === 'goto-post') {
+        gotoPostFromGallery(el.dataset.postId);
+    } else if (action === 'return-gallery') {
+        returnToGallery();
+    } else if (action === 'go-home') {
         e.preventDefault();
         goHome();
     } else if (action === 'open-all') {
@@ -1916,6 +2078,15 @@ document.addEventListener('submit', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+    const viewer = document.getElementById('media-viewer');
+    if (viewer && !viewer.hidden) {
+        // 크게 보기 중에는 좌우 화살표로 넘기고 Esc로 닫음 (J 등 다른 단축키는 쓰지 않음)
+        if (e.key === 'Escape') closeMedia();
+        else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') openMedia(app.mediaIndex + (e.key === 'ArrowLeft' ? -1 : 1));
+        else return;
+        e.preventDefault();
+        return;
+    }
     if (e.key === 'Enter' && e.target.id === 'group-kw-input') {
         e.preventDefault();
         addDraftKeyword();
