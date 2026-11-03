@@ -60,6 +60,8 @@ POSTS_COLUMNS = """
             is_deleted     INTEGER NOT NULL DEFAULT 0,
             has_video      INTEGER NOT NULL DEFAULT 0,   -- 동영상 목록이 있음 ('동영상' 보기)
             has_image      INTEGER NOT NULL DEFAULT 0,   -- 첨부 이미지가 있음 ('이미지' 보기, _has_image)
+            image_count    INTEGER NOT NULL DEFAULT 0,   -- 모아보기에 보일 첨부 이미지 수 (post_images)
+            video_count    INTEGER NOT NULL DEFAULT 0,   -- 모아보기에 보일 동영상 수 (post_videos)
             last_comment_at TEXT,                        -- 가장 최근에 처음 본 댓글의 시각 ('새 댓글' 보기)
             created_at     TEXT NOT NULL,
             updated_at     TEXT NOT NULL
@@ -282,6 +284,12 @@ def _add_missing_columns(conn):
         log_msg("[DB] posts.search_text 컬럼 추가")
     if 'content_json' in {row['name'] for row in conn.execute("PRAGMA table_info(posts)")}:
         _split_posts(conn)
+    post_columns = {row['name'] for row in conn.execute("PRAGMA table_info(posts)")}
+    for name in ('image_count', 'video_count'):
+        if name not in post_columns:
+            # 모아보기를 글이 아닌 이미지·동영상 개수로 나누려고 글마다 개수를 둠 (본문을 읽지 않고 페이지를 정함)
+            conn.execute(f"ALTER TABLE posts ADD COLUMN {name} INTEGER NOT NULL DEFAULT 0")
+            log_msg(f"[DB] posts.{name} 컬럼 추가")
     read_columns = {row['name'] for row in conn.execute("PRAGMA table_info(read_posts)")}
     if 'first_read_at' not in read_columns:
         # 다시 읽으면 read_at이 갱신되어, '안 읽은 글' 보기(연 시각 이후 읽은 글 포함)에 이미 읽은 글이 섞이던 문제
@@ -414,6 +422,21 @@ def _backfill_search_text(conn):
     if rows:
         log_msg(f"[DB] 검색 텍스트 생성: 글 {len(rows)}건")
 
+def _backfill_media_counts(conn):
+    """기존 글의 이미지·동영상 수를 1회 채움 (이미지·동영상이 있는 글의 본문만 읽음)"""
+    if _get_meta(conn, 'media_counts_backfilled'):
+        return
+    rows = conn.execute("""
+        SELECT p.id, b.content_json, b.videos_json FROM posts p JOIN post_bodies b ON b.post_id = p.id
+        WHERE p.has_image = 1 OR p.has_video = 1
+    """).fetchall()
+    for row in rows:
+        conn.execute("UPDATE posts SET image_count = ?, video_count = ? WHERE id = ?",
+                     (len(post_images(json.loads(row['content_json']))), len(post_videos(json.loads(row['videos_json']))), row['id']))
+    _set_meta(conn, 'media_counts_backfilled', '1')
+    if rows:
+        log_msg(f"[DB] 모아보기용 이미지·동영상 수 계산: 글 {len(rows)}건")
+
 @contextmanager
 def _init_process_lock():
     """수집기와 웹서버 컨테이너가 동시에 시작하면 둘 다 스키마 확인·추가와 1회 이전을 하므로, 파일 잠금으로 한쪽씩 하게 함
@@ -448,6 +471,7 @@ def init_db():
                 for board in BOARD_MAP.keys():
                     conn.execute("INSERT OR IGNORE INTO board_config(board) VALUES(?)", (board,))
                 _backfill_search_text(conn)
+                _backfill_media_counts(conn)
                 _migrate_keywords_to_boards(conn)
                 _seed_categories(conn)
                 _migrate_site_folders(conn)
@@ -1035,21 +1059,23 @@ def _upsert_post(conn, post):
     last_comment_at = max((c['first_seen'] for c in comments if c.get('first_seen')), default=None)
     conn.execute("""
         INSERT INTO posts(id, title, author, date, views, votes, comment_count, link, list_comment_count, all_comment_pages,
-                          has_video, has_image, last_comment_at, created_at, updated_at)
-        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+                          has_video, has_image, image_count, video_count, last_comment_at, created_at, updated_at)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title, author = excluded.author, date = excluded.date,
             views = excluded.views, votes = excluded.votes, comment_count = excluded.comment_count,
             link = excluded.link,
             list_comment_count = COALESCE(excluded.list_comment_count, posts.list_comment_count),
             all_comment_pages = 1,
-            has_video = excluded.has_video, has_image = excluded.has_image, last_comment_at = excluded.last_comment_at,
+            has_video = excluded.has_video, has_image = excluded.has_image,
+            image_count = excluded.image_count, video_count = excluded.video_count, last_comment_at = excluded.last_comment_at,
             updated_at = excluded.updated_at
     """, (
         str(post['id']), post.get('title', ''), post.get('author', ''), post.get('date', ''),
         str(post.get('views', '0')), str(post.get('votes', '0')), str(post.get('comment_count', '0')),
         post.get('link', ''), post.get('list_comment_count'),
-        int(bool(videos)), int(_has_image(content_json)), last_comment_at,
+        int(bool(videos)), int(_has_image(content_json)),
+        len(post_images(post.get('content', []))), len(post_videos(videos)), last_comment_at,
         now, now
     ))
     conn.execute("""
@@ -1177,6 +1203,37 @@ def _has_image(content_json):
     lowered = content_json.lower()
     return '<img' in lowered and ('/files/attach/' in lowered or '/images/dc-' in lowered)
 
+# 모아보기에 보일 이미지: 본문 img 중 에펨코리아 첨부(/files/attach/)와 수집할 때 저장한 디시 이미지(/images/글ID/...)
+# (이모티콘·아이콘·링크 미리보기 그림은 뺌)
+_IMG_SRC_RE = re.compile(r'<img\b[^>]*?\ssrc="([^"]+)"', re.I)
+_MEDIA_IMAGE_RE = re.compile(r'(https?://[^/]+(/[^?#]*)?/files/attach/|/images/[a-z0-9_-]+/)', re.I)
+_YOUTUBE_EMBED_RE = re.compile(r'youtube(?:-nocookie)?\.com/embed/([\w-]{6,})')
+
+def post_images(content):
+    """본문 블록에서 모아보기용 이미지 주소 (중복 제외, 본문 순서)"""
+    urls = []
+    for block in content or []:
+        for src in _IMG_SRC_RE.findall(str(block)):
+            src = html.unescape(src)
+            if src.startswith('//'):
+                src = 'https:' + src
+            if _MEDIA_IMAGE_RE.match(src) and src not in urls:
+                urls.append(src)
+    return urls
+
+def post_videos(videos):
+    """동영상 목록을 모아보기 항목으로: 유튜브(미리보기 이미지 있음)·동영상 파일·그 밖의 재생 화면(iframe)"""
+    items = []
+    for src in videos or []:
+        if not re.match(r'https?://', src or ''):
+            continue
+        youtube = _YOUTUBE_EMBED_RE.search(src)
+        if youtube:
+            items.append({'type': 'youtube', 'src': src, 'thumb': f'https://i.ytimg.com/vi/{youtube.group(1)}/hqdefault.jpg'})
+        else:
+            items.append({'type': 'file' if re.search(r'\.(mp4|webm|mov)([?#]|$)', src, re.I) else 'embed', 'src': src})
+    return items
+
 # 인기순 점수: 추천 수 + 댓글 수 (쉼표가 든 숫자 문자열)
 _POPULAR_SQL = ("(CAST(REPLACE(p.votes, ',', '') AS INTEGER) + "
                 "CAST(REPLACE(p.comment_count, ',', '') AS INTEGER))")
@@ -1257,6 +1314,54 @@ def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=N
     return total, [_row_to_post({**full[r['id']], 'is_new': r['is_new'], 'keyword_links': r['keyword_links']})
                    for r in page if r['id'] in full]
 
+def query_media(kind, offset, limit, group_id=None, folder_id=None, popular=False, since=None):
+    """동영상·이미지 모아보기: 피드 글의 이미지(kind='image')나 동영상('video')을 글 순서(최신 수집순 또는 인기순)대로
+    한 줄로 이어 offset부터 limit개. (전체 개수, 항목 목록) 반환. 페이지는 글마다 저장해 둔 개수로 정하고,
+    본문은 그 페이지에 걸친 글만 읽음"""
+    count_col = 'p.image_count' if kind == 'image' else 'p.video_count'
+    feed_sql, params = _feed_from(group_id, folder_id)
+    since_sql = ''
+    if since is not None:
+        since_sql = 'AND p.created_at >= ?'
+        params += (since,)
+    order = f'{_POPULAR_SQL} DESC, last_rowid DESC' if popular else 'last_rowid DESC'
+    with _db() as conn:
+        rows = conn.execute(f"""
+            SELECT p.id, {count_col} AS n, MAX(kp.rowid) AS last_rowid,
+                   GROUP_CONCAT(kp.board || char(31) || kp.keyword, char(30)) AS keyword_links
+            {feed_sql}
+            JOIN posts p ON p.id = kp.post_id
+            WHERE {count_col} > 0 {since_sql}
+            GROUP BY p.id
+            ORDER BY {order}
+        """, params).fetchall()
+        total = sum(r['n'] for r in rows)
+        # 이 페이지에 걸친 글과 그 글 안에서 건너뛸 개수
+        picked, start = [], 0
+        for r in rows:
+            if start + r['n'] > offset and start < offset + limit:
+                picked.append((r, max(0, offset - start)))
+            start += r['n']
+            if start >= offset + limit:
+                break
+        bodies = {b['id']: b for b in conn.execute(f"""
+            SELECT p.id, p.title, p.link, b.content_json, b.videos_json FROM posts p JOIN post_bodies b ON b.post_id = p.id
+            WHERE p.id IN ({','.join('?' * len(picked))})
+        """, [r['id'] for r, _ in picked])}
+    items = []
+    for r, skip in picked:
+        body = bodies.get(r['id'])
+        if not body:
+            continue
+        media = ([{'type': 'image', 'src': src} for src in post_images(json.loads(body['content_json']))] if kind == 'image'
+                 else post_videos(json.loads(body['videos_json'])))
+        post = {'id': body['id'], 'title': body['title'], 'link': body['link'],
+                'keywords': [dict(zip(('board', 'keyword'), link.split('\x1f', 1))) for link in r['keyword_links'].split('\x1e')]}
+        for i, m in enumerate(media):
+            if i >= skip and len(items) < limit:
+                items.append({**m, 'index': i + 1, 'of': len(media), 'post': post})
+    return total, items
+
 def _new_comment_ids(conn, group_id=None, folder_id=None):
     """이미 읽은 글 중 마지막으로 읽은 뒤 수집된 댓글이 있는 글 ID (가장 최근 새 댓글 순).
     아직 안 읽은 글은 '안 읽은 글'에 나오므로 제외"""
@@ -1307,7 +1412,8 @@ def _update_content(conn, post_id, content, post):
     content_json = json.dumps(content, ensure_ascii=False)
     conn.execute("UPDATE post_bodies SET content_json = ?, search_text = ? WHERE post_id = ?",
                  (content_json, _search_text(post), post_id))
-    conn.execute("UPDATE posts SET has_image = ? WHERE id = ?", (int(_has_image(content_json)), post_id))
+    conn.execute("UPDATE posts SET has_image = ?, image_count = ? WHERE id = ?",
+                 (int(_has_image(content_json)), len(post_images(content)), post_id))
 
 def fix_stored_x_embeds():
     """이미 저장된 글 중 X(트위터) '링크 자동 변환 중' 임시 상자가 남은 글을 트윗 화면으로 1회 변환"""
@@ -1425,7 +1531,8 @@ def remove_stored_sns_videos():
             kept = [v for v in videos if not is_sns_embed(v)]
             if len(kept) != len(videos):
                 conn.execute("UPDATE post_bodies SET videos_json = ? WHERE post_id = ?", (json.dumps(kept, ensure_ascii=False), row['id']))
-                conn.execute("UPDATE posts SET has_video = ? WHERE id = ?", (int(bool(kept)), row['id']))
+                conn.execute("UPDATE posts SET has_video = ?, video_count = ? WHERE id = ?",
+                             (int(bool(kept)), len(post_videos(kept)), row['id']))
                 fixed += 1
         _set_meta(conn, 'sns_videos_removed', '1')
     if fixed:

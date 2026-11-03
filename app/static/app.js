@@ -627,38 +627,14 @@ function renderPost(post, isUnread) {
 }
 
 // ==========================================
-// 동영상·이미지 모아보기: 글·댓글 없이 그 페이지 글들의 미디어만 격자로. 칸을 누르면 크게 보기, '글 보기'로 원래 글로 이동
+// 동영상·이미지 모아보기: 글·댓글 없이 미디어만 격자로. 칸을 누르면 크게 보기, '글 보기'로 원래 글로 이동
 // (읽음 처리는 하지 않음: 글을 실제로 열어 볼 때만)
+// 페이지는 글이 아니라 미디어 개수로 나눠(서버) 항상 같은 칸 수. 데스크톱은 스크롤 없이 한 화면에 4×3, 모바일은 2×6
 // ==========================================
-const YOUTUBE_EMBED = /youtube(?:-nocookie)?\.com\/embed\/([\w-]{6,})/;
-
-// 첨부 이미지(서버의 '이미지' 보기 기준과 같게: 사이트 첨부 경로만, 이모티콘·아이콘 제외)
-function postImages(post) {
-    const doc = new DOMParser().parseFromString((post.content || []).join(''), 'text/html');
-    const urls = [...doc.querySelectorAll('img')].map(img => img.getAttribute('src') || '')
-        .filter(src => /^https?:\/\//i.test(src) && /\/files\/attach\/|\/images\/dc-/i.test(src));
-    return [...new Set(urls)];
-}
-
-function postVideos(post) {
-    return (post.videos || []).filter(src => /^https?:\/\//i.test(src)).map(src => {
-        const yt = YOUTUBE_EMBED.exec(src);
-        if (yt) return { type: 'youtube', src, thumb: `https://i.ytimg.com/vi/${yt[1]}/hqdefault.jpg` };
-        return { type: /\.(mp4|webm|mov)(\?|#|$)/i.test(src) ? 'file' : 'embed', src };
-    });
-}
+const GALLERY_PER_PAGE = { image: 12, video: 12 };
 
 function isGalleryView() {
     return !app.searchQuery && (app.filter === 'video' || app.filter === 'image');
-}
-
-function galleryItems(posts, kind) {
-    const items = [];
-    posts.forEach(post => {
-        const media = kind === 'image' ? postImages(post).map(src => ({ type: 'image', src })) : postVideos(post);
-        media.forEach((m, i) => items.push({ ...m, post, index: i + 1, of: media.length }));
-    });
-    return items;
 }
 
 function mediaSource(post) {
@@ -666,10 +642,9 @@ function mediaSource(post) {
     return k ? `${multiSite() ? siteLabel(boardSite(k.board)).short + ' ' : ''}${k.board_name} · ${k.keyword}` : post.title;
 }
 
-function renderGallery(posts, kind) {
-    app.galleryItems = galleryItems(posts, kind);
-    if (!app.galleryItems.length) return '<div class="empty-card">이 페이지의 글에서 볼 수 있는 미디어를 찾지 못했습니다.</div>';
-    const cells = app.galleryItems.map((it, i) => {
+function renderGallery(items, kind) {
+    app.galleryItems = items;
+    const cells = items.map((it, i) => {
         const thumb = it.type === 'image' ? `<img src="${esc(it.src)}" alt="" loading="lazy">`
             : it.type === 'youtube' ? `<img src="${esc(it.thumb)}" alt="" loading="lazy">`
             : it.type === 'file' ? `<video src="${esc(it.src)}#t=0.5" preload="metadata" muted playsinline tabindex="-1"></video>`
@@ -686,7 +661,9 @@ function renderGallery(posts, kind) {
                 </figcaption>
             </figure>`;
     }).join('');
-    return `<div class="gallery${kind === 'video' ? ' is-video' : ''}">${cells}</div>`;
+    // 마지막 페이지에서 모자란 칸은 빈 칸으로 채워 칸 크기와 버튼 자리를 그대로
+    const blanks = '<div class="g-cell is-blank" aria-hidden="true"></div>'.repeat(Math.max(0, GALLERY_PER_PAGE[kind] - items.length));
+    return `<div class="gallery${kind === 'video' ? ' is-video' : ''}">${cells}${blanks}</div>`;
 }
 
 function mediaViewer() {
@@ -853,8 +830,12 @@ function feedSubText(total) {
     if (app.filter === 'unread') return unread ? `${label} · 안 읽은 새 글 <strong>${unread}개</strong>` : '안 읽은 글을 모두 읽었습니다';
     if (app.filter === 'comments') return summary.comment_count
         ? `${label} · 읽은 뒤 새 댓글이 달린 글 <strong>${summary.comment_count}개</strong> · 최근 댓글 순` : '새 댓글을 모두 확인했습니다';
-    if (app.filter === 'video') return `${label} · 동영상 글 ${summary.video_count}개${sortNote}`;
-    if (app.filter === 'image') return `${label} · 이미지 글 ${summary.image_count}개${sortNote}`;
+    if (app.filter === 'video' || app.filter === 'image') {
+        // 모아보기: 미디어 개수와 지금 페이지의 범위 (예: 이미지 147개 중 13–24)
+        const range = app.galleryRange && total ? ` 중 ${app.galleryRange[0]}–${app.galleryRange[1]}` : '';
+        const period = isPopular() ? ` · ${currentSort().days ? `최근 ${currentSort().label.replace('인기 · ', '')} ` : ''}인기순` : '';
+        return `${label} · ${app.filter === 'image' ? '이미지' : '동영상'} ${total}개${range}${period}`;
+    }
     if (app.filter === 'deleted') return `${label} · 원문이 삭제된 글 ${summary.deleted_count}개${sortNote || ' · 최근 삭제 순'}`;
     if (app.filter === 'saved') return `${label} · 보관한 글 ${summary.saved_count}개${sortNote || ' · 최근 보관 순'}`;
     return `${label} · ${summary.total}개 글${unread ? ` · <strong>새 글 ${unread}</strong>` : ''}${sortNote}`;
@@ -896,6 +877,10 @@ async function loadPosts() {
     const group = findGroup(app.activeKey);
     const viewKey = currentViewKey();
     const params = new URLSearchParams({ page: app.page, video_only: !searching && app.filter === 'video' ? '1' : '0' });
+    if (isGalleryView()) {
+        params.set('media', app.filter);
+        params.set('per', GALLERY_PER_PAGE[app.filter]);
+    }
     if (!searching && app.filter === 'deleted') params.set('deleted_only', '1');
     if (!searching && app.filter === 'image') params.set('image_only', '1');
     if (!searching && app.filter === 'saved') params.set('saved_only', '1');
@@ -953,6 +938,9 @@ function renderFeed(data) {
     app.renderedPostTotal = data.total;
     app.renderedUnreadIds = filter === 'unread' ? new Set(summary.unread_ids)
         : filter === 'comments' ? new Set(app.commentIds) : null;
+    app.galleryRange = isGalleryView() && data.items
+        ? [(data.page - 1) * data.per_page + 1, (data.page - 1) * data.per_page + data.items.length] : null;
+    document.body.classList.toggle('gallery-mode', isGalleryView());
     if (!searching) {
         storageSet(sessionStorage, 'last_active_tab', app.activeKey);
         storageSet(sessionStorage, 'last_active_filter', app.filter);
@@ -974,7 +962,7 @@ function renderFeed(data) {
             : filter === 'saved' ? '<div class="empty-card">보관한 글이 없습니다. 글 제목 옆 별표를 누르면 보관함에 담깁니다.</div>'
             : '<div class="empty-card">수집된 게시글이 없습니다. 새 글이 등록되면 이곳에 표시됩니다.</div>';
     } else if (isGalleryView()) {
-        body = renderGallery(data.posts, filter);
+        body = renderGallery(data.items, filter);
     } else {
         let sawUnread = false;
         let dividerShown = false;
@@ -2102,6 +2090,11 @@ document.addEventListener('keydown', (e) => {
         setSettingsOpen(false);
     } else if (e.key === 'Escape' && e.target.id === 'search-input' && app.searchQuery) {
         clearSearch();
+    } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && isGalleryView() && !e.ctrlKey && !e.metaKey && !e.altKey
+               && !e.target.closest('input, textarea, select, [contenteditable]') && document.getElementById('settings').hidden) {
+        // 모아보기에서는 좌우 화살표로 이전·다음 페이지
+        const next = e.key === 'ArrowRight';
+        if (next ? app.page < app.totalPages : app.page > 1) changePage(next ? 'next' : 'prev');
     } else if ((e.key === 'j' || e.key === 'J') && !e.ctrlKey && !e.metaKey && !e.altKey
                && !e.target.closest('input, textarea, select, [contenteditable]')
                && document.getElementById('settings').hidden) {

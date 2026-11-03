@@ -575,9 +575,10 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
    동영상·이미지 모아보기: 미디어만 격자로, 칸을 누르면 크게 보기
    ========================================== */
 .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
-.gallery.is-video { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 .g-cell { position: relative; margin: 0; aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: #E5E7EB; }
-.g-cell.is-video { aspect-ratio: 16 / 10; background: #1F2937; }
+.g-cell.is-video { background: #1F2937; }
+/* 동영상 칸(빈 칸 포함)은 가로로 긴 모양 (데스크톱은 화면 높이에 맞춰 늘어남) */
+.gallery.is-video .g-cell { aspect-ratio: 16 / 10; }
 .g-open { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: none; background: transparent; cursor: zoom-in; display: block; }
 .g-open img, .g-open video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
 .g-play { position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%); width: 48px; height: 48px; border-radius: 50%; background: rgba(17,24,39,0.6); color: #FFFFFF; display: flex; align-items: center; justify-content: center; }
@@ -587,6 +588,15 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .g-src { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .g-go { flex: 0 0 auto; height: 26px; padding: 0 10px; border: none; border-radius: 7px; background: rgba(255,255,255,0.94); color: var(--text); font-size: 12px; font-weight: 700; cursor: pointer; }
 .g-go:hover { background: #FFFFFF; }
+.g-cell.is-blank { background: transparent; border: 1px dashed var(--border); }
+/* 데스크톱: 스크롤 없이 한 화면에 고정 칸 수(이미지·동영상 모두 4×3). 칸 크기만 창 크기에 맞추고 페이지 버튼은 항상 맨 아래 */
+@media (min-width: 900px) {
+    body.gallery-mode .feed-wrap { padding-bottom: 16px; }
+    body.gallery-mode .feed { max-width: 1400px; height: calc(100dvh - 57px - 24px - 16px); min-height: 480px; gap: 12px; }
+    body.gallery-mode .gallery { flex: 1 1 auto; min-height: 0; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); }
+    body.gallery-mode .gallery .g-cell { aspect-ratio: auto; min-height: 0; }
+    body.gallery-mode .pager { flex: 0 0 auto; padding-top: 0; }
+}
 
 .media-viewer { position: fixed; inset: 0; z-index: 200; background: rgba(10,12,16,0.92); display: flex; flex-direction: column; color: #FFFFFF; }
 .media-viewer[hidden] { display: none; }
@@ -607,7 +617,6 @@ body.viewer-open { overflow: hidden; }
 .mv-foot a { color: #FFFFFF; }
 @media (max-width: 899px) {
     .gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-    .gallery.is-video { grid-template-columns: minmax(0, 1fr); }
     .g-cap { font-size: 11px; padding: 5px 6px 5px 8px; }
     .g-go { height: 24px; padding: 0 8px; font-size: 11px; }
     .mv-head { padding: 10px 12px; }

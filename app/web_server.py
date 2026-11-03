@@ -32,6 +32,7 @@ from storage import (
     saved_comment_alert,
     set_saved_comment_alert,
     query_all_posts,
+    query_media,
     recent_post_ids,
     mark_posts_read,
     set_post_saved,
@@ -210,6 +211,21 @@ def build_posts_page(page, video_only, query='', group_id=None, unread_since=Non
                                deleted_only, image_only, saved_only, folder_id, popular, since)
     return {'page': page, 'total_pages': total_pages, 'total': total, 'posts': _decorate_posts(posts)}
 
+# 모아보기 한 페이지의 칸 수 (화면이 보냄: 데스크톱 이미지 12·동영상 6). 너무 크게 요청하면 이 값까지만
+MAX_MEDIA_PER_PAGE = 48
+
+def build_media_page(page, kind, per_page, group_id=None, folder_id=None, popular=False, since=None):
+    """동영상·이미지 모아보기: 글이 아니라 이미지·동영상 개수로 페이지를 나눔 (페이지마다 같은 칸 수)"""
+    total, _ = query_media(kind, 0, 0, group_id, folder_id, popular, since)
+    total_pages = max(1, -(-total // per_page))
+    page = min(max(1, page), total_pages)
+    _, items = query_media(kind, (page - 1) * per_page, per_page, group_id, folder_id, popular, since)
+    names = category_names()
+    for item in items:
+        for link in item['post']['keywords']:
+            link['board_name'] = names.get(link['board'], link['board'])
+    return {'page': page, 'total_pages': total_pages, 'total': total, 'per_page': per_page, 'items': items}
+
 def _decorate_posts(posts):
     names = category_names()
     for post in posts:
@@ -318,6 +334,12 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 # 묶음 (사이드바 묶음 제목): 묶음 안 모든 게시판의 글. 게시판을 고른 경우와 검색에는 쓰지 않음
                 folder_param = query.get('folder', [''])[0]
                 folder_id = int(folder_param) if folder_param.isdigit() and group_id is None and not search else None
+                media = query.get('media', [''])[0]
+                if media in ('image', 'video') and not search:
+                    per = query.get('per', [''])[0]
+                    per_page = min(int(per), MAX_MEDIA_PER_PAGE) if per.isdigit() and int(per) > 0 else 12
+                    self._send_data(200, build_media_page(page, media, per_page, group_id, folder_id, popular, since))
+                    return
                 data = build_posts_page(page, video_only, search, group_id, unread_since, deleted_only, image_only, saved_only,
                                         folder_id, popular, since)
                 if unread_since:

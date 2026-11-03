@@ -40,8 +40,12 @@ try:
     # 1) 이미지 보기: 글 대신 첨부 이미지만 격자로 (이모티콘 제외), 여러 장이면 몇 번째인지
     js("setFilter('image')"); time.sleep(2)
     db.execute('DELETE FROM read_posts'); db.commit()   # 첫 화면(안 읽은 글)에서 읽힌 기록은 지우고 모아보기만 봄
-    cells = js("return [...document.querySelectorAll('.g-cell')].map(c => [c.querySelector('img').getAttribute('src').split('/').pop(), c.querySelector('.g-count')?.textContent || ''])")
+    cells = js("return [...document.querySelectorAll('.g-cell:not(.is-blank)')].map(c => [c.querySelector('img').getAttribute('src').split('/').pop(), c.querySelector('.g-count')?.textContent || ''])")
     assert sorted(cells) == [['a.jpg', '1/2'], ['b.jpg', '2/2'], ['c.jpg', '']], cells
+    # 데스크톱: 한 페이지 12칸 고정(모자란 칸은 빈 칸), 스크롤 없이 한 화면
+    assert js("return document.querySelectorAll('.g-cell.is-blank').length") == 9
+    assert js("return document.documentElement.scrollHeight - innerHeight") <= 0
+    assert '이미지 3개 중 1–3' in js("return document.querySelector('.feed-sub').textContent")
     assert js("return document.querySelectorAll('.post-card').length") == 0
     # 2) 크게 보기: 화살표로 넘기고 Esc로 닫음. 미디어만 봐서는 읽음 처리하지 않음
     js("document.querySelector('.g-open').click()")
@@ -67,7 +71,7 @@ try:
     assert js("return location.hash") == '#post-803' and js("return app.filter") == 'all'
     assert js("return !!document.getElementById('post-803')") and js("return !!document.querySelector('[data-action=return-gallery]')")
     js("history.back()"); time.sleep(2.5)
-    assert js("return app.filter") == 'video' and js("return document.querySelectorAll('.g-cell').length") == 2
+    assert js("return app.filter") == 'video' and js("return document.querySelectorAll('.g-cell:not(.is-blank)').length") == 2
     js("document.querySelector('.g-go').click()"); time.sleep(2.5)
     js("document.querySelector('[data-action=return-gallery]').click()"); time.sleep(2)
     assert js("return app.filter") == 'video' and js("return location.hash") == ''
