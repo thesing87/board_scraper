@@ -270,8 +270,10 @@ function checkReadSentinels() {
         // (이미 읽은 글에만 새 댓글이 붙으므로, 읽음 처리는 새 댓글 표시를 지우는 것뿐)
         const newComments = seen ? [] : el.closest('.post-card').querySelectorAll('.comment.is-new-comment');
         if (newComments.length) {
+            // 넓은 화면에서는 댓글 칸이 따로 스크롤되므로, 그 칸에서 실제로 보이는 범위 안에 들어와야 본 것
+            const box = newComments[0].closest('.comments').getBoundingClientRect();
             const bottom = newComments[newComments.length - 1].getBoundingClientRect().bottom;
-            seen = bottom <= window.innerHeight && (!el.dataset.skipped || bottom > 0);
+            seen = bottom <= Math.min(window.innerHeight, box.bottom + 1) && (!el.dataset.skipped || bottom > Math.max(0, box.top));
         }
         if (seen) {
             el.dataset.read = '1';
@@ -1973,5 +1975,9 @@ window.addEventListener('scroll', () => {
     scheduleReadCheck();
 }, { passive: true });
 window.addEventListener('resize', () => { updateTitleRow(); scheduleReadCheck(); }, { passive: true });
+// 댓글 칸 안의 스크롤은 창으로 전달되지 않으므로 캡처 단계에서 받아 새 댓글 확인 (넓은 화면)
+document.addEventListener('scroll', e => {
+    if (e.target !== document && e.target.classList && e.target.classList.contains('comments')) scheduleReadCheck();
+}, { passive: true, capture: true });
 
 document.addEventListener('DOMContentLoaded', init);
