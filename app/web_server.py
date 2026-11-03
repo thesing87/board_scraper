@@ -703,13 +703,14 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
 def _keep_warm():
     """NAS 메모리가 부족해 한동안 요청이 없으면 웹서버 쪽 메모리가 스왑으로 밀려나 첫 화면이 수 초 걸림.
     첫 화면과 같은 조회를 주기적으로 돌려 관련 코드와 DB 페이지를 메모리에 붙잡아 둠"""
+    # 웹서버가 켜지자마자 한 번 돌려, 재시작 직후 첫 접속이 디스크에서 읽느라 느리지 않게 함
     while True:
-        time.sleep(WARMUP_INTERVAL_SECONDS)
         try:
             state = build_state()
             build_posts_page(1, False, unread_since=state['generated_at'])
         except Exception as e:
             log_msg(f"[API] 예열 조회 실패: {short_err(e)}", "DEBUG")
+        time.sleep(WARMUP_INTERVAL_SECONDS)
 
 def check_collector(alerted, watch_started=WATCH_STARTED):
     """수집기가 COLLECTOR_STALL_MINUTES 넘게 움직이지 않으면 한 번 알리고, 다시 움직이면 복구를 알림.

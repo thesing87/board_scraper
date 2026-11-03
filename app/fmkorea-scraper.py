@@ -66,7 +66,7 @@ from storage import (
     set_meta
 )
 from images import remove_orphan_image_dirs
-from notifier import send_telegram_message, send_post_alert, send_comment_alert, send_digest
+from notifier import send_telegram_message, send_post_alert, send_comment_alert, send_digest, retry_pending_alerts
 from scraper import parse_count, BlockedError
 # 목록·상세·게시판 확인은 카테고리(글)의 사이트에 맞는 수집기(에펨코리아·디시인사이드)로
 from sites import (
@@ -490,6 +490,11 @@ def main():
             except Exception as restart_err:
                 log_msg(f"[시스템] 크롬 재시작 실패, 다음 주기에 재시도: {short_err(restart_err)}", "ERROR")
                 continue
+            # 지난번에 텔레그램에 연결하지 못해 대기열에 넣어 둔 알림을 먼저 다시 보냄
+            try:
+                retry_pending_alerts()
+            except Exception as e:
+                log_msg(f"[알림] 대기열 알림 다시 보내기 실패: {short_err(e)}", "ERROR")
 
             config_data = load_keywords()
             current_keys = {(board, keyword) for board, keywords in config_data.items() for keyword in keywords}

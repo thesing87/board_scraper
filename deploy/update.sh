@@ -37,7 +37,12 @@ main() {
         echo '[업데이트] 받은 커밋:'
         git log --format='  %h %s' "$before..$after"
     fi
-    # 받은 뒤의 배포 스크립트로 재시작(필요하면 재빌드)
+    # 받은 뒤의 배포 스크립트로 재시작(필요하면 재빌드). 받은 커밋에서 바뀐 파일을 넘겨, 바뀐 코드를 쓰는 컨테이너만 재시작하게 함
+    # (새 커밋 없이 restart로 부른 경우는 넘기지 않음 → 모두 재시작)
+    if [ "$before" != "$after" ]; then
+        CHANGED_FILES=$(git diff --name-only "$before" "$after")
+        export CHANGED_FILES
+    fi
     sh deploy/deploy_remote.sh "$1"
 }
 

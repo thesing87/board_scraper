@@ -129,6 +129,15 @@ def _create_schema(conn):
             digest      INTEGER NOT NULL DEFAULT 0,   -- 하루 요약 알림 (매일 DIGEST_HOUR에 전날 인기 글)
             UNIQUE (site, name)
         );
+        -- 텔레그램에 연결하지 못해 보내지 못한 알림. 수집기가 다음 주기부터 다시 보냄 (notifier.retry_pending_alerts)
+        CREATE TABLE IF NOT EXISTS pending_alerts (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            payload     TEXT NOT NULL,              -- sendMessage로 보낼 내용 JSON (chat_id 제외)
+            what        TEXT NOT NULL,              -- 로그용 알림 종류 (새 글 알림 등)
+            attempts    INTEGER NOT NULL DEFAULT 0, -- 다시 보내 본 횟수
+            created_at  TEXT NOT NULL
+        );
+
         -- 사이드바에서 게시판을 묶어 보여 주는 묶음 (사용자가 만들고 이름·순서를 정함). 게시판은 묶음 하나에 들어가거나 묶음 없이 둠
         CREATE TABLE IF NOT EXISTS group_folders (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -949,6 +958,26 @@ def digest_posts(group_id, since, limit=5):
         return (num(r['votes']) + num(r['comment_count']), num(r['views']))
     top = sorted(rows, key=score, reverse=True)[:limit]
     return len(rows), [dict(r) for r in top]
+
+# ==========================================
+# 보내지 못한 텔레그램 알림 (notifier)
+# ==========================================
+def add_pending_alert(payload, what):
+    with _db() as conn, conn:
+        conn.execute("INSERT INTO pending_alerts(payload, what, created_at) VALUES(?, ?, ?)", (payload, what, _now()))
+
+def pending_alerts(limit):
+    """오래된 것부터 limit개 [{id, payload, what, attempts, created_at}]"""
+    with _db() as conn:
+        return [dict(r) for r in conn.execute("SELECT * FROM pending_alerts ORDER BY id LIMIT ?", (limit,))]
+
+def delete_pending_alert(alert_id):
+    with _db() as conn, conn:
+        conn.execute("DELETE FROM pending_alerts WHERE id = ?", (alert_id,))
+
+def bump_pending_alert(alert_id):
+    with _db() as conn, conn:
+        conn.execute("UPDATE pending_alerts SET attempts = attempts + 1 WHERE id = ?", (alert_id,))
 
 def get_meta(key):
     with _db() as conn:

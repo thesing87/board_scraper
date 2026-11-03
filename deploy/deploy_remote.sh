@@ -50,15 +50,33 @@ else
     # 컨테이너마다 ID를 비교: 새로 만들어진 컨테이너는 이미 새 코드로 시작했고, 그대로인 컨테이너는 재시작해야 새 코드를 읽음
     # (예: .env만 바뀌면 한쪽만 새로 만들어지므로, 전부 아니면 전무로 판단하면 다른 쪽이 옛 코드로 계속 돎)
     SERVICES='fmkorea-scraper fmkorea-web'
+    # 그대로인 컨테이너 중 재시작할 것: update.sh가 넘긴 바뀐 파일(CHANGED_FILES)을 보고 고름. 없으면(restart 등) 모두
+    #  - 화면(app/static)·테스트·배포 스크립트·문서만: 재시작하지 않음 (웹서버가 화면 파일을 요청마다 디스크에서 읽음)
+    #  - 웹서버 코드(app/web_server.py)만: 웹서버만
+    #  - 그 밖의 app 코드: 둘 다 (수집기와 웹서버가 같은 모듈을 씀)
+    if [ "$1" = "restart" ] || [ -z "${CHANGED_FILES+set}" ]; then
+        RESTART="$SERVICES"
+    else
+        RESTART=''
+        for f in $CHANGED_FILES; do
+            case "$f" in
+                app/static/*|tests/*|deploy/*|*.md) ;;
+                app/web_server.py) RESTART="$RESTART fmkorea-web" ;;
+                app/*) RESTART="$RESTART $SERVICES" ;;
+            esac
+        done
+    fi
     BEFORE=$(for s in $SERVICES; do echo "$s=$(dk ps -q -f name="^$s\$")"; done)
     # docker-compose.yml·.env가 바뀌었으면 여기서 그 컨테이너를 새로 만듦 (재빌드 없음)
     dc up -d
     for s in $SERVICES; do
-        if echo "$BEFORE" | grep -qx "$s=$(dk ps -q -f name="^$s\$")"; then
-            echo "[재시작] $s: 코드만 바뀌어 컨테이너 재시작"
+        if ! echo "$BEFORE" | grep -qx "$s=$(dk ps -q -f name="^$s\$")"; then
+            echo "[재시작] $s: 설정이 바뀌어 새로 만듦 (이미지 재빌드 없음)"
+        elif echo " $RESTART " | grep -q " $s "; then
+            echo "[재시작] $s: 코드가 바뀌어 컨테이너 재시작"
             dc restart "$s"
         else
-            echo "[재시작] $s: 설정이 바뀌어 새로 만듦 (이미지 재빌드 없음)"
+            echo "[재시작] $s: 이 컨테이너가 쓰는 코드는 바뀌지 않아 재시작하지 않음"
         fi
     done
 fi

@@ -2,15 +2,24 @@ import os
 import re
 import json
 import html
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 
 import requests
 from config import log_msg, short_err, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
 from sites import post_site
-from storage import site_labels
+from storage import site_labels, add_pending_alert, pending_alerts, delete_pending_alert, bump_pending_alert
 from images import image_file, IMAGE_URL_PREFIX
 
 _missing_config_warned = False
+
+# _call 결과: 보냄 / 텔레그램이 거절함(형식 오류 등, 다시 보내도 같음) / 연결 실패·시간 초과·서버 오류(나중에 다시)
+OK, REJECTED, OFFLINE = 'ok', 'rejected', 'offline'
+# 텔레그램에 연결하지 못하면 이 시간 동안은 보내 보지 않고 바로 대기열에 넣음 (알림마다 시간 초과를 기다리느라 수집이 멈추지 않게)
+OFFLINE_SECONDS = 120
+# 대기열의 알림을 이 시간이 지나도록 보내지 못하면 포기
+PENDING_MAX_HOURS = 24
+_offline_until = 0.0
 
 PREVIEW_LENGTH = 90        # 새 글 알림의 본문 미리보기 글자 수
 CAPTION_LIMIT = 1024       # 텔레그램 사진 설명 최대 길이
@@ -42,23 +51,87 @@ def _configured():
         _missing_config_warned = True
     return False
 
+def _result(method, status_code, text):
+    """응답 코드를 결과로: 200은 OK, 요청이 너무 많음(429)·서버 오류(5xx)는 OFFLINE(나중에 다시), 나머지는 REJECTED"""
+    global _offline_until
+    if status_code == 200:
+        return OK
+    log_msg(f"[알림] {method} 실패({status_code}): {short_err(_redact(text))}", "DEBUG")
+    if status_code == 429 or status_code >= 500:
+        _offline_until = time.time() + OFFLINE_SECONDS
+        return OFFLINE
+    return REJECTED
+
+def _connection_failed(method, error):
+    global _offline_until
+    log_msg(f"[알림] {method} 오류: {short_err(_redact(str(error)))}", "DEBUG")
+    _offline_until = time.time() + OFFLINE_SECONDS
+    return OFFLINE
+
+def _offline():
+    """최근 텔레그램에 연결하지 못해 잠시 바로 보내지 않는 중인지"""
+    return time.time() < _offline_until
+
 def _call(method, payload):
-    """텔레그램 API 호출. 성공하면 True, 실패 사유는 DEBUG 로그로 남김"""
+    """텔레그램 API 호출. OK·REJECTED·OFFLINE 중 하나 (실패 사유는 DEBUG 로그로)"""
     try:
         res = requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/{method}", json=payload, timeout=10)
-        if res.status_code == 200:
-            return True
-        log_msg(f"[알림] {method} 실패({res.status_code}): {short_err(_redact(res.text))}", "DEBUG")
+        return _result(method, res.status_code, res.text)
     except Exception as e:
-        log_msg(f"[알림] {method} 오류: {short_err(_redact(str(e)))}", "DEBUG")
-    return False
+        return _connection_failed(method, e)
+
+def _deliver(message):
+    """메시지(chat_id 제외) 발송. HTML 서식이 거절되면 서식 없는 글로 한 번 더 시도. OK·REJECTED·OFFLINE"""
+    result = _call("sendMessage", {"chat_id": TELEGRAM_CHAT_ID, **message})
+    if result != REJECTED or 'parse_mode' not in message:
+        return result
+    plain = {k: v for k, v in message.items() if k != 'parse_mode'}
+    plain['text'] = html.unescape(_TAG_RE.sub('', message['text'].replace('</blockquote>', '\n')))
+    return _call("sendMessage", {"chat_id": TELEGRAM_CHAT_ID, **plain})
+
+def _send(message, what):
+    """메시지 발송. 텔레그램에 연결하지 못하면 대기열에 넣어 수집기가 다음 주기부터 다시 보내게 함. 보냈으면 True"""
+    result = OFFLINE if _offline() else _deliver(message)
+    if result == OFFLINE:
+        add_pending_alert(json.dumps(message, ensure_ascii=False), what)
+        log_msg(f"[알림] 텔레그램 연결 실패 → 대기열에 넣고 다음 주기부터 다시 보냄 ({what})", "WARN")
+    elif result == REJECTED:
+        log_msg(f"[알림] 텔레그램 {what} 발송 실패", "ERROR")
+    return result == OK
+
+def retry_pending_alerts(limit=10):
+    """대기열의 알림을 오래된 것부터 다시 보냄 (수집기가 주기마다 호출). 보낸 알림 맨 위에 원래 보내려던 시각을 붙임.
+    또 연결하지 못하면 다음 주기로 미루고, PENDING_MAX_HOURS가 지난 알림은 포기. 보낸 개수 반환"""
+    if not _configured():
+        return 0
+    sent = 0
+    expired = (datetime.now() - timedelta(hours=PENDING_MAX_HOURS)).strftime('%Y-%m-%d %H:%M:%S')
+    for alert in pending_alerts(limit):
+        if alert['created_at'] < expired:
+            delete_pending_alert(alert['id'])
+            log_msg(f"[알림] {alert['created_at'][5:16]} {alert['what']}을 {PENDING_MAX_HOURS}시간 동안 보내지 못해 포기", "WARN")
+            continue
+        if _offline():
+            break
+        message = json.loads(alert['payload'])
+        message['text'] = f"⏱ {alert['created_at'][11:16]}에 보내지 못한 알림\n\n{message['text']}"
+        result = _deliver(message)
+        if result == OFFLINE:
+            bump_pending_alert(alert['id'])
+            break
+        delete_pending_alert(alert['id'])
+        if result == OK:
+            sent += 1
+            log_msg(f"[알림] 미뤄 둔 {alert['what']} 발송 ({alert['created_at'][11:16]} 실패분, {alert['attempts'] + 1}번째 시도)")
+        else:
+            log_msg(f"[알림] 미뤄 둔 {alert['what']} 발송 실패 (텔레그램이 거절)", "ERROR")
+    return sent
 
 def send_telegram_message(text):
     """차단 의심·복구 같은 상태 알림 (서식 없는 글)"""
     if not _configured():
         return
-    if not _call("sendMessage", {"chat_id": TELEGRAM_CHAT_ID, "text": text}):
-        log_msg("[알림] 텔레그램 발송 실패", "ERROR")
+    _send({"text": text}, "상태 알림")
 
 # ==========================================
 # 새 글 알림 (정보 카드형, 이미지·동영상 글은 썸네일 사진과 함께)
@@ -97,7 +170,7 @@ def find_saved_image(content_lines):
     return image_file(html.unescape(match.group(1))[len(IMAGE_URL_PREFIX):]) if match else None
 
 def _upload_photo(base, caption, image):
-    """저장된 이미지 파일을 사진으로 올려 보냄 (multipart). 성공하면 True"""
+    """저장된 이미지 파일을 사진으로 올려 보냄 (multipart). OK·REJECTED·OFFLINE"""
     path, content_type = image
     payload = {k: (json.dumps(v, ensure_ascii=False) if isinstance(v, dict) else str(v)) for k, v in base.items()}
     payload['caption'] = caption
@@ -105,12 +178,13 @@ def _upload_photo(base, caption, image):
         with open(path, 'rb') as f:
             res = requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto", data=payload,
                                 files={'photo': (os.path.basename(path), f, content_type)}, timeout=30)
-        if res.status_code == 200:
-            return True
-        log_msg(f"[알림] sendPhoto(파일) 실패({res.status_code}): {short_err(_redact(res.text))}", "DEBUG")
+        return _result("sendPhoto(파일)", res.status_code, res.text)
+    except OSError as e:
+        # 저장된 이미지 파일을 열지 못함 → 글로 대신 보냄 (텔레그램 연결 문제가 아님)
+        log_msg(f"[알림] sendPhoto(파일) 이미지 열기 실패: {short_err(e)}", "DEBUG")
+        return REJECTED
     except Exception as e:
-        log_msg(f"[알림] sendPhoto(파일) 오류: {short_err(_redact(str(e)))}", "DEBUG")
-    return False
+        return _connection_failed("sendPhoto(파일)", e)
 
 def _count(value):
     """조회·댓글 수를 천 단위 쉼표로 (숫자가 아니면 그대로)"""
@@ -145,27 +219,20 @@ def build_post_alert(post, boards, keyword, board_name):
     return body + f"🏷 {esc(keyword)} · {esc(board_name)}\n" + '   '.join(stats)
 
 def _html_base(dashboard_url='', original_url=''):
-    """HTML 서식 메시지의 공통 값과 대시보드·원문 버튼"""
+    """HTML 서식 메시지의 공통 값과 대시보드·원문 버튼 (chat_id는 보낼 때 붙임)"""
     buttons = []
     if dashboard_url.startswith(('http://', 'https://')):
         buttons.append({"text": "📱 대시보드", "url": dashboard_url})
     if original_url.startswith(('http://', 'https://')):
         buttons.append({"text": "🔗 원문", "url": original_url})
-    base = {"chat_id": TELEGRAM_CHAT_ID, "parse_mode": "HTML"}
+    base = {"parse_mode": "HTML"}
     if buttons:
         base["reply_markup"] = {"inline_keyboard": [buttons]}
     return base
 
 def _send_html(base, text, what):
-    """HTML 메시지 발송. 서식 오류 등으로 실패하면 서식 없는 글로 한 번 더 시도"""
-    if _call("sendMessage", {**base, "text": text, "link_preview_options": {"is_disabled": True}}):
-        return True
-    fallback = {k: v for k, v in base.items() if k != "parse_mode"}
-    plain = html.unescape(_TAG_RE.sub('', text.replace('</blockquote>', '\n')))
-    if _call("sendMessage", {**fallback, "text": plain, "link_preview_options": {"is_disabled": True}}):
-        return True
-    log_msg(f"[알림] 텔레그램 {what} 발송 실패", "ERROR")
-    return False
+    """HTML 메시지 발송 (서식이 거절되면 서식 없는 글로, 연결이 안 되면 대기열로). 보냈으면 True"""
+    return _send({**base, "text": text, "link_preview_options": {"is_disabled": True}}, what)
 
 def build_comment_alert(post, new_comments):
     """보관한 글의 새 댓글 알림 본문(HTML): 머리글 / 굵은 제목 / 새 댓글 최대 3개 (작성자: 내용)"""
@@ -215,10 +282,12 @@ def send_post_alert(post, boards, keyword, board_name, dashboard_url='', origina
     thumbnail = find_thumbnail(post.get('content'))
     # 인터넷 주소로 쓸 썸네일이 없으면 NAS에 저장된 본문 이미지(디시)를 파일로 올림
     saved_image = None if thumbnail else find_saved_image(post.get('content'))
-    if (thumbnail or saved_image) and len(text) <= CAPTION_LIMIT:
-        sent = (_call("sendPhoto", {**base, "photo": thumbnail, "caption": text}) if thumbnail
-                else _upload_photo(base, text, saved_image))
-        if sent:
+    # 연결이 안 되는 중이면 사진은 건너뛰고 글로 대기열에 넣음 (다시 보낼 때는 글로)
+    if (thumbnail or saved_image) and len(text) <= CAPTION_LIMIT and not _offline():
+        photo_base = {"chat_id": TELEGRAM_CHAT_ID, **base}
+        result = (_call("sendPhoto", {**photo_base, "photo": thumbnail, "caption": text}) if thumbnail
+                  else _upload_photo(photo_base, text, saved_image))
+        if result == OK:
             return
         log_msg("[알림] 썸네일 사진 발송 실패 → 글로 발송", "DEBUG")
     _send_html(base, text, "새 글 알림")
