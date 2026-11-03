@@ -617,6 +617,8 @@ body.viewer-open { overflow: hidden; }
 .mv-foot a { color: #FFFFFF; }
 @media (max-width: 899px) {
     .gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    /* 모바일 동영상은 한 줄에 하나씩 크게 (12개를 세로로) */
+    .gallery.is-video { grid-template-columns: minmax(0, 1fr); }
     .g-cap { font-size: 11px; padding: 5px 6px 5px 8px; }
     .g-go { height: 24px; padding: 0 8px; font-size: 11px; }
     .mv-head { padding: 10px 12px; }
