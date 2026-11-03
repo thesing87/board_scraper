@@ -16,9 +16,9 @@ srv = web_server.ThreadedHTTPServer(('127.0.0.1', 18097), web_server.KeywordAPIS
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 BASE = 'http://127.0.0.1:18097/'
 SHOTS = shot_dir('unread_shots')
-summary = storage.unread_summary()
-print('unread total', summary['total'])
-assert summary['total'] > 20
+summary = storage.feed_summary()
+print('unread total', summary['unread_count'])
+assert summary['unread_count'] > 20
 
 o = Options()
 for a in ['--headless=new', '--window-size=1440,900']:
@@ -35,7 +35,7 @@ try:
     d.get(BASE); W(2.5)
     v = view(); print('first screen', v['title'], '|', v['sub'], '|', v['nav'])
     # 화면에 다 보인 짧은 글은 바로 읽음 처리되므로 지금 서버 기준 개수와 비교
-    now_total = storage.unread_summary()['total']
+    now_total = storage.feed_summary()['unread_count']
     assert v['title'] == '전체 · 안 읽은 글' and f"{now_total}개" in v['sub'] and v['nav'][0] == f'전체 {now_total}'
     assert v['ids'] == summary['unread_ids'][:10]
     d.save_screenshot(os.path.join(SHOTS, '1_unread.png'))
@@ -49,9 +49,9 @@ try:
     # 3) 새로고침 버튼 → 이미 읽은 글은 빠짐
     js("document.querySelector('.desktop-only[data-action=\"refresh\"]').click()"); W(2)
     js("app.page = 1; loadPosts()"); W(1.5)
-    v3 = view(); now = storage.unread_summary()
+    v3 = view(); now = storage.feed_summary()
     print('after refresh', v3['ids'][:2], v3['sub'])
-    assert v3['ids'][:5] == now['unread_ids'][:5] and not set(v3['ids']) & set(v['ids']) and f"{now['total']}개" in v3['sub'], v3
+    assert v3['ids'][:5] == now['unread_ids'][:5] and not set(v3['ids']) & set(v['ids']) and f"{now['unread_count']}개" in v3['sub'], v3
 
     # 4) 안 읽은 글 보기 중 새 글이 들어오면 배너
     post = {'id': '10999999990', 'title': '새로 들어온 글', 'author': 't', 'date': 'd', 'views': '1', 'votes': '0', 'comment_count': '0',
@@ -64,8 +64,8 @@ try:
 
     # 5) 다 읽으면 다음 방문의 첫 화면은 전체. 이미 읽은 글을 다시 읽어도(읽은 시각 갱신)
     #    '안 읽은 글' 보기에 다시 나타나지 않음 (전체 화면에서 맨 위 글이 다시 읽음 처리됨)
-    storage.mark_posts_read(storage.unread_summary()['unread_ids'])
-    assert storage.unread_summary()['total'] == 0
+    storage.mark_posts_read(storage.feed_summary()['unread_ids'])
+    assert storage.feed_summary()['unread_count'] == 0
     js("sessionStorage.clear()"); d.get(BASE); W(2.5)
     v5 = view(); print('no unread first screen', v5['title'])
     assert v5['title'] == '전체'

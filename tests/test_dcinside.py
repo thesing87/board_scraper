@@ -171,18 +171,13 @@ conn.execute("UPDATE keyword_groups SET name = '싼타페' WHERE id = 2")     # 
 conn.commit()
 print('SAME NAME OK')
 
-# --- 9) 사이트 전체 게시판: 그 사이트의 모든 게시판 글만, 사이트끼리 겹치지 않으므로 합이 전체와 같음
+# --- 9) 디시 게시판: 디시 키워드의 글만, 통합 피드에도 함께
 storage.save_keyword_post('dc:car_new1', '싼타페', {**post, 'id': 'dc-car_new1-11561500', 'title': '싼타페 새 글'}, is_new=True)
-per_site = storage.site_feed_summaries()
-assert set(per_site) == {'fmkorea', 'dcinside'} and 'dc-car_new1-11561500' in per_site['dcinside']['unread_ids'], per_site
-assert all(not i.startswith('dc-') for i in per_site['fmkorea']['unread_ids'])
-for field in ('total', 'unread_count'):
-    assert sum(v[field] for v in per_site.values()) == storage.feed_summary()[field], field
-total, rows = storage.query_all_posts(0, 50, site='dcinside')
-assert total == per_site['dcinside']['total'] and rows and all(r['id'].startswith('dc-') for r in rows), (total, rows)
-page = web_server.build_posts_page(1, False, site='dcinside')
-assert page['total'] == total and all(p['id'].startswith('dc-') for p in page['posts'])
-print('SITE FEED OK')
+dc_group = next(g for g in storage.list_groups() if g['site'] == 'dcinside')
+assert 'dc-car_new1-11561500' in dc_group['unread_ids'] and 'dc-car_new1-11561500' in storage.feed_summary()['unread_ids']
+total, rows = storage.query_all_posts(0, 50, group_id=dc_group['id'])
+assert total == dc_group['total'] and rows and all(r['id'].startswith('dc-') for r in rows), (total, rows)
+print('DC FEED OK')
 
 # --- 10) 저장한 디시 이미지: 형식 판별, 저장 주소, 웹서버 경로 검사, 정리된 글의 폴더 삭제
 import images
@@ -235,7 +230,6 @@ total, rows = storage.query_all_posts(0, 100, image_only=True)
 ids = {r['id'] for r in rows}
 assert {'20000000001', 'dc-car_new1-20000002'} <= ids and not ids & {'20000000003', '20000000004'}, ids
 assert storage.feed_summary()['image_count'] == total
-assert storage.site_feed_summaries()['dcinside']['image_count'] >= 1
 assert web_server.build_posts_page(1, False, image_only=True)['total'] == total
 print('IMAGE FILTER OK')
 

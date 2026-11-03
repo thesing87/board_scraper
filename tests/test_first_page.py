@@ -51,7 +51,7 @@ saved, stats = run()
 posts = storage.recent_keyword_posts('car', '싼타페', 50)
 assert saved == 4 and [p['id'] for p in posts] == ['105', '104', '103', '101'], posts
 assert ('car', '싼타페', '200') in rejected
-assert storage.unread_summary()['total'] == 0          # 이미 본 글로 저장 (NEW·알림 없음)
+assert storage.feed_summary()['unread_count'] == 0     # 이미 본 글로 저장 (NEW·알림 없음)
 assert {p['id']: p['list_comment_count'] for p in posts}['104'] == 4
 # 키워드 없던 글은 다음에도 다시 열지 않음
 calls.clear()
@@ -81,7 +81,7 @@ assert m.fill_first_page(None, 'dc:car_new1', '싼타페', 'DC/싼타페', DC_LI
 assert sorted(calls) == ['dc-car_new1-505', 'dc-car_new1-506', 'dc-car_new1-508'], calls
 # 목록 순서대로 정렬되고, 509는 계속 안 읽은 새 글, 채운 글은 이미 본 글
 assert [p['id'] for p in storage.recent_keyword_posts('dc:car_new1', '싼타페', 50)] == [p['id'] for p in DC_LIST]
-assert storage.site_feed_summaries()['dcinside']['unread_ids'] == ['dc-car_new1-509']
+assert [i for i in storage.feed_summary()['unread_ids'] if i.startswith('dc-')] == ['dc-car_new1-509']
 storage.mark_first_page_filled('dc:car_new1', '싼타페')
 assert 'dc:car_new1|싼타페' in storage.first_page_filled_keys()
 print('DC FILL OK')

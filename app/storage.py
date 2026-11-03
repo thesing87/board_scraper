@@ -659,16 +659,12 @@ def _migrate_keywords_to_boards(conn):
 # ==========================================
 # 게시판 (하나 이상의 키워드 글을 중복 없이 한 피드로)
 # ==========================================
-def _site_sql(site):
-    """카테고리 키(kp.board)가 그 사이트인지 (디시 카테고리 키는 'dc:'로 시작, sites.py)"""
-    return "kp.board LIKE 'dc:%'" if site == 'dcinside' else "kp.board NOT LIKE 'dc:%'"
-
-def _feed_from(group_id=None, site=None, folder_id=None):
+def _feed_from(group_id=None, folder_id=None):
     """피드 글 연결의 FROM 절과 파라미터. group_id가 없으면 모든 게시판(등록 키워드 전체),
-    site가 있으면 그 사이트의 모든 게시판(사이트 전체 게시판), folder_id가 있으면 그 묶음의 모든 게시판"""
-    sql = f"""
+    folder_id가 있으면 그 묶음의 모든 게시판"""
+    sql = """
         FROM keyword_posts kp
-        JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword{f' AND {_site_sql(site)}' if site else ''}
+        JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword
     """
     if folder_id is not None:
         # 묶음 안의 게시판끼리 같은 키워드를 써도 글이 두 번 잡히지 않게 키워드를 한 번씩만
@@ -680,10 +676,10 @@ def _feed_from(group_id=None, site=None, folder_id=None):
         return sql, ()
     return sql + "JOIN keyword_group_members gm ON gm.board = kp.board AND gm.keyword = kp.keyword AND gm.group_id = ?\n", (group_id,)
 
-def _feed_summary(conn, id_limit, group_id=None, site=None, folder_id=None):
+def _feed_summary(conn, id_limit, group_id=None, folder_id=None):
     """중복 제거한 글 수, 동영상 글 수, 안 읽은 새 글 수(전부)와 최신순 ID(최대 id_limit개),
     새 댓글이 달린 글 수와 최근 댓글순 ID(최대 id_limit개), 최신 글 날짜"""
-    base, params = _feed_from(group_id, site, folder_id)
+    base, params = _feed_from(group_id, folder_id)
     # 보기별 글 수를 한 번에 셈 (글마다 작은 칸만 읽음)
     total, video_count, image_count, deleted_count, saved_count = conn.execute(f"""
         SELECT COUNT(DISTINCT kp.post_id),
@@ -694,7 +690,7 @@ def _feed_summary(conn, id_limit, group_id=None, site=None, folder_id=None):
         {base} JOIN posts p ON p.id = kp.post_id
         LEFT JOIN saved_posts sp ON sp.post_id = kp.post_id
     """, params).fetchone()
-    comment_ids = _new_comment_ids(conn, group_id, site, folder_id)
+    comment_ids = _new_comment_ids(conn, group_id, folder_id)
     unread = conn.execute(f"""
         SELECT kp.post_id, MAX(kp.rowid) AS last_rowid {base}
         LEFT JOIN read_posts rp ON rp.post_id = kp.post_id
@@ -718,12 +714,6 @@ def _feed_summary(conn, id_limit, group_id=None, site=None, folder_id=None):
         'comment_ids': comment_ids[:id_limit],
         'latest_date': latest['date'] if latest else ''
     }
-
-def site_feed_summaries(id_limit=500):
-    """사이트 전체 게시판(그 사이트의 모든 게시판을 합친 피드) 요약: {site: 게시판 요약과 같은 형태}.
-    사이드바 사이트 제목 옆 안 읽은 수와 사이트 전체 게시판 보기에 씀 (게시판끼리 겹치는 글은 한 번만 셈)"""
-    with _db() as conn:
-        return {site: _feed_summary(conn, id_limit, site=site) for site in SITE_NAMES}
 
 def feed_summary(id_limit=500):
     """모든 게시판을 합친 통합 피드 요약"""
@@ -1215,17 +1205,16 @@ def recent_keyword_posts(board, keyword, limit):
 _UNREAD_SQL = "kp.is_new = 1 AND rp.read_at IS NULL"
 
 def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=None, unread_since=None, deleted_only=False,
-                    site=None, image_only=False, saved_only=False, folder_id=None, popular=False, since=None):
+                    image_only=False, saved_only=False, folder_id=None, popular=False, since=None):
     """게시판에 등록된 키워드의 글을 한 번씩만(중복 제거) 최신 수집순으로 조회.
-    group_id가 있으면 그 게시판만, site가 있으면 그 사이트의 모든 게시판만, folder_id가 있으면 그 묶음의 게시판만,
-    query가 있으면 검색 결과.
+    group_id가 있으면 그 게시판만, folder_id가 있으면 그 묶음의 게시판만, query가 있으면 검색 결과.
     unread_since가 있으면 안 읽은 새 글만: 그 시각 이후에 읽은 글은 계속 포함해
     보는 도중 읽음 처리가 되어도 페이지가 밀리지 않게 함.
     deleted_only면 원문이 삭제된 글만, 최근 삭제 순 (삭제된 글은 더 갱신하지 않으므로 updated_at이 삭제 확인 시각).
     saved_only면 보관함(별표를 단 글)만, 최근 보관 순.
     popular면 추천+댓글이 많은 순(보기의 순서보다 우선), since가 있으면 그 시각 이후 처음 수집한 글만"""
     search_sql, search_params = _search_conditions(query)
-    feed_sql, params = _feed_from(group_id, site, folder_id)
+    feed_sql, params = _feed_from(group_id, folder_id)
     params += search_params
     # 수집 기간·안 읽은 글 조건
     filter_sql = ''
@@ -1268,22 +1257,10 @@ def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=N
     return total, [_row_to_post({**full[r['id']], 'is_new': r['is_new'], 'keyword_links': r['keyword_links']})
                    for r in page if r['id'] in full]
 
-def unread_summary(id_limit=500):
-    """안 읽은 새 글 모아보기 요약: 글 수(중복 제거)와 최신순 글 ID(최대 id_limit개)"""
-    base, params = _feed_from()
-    with _db() as conn:
-        rows = conn.execute(f"""
-            SELECT kp.post_id, MAX(kp.rowid) AS last_rowid {base}
-            LEFT JOIN read_posts rp ON rp.post_id = kp.post_id
-            WHERE {_UNREAD_SQL}
-            GROUP BY kp.post_id ORDER BY last_rowid DESC
-        """, params).fetchall()
-    return {'total': len(rows), 'unread_ids': [r['post_id'] for r in rows[:id_limit]]}
-
-def _new_comment_ids(conn, group_id=None, site=None, folder_id=None):
+def _new_comment_ids(conn, group_id=None, folder_id=None):
     """이미 읽은 글 중 마지막으로 읽은 뒤 수집된 댓글이 있는 글 ID (가장 최근 새 댓글 순).
     아직 안 읽은 글은 '안 읽은 글'에 나오므로 제외"""
-    base, params = _feed_from(group_id, site, folder_id)
+    base, params = _feed_from(group_id, folder_id)
     # 피드의 글만 골라 그 글의 마지막 댓글 시각과 읽은 시각을 비교 (읽은 모든 글을 훑지 않게)
     rows = conn.execute(f"""
         SELECT p.id FROM (SELECT DISTINCT kp.post_id {base}) f
@@ -1293,12 +1270,6 @@ def _new_comment_ids(conn, group_id=None, site=None, folder_id=None):
         ORDER BY p.last_comment_at DESC
     """, params).fetchall()
     return [r['id'] for r in rows]
-
-def new_comment_summary(id_limit=500):
-    """새 댓글 모아보기 요약 (모든 게시판): 글 수와 최근 댓글순 글 ID(최대 id_limit개)"""
-    with _db() as conn:
-        ids = _new_comment_ids(conn)
-    return {'total': len(ids), 'unread_ids': ids[:id_limit]}
 
 def query_posts_by_ids(post_ids):
     """지정한 글들을 그 순서대로 조회 (새 댓글 모아보기: 화면을 연 때의 목록을 페이지로 나눠 보여줌)"""
@@ -1539,8 +1510,9 @@ def existing_post_ids(post_ids):
 
 def mark_posts_read(post_ids):
     """읽음 기록 저장. 이미 읽은 글은 마지막 읽은 시각만 갱신(그 이후 달린 댓글만 '새 댓글'이 되도록),
-    처음 읽은 시각은 그대로 둠"""
-    ids = [str(i) for i in post_ids if is_post_id(str(i))]
+    처음 읽은 시각은 그대로 둠. 모은 글이 아닌 ID는 저장하지 않음 (암호 없이 부르는 API라 쓸모없는 기록이 쌓이지 않게).
+    저장한 글 수 반환"""
+    ids = sorted(existing_post_ids(post_ids))
     if not ids:
         return 0
     now = _now()

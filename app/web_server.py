@@ -199,16 +199,15 @@ def build_state():
         'digest_hour': DIGEST_HOUR
     }
 
-def build_posts_page(page, video_only, query='', group_id=None, unread_since=None, deleted_only=False, site=None,
+def build_posts_page(page, video_only, query='', group_id=None, unread_since=None, deleted_only=False,
                      image_only=False, saved_only=False, folder_id=None, popular=False, since=None):
-    """통합 피드(group_id 없음)·게시판·묶음(folder_id)·사이트 전체 게시판(site)·검색·안 읽은 글·삭제된 글·보관함:
-    여러 키워드의 글을 중복 없이"""
-    total, _ = query_all_posts(0, 0, video_only, query, group_id, unread_since, deleted_only, site, image_only, saved_only,
+    """통합 피드(group_id 없음)·게시판·묶음(folder_id)·검색·안 읽은 글·삭제된 글·보관함: 여러 키워드의 글을 중복 없이"""
+    total, _ = query_all_posts(0, 0, video_only, query, group_id, unread_since, deleted_only, image_only, saved_only,
                                folder_id, popular, since)
     total_pages = max(1, -(-total // POSTS_PER_PAGE))
     page = min(max(1, page), total_pages)
     _, posts = query_all_posts((page - 1) * POSTS_PER_PAGE, POSTS_PER_PAGE, video_only, query, group_id, unread_since,
-                               deleted_only, site, image_only, saved_only, folder_id, popular, since)
+                               deleted_only, image_only, saved_only, folder_id, popular, since)
     return {'page': page, 'total_pages': total_pages, 'total': total, 'posts': _decorate_posts(posts)}
 
 def _decorate_posts(posts):
@@ -249,6 +248,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         self._send_data(status, {'success': success, 'message': message})
 
     def _read_json_body(self):
+        """요청 본문 JSON(객체). 길이·형식이 맞지 않으면 ValueError (JSON 해석 오류·글자 깨짐도 ValueError의 하위)"""
         content_length = int(self.headers.get('Content-Length', 0))
         if content_length <= 0 or content_length > MAX_BODY_BYTES:
             raise ValueError("요청 본문 크기가 올바르지 않습니다.")
@@ -318,10 +318,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 # 묶음 (사이드바 묶음 제목): 묶음 안 모든 게시판의 글. 게시판을 고른 경우와 검색에는 쓰지 않음
                 folder_param = query.get('folder', [''])[0]
                 folder_id = int(folder_param) if folder_param.isdigit() and group_id is None and not search else None
-                # 사이트 전체 게시판 (fmkorea·dcinside). 게시판을 고른 경우와 검색에는 쓰지 않음
-                site = query.get('site', [''])[0]
-                site = site if site in site_labels() and group_id is None and not search else None
-                data = build_posts_page(page, video_only, search, group_id, unread_since, deleted_only, site, image_only, saved_only,
+                data = build_posts_page(page, video_only, search, group_id, unread_since, deleted_only, image_only, saved_only,
                                         folder_id, popular, since)
                 if unread_since:
                     data['unread_since'] = unread_since
@@ -371,32 +368,37 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             content = f.read()
         self._send_body(200, content, content_type, cache_control='private, max-age=2592000')
 
+    POST_HANDLERS = {
+        '/api/toggle-alert': '_handle_toggle_alert',
+        '/api/read': '_handle_read',
+        '/api/saved': '_handle_saved',
+        '/api/group': '_handle_group',
+        '/api/folder': '_handle_folder',
+        '/api/category': '_handle_category',
+        '/api/site': '_handle_site',
+    }
+
     def do_POST(self):
         pure_path = self.path.split('?')[0]
         log_msg(f"[API] POST {pure_path} ({client_ip(self.client_address[0], self.headers)})", "DEBUG")
-
-        if pure_path == '/api/toggle-alert':
-            self._handle_toggle_alert()
-        elif pure_path == '/api/read':
-            self._handle_read()
-        elif pure_path == '/api/saved':
-            self._handle_saved()
-        elif pure_path == '/api/group':
-            self._handle_group()
-        elif pure_path == '/api/folder':
-            self._handle_folder()
-        elif pure_path == '/api/category':
-            self._handle_category()
-        elif pure_path == '/api/site':
-            self._handle_site()
-        else:
+        handler = self.POST_HANDLERS.get(pure_path)
+        if handler is None:
             self.send_response(404)
             self.end_headers()
+            return
+        # 본문(JSON)을 먼저 읽어 둠. 형식이 깨진 요청은 서버 오류(500)가 아니라 잘못된 요청(400)으로 답하고 오류 기록을 남기지 않음
+        try:
+            self._body = self._read_json_body()
+        except ValueError as e:
+            log_msg(f"[API] 잘못된 요청 본문: {pure_path} {short_err(e)}", "DEBUG")
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        getattr(self, handler)()
 
     def _handle_group(self):
         """게시판 만들기·수정·삭제 (관리자 암호 필요). 키워드는 게시판에 등록하는 방식으로만 관리"""
         try:
-            params = self._read_json_body()
+            params = self._body
             if not self._authorize(params.get('password', ''), '게시판 관리'):
                 return
             action = params.get('action')
@@ -503,7 +505,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
     def _handle_folder(self):
         """묶음 만들기·이름 바꾸기·삭제·순서 (관리자 암호 필요)"""
         try:
-            params = self._read_json_body()
+            params = self._body
             if not self._authorize(params.get('password', ''), '묶음 관리'):
                 return
             action = params.get('action')
@@ -546,7 +548,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
     def _handle_site(self):
         """사이트 이름·짧은 표시 바꾸기 (관리자 암호 필요). 화면의 사이트 제목·FM·DC 표시와 텔레그램 알림에 쓰임"""
         try:
-            params = self._read_json_body()
+            params = self._body
             if not self._authorize(params.get('password', ''), '사이트 이름 변경'):
                 return
             site = params.get('site')
@@ -573,7 +575,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         """카테고리(에펨코리아 게시판·디시 갤러리) 추가·이름 변경·다시 확인·삭제 (관리자 암호 필요).
         추가한 카테고리는 수집기가 다음 주기에 열어 보고 수집할 수 있는 게시판이면 그다음 주기부터 수집"""
         try:
-            params = self._read_json_body()
+            params = self._body
             if not self._authorize(params.get('password', ''), '카테고리 관리'):
                 return
             action = params.get('action')
@@ -631,7 +633,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
     def _handle_read(self):
         """화면에서 읽은 글 기록 (기기 간 공유). 읽음 표시는 민감 정보가 아니라 관리자 암호 없이 허용"""
         try:
-            params = self._read_json_body()
+            params = self._body
             ids = params.get('ids')
             if not isinstance(ids, list) or len(ids) > MAX_READ_IDS:
                 self._send_json(400, False, '❌ 잘못된 요청입니다.')
@@ -649,7 +651,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
     def _handle_saved(self):
         """보관함에 담기·빼기 (기기 간 공유). 읽음 기록처럼 관리자 암호 없이 허용"""
         try:
-            params = self._read_json_body()
+            params = self._body
             post_id = params.get('id')
             saved = params.get('saved')
             if not isinstance(post_id, str) or not is_post_id(post_id) or not isinstance(saved, bool):
@@ -670,7 +672,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
     def _handle_toggle_alert(self):
         """게시판별 텔레그램 알림(전체·동영상·하루 요약)과 보관한 글 새 댓글 알림 켜기·끄기 (관리자 암호 필요)"""
         try:
-            params = self._read_json_body()
+            params = self._body
             group_id = params.get('group')
             alert_type = params.get('type')
             enabled = params.get('enabled') is True

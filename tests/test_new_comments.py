@@ -41,8 +41,8 @@ set_seen('103', {'a': '2026-10-27 09:00:00'}, read_at='2026-10-27 10:00:00')
 storage.save_keyword_post('baseball', '삼성', post('104', [comment('a', '1')]), is_new=True)
 set_seen('104', {'a': '2026-10-27 11:00:00'})
 
-summary = storage.new_comment_summary()
-assert summary == {'total': 2, 'unread_ids': ['102', '101']}, summary
+summary = storage.feed_summary()
+assert (summary['comment_count'], summary['comment_ids']) == (2, ['102', '101']), summary
 print('summary OK')
 
 posts = storage.query_posts_by_ids(['101', '102', '999', 'x'])
@@ -53,5 +53,5 @@ print('by ids OK')
 
 # 다시 읽으면 목록에서 빠짐
 storage.mark_posts_read(['102'])
-assert storage.new_comment_summary()['unread_ids'] == ['101']
+assert storage.feed_summary()['comment_ids'] == ['101']
 print('NEW COMMENTS OK')

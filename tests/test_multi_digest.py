@@ -34,8 +34,6 @@ merged = groups[0]
 assert merged['site'] == 'multi' and len(merged['members']) == 3 and merged['total'] == 2, merged
 assert merged['video_alert'] is False                                     # 알림 설정은 남는 게시판 것
 assert sorted(p['id'] for p in storage.query_all_posts(0, 10, group_id=fm_id)[1]) == ['501', 'dc-car_new1-9']
-# 사이트 전체 게시판은 여전히 사이트별로 나뉨
-assert storage.site_feed_summaries()['dcinside']['total'] == 1 and storage.site_feed_summaries()['fmkorea']['total'] == 1
 # 여러 사이트 게시판끼리만 이름 중복 검사, 없는 게시판은 합칠 수 없음
 for args, message in [((None, '싼타페', members[:2]), '여러 사이트에 같은 이름'), ((fm_id, '싼타페', members, [999]), '합칠 게시판이 없습니다')]:
     try:

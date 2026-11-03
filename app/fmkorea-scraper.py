@@ -4,7 +4,10 @@ import sys
 import threading
 import traceback
 from datetime import date, datetime, timedelta
+import urllib3
 from selenium.webdriver import Chrome
+from selenium.common.exceptions import WebDriverException
+from selenium.webdriver.remote.command import Command
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 
@@ -87,6 +90,9 @@ HEARTBEAT_SECONDS = 3600
 DELETION_CHECKS_PER_KEYWORD = 3
 # 키워드마다 기억해 두는 거른 글 수 (검색 목록 첫 페이지보다 넉넉하게. 더 오래된 기록은 하루 한 번 정리)
 REJECTED_KEEP_PER_KEYWORD = 300
+# 페이지가 이 시간(초) 안에 열리지 않으면 포기. 크롬 기본값(300초)이 셀레늄의 응답 대기 한도(120초)보다 길어,
+# NAS가 느려지면 페이지마다 응답 대기 한도를 다 채우고서야 실패했음 (한 번에 2분씩, 연달아 몇 번)
+PAGE_LOAD_TIMEOUT = 30
 # 키워드 목록 감시 범위를 벗어난 보관한 글을 한 주기에 다시 여는 최대 개수 (SAVED_CHECK_MINUTES마다 한 번씩 돌아가며)
 SAVED_CHECKS_PER_CYCLE = 3
 # 하루 요약을 마지막으로 보낸 날짜 (meta)
@@ -108,6 +114,27 @@ IMAGE_PREFS = {
     'profile.content_settings.exceptions.images': {'[*.]dcinside.com,*': {'setting': 1}},
 }
 
+class ChromeHungError(WebDriverException):
+    """크롬이 이미 응답하지 않는 것으로 확인되어 명령을 보내지 않음"""
+
+class HungGuard:
+    """크롬이 명령에 응답하지 않으면(셀레늄 응답 대기 시간 초과) hung으로 표시하고, 그 뒤 명령은 기다리지 않고 바로 실패시킴.
+    한 번 멈춘 크롬은 다음 명령에서도 대개 또 멈춰 명령마다 2분씩 날렸음. 메인 루프가 키워드마다 확인해 크롬을 새로 띄움
+    (종료 명령은 그대로 보내 크롬을 닫게 함)"""
+    hung = False
+
+    def execute(self, driver_command, params=None):
+        if self.hung and driver_command != Command.QUIT:
+            raise ChromeHungError('크롬이 응답하지 않아 다시 띄울 때까지 명령을 보내지 않음')
+        try:
+            return super().execute(driver_command, params)
+        except urllib3.exceptions.TimeoutError:
+            self.hung = True
+            raise
+
+class CollectorChrome(HungGuard, Chrome):
+    pass
+
 def create_driver():
     options = Options()
     options.page_load_strategy = 'eager'
@@ -124,7 +151,8 @@ def create_driver():
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-gpu')
 
-    driver = Chrome(options=options, service=services)
+    driver = CollectorChrome(options=options, service=services)
+    driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
     # 크롬 개발자 도구(CDP): 받은 파일 꺼내기(Page.getResourceContent)에 씀
     driver.execute_cdp_cmd('Page.enable', {})
     runtime_status.update(chrome_started_at=runtime_status.now())
@@ -268,6 +296,18 @@ def send_daily_digests():
             continue
         sent = send_digest(group['name'], total, posts, lambda p: post_urls(p)[0] or post_urls(p)[1])
         log_msg(f"[요약] {group['name']} 하루 요약 {'발송' if sent else '발송 실패'} (새 글 {total}개 중 {len(posts)}개)")
+
+def restart_if_hung(driver):
+    """크롬이 응답하지 않는 것으로 표시됐으면 바로 새로 띄움 (다음 주기까지 기다리지 않고 다음 키워드부터 새 크롬으로)"""
+    if not getattr(driver, 'hung', False):
+        return driver
+    log_msg("[시스템] 크롬이 응답하지 않아 바로 다시 띄움", "WARN")
+    runtime_status.increment('chrome_restarts')
+    try:
+        driver.quit()
+    except Exception:
+        pass
+    return create_driver()
 
 def restart_driver(driver):
     """오래 띄워 둔 크롬은 메모리가 계속 불어나므로 주기적으로 새로 띄움"""
@@ -522,6 +562,7 @@ def main():
                     continue
 
                 for keyword in keywords:
+                    driver = restart_if_hung(driver)
                     stats['keywords'] += 1
                     target = f"{board_name}/{keyword}"
                     ignores = keyword_ignores.get((board, keyword), [])
@@ -638,6 +679,7 @@ def main():
                 block_streak = 0
                 next_wait = CHECK_INTERVAL
 
+            driver = restart_if_hung(driver)
             # 새로 추가한 카테고리는 차단 의심이 없는 주기에만 확인 (차단 화면을 잘못된 게시판으로 오판하지 않도록)
             if not blocked_reason:
                 verify_pending_categories(driver)

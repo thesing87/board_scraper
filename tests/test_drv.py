@@ -24,4 +24,34 @@ assert r.calls == ['about:blank', 'Memory.simulatePressureNotification', 'HeapPr
 class Broken:
     def get(self, url): raise RuntimeError('chrome gone')
 m.release_chrome_memory(Broken())
+# 크롬이 응답하지 않으면(셀레늄 응답 대기 시간 초과) 표시하고, 그 뒤 명령은 기다리지 않고 바로 실패 (종료 명령만 보냄)
+import urllib3
+class FakeBase:
+    sent = []
+    def execute(self, command, params=None):
+        self.sent.append(command)
+        if command == 'get':
+            raise urllib3.exceptions.ReadTimeoutError(None, '/session/x/url', 'Read timed out. (read timeout=120)')
+        return {'value': 1}
+class Guarded(m.HungGuard, FakeBase):
+    pass
+g = Guarded()
+assert g.execute('executeScript') == {'value': 1} and not g.hung
+try:
+    g.execute('get'); raise AssertionError('시간 초과가 전달되지 않음')
+except urllib3.exceptions.ReadTimeoutError:
+    pass
+assert g.hung
+try:
+    g.execute('findElement'); raise AssertionError('멈춘 크롬에 명령을 보냄')
+except m.ChromeHungError:
+    pass
+g.execute('quit')
+assert g.sent == ['executeScript', 'get', 'quit'], g.sent
+# 메인 루프는 키워드마다 확인해 멈춘 크롬만 새로 띄움
+quits = []
+g.quit = lambda: quits.append(1)
+assert m.restart_if_hung(g) == 'NEW' and quits == [1]
+alive = Alive()
+assert m.restart_if_hung(alive) is alive
 print('DRIVER OK')

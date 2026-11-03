@@ -73,7 +73,7 @@ with sqlite3.connect(old_db) as db:
     assert db.execute('SELECT post_id FROM saved_posts').fetchall() == [('2',)]
     assert db.execute('PRAGMA foreign_key_check').fetchall() == []
 assert len([f for f in os.listdir(storage.BACKUP_DIR) if f.startswith('board-before-posts-split-')]) == 1
-assert storage.new_comment_summary()['unread_ids'] == ['3']          # 읽은 뒤(11/01 12:00) 달린 댓글
+assert storage.feed_summary()['comment_ids'] == ['3']          # 읽은 뒤(11/01 12:00) 달린 댓글
 assert [p['id'] for p in storage.query_all_posts(0, 10, query='하이브리드')[1]] == ['3']
 # 외래 키는 새 글 표를 가리킴: 글을 지우면 본문·키워드 연결·보관함도 지워짐
 with storage._db() as conn, conn:
