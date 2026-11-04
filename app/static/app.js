@@ -1041,17 +1041,26 @@ function renderFeed(data) {
     const target = app.highlightPostId && document.getElementById('post-' + app.highlightPostId);
     app.highlightPostId = null;
     if (target) jumpToPost(target);
-    scrollCommentsToBottom();
+    anchorCommentBoxes();
     observeReadSentinels();
     return !!target;
 }
 
-// 넓은 화면의 오른쪽 댓글 칸(따로 스크롤)은 최신 댓글이 보이도록 맨 아래에서 시작.
-// 댓글 이미지가 늦게 떠서 높이가 늘어도, 사용자가 그 칸을 직접 스크롤하기 전까지는 맨 아래를 유지 (아래 load 이벤트)
-function scrollCommentsToBottom(root = document) {
-    root.querySelectorAll('.post-card.has-comments > .comments').forEach(box => {
-        if (!box.dataset.userScrolled) box.scrollTop = box.scrollHeight;
-    });
+// 넓은 화면의 오른쪽 댓글 칸(따로 스크롤)의 시작 위치: 새 댓글이 마지막 댓글이 아니면 첫 새 댓글을 칸 맨 위에,
+// 아니면(새 댓글이 마지막이거나 없으면) 최신 댓글이 보이도록 맨 아래.
+// 댓글 이미지가 늦게 떠서 높이가 늘어도, 사용자가 그 칸을 직접 스크롤하기 전까지는 같은 위치를 유지 (아래 load 이벤트)
+function anchorCommentBox(box) {
+    if (box.dataset.userScrolled) return;
+    const comments = box.querySelectorAll('.comment');
+    const firstNew = box.querySelector('.comment.is-new-comment');
+    if (firstNew && firstNew !== comments[comments.length - 1]) {
+        box.scrollTop += firstNew.getBoundingClientRect().top - box.getBoundingClientRect().top - 8;
+    } else {
+        box.scrollTop = box.scrollHeight;
+    }
+}
+function anchorCommentBoxes(root = document) {
+    root.querySelectorAll('.post-card.has-comments > .comments').forEach(anchorCommentBox);
 }
 ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach(type => document.addEventListener(type, e => {
     const box = e.target.closest && e.target.closest('.post-card.has-comments > .comments');
@@ -1059,10 +1068,10 @@ function scrollCommentsToBottom(root = document) {
 }, { passive: true, capture: true }));
 document.addEventListener('load', e => {
     const box = e.target.closest && e.target.closest('.post-card.has-comments > .comments');
-    if (box && !box.dataset.userScrolled) box.scrollTop = box.scrollHeight;
+    if (box) anchorCommentBox(box);
 }, true);
-// 창을 넓혀 댓글 칸이 따로 스크롤되기 시작할 때도 맨 아래로
-window.matchMedia('(min-width: 1360px)').addEventListener('change', e => { if (e.matches) scrollCommentsToBottom(); });
+// 창을 넓혀 댓글 칸이 따로 스크롤되기 시작할 때도 같은 시작 위치로
+window.matchMedia('(min-width: 1360px)').addEventListener('change', e => { if (e.matches) anchorCommentBoxes(); });
 
 // 맨 위를 거쳐 미끄러지듯 내려가지 않도록 애니메이션 없이 바로 이동.
 // 위쪽 글의 이미지·동영상·SNS 게시물이 늦게 떠서 높이가 바뀌면 글이 밀리므로, 사용자가 직접 스크롤하기 전까지
