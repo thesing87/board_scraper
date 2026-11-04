@@ -63,6 +63,20 @@
                     <span class="sk"></span><span class="sk"></span><span class="sk sk-short"></span><span class="sk"></span><span class="sk sk-short"></span>
                 </div>
             </div>
+            <!-- 단축키 안내: 지금 화면에서 쓸 수 있는 키만 진하게 (data-keys: list 글 목록, gallery 모아보기, viewer 크게 보기) -->
+            <section class="shortcut-guide" id="shortcut-guide" aria-label="단축키">
+                <button class="keys-toggle" data-action="toggle-keys" aria-expanded="true">
+                    <span>단축키</span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+                </button>
+                <ul class="keys-list">
+                    <li data-keys="list"><span class="keys"><kbd>F</kbd></span>다음 글</li>
+                    <li data-keys="list"><span class="keys"><kbd>G</kbd></span>본문·댓글 전부 접기/펼치기</li>
+                    <li data-keys="gallery"><span class="keys"><kbd>←</kbd><kbd>→</kbd></span>모아보기 이전·다음 페이지</li>
+                    <li data-keys="viewer"><span class="keys"><kbd>←</kbd><kbd>→</kbd></span>크게 보기에서 이전·다음</li>
+                    <li data-keys="viewer"><span class="keys"><kbd>Esc</kbd></span>크게 보기·창 닫기</li>
+                </ul>
+            </section>
         </aside>
 
         <main class="feed-wrap">
@@ -89,7 +103,7 @@
         <button class="fab fab-top" id="floating-top-btn" data-action="scroll-top" aria-label="맨 위로">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"></path></svg>
         </button>
-        <button class="fab fab-next" data-action="next-post" aria-label="다음 글" title="다음 글 (J)">
+        <button class="fab fab-next" data-action="next-post" aria-label="다음 글" title="다음 글 (F)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
         </button>
     </div>

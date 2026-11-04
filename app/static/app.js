@@ -23,6 +23,9 @@ const SORTS = [
     { key: 'popular-all', label: '인기 · 전체' }
 ];
 const SORT_STORAGE_KEY = 'feed_sort';
+// 본문·댓글 전부 접기(제목만) 상태와 단축키 안내를 접어 둔 상태 (기기마다 기억)
+const FOLD_STORAGE_KEY = 'posts_folded';
+const KEYS_STORAGE_KEY = 'shortcut_guide_closed';
 const POLL_INTERVAL_MS = 60 * 1000;   // 새 글 확인 주기
 const LEGACY_READ_IDS_KEY = 'read_post_ids';
 
@@ -270,6 +273,7 @@ function checkReadSentinels() {
     readCheckScheduled = false;
     const ids = [];
     document.querySelectorAll('.read-sentinel:not([data-read])').forEach(el => {
+        if (isFoldedCard(el.closest('.post-card'))) return;  // 접힌 글은 제목만 본 것이라 읽음 아님
         const top = el.getBoundingClientRect().top;
         // 텔레그램 링크로 건너뛴 위쪽 글(data-skipped)은 지나친 것만으로는 읽음이 아니므로, 글 끝이 실제로 화면에 보일 때만
         let seen = el.dataset.skipped ? top >= 0 && top < window.innerHeight : top < window.innerHeight;
@@ -739,6 +743,7 @@ function openMedia(index) {
     if (el.hidden) {
         el.hidden = false;
         document.body.classList.add('viewer-open');
+        updateShortcutGuide();
     }
 }
 
@@ -748,6 +753,7 @@ function closeMedia() {
     el.querySelector('.mv-stage').innerHTML = '';  // 재생 중인 동영상 멈춤
     el.hidden = true;
     document.body.classList.remove('viewer-open');
+    updateShortcutGuide();
 }
 
 // 모아보기에서 고른 글을 그 글이 있는 게시판·페이지에서 열고, 돌아올 모아보기 화면을 기억
@@ -769,6 +775,76 @@ function returnToGallery() {
     app.page = back.page;
     renderNavigation();
     loadPosts().then(() => window.scrollTo({ top: back.scrollY }));
+}
+
+// ==========================================
+// 본문·댓글 전부 접기/펼치기 (G 키): 접으면 글마다 제목 줄만. 접힌 글은 제목 줄을 눌러 그 글만 펼침
+// ==========================================
+function foldLabel() {
+    return app.folded ? `${ICONS.chevronDown} 전부 펼치기` : `${ICONS.up} 전부 접기`;
+}
+
+function isFoldedCard(card) {
+    return !!(app.folded && card && !card.classList.contains('is-open'));
+}
+
+function applyFold() {
+    const feed = document.getElementById('feed');
+    feed.classList.toggle('is-folded', !!app.folded && !isGalleryView());
+    feed.querySelectorAll('.post-card').forEach(card => {
+        card.classList.toggle('is-open', app.openPostIds.has(card.id));
+    });
+    const btn = feed.querySelector('[data-action="toggle-fold"]');
+    if (btn) {
+        btn.innerHTML = foldLabel();
+        btn.setAttribute('aria-pressed', String(!!app.folded));
+    }
+}
+
+function toggleFold() {
+    if (isGalleryView() || !document.querySelector('#feed .post-card')) return;
+    // 접거나 펼친 뒤에도 보던 글이 화면 맨 위에 남도록
+    const current = currentPostCard();
+    app.folded = !app.folded;
+    app.openPostIds = new Set();
+    storageSet(localStorage, FOLD_STORAGE_KEY, app.folded ? '1' : '0');
+    applyFold();
+    if (current) window.scrollTo({ top: current.getBoundingClientRect().top + window.pageYOffset - stickyHeight() - 12 });
+    scheduleReadCheck();
+}
+
+// 접힌 상태에서 글 제목 줄을 누르면 그 글만 펼치거나 다시 접음 (링크·버튼을 누른 경우는 제외)
+function toggleCardFold(e) {
+    if (!app.folded) return false;
+    const head = e.target.closest('#feed .post-card .post-head');
+    if (!head || e.target.closest('a, button, select, input')) return false;
+    const card = head.closest('.post-card');
+    if (app.openPostIds.has(card.id)) app.openPostIds.delete(card.id);
+    else app.openPostIds.add(card.id);
+    applyFold();
+    scheduleReadCheck();
+    return true;
+}
+
+// ==========================================
+// 단축키 안내 (데스크톱 사이드바 아래): 지금 화면에서 쓸 수 있는 키만 진하게
+// ==========================================
+function updateShortcutGuide() {
+    const guide = document.getElementById('shortcut-guide');
+    if (!guide) return;
+    const viewer = document.getElementById('media-viewer');
+    const where = viewer && !viewer.hidden ? 'viewer' : isGalleryView() ? 'gallery' : 'list';
+    guide.querySelectorAll('[data-keys]').forEach(row => {
+        row.classList.toggle('is-off', !row.dataset.keys.split(' ').includes(where));
+    });
+}
+
+function toggleShortcutGuide() {
+    const guide = document.getElementById('shortcut-guide');
+    const closed = !guide.classList.contains('is-closed');
+    guide.classList.toggle('is-closed', closed);
+    guide.querySelector('.keys-toggle').setAttribute('aria-expanded', String(!closed));
+    storageSet(localStorage, KEYS_STORAGE_KEY, closed ? '1' : '0');
 }
 
 function renderPageSelect(page, totalPages, label) {
@@ -1057,6 +1133,7 @@ function renderFeed(data) {
     app.galleryRange = isGalleryView() && data.items
         ? [(data.page - 1) * data.per_page + 1, (data.page - 1) * data.per_page + data.items.length] : null;
     document.body.classList.toggle('gallery-mode', isGalleryView());
+    app.openPostIds = new Set();  // 접힌 상태에서 하나씩 펼친 글은 화면을 새로 그리면 다시 접음
     if (!searching) {
         storageSet(sessionStorage, 'last_active_tab', app.activeKey);
         storageSet(sessionStorage, 'last_active_filter', app.filter);
@@ -1103,7 +1180,8 @@ function renderFeed(data) {
         ? '<button class="btn btn-outline btn-small" data-action="clear-search">검색 닫기</button>'
         : app.galleryReturn
         ? `<button class="btn btn-outline btn-small" data-action="return-gallery">${ICONS.prev} ${filterLabel(app.galleryReturn.filter)} 모아보기로</button>`
-        : `<button class="btn btn-outline btn-small" data-action="mark-all-read" ${summary && pendingCount(summary) ? '' : 'hidden'}>${filter === 'comments' ? '모두 확인' : '모두 읽음'}</button>`;
+        : (empty || isGalleryView() ? '' : `<button class="btn btn-outline btn-small fold-btn" data-action="toggle-fold" aria-pressed="${app.folded}" title="본문·댓글 전부 접기/펼치기 (G)">${foldLabel()}</button>`)
+        + `<button class="btn btn-outline btn-small" data-action="mark-all-read" ${summary && pendingCount(summary) ? '' : 'hidden'}>${filter === 'comments' ? '모두 확인' : '모두 읽음'}</button>`;
     feed.innerHTML = `
         <div class="feed-head">
             <div class="feed-head-text">
@@ -1131,6 +1209,8 @@ function renderFeed(data) {
     app.highlightPostId = null;
     if (target) jumpToPost(target);
     anchorCommentBoxes();
+    applyFold();
+    updateShortcutGuide();
     observeReadSentinels();
     return !!target;
 }
@@ -1191,7 +1271,7 @@ function jumpToPost(target) {
     setTimeout(stop, JUMP_SETTLE_MS);
 }
 
-// 다음 글 버튼(J 키): 화면 맨 위에 걸친 글(위 메뉴 바로 아래에서 아직 끝나지 않은 첫 글)을 읽음 처리하고
+// 다음 글 버튼(F 키): 화면 맨 위에 걸친 글(위 메뉴 바로 아래에서 아직 끝나지 않은 첫 글)을 읽음 처리하고
 // 다음 글의 제목이 위 메뉴 바로 아래에 오도록 이동. 페이지의 마지막 글이면 다음 페이지로
 // 화면 위에 고정된 메뉴(상단 바)의 높이. 보기 탭은 데스크톱·모바일 모두 상단 바 안에 있음
 function stickyHeight() {
@@ -1261,7 +1341,7 @@ function updateNextButton() {
     const label = lastCommentMode() ? '마지막 댓글로' : '다음 글';
     const btn = document.querySelector('.fab-next');
     btn.setAttribute('aria-label', label);
-    btn.title = lastCommentMode() ? label : label + ' (J)';
+    btn.title = lastCommentMode() ? label : label + ' (F)';
 }
 
 function goNextPost() {
@@ -1270,7 +1350,7 @@ function goNextPost() {
     const current = currentPostCard();
     if (!cards.length || !current) return;
     const sentinel = current.querySelector('.read-sentinel');
-    if (sentinel && !sentinel.dataset.read) {
+    if (sentinel && !sentinel.dataset.read && !isFoldedCard(current)) {
         sentinel.dataset.read = '1';
         markRead([sentinel.dataset.postId]);
     }
@@ -2141,6 +2221,13 @@ async function handlePostAnchor() {
 async function init() {
     updateAdminUI();
     app.sort = storageGet(localStorage, SORT_STORAGE_KEY, 'latest');
+    app.folded = storageGet(localStorage, FOLD_STORAGE_KEY, '0') === '1';
+    app.openPostIds = new Set();
+    if (storageGet(localStorage, KEYS_STORAGE_KEY, '0') === '1') {
+        const guide = document.getElementById('shortcut-guide');
+        guide.classList.add('is-closed');
+        guide.querySelector('.keys-toggle').setAttribute('aria-expanded', 'false');
+    }
     let savedTab = storageGet(sessionStorage, 'last_active_tab', null);
     let savedFilter = storageGet(sessionStorage, 'last_active_filter', null);
     // 예전 버전의 '안 읽은 글'·'새 댓글' 탭은 전체 게시판의 해당 보기로
@@ -2221,6 +2308,7 @@ window.addEventListener('message', (e) => {
 
 document.addEventListener('click', (e) => {
     if (handleVideoClick(e)) return;
+    if (toggleCardFold(e)) return;
     // 크게 보기 창의 어두운 바깥을 누르면 닫음
     if (e.target.id === 'media-viewer' || e.target.classList.contains('mv-stage')) { closeMedia(); return; }
     // 페이지 목록 바깥을 누르면 닫음
@@ -2345,6 +2433,10 @@ document.addEventListener('click', (e) => {
         refreshCurrent();
     } else if (action === 'scroll-top') {
         window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else if (action === 'toggle-fold') {
+        toggleFold();
+    } else if (action === 'toggle-keys') {
+        toggleShortcutGuide();
     } else if (action === 'next-post') {
         goNextPost();
     } else if (action === 'save-site') {
@@ -2427,11 +2519,12 @@ document.addEventListener('keydown', (e) => {
         // 모아보기에서는 좌우 화살표로 이전·다음 페이지
         const next = e.key === 'ArrowRight';
         if (next ? app.page < app.totalPages : app.page > 1) changePage(next ? 'next' : 'prev');
-    } else if ((e.key === 'j' || e.key === 'J') && !e.ctrlKey && !e.metaKey && !e.altKey
+    } else if (['f', 'j', 'g'].includes(e.key.toLowerCase()) && !e.ctrlKey && !e.metaKey && !e.altKey
                && !e.target.closest('input, textarea, select, [contenteditable]')
-               && document.getElementById('settings').hidden) {
-        // 입력 중이거나 관리 화면이 열려 있지 않을 때만 J 키로 다음 글
-        goNextPost();
+               && document.getElementById('settings').hidden && document.getElementById('login').hidden && !isGalleryView()) {
+        // 입력 중이거나 관리 화면이 열려 있지 않을 때만: F(예전 J도 그대로) 다음 글, G 본문·댓글 전부 접기/펼치기
+        if (e.key.toLowerCase() === 'g') toggleFold();
+        else goNextPost();
     }
 });
 
