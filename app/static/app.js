@@ -52,6 +52,7 @@ const ICONS = {
     close: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
     down: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"></path></svg>',
     up: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>',
+    share: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="2.5"></circle><circle cx="6" cy="12" r="2.5"></circle><circle cx="18" cy="19" r="2.5"></circle><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"></path></svg>',
     star: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"></path></svg>',
     pause: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>',
     play: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5l12 7-12 7z"></path></svg>',
@@ -618,6 +619,10 @@ function renderPost(post, isUnread) {
     const link = esc(safeLink(post.link));
     const star = `<button class="star-btn" data-action="toggle-saved" data-post-id="${esc(post.id)}" aria-pressed="${!!post.is_saved}"
         aria-label="${post.is_saved ? '보관함에서 빼기' : '보관함에 담기'}" title="${post.is_saved ? '보관함에서 빼기' : '보관함에 담기 (오래된 글 정리에서 빠짐)'}">${ICONS.star}</button>`;
+    const share = `<span class="share-wrap">
+        <button class="star-btn share-btn" data-action="share-post" data-post-id="${esc(post.id)}" aria-haspopup="true" aria-expanded="false"
+            aria-label="공유" title="공유">${ICONS.share}</button>
+    </span>`;
     const votes = post.votes && post.votes !== '0' ? `<span>추천 ${esc(post.votes)}</span>` : '';
     return `
         <article class="${classes.join(' ')}" id="post-${esc(post.id)}">
@@ -627,6 +632,7 @@ function renderPost(post, isUnread) {
                     <h2 class="post-title">${highlightTerms(post.title)}</h2>
                     <div class="title-actions">
                         ${star}
+                        ${share}
                         <a class="btn-original top" href="${link}" target="_blank" rel="noopener noreferrer">원문 ${ICONS.external}</a>
                     </div>
                 </div>
@@ -822,6 +828,85 @@ function setPageMenuOpen(menu, open) {
 
 function closePageMenus(except) {
     document.querySelectorAll('.page-menu').forEach(menu => { if (menu !== except) setPageMenuOpen(menu, false); });
+}
+
+// ---------- 글 공유 (원문 주소와 제목) ----------
+// 휴대폰 공유 창(navigator.share)은 https에서만 쓸 수 있어, 그 밖에서는 '링크 복사'·'텔레그램으로 보내기' 목록을 띄움
+function sharePostInfo(postId) {
+    const card = document.getElementById('post-' + postId);
+    const link = card && card.querySelector('.btn-original.top');
+    const url = link && link.getAttribute('href') !== '#' ? link.href : originalUrl(postId);
+    const title = card ? card.querySelector('.post-title').textContent.trim() : '';
+    return { url, title };
+}
+
+async function sharePost(button) {
+    const { url, title } = sharePostInfo(button.dataset.postId);
+    if (navigator.share) {
+        try { await navigator.share({ title, url }); } catch (e) { /* 공유 창을 닫음 */ }
+        return;
+    }
+    const wrap = button.closest('.share-wrap');
+    const open = wrap.querySelector('.share-menu');
+    closeShareMenus();
+    if (open) return;  // 열려 있던 목록을 다시 누르면 닫기만
+    const telegram = 'https://t.me/share/url?' + new URLSearchParams({ url, text: title }).toString();
+    wrap.insertAdjacentHTML('beforeend', `
+        <span class="share-menu" role="menu">
+            <button class="view-more-option" role="menuitem" data-action="copy-post-link" data-post-id="${esc(button.dataset.postId)}">링크 복사</button>
+            <a class="view-more-option" role="menuitem" href="${esc(telegram)}" target="_blank" rel="noopener noreferrer">텔레그램으로 보내기</a>
+        </span>`);
+    button.setAttribute('aria-expanded', 'true');
+}
+
+function closeShareMenus(except) {
+    document.querySelectorAll('.share-menu').forEach(menu => {
+        if (menu.closest('.share-wrap') === except) return;
+        menu.closest('.share-wrap').querySelector('.share-btn').setAttribute('aria-expanded', 'false');
+        menu.remove();
+    });
+}
+
+// 클립보드 API도 https에서만 되므로, 안 되면 숨긴 입력칸을 골라 복사하는 예전 방식으로
+async function copyText(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch (e) {
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.setAttribute('readonly', '');
+        area.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+        document.body.appendChild(area);
+        area.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+        area.remove();
+        return ok;
+    }
+}
+
+async function copyPostLink(postId) {
+    const { url, title } = sharePostInfo(postId);
+    closeShareMenus();
+    showToast(await copyText(title ? `${title}\n${url}` : url) ? '링크를 복사했습니다' : '복사하지 못했습니다');
+}
+
+// 화면 아래 가운데에 잠깐 뜨는 안내
+let toastTimer = null;
+function showToast(message) {
+    let toast = document.getElementById('toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'toast';
+        toast.className = 'toast';
+        toast.setAttribute('role', 'status');
+        document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast.hidden = true; }, 2000);
 }
 
 // 보기 탭 끝 '더보기' 목록 (보관함·삭제됨)
@@ -2141,6 +2226,9 @@ document.addEventListener('click', (e) => {
     // 페이지 목록 바깥을 누르면 닫음
     closePageMenus(e.target.closest('.page-menu'));
     closeViewMore(e.target.closest('[data-action="toggle-view-more"]') && e.target.closest('.view-more'));
+    // 공유 목록 바깥을 누르면 닫음 (텔레그램 링크는 열린 뒤 닫음: 누르는 중에 지우면 링크가 열리지 않을 수 있음)
+    closeShareMenus(e.target.closest('.share-wrap'));
+    if (e.target.closest('.share-menu a')) setTimeout(() => closeShareMenus(), 0);
     const backdrop = document.getElementById('settings');
     if (e.target === backdrop) { setSettingsOpen(false); return; }
     if (e.target.id === 'login') { closeLogin(); return; }
@@ -2191,6 +2279,10 @@ document.addEventListener('click', (e) => {
         renderGroupSettings();
     } else if (action === 'toggle-draft-board') {
         toggleDraftBoard(el.dataset.board);
+    } else if (action === 'share-post') {
+        sharePost(el);
+    } else if (action === 'copy-post-link') {
+        copyPostLink(el.dataset.postId);
     } else if (action === 'toggle-saved') {
         toggleSaved(el);
     } else if (action === 'remove-draft-keyword') {
@@ -2320,6 +2412,8 @@ document.addEventListener('keydown', (e) => {
         addCategory(document.querySelector('[data-action="add-category"]'));
     } else if (e.key === 'Escape' && document.querySelector('.page-menu-list:not([hidden])')) {
         closePageMenus();
+    } else if (e.key === 'Escape' && document.querySelector('.share-menu')) {
+        closeShareMenus();
     } else if (e.key === 'Escape' && document.querySelector('.view-more-list:not([hidden])')) {
         closeViewMore();
     } else if (e.key === 'Escape' && !document.getElementById('login').hidden) {
