@@ -38,7 +38,11 @@
                 <button class="icon-btn ghost mobile-only" data-action="toggle-search" aria-label="검색">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
                 </button>
-                <button class="btn btn-outline" data-action="open-settings" aria-label="관리">
+                <!-- 관리 버튼은 관리자로 로그인한 기기에서만 (body.is-admin). 로그인 전에는 작은 자물쇠 버튼으로 로그인 -->
+                <button class="icon-btn ghost guest-only" data-action="open-login" aria-label="관리자 로그인" title="관리자 로그인">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
+                </button>
+                <button class="btn btn-outline admin-only" data-action="open-settings" aria-label="관리">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path><circle cx="9" cy="6" r="2" fill="#FFFFFF"></circle><circle cx="15" cy="12" r="2" fill="#FFFFFF"></circle><circle cx="7" cy="18" r="2" fill="#FFFFFF"></circle></svg>
                     <span class="desktop-only">관리</span>
                 </button>
@@ -90,6 +94,19 @@
         </button>
     </div>
 
+    <!-- 관리자 로그인: 암호가 맞으면 이 기기가 로그인 키를 기억해 다시 묻지 않음 (app.js submitLogin) -->
+    <div class="login-backdrop" id="login" hidden>
+        <form class="login-card" id="login-form" role="dialog" aria-modal="true" aria-labelledby="login-title">
+            <h2 id="login-title">관리자 로그인</h2>
+            <input id="admin-pwd-input" type="password" class="input" autocomplete="current-password" placeholder="관리자 암호" aria-label="관리자 암호">
+            <span class="login-error" id="login-error" role="alert" hidden></span>
+            <div class="login-actions">
+                <button type="button" class="btn btn-outline" data-action="close-login">취소</button>
+                <button type="submit" class="btn btn-primary" id="login-submit">로그인</button>
+            </div>
+        </form>
+    </div>
+
     <div class="settings-backdrop" id="settings" hidden>
         <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <header class="settings-head">
@@ -97,14 +114,8 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
                 </button>
                 <h2 id="settings-title">관리</h2>
+                <button class="btn btn-outline btn-small settings-logout" data-action="logout">로그아웃</button>
             </header>
-            <!-- 관리자 암호: 관리 제목 바로 아래에 항상 고정 (스크롤해도 그대로). 입력한 암호는 페이지를 닫기 전까지 기억,
-                 암호 없이 바꾸려 하거나 틀리면 노란 강조와 안내 문구 (app.js needPassword) -->
-            <div class="pwd-bar" id="admin-pwd-box">
-                <label for="admin-pwd-input" class="settings-label">관리자 암호</label>
-                <input id="admin-pwd-input" type="password" class="input" autocomplete="current-password" placeholder="설정을 바꿀 때 필요">
-                <span class="settings-hint" id="admin-pwd-hint" hidden></span>
-            </div>
             <!-- 관리 화면 탭: 한 번에 한 칸만 보여 줌 (app.js setSettingsTab) -->
             <nav class="settings-tabs" role="tablist" aria-label="관리 메뉴">
                 <button class="settings-tab" role="tab" data-action="settings-tab" data-tab="groups">게시판</button>

@@ -45,20 +45,20 @@ js = d.execute_script
 try:
     d.get(BASE); time.sleep(2.5)
     # 4) 관리 패널: 게시판별 스위치로 '싼타페' 전체 알림 켜기
-    js("document.querySelector('.topbar [data-action=\"open-settings\"]').click()"); time.sleep(0.4)
+    js("localStorage.setItem('admin_token', 'Secr3t!'); updateAdminUI(); document.querySelector('.topbar [data-action=\"open-settings\"]').click()"); time.sleep(0.4)
     js("document.querySelector('[data-action=\"settings-tab\"][data-tab=\"alerts\"]').click()"); time.sleep(0.2)
     # 게시판별 줄 (맨 아래 '보관한 글에 새 댓글' 줄은 게시판이 아님)
     rows = js("return [...document.querySelectorAll('#settings-alerts .alert-row:not(.alert-row-saved) .alert-row-name')].map(e => e.textContent)")
     print('alert rows', rows)
     assert rows == [x['name'] for x in storage.list_groups()]
-    js(f"""document.getElementById('admin-pwd-input').value = 'Secr3t!';
+    js(f"""
         document.querySelector('[data-action="toggle-alert"][data-group-id="{g['싼타페']['id']}"][data-type="alert"]').click();""")
     time.sleep(1.2)
     d.save_screenshot(os.path.join(SHOTS, 'settings.png'))
     after = {x['name']: x for x in storage.list_groups()}
     assert after['싼타페']['alert'] is True and after['캐스퍼']['alert'] is False
     # 암호 없이 바꾸면 거부되고 스위치가 원래대로
-    js("window.alert = () => {}; document.getElementById('admin-pwd-input').value = '';"
+    js("window.alert = () => {}; localStorage.removeItem('admin_token');"
        f"document.querySelector('[data-action=\"toggle-alert\"][data-group-id=\"{g['캐스퍼']['id']}\"][data-type=\"alert\"]').click();")
     time.sleep(0.5)
     assert js(f"return document.querySelector('[data-action=\"toggle-alert\"][data-group-id=\"{g['캐스퍼']['id']}\"][data-type=\"alert\"]').checked") is False

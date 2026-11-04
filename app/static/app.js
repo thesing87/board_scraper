@@ -183,7 +183,11 @@ async function postJSON(url, body) {
         body: JSON.stringify(body)
     });
     // 관리자 암호가 틀리면 관리 화면에 암호 칸을 다시 보여 줌
-    if (res.status === 401 && 'password' in body) needPassword('관리자 암호가 맞지 않습니다. 다시 입력한 뒤 눌러 주세요.');
+    // 기억한 로그인 키가 더는 맞지 않으면(서버 암호를 바꿈) 로그아웃하고 다시 로그인하게 함
+    if (res.status === 401 && 'password' in body) {
+        needPassword('로그인이 풀렸습니다. 관리자 암호를 다시 입력해 주세요.');
+        return { success: false, message: '', relogin: true };
+    }
     return res.json();
 }
 
@@ -331,7 +335,7 @@ function countBadge(filter, count) {
 }
 
 const ADD_BOARD_BUTTON = `
-    <button class="icon-btn small" data-action="new-group" aria-label="게시판 만들기" title="게시판 만들기">
+    <button class="icon-btn small admin-only" data-action="new-group" aria-label="게시판 만들기" title="게시판 만들기">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
     </button>`;
 
@@ -1601,7 +1605,7 @@ async function saveGroup(button) {
             folder_id: editingId || !document.getElementById('group-folder-select').value
                 ? null : Number(document.getElementById('group-folder-select').value)
         });
-        if (!data.success) { alert(data.message); return; }
+        if (!data.success) { if (data.message) alert(data.message); return; }
         resetGroupForm();
         // 만들거나 고친 게시판을 바로 열어서 보여줌
         app.activeKey = 'group:' + data.id;
@@ -1628,7 +1632,7 @@ async function deleteGroup(groupId, button) {
     button.disabled = true;
     try {
         const data = await postJSON('/api/group', { action: 'delete', id: groupId, password: pwd });
-        if (!data.success) { alert(data.message); return; }
+        if (!data.success) { if (data.message) alert(data.message); return; }
         if (app.activeKey === 'group:' + groupId) { app.activeKey = ALL_KEY; app.page = 1; }
         if (app.editingGroupId === groupId) resetGroupForm();
         await loadState();
@@ -1669,7 +1673,7 @@ async function saveSite(site, button) {
     button.disabled = true;
     try {
         const data = await postJSON('/api/site', { site: site, name: name, short: short, password: pwd });
-        if (!data.success) { alert(data.message); return; }
+        if (!data.success) { if (data.message) alert(data.message); return; }
         await loadState();
         renderSettings();
         alert(data.message);
@@ -1709,7 +1713,7 @@ async function categoryRequest(body, button) {
     button.disabled = true;
     try {
         const data = await postJSON('/api/category', { ...body, password: pwd });
-        if (!data.success) { alert(data.message); return false; }
+        if (!data.success) { if (data.message) alert(data.message); return false; }
         await loadState();
         renderSettings();
         return data;
@@ -1759,7 +1763,7 @@ async function adminRequest(url, body, button) {
     if (button) button.disabled = true;
     try {
         const data = await postJSON(url, { ...body, password: pwd });
-        if (!data.success) { alert(data.message); return null; }
+        if (!data.success) { if (data.message) alert(data.message); return null; }
         await loadState();
         renderSettings();
         return data;
@@ -1872,8 +1876,8 @@ function setSettingsOpen(open) {
     panel.hidden = !open;
     document.body.style.overflow = open ? 'hidden' : '';
     if (open) {
-        // 암호 칸은 항상 위에 있고, 지난번 안내 강조만 지움 (입력한 암호는 그대로 기억)
-        setPasswordNotice('');
+        // 관리 화면은 관리자로 로그인한 기기에서만
+        if (!adminPassword()) { panel.hidden = true; document.body.style.overflow = ''; openLogin(); return; }
         renderSettings();
         setSettingsTab(app.settingsTab || 'groups');
     }
@@ -1890,6 +1894,7 @@ function setSettingsTab(tab) {
 
 // 게시판 탭의 편집 양식 열기 (새 게시판). 사이드바 '+'에서 부르면 관리 화면부터 엶
 function openNewGroupForm() {
+    if (!adminPassword()) { openLogin(); return; }
     if (document.getElementById('settings').hidden) setSettingsOpen(true);
     setSettingsTab('groups');
     resetGroupForm();
@@ -1898,24 +1903,74 @@ function openNewGroupForm() {
     document.getElementById('group-name-input').focus();
 }
 
+// ---------- 관리자 로그인 ----------
+// 암호로 한 번 로그인하면 서버가 준 로그인 키를 이 기기(localStorage)에 기억해 다시 묻지 않고, 관리 요청에 암호 대신 보냄.
+// 로그인 전에는 관리 버튼·게시판 만들기(+) 대신 자물쇠 버튼만 보임 (body.is-admin)
+const ADMIN_TOKEN_KEY = 'admin_token';
 function adminPassword() {
-    return document.getElementById('admin-pwd-input').value.trim();
+    return storageGet(localStorage, ADMIN_TOKEN_KEY, '');
 }
 
-// 관리 제목 아래 암호 칸의 안내 문구와 노란 강조 (빈 문구면 지움)
-function setPasswordNotice(message) {
-    const hint = document.getElementById('admin-pwd-hint');
-    hint.textContent = message;
-    hint.hidden = !message;
-    document.getElementById('admin-pwd-box').classList.toggle('is-needed', !!message);
+function updateAdminUI() {
+    document.body.classList.toggle('is-admin', !!adminPassword());
 }
 
-// 암호가 없거나 틀렸을 때 암호 칸을 강조하고 입력하게 함
-function needPassword(message) {
-    setPasswordNotice(message || '설정을 바꾸려면 관리자 암호가 필요합니다. 입력한 뒤 다시 눌러 주세요.');
+function openLogin(message) {
+    const box = document.getElementById('login');
+    box.hidden = false;
+    const error = document.getElementById('login-error');
+    error.textContent = message || '';
+    error.hidden = !message;
     const input = document.getElementById('admin-pwd-input');
-    if (message) input.select();
+    input.value = '';
     input.focus();
+}
+
+function closeLogin() {
+    document.getElementById('login').hidden = true;
+}
+
+async function submitLogin() {
+    const input = document.getElementById('admin-pwd-input');
+    const error = document.getElementById('login-error');
+    const button = document.getElementById('login-submit');
+    if (!input.value.trim()) { input.focus(); return; }
+    button.disabled = true;
+    try {
+        const res = await fetch('/api/login', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ password: input.value })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            error.textContent = data.message.replace(/^❌\s*/, '');
+            error.hidden = false;
+            input.select();
+            return;
+        }
+        storageSet(localStorage, ADMIN_TOKEN_KEY, data.token);
+        input.value = '';
+        closeLogin();
+        updateAdminUI();
+        setSettingsOpen(true);
+    } catch (e) {
+        error.textContent = '요청 중 오류가 발생했습니다.';
+        error.hidden = false;
+    } finally {
+        button.disabled = false;
+    }
+}
+
+function logout() {
+    storageRemove(localStorage, ADMIN_TOKEN_KEY);
+    setSettingsOpen(false);
+    updateAdminUI();
+}
+
+// 기억한 로그인 키가 없거나 더는 맞지 않을 때(서버 암호를 바꿈 등): 로그아웃하고 로그인 창을 띄움
+function needPassword(message) {
+    logout();
+    openLogin(message || '관리자 암호를 입력해 주세요.');
 }
 
 async function toggleGroupAlert(checkbox) {
@@ -1923,7 +1978,7 @@ async function toggleGroupAlert(checkbox) {
     const target = checkbox.checked;
     if (!pwd) {
         checkbox.checked = !target;
-        needPassword('알림 설정을 바꾸려면 관리자 암호가 필요합니다. 입력한 뒤 다시 눌러 주세요.');
+        needPassword();
         return;
     }
     const groupId = Number(checkbox.dataset.groupId);
@@ -1936,7 +1991,7 @@ async function toggleGroupAlert(checkbox) {
             else if (group) group[type] = target;
             renderNavigation();
         } else {
-            alert(data.message);
+            if (data.message) alert(data.message);
             checkbox.checked = !target;
         }
     } catch (e) {
@@ -1999,6 +2054,7 @@ async function handlePostAnchor() {
 }
 
 async function init() {
+    updateAdminUI();
     app.sort = storageGet(localStorage, SORT_STORAGE_KEY, 'latest');
     let savedTab = storageGet(sessionStorage, 'last_active_tab', null);
     let savedFilter = storageGet(sessionStorage, 'last_active_filter', null);
@@ -2087,6 +2143,7 @@ document.addEventListener('click', (e) => {
     closeViewMore(e.target.closest('[data-action="toggle-view-more"]') && e.target.closest('.view-more'));
     const backdrop = document.getElementById('settings');
     if (e.target === backdrop) { setSettingsOpen(false); return; }
+    if (e.target.id === 'login') { closeLogin(); return; }
     const el = e.target.closest('[data-action]');
     if (!el || el.tagName === 'INPUT') return;
     const action = el.dataset.action;
@@ -2184,6 +2241,12 @@ document.addEventListener('click', (e) => {
         setSettingsOpen(true);
     } else if (action === 'refresh-status') {
         loadRuntimeStatus();
+    } else if (action === 'open-login') {
+        openLogin();
+    } else if (action === 'close-login') {
+        closeLogin();
+    } else if (action === 'logout') {
+        logout();
     } else if (action === 'close-settings') {
         setSettingsOpen(false);
     } else if (action === 'refresh') {
@@ -2223,11 +2286,13 @@ document.addEventListener('change', (e) => {
 
 document.addEventListener('input', (e) => {
     if (e.target.id === 'group-name-input') app.groupNameDraft = e.target.value;
-    else if (e.target.id === 'admin-pwd-input') setPasswordNotice('');
 });
 
 document.addEventListener('submit', (e) => {
-    if (e.target.id === 'search-form') {
+    if (e.target.id === 'login-form') {
+        e.preventDefault();
+        submitLogin();
+    } else if (e.target.id === 'search-form') {
         e.preventDefault();
         runSearch(document.getElementById('search-input').value);
         document.getElementById('search-input').blur();
@@ -2257,6 +2322,8 @@ document.addEventListener('keydown', (e) => {
         closePageMenus();
     } else if (e.key === 'Escape' && document.querySelector('.view-more-list:not([hidden])')) {
         closeViewMore();
+    } else if (e.key === 'Escape' && !document.getElementById('login').hidden) {
+        closeLogin();
     } else if (e.key === 'Escape' && !document.getElementById('settings').hidden) {
         setSettingsOpen(false);
     } else if (e.key === 'Escape' && e.target.id === 'search-input' && app.searchQuery) {

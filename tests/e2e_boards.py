@@ -71,8 +71,8 @@ try:
     assert v['title'] == '싼타페' and f"{distinct_count([('car', '싼타페')])}개 글" in v['sub'] and v['chips'] == 0
 
     # 3) 수정: 이름 변경 + 기존 키워드(싼하) + 새 키워드 등록
-    js("document.querySelector('.topbar [data-action=\"open-settings\"]').click()"); wait(0.4)
-    js(f"""document.getElementById('admin-pwd-input').value = 'Secr3t!';
+    js("localStorage.setItem('admin_token', 'Secr3t!'); updateAdminUI(); document.querySelector('.topbar [data-action=\"open-settings\"]').click()"); wait(0.4)
+    js(f"""
            document.querySelector('[data-action="edit-group"][data-group-id="{gid}"]').click();""")
     wait(0.3)
     js("""const n = document.getElementById('group-name-input'); n.value = '싼타페 모음'; n.dispatchEvent(new Event('input', {bubbles: true}));
@@ -96,7 +96,7 @@ try:
 
     # 4) '싼하' 게시판 삭제: 싼하는 다른 게시판에 남아 있으니 수집 데이터 유지
     before = distinct_count([('car', '싼하')])
-    js("window.confirm = () => true; document.querySelector('.topbar [data-action=\"open-settings\"]').click()"); wait(0.4)
+    js("window.confirm = () => true; localStorage.setItem('admin_token', 'Secr3t!'); updateAdminUI(); document.querySelector('.topbar [data-action=\"open-settings\"]').click()"); wait(0.4)
     js(f"document.querySelector('[data-action=\"delete-group\"][data-group-id=\"{by_name['싼하']['id']}\"]').click()"); wait(1.5)
     assert db.execute("select 1 from keywords where keyword='싼하'").fetchone() and distinct_count([('car', '싼하')]) == before
     assert not any(g['name'] == '싼하' for g in storage.list_groups())

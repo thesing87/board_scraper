@@ -105,6 +105,10 @@ ADMIN_API_ENABLED = ADMIN_PASSWORD not in INSECURE_ADMIN_PASSWORDS
 if not ADMIN_API_ENABLED:
     log_msg("[API] ADMIN_PASSWORD 미설정/기본값 - 관리 기능 비활성화", "WARN")
 
+# 관리자 로그인 키: 암호로 한 번 로그인하면 브라우저가 암호 대신 이 키를 기억해 관리 요청에 씀.
+# 암호에서 만들어지므로 서버 암호를 바꾸면 모든 기기의 로그인이 풀림 (기억한 키로는 암호를 알아낼 수 없음)
+ADMIN_TOKEN = hmac.new(ADMIN_PASSWORD.encode('utf-8'), b'dashboard-admin-login-v1', 'sha256').hexdigest()
+
 def board_key_from_input(text):
     """관리 화면에 입력한 게시판 주소나 이름에서 카테고리 키를 뽑음. 알아볼 수 없으면 None
     - 에펨코리아: 'hotdeal', 'https://www.fmkorea.com/hotdeal', 'fmkorea.com/index.php?mid=hotdeal&page=2' → 'hotdeal'
@@ -283,7 +287,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             log_msg(f"[API] 차단 중인 IP 요청 거부: {ip} ({action_name})", "WARN")
             self._send_json(429, False, '❌ 인증 실패가 반복되어 잠시 차단되었습니다. 10분 후 다시 시도해 주세요.')
             return False
-        if not isinstance(password, str) or not hmac.compare_digest(password.strip().encode('utf-8'), ADMIN_PASSWORD.encode('utf-8')):
+        # 암호 또는 로그인 키(ADMIN_TOKEN) 둘 다 받음
+        given = password.strip().encode('utf-8') if isinstance(password, str) else b''
+        if not (hmac.compare_digest(given, ADMIN_PASSWORD.encode('utf-8')) or hmac.compare_digest(given, ADMIN_TOKEN.encode('utf-8'))):
             _record_auth_failure(ip)
             log_msg(f"[API] 비밀번호 불일치: {ip} ({action_name})", "WARN")
             self._send_json(401, False, '❌ 인증 비밀번호가 일치하지 않습니다.')
@@ -398,6 +404,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/folder': '_handle_folder',
         '/api/category': '_handle_category',
         '/api/site': '_handle_site',
+        '/api/login': '_handle_login',
     }
 
     def do_POST(self):
@@ -562,6 +569,21 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._send_json(400, False, '❌ 지원하지 않는 작업입니다.')
         except Exception as e:
             log_msg(f"[API] 묶음 처리 오류: {short_err(e)}", "ERROR")
+            try:
+                self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
+            except Exception:
+                pass
+
+    def _handle_login(self):
+        """관리자 로그인: 암호가 맞으면 로그인 키를 돌려줌 (화면은 이 키를 기억해 관리 버튼을 보이고 관리 요청에 씀).
+        틀린 암호는 다른 관리 요청과 같이 실패 횟수에 세어 잠금"""
+        try:
+            if not self._authorize(self._body.get('password', ''), '관리자 로그인'):
+                return
+            log_msg(f"[API] 관리자 로그인: {client_ip(self.client_address[0], self.headers)}")
+            self._send_data(200, {'success': True, 'message': '로그인했습니다.', 'token': ADMIN_TOKEN})
+        except Exception as e:
+            log_msg(f"[API] 로그인 처리 오류: {short_err(e)}", "ERROR")
             try:
                 self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
             except Exception:

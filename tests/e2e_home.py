@@ -44,7 +44,7 @@ try:
     h = view(); print('after home button', h)
     assert h['title'] == '전체 · 안 읽은 글' and h['q'] == '' and h['hash'] == '' and js("return document.getElementById('search-input').value") == ''
     # 관리 패널이 열려 있어도 닫고 홈으로
-    js("document.querySelector('.topbar [data-action=\"open-settings\"]').click()"); W(0.3)
+    js("localStorage.setItem('admin_token', 'Secr3t!'); updateAdminUI(); document.querySelector('.topbar [data-action=\"open-settings\"]').click()"); W(0.3)
     js("document.querySelector('a.brand-link').click()"); W(1)
     assert js("return document.getElementById('settings').hidden")
     # 모바일: 제목(키워드 모니터)으로 홈
