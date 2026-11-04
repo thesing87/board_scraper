@@ -197,7 +197,7 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .site-chip .site-chip-toggle { width: 36px; display: inline-flex; align-items: center; justify-content: center; border-left: 1px solid rgba(91,33,182,0.25); }
 .site-chip.active .site-chip-toggle { border-left-color: rgba(255,255,255,0.35); }
 .site-chip.active .site-chip-count { background: #FFFFFF; color: var(--accent); }
-/* 묶음 칩 펼침·접힘 구분: 접히면 ▾ + 숨은 게시판 수(+N), 펼치면 ▴ + 묶음 칩과 안의 게시판 칩을 파란 테두리 상자로 감쌈
+/* 묶음 칩 펼침·접힘 구분: 묶음은 항상 파란 테두리 상자로 감싸고, 접히면 ▾ + 숨은 게시판 수(+N), 펼치면 ▴ + 상자 안에 게시판 칩
    (상자 안 칩을 조금 낮춰 상자 전체가 다른 칩과 같은 36px, 펼쳐도 칩 줄 높이가 변하지 않게) */
 .site-chip-hidden { font-size: 12px; font-weight: 500; color: var(--muted); }
 .site-chip.active .site-chip-hidden { color: #FFFFFF; opacity: 0.8; }
