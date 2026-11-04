@@ -419,25 +419,34 @@ function renderNavigation() {
         </button>`;
     const groupChip = g => chip(groupLabel(g), g, isActive(g), `data-action="open-group" data-group-id="${g.id}"`);
     // 묶음마다 맨 앞에 묶음 칩을 둠: 이름 부분은 묶음 안 모든 게시판의 글을 열고,
-    // 오른쪽 아이콘 칸은 그 묶음의 게시판 칩을 펼치거나 접음 (접혀 있으면 지금 보는 게시판 칩만 남김)
-    const folderChip = f => {
-        const expanded = isFolderExpanded('mobile', f.id);
+    // 오른쪽 화살표 칸은 그 묶음의 게시판 칩을 펼치거나(▴) 접음(▾).
+    // 펼치면 묶음 칩과 안의 게시판 칩을 파란 테두리 상자 하나로 감싸 어디까지가 그 묶음인지 보이게 하고,
+    // 접으면 지금 보는 게시판 칩만 남기고 숨은 게시판 수(+N)를 묶음 칩에 표시
+    const folderChip = (f, expanded, hidden) => {
         const active = !searching && app.activeKey === folderKey(f);
         return `
         <span class="site-chip site-chip-folder ${active ? 'active' : ''}">
             <button class="site-chip-open" data-action="open-folder" data-folder-id="${f.id}" ${active ? 'aria-current="true"' : ''}>
                 <span>${esc(f.name)}</span>
                 ${f.unread_count ? `<span class="site-chip-count" aria-label="안 읽은 새 글 ${f.unread_count}개">${f.unread_count}</span>` : ''}
+                ${hidden ? `<span class="site-chip-hidden" aria-label="숨은 게시판 ${hidden}개">+${hidden}</span>` : ''}
             </button>
             <button class="site-chip-toggle" data-action="toggle-folder" data-scope="mobile" data-folder-id="${f.id}"
                     aria-expanded="${expanded}" aria-label="${esc(f.name)} 묶음 ${expanded ? '접기' : '펼치기'}">
-                ${expanded ? ICONS.prev : ICONS.next}</button>
+                ${ICONS.chevronDown}</button>
         </span>`;
+    };
+    const folderChips = f => {
+        const expanded = isFolderExpanded('mobile', f.id);
+        const inside = folderGroups(f);
+        const shown = visibleGroups(inside, expanded);
+        const chips = folderChip(f, expanded, inside.length - shown.length) + shown.map(groupChip).join('');
+        return expanded ? `<span class="chip-folder-box">${chips}</span>` : chips;
     };
     document.getElementById('chip-row').innerHTML =
         chip('전체', app.state.all, allActive, 'data-action="open-all"') +
         looseGroups.map(groupChip).join('') +
-        shownFolders.map(f => folderChip(f) + visibleGroups(folderGroups(f), isFolderExpanded('mobile', f.id)).map(groupChip).join('')).join('');
+        shownFolders.map(folderChips).join('');
 }
 
 // 묶음 상자(데스크톱)·묶음 칩(모바일)의 펼침 상태. 기기마다 따로 기억 (데스크톱은 기본 펼침, 모바일은 기본 접힘)
