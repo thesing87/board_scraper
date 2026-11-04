@@ -87,10 +87,10 @@ try:
     key('f'); time.sleep(1.5)
     assert js("return Math.abs(document.querySelector('#feed .post-card:nth-of-type(2)').getBoundingClientRect().top - document.querySelector('.topbar').offsetHeight)") < 40
     off = js("return [...document.querySelectorAll('#shortcut-guide li')].map(l => l.classList.contains('is-off'))")
-    assert off == [False, False, True, True, True, True], off
+    assert off == [False, False, True, True, True, True, True], off
     js("setFilter('image')"); time.sleep(1.5)
     off = js("return [...document.querySelectorAll('#shortcut-guide li')].map(l => l.classList.contains('is-off'))")
-    assert off == [True, True, False, True, True, True], off
+    assert off == [True, True, False, False, True, True, True], off
     js("document.querySelector('.keys-toggle').click()")
     d.refresh(); time.sleep(2.5)
     assert js("return document.getElementById('shortcut-guide').classList.contains('is-closed')")

@@ -2503,13 +2503,19 @@ document.addEventListener('submit', (e) => {
     }
 });
 
+// 모아보기·크게 보기의 이전(-1)·다음(1) 키: 좌우 화살표 또는 A·D (Ctrl·Alt 등을 함께 누르면 아님)
+function mediaStep(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return 0;
+    return { ArrowLeft: -1, ArrowRight: 1, a: -1, d: 1 }[e.key.length === 1 ? e.key.toLowerCase() : e.key] || 0;
+}
+
 document.addEventListener('keydown', (e) => {
     const viewer = document.getElementById('media-viewer');
     if (viewer && !viewer.hidden) {
         // 크게 보기 중에는 좌우 화살표(또는 A·D)로 넘기고 Esc로 닫음 (F 등 다른 단축키는 쓰지 않음)
-        const step = { ArrowLeft: -1, ArrowRight: 1, a: -1, d: 1 }[e.key.length === 1 ? e.key.toLowerCase() : e.key];
+        const step = mediaStep(e);
         if (e.key === 'Escape') closeMedia();
-        else if (step && !e.ctrlKey && !e.metaKey && !e.altKey) openMedia(app.mediaIndex + step);
+        else if (step) openMedia(app.mediaIndex + step);
         else return;
         e.preventDefault();
         return;
@@ -2535,10 +2541,11 @@ document.addEventListener('keydown', (e) => {
         setSettingsOpen(false);
     } else if (e.key === 'Escape' && e.target.id === 'search-input' && app.searchQuery) {
         clearSearch();
-    } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && isGalleryView() && !e.ctrlKey && !e.metaKey && !e.altKey
-               && !e.target.closest('input, textarea, select, [contenteditable]') && document.getElementById('settings').hidden) {
-        // 모아보기에서는 좌우 화살표로 이전·다음 페이지
-        const next = e.key === 'ArrowRight';
+    } else if (mediaStep(e) && isGalleryView()
+               && !e.target.closest('input, textarea, select, [contenteditable]') && document.getElementById('settings').hidden
+               && document.getElementById('login').hidden) {
+        // 모아보기에서는 크게 보기와 같은 키(좌우 화살표 또는 A·D)로 이전·다음 페이지
+        const next = mediaStep(e) > 0;
         if (next ? app.page < app.totalPages : app.page > 1) changePage(next ? 'next' : 'prev');
     } else if (['f', 'j', 'g'].includes(e.key.toLowerCase()) && !e.ctrlKey && !e.metaKey && !e.altKey
                && !e.target.closest('input, textarea, select, [contenteditable]')

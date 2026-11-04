@@ -82,6 +82,18 @@ try:
     js("document.querySelector('[data-action=return-gallery]').click()"); time.sleep(2)
     assert js("return app.filter") == 'video' and js("return location.hash") == ''
     print('GOTO POST AND BACK OK')
+
+    # 5) 모아보기 페이지도 크게 보기와 같은 키: 좌우 화살표 또는 A·D (이미지 15장 → 2페이지)
+    save('805', [img(f'p{i}') for i in range(12)])
+    js("setFilter('image')"); time.sleep(2)
+    page_key = lambda k: (js("document.body.dispatchEvent(new KeyboardEvent('keydown', {key: arguments[0], bubbles: true}))", k), time.sleep(1.5))
+    assert js("return app.totalPages") == 2
+    page_key('d'); assert js("return app.page") == 2
+    page_key('D'); assert js("return app.page") == 2      # 마지막 페이지에서는 그대로
+    page_key('a'); assert js("return app.page") == 1
+    page_key('ArrowRight'); assert js("return app.page") == 2
+    page_key('ArrowLeft'); assert js("return app.page") == 1
+    print('GALLERY PAGE KEYS OK')
 finally:
     d.quit()
     srv.shutdown()
