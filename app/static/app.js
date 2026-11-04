@@ -1122,17 +1122,40 @@ function scrollToLastComment(card) {
                       behavior: reduceMotion ? 'auto' : 'smooth' });
 }
 
-// 마지막 댓글이 아직 화면 아래에 있는 첫 글로 이동: 지금 글의 마지막 댓글을 아직 못 봤으면 그 댓글로,
-// 이미 보이면 다음 글의 마지막 댓글로 (글 순서대로라 마지막 댓글 위치도 순서대로). 페이지 끝이면 다음 페이지
+// 첫 새 댓글을 맨 위 메뉴 바로 아래에 맞춤 (그 아래로 이어지는 댓글이 보이게).
+// 모바일은 아래로 내리면 맨 위 제목 줄이 숨으므로, 숨은 뒤의 위 메뉴 높이 기준
+function newCommentTop() {
+    return stickyHeight() - document.querySelector('.topbar .topbar-row').offsetHeight + 12;
+}
+function scrollToComment(comment) {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: comment.getBoundingClientRect().top + window.pageYOffset - newCommentTop(),
+                      behavior: reduceMotion ? 'auto' : 'smooth' });
+}
+
+// 글마다 멈출 곳: 첫 새 댓글(마지막 댓글이 아닐 때) → 마지막 댓글. 글 순서대로 이어서,
+// 아직 화면에서 다 보지 못한 첫 멈출 곳으로 이동 (페이지 끝이면 다음 페이지).
+// 첫 새 댓글은 위에 맞춰 둔 뒤면 지나간 것으로 봄 (화면보다 긴 댓글에서 같은 곳에 멈추지 않게)
 function goNextLastComment() {
-    const lastOf = card => {
+    const limit = window.innerHeight - FAB_ROOM + 8;
+    const stops = [...document.querySelectorAll('#feed .post-card')].flatMap(card => {
         const comments = card.querySelectorAll('.comments .comment');
-        return comments[comments.length - 1] || card;
-    };
-    const target = [...document.querySelectorAll('#feed .post-card')]
-        .find(card => lastOf(card).getBoundingClientRect().bottom > window.innerHeight - FAB_ROOM + 8);
-    if (target) scrollToLastComment(target);
-    else if (app.page < app.totalPages) changePage('next');
+        const last = comments[comments.length - 1];
+        if (!last) return [{ card, el: card }];
+        const firstNew = card.querySelector('.comments .comment.is-new-comment');
+        return (firstNew && firstNew !== last ? [{ card, el: firstNew, top: true }] : []).concat([{ card, el: last }]);
+    });
+    const next = stops.find(stop => {
+        const rect = stop.el.getBoundingClientRect();
+        return rect.bottom > limit && !(stop.top && rect.top <= newCommentTop() + 8);
+    });
+    if (!next) {
+        if (app.page < app.totalPages) changePage('next');
+    } else if (next.top) {
+        scrollToComment(next.el);
+    } else {
+        scrollToLastComment(next.card);
+    }
 }
 
 // 다음 글 버튼의 이름: 모바일 '새 댓글' 보기에서는 마지막 댓글로 이동
