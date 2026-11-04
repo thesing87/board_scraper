@@ -46,8 +46,8 @@ try:
     v2 = view(); print('page 2 first ids', v2['ids'][:3])
     assert v2['page'] == 2 and v2['ids'] == summary['unread_ids'][10:20]
 
-    # 3) 새로고침 버튼 → 이미 읽은 글은 빠짐
-    js("document.querySelector('.desktop-only[data-action=\"refresh\"]').click()"); W(2)
+    # 3) 상단 상태 표시(누르면 새로고침) → 이미 읽은 글은 빠짐
+    js("document.getElementById('status-pill').click()"); W(2)
     js("app.page = 1; loadPosts()"); W(1.5)
     v3 = view(); now = storage.feed_summary()
     print('after refresh', v3['ids'][:2], v3['sub'])

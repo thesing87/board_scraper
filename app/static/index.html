@@ -11,14 +11,18 @@
 <body>
     <header class="topbar">
         <div class="topbar-row">
+            <!-- 로고·이름은 홈, 상태 표시는 누르면 새로고침 (따로 홈·새로고침 버튼을 두지 않음) -->
             <div class="brand">
-                <a class="brand-mark" href="/" data-action="go-home" tabindex="-1" aria-hidden="true">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+                <a class="brand-link" href="/" data-action="go-home" title="홈으로" aria-label="키워드 모니터 홈">
+                    <span class="brand-mark" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+                    </span>
+                    <span class="brand-name">키워드 모니터</span>
                 </a>
-                <div class="brand-text">
-                    <a class="brand-name" href="/" data-action="go-home" title="홈으로">키워드 모니터</a>
-                    <span class="status-pill" id="status-pill"><span class="status-dot"></span><span id="status-text">불러오는 중</span></span>
-                </div>
+                <button class="status-pill" id="status-pill" data-action="refresh" title="지금 새로고침">
+                    <span class="status-dot"></span><span id="status-text">불러오는 중</span>
+                    <svg class="status-refresh" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"></path><path d="M21 4v5h-5"></path></svg>
+                </button>
             </div>
             <!-- 데스크톱 보기 탭: 상단 바 가운데 (모바일은 상단 메뉴 아래 줄의 view-tabs) -->
             <nav class="view-bar-tabs desktop-only" id="view-bar-tabs" aria-label="보기"></nav>
@@ -31,17 +35,8 @@
                 <button class="icon-btn narrow-desktop-only" data-action="toggle-search" aria-label="검색" title="검색">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
                 </button>
-                <button class="icon-btn ghost mobile-only" data-action="go-home" aria-label="홈">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h5v-6h4v6h5V10"></path></svg>
-                </button>
                 <button class="icon-btn ghost mobile-only" data-action="toggle-search" aria-label="검색">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
-                </button>
-                <button class="icon-btn desktop-only" data-action="go-home" aria-label="홈" title="홈">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h5v-6h4v6h5V10"></path></svg>
-                </button>
-                <button class="icon-btn desktop-only" data-action="refresh" aria-label="새로고침">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"></path><path d="M21 4v5h-5"></path></svg>
                 </button>
                 <button class="btn btn-outline" data-action="open-settings" aria-label="관리">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path><circle cx="9" cy="6" r="2" fill="#FFFFFF"></circle><circle cx="15" cy="12" r="2" fill="#FFFFFF"></circle><circle cx="7" cy="18" r="2" fill="#FFFFFF"></circle></svg>
@@ -63,11 +58,6 @@
                 <div class="sk-nav" aria-hidden="true">
                     <span class="sk"></span><span class="sk"></span><span class="sk sk-short"></span><span class="sk"></span><span class="sk sk-short"></span>
                 </div>
-            </div>
-            <div class="alert-summary">
-                <span class="alert-summary-title">텔레그램 알림</span>
-                <span class="alert-summary-text" id="alert-summary"></span>
-                <button class="link-btn" data-action="open-settings">알림 설정 변경</button>
             </div>
         </aside>
 
@@ -98,9 +88,6 @@
         <button class="fab fab-next" data-action="next-post" aria-label="다음 글" title="다음 글 (J)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
         </button>
-        <button class="fab fab-refresh mobile-only" data-action="refresh" aria-label="새로고침">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"></path><path d="M21 4v5h-5"></path></svg>
-        </button>
     </div>
 
     <div class="settings-backdrop" id="settings" hidden>
@@ -111,92 +98,123 @@
                 </button>
                 <h2 id="settings-title">관리</h2>
             </header>
+            <!-- 관리 화면 탭: 한 번에 한 칸만 보여 줌 (app.js setSettingsTab) -->
+            <nav class="settings-tabs" role="tablist" aria-label="관리 메뉴">
+                <button class="settings-tab" role="tab" data-action="settings-tab" data-tab="groups">게시판</button>
+                <button class="settings-tab" role="tab" data-action="settings-tab" data-tab="folders">묶음</button>
+                <button class="settings-tab" role="tab" data-action="settings-tab" data-tab="alerts">알림</button>
+                <button class="settings-tab" role="tab" data-action="settings-tab" data-tab="sources">카테고리</button>
+                <button class="settings-tab" role="tab" data-action="settings-tab" data-tab="status">수집 상태</button>
+            </nav>
             <div class="settings-body">
-                <section class="settings-card">
+                <!-- 관리자 암호: 바꾸기를 처음 저장할 때(또는 암호가 틀렸을 때)만 보이고, 입력한 암호는 페이지를 닫기 전까지 기억 -->
+                <section class="settings-card pwd-card" id="admin-pwd-box" hidden>
                     <label for="admin-pwd-input" class="settings-label">관리자 암호</label>
                     <input id="admin-pwd-input" type="password" class="input" autocomplete="current-password">
-                    <span class="settings-hint">게시판과 알림 설정을 바꿀 때 필요합니다.</span>
+                    <span class="settings-hint" id="admin-pwd-hint">설정을 바꾸려면 관리자 암호가 필요합니다. 입력한 뒤 다시 눌러 주세요.</span>
                 </section>
 
-                <section class="settings-card">
-                    <span class="settings-label" id="group-form-title">게시판 만들기</span>
-                    <span class="settings-hint">게시판에 키워드를 등록하면 그 키워드들의 글을 중복 없이 모아 보여줍니다. 에펨코리아와 디시인사이드 키워드를 한 게시판에 함께 담을 수도 있습니다.</span>
-                    <div class="add-row">
-                        <input id="group-name-input" class="input" placeholder="게시판 이름 (예: 싼타페)" maxlength="30" aria-label="게시판 이름">
-                        <select id="group-folder-select" class="input select" aria-label="넣을 묶음"></select>
-                    </div>
-                    <span class="settings-hint">수집할 카테고리를 고르세요. 둘 이상 고르면 '공통'으로 고른 카테고리 모두에서 찾을 키워드를, 카테고리를 골라 그 카테고리에서만 찾을 키워드를 등록할 수 있습니다.</span>
-                    <div class="board-checks" id="group-board-checks" aria-label="수집할 카테고리"></div>
-                    <div class="add-row">
-                        <select id="group-kw-target" class="input select" aria-label="키워드를 찾을 곳"></select>
-                        <input id="group-kw-input" class="input" aria-label="등록할 키워드" placeholder="키워드 입력" maxlength="50">
-                        <button class="btn btn-outline" data-action="add-draft-keyword">추가</button>
-                    </div>
-                    <div class="keyword-tags" id="group-keywords" aria-label="등록한 키워드"></div>
-                    <span class="settings-hint">키워드 옆 일시정지 버튼: 모은 글은 그대로 두고 수집만 멈춥니다. 같은 키워드를 쓰는 게시판 모두에 적용되며, 다시 수집하면 멈춘 동안 올라온 글은 알림 없이 새 글로만 보여 줍니다.</span>
-                    <span class="settings-hint">무시할 표현: 키워드가 이 표현 안에만 들어 있는 글은 모으지 않습니다. (예: 키워드 싼하 → 투싼하)</span>
-                    <div class="add-row">
-                        <select id="group-ignore-keyword" class="input select" aria-label="무시할 표현을 붙일 키워드"></select>
-                        <input id="group-ignore-input" class="input" aria-label="무시할 표현" placeholder="무시할 표현 입력" maxlength="50">
-                        <button class="btn btn-outline" data-action="add-draft-ignore">추가</button>
-                    </div>
-                    <div class="keyword-tags" id="group-ignores" aria-label="무시할 표현"></div>
-                    <div class="merge-box" id="group-merge-row" hidden>
-                        <span class="settings-hint">다른 게시판 합치기: 고른 게시판의 키워드를 이 게시판으로 옮기고, 저장하면 그 게시판은 지웁니다. 모은 글은 그대로 남습니다. (예: FM 싼타페 + DC 싼타페)</span>
+                <div class="settings-pane" data-pane="groups">
+                    <section class="settings-card" id="group-form" hidden>
+                        <span class="settings-label" id="group-form-title">새 게시판</span>
                         <div class="add-row">
-                            <select id="group-merge-select" class="input select" aria-label="합칠 게시판"></select>
-                            <button class="btn btn-outline" data-action="add-draft-merge">합치기</button>
+                            <input id="group-name-input" class="input" placeholder="게시판 이름 (예: 싼타페)" maxlength="30" aria-label="게시판 이름">
+                            <select id="group-folder-select" class="input select" aria-label="넣을 묶음"></select>
                         </div>
-                        <span class="settings-hint merge-note" id="group-merge-note"></span>
-                    </div>
-                    <div class="group-form-actions">
-                        <button class="btn btn-primary" data-action="save-group" id="group-save-btn">만들기</button>
-                        <button class="btn btn-outline" data-action="cancel-group-edit" id="group-cancel-btn" hidden>취소</button>
-                    </div>
-                    <div class="group-list" id="settings-groups"></div>
-                </section>
+                        <span class="settings-hint">수집할 카테고리 (둘 이상 고르면 '공통' 키워드는 고른 카테고리 모두에서 찾음)</span>
+                        <div class="board-checks" id="group-board-checks" aria-label="수집할 카테고리"></div>
+                        <div class="add-row">
+                            <select id="group-kw-target" class="input select" aria-label="키워드를 찾을 곳"></select>
+                            <input id="group-kw-input" class="input" aria-label="등록할 키워드" placeholder="키워드 입력" maxlength="50">
+                            <button class="btn btn-outline" data-action="add-draft-keyword">추가</button>
+                        </div>
+                        <div class="keyword-tags" id="group-keywords" aria-label="등록한 키워드"></div>
+                        <span class="settings-hint">키워드 옆 일시정지: 모은 글은 그대로 두고 수집만 멈춥니다.</span>
+                        <details class="settings-advanced" id="group-advanced">
+                            <summary>고급 설정 <span class="settings-hint">무시할 표현<span id="group-advanced-merge"> · 게시판 합치기</span></span></summary>
+                            <div class="settings-advanced-body">
+                                <span class="settings-hint">무시할 표현: 키워드가 이 표현 안에만 있는 글은 모으지 않습니다. (예: 싼하 → 투싼하)</span>
+                                <div class="add-row">
+                                    <select id="group-ignore-keyword" class="input select" aria-label="무시할 표현을 붙일 키워드"></select>
+                                    <input id="group-ignore-input" class="input" aria-label="무시할 표현" placeholder="무시할 표현 입력" maxlength="50">
+                                    <button class="btn btn-outline" data-action="add-draft-ignore">추가</button>
+                                </div>
+                                <div class="keyword-tags" id="group-ignores" aria-label="무시할 표현"></div>
+                                <div class="merge-box" id="group-merge-row" hidden>
+                                    <span class="settings-hint">게시판 합치기: 고른 게시판의 키워드를 이 게시판으로 옮기고, 저장하면 그 게시판은 지웁니다. 모은 글은 남습니다.</span>
+                                    <div class="add-row">
+                                        <select id="group-merge-select" class="input select" aria-label="합칠 게시판"></select>
+                                        <button class="btn btn-outline" data-action="add-draft-merge">합치기</button>
+                                    </div>
+                                    <span class="settings-hint merge-note" id="group-merge-note"></span>
+                                </div>
+                            </div>
+                        </details>
+                        <div class="group-form-actions">
+                            <button class="btn btn-primary" data-action="save-group" id="group-save-btn">만들기</button>
+                            <button class="btn btn-outline" data-action="cancel-group-edit" id="group-cancel-btn">취소</button>
+                        </div>
+                    </section>
 
-                <section class="settings-card">
-                    <span class="settings-label">묶음</span>
-                    <span class="settings-hint">사이드바에서 게시판을 묶어 보여 줍니다. 묶음 제목을 누르면 묶음 안 모든 게시판의 글을 함께 봅니다. 게시판을 옮기거나 순서를 바꾸려면 위 게시판 목록의 묶음 고르기와 화살표를 쓰세요.</span>
-                    <div class="add-row">
-                        <input id="folder-name-input" class="input" aria-label="새 묶음 이름" placeholder="새 묶음 이름 (예: 자동차)" maxlength="30">
-                        <button class="btn btn-outline" data-action="add-folder">만들기</button>
-                    </div>
-                    <div class="group-list" id="settings-folders"></div>
-                </section>
+                    <section class="settings-card">
+                        <div class="alert-head">
+                            <span class="settings-label">게시판</span>
+                            <button class="btn btn-primary btn-small" data-action="new-group">새 게시판</button>
+                        </div>
+                        <span class="settings-hint">게시판에 등록한 키워드들의 글을 중복 없이 모아 보여 줍니다. 에펨코리아와 디시인사이드 키워드를 함께 담을 수 있습니다.</span>
+                        <div class="group-list" id="settings-groups"></div>
+                    </section>
+                </div>
 
-                <section class="settings-card">
-                    <span class="settings-label">사이트</span>
-                    <span class="settings-hint">사이드바 사이트 제목, FM·DC 같은 짧은 표시, 텔레그램 알림 첫 줄에 쓰는 이름입니다. 짧은 표시는 4자까지 쓸 수 있습니다.</span>
-                    <div class="group-list" id="settings-sites"></div>
-                </section>
+                <div class="settings-pane" data-pane="folders" hidden>
+                    <section class="settings-card">
+                        <span class="settings-label">묶음</span>
+                        <span class="settings-hint">사이드바에서 게시판을 묶어 보여 줍니다. 게시판을 묶음에 넣거나 순서를 바꾸는 건 게시판 탭에서 합니다.</span>
+                        <div class="add-row">
+                            <input id="folder-name-input" class="input" aria-label="새 묶음 이름" placeholder="새 묶음 이름 (예: 자동차)" maxlength="30">
+                            <button class="btn btn-outline" data-action="add-folder">만들기</button>
+                        </div>
+                        <div class="group-list" id="settings-folders"></div>
+                    </section>
+                </div>
 
-                <section class="settings-card">
-                    <span class="settings-label">카테고리</span>
-                    <span class="settings-hint">에펨코리아 게시판 주소(예: https://www.fmkorea.com/hotdeal)나 디시인사이드 갤러리 주소(예: https://gall.dcinside.com/board/lists/?id=car_new1)를 붙여넣으면, 다음 수집 주기에 수집할 수 있는 게시판인지 확인한 뒤 수집합니다. 디시 이미지는 원문에서만 보입니다.</span>
-                    <div class="add-row">
-                        <input id="category-input" class="input" aria-label="추가할 게시판 주소" placeholder="게시판·갤러리 주소 또는 mid" maxlength="300" autocomplete="off">
-                        <button class="btn btn-outline" data-action="add-category">추가</button>
-                    </div>
-                    <div class="group-list" id="settings-categories"></div>
-                </section>
+                <div class="settings-pane" data-pane="alerts" hidden>
+                    <section class="settings-card">
+                        <div class="alert-head">
+                            <span class="settings-label">텔레그램 알림</span>
+                            <span class="alert-cols"><span>전체</span><span>동영상</span><span>요약</span></span>
+                        </div>
+                        <div id="settings-alerts"></div>
+                    </section>
+                </div>
 
-                <section class="settings-card">
-                    <div class="alert-head">
-                        <span class="settings-label">텔레그램 알림</span>
-                        <span class="alert-cols"><span>전체</span><span>동영상</span><span>요약</span></span>
-                    </div>
-                    <div id="settings-alerts"></div>
-                </section>
+                <div class="settings-pane" data-pane="sources" hidden>
+                    <section class="settings-card">
+                        <span class="settings-label">카테고리</span>
+                        <span class="settings-hint">에펨코리아 게시판이나 디시인사이드 갤러리 주소를 붙여넣으면, 다음 수집 주기에 수집할 수 있는지 확인한 뒤 수집합니다.</span>
+                        <div class="add-row">
+                            <input id="category-input" class="input" aria-label="추가할 게시판 주소" placeholder="예: https://gall.dcinside.com/board/lists/?id=car_new1" maxlength="300" autocomplete="off">
+                            <button class="btn btn-outline" data-action="add-category">추가</button>
+                        </div>
+                        <div class="group-list" id="settings-categories"></div>
+                    </section>
 
-                <section class="settings-card">
-                    <div class="alert-head">
-                        <span class="settings-label">수집 상태</span>
-                        <button class="link-btn" data-action="refresh-status">새로고침</button>
-                    </div>
-                    <div class="status-list" id="settings-status"><span class="settings-hint">불러오는 중...</span></div>
-                </section>
+                    <section class="settings-card">
+                        <span class="settings-label">사이트 이름</span>
+                        <span class="settings-hint">사이드바·FM·DC 같은 짧은 표시(4자까지)·텔레그램 알림에 쓰는 이름입니다.</span>
+                        <div class="group-list" id="settings-sites"></div>
+                    </section>
+                </div>
+
+                <div class="settings-pane" data-pane="status" hidden>
+                    <section class="settings-card">
+                        <div class="alert-head">
+                            <span class="settings-label">수집 상태</span>
+                            <button class="link-btn" data-action="refresh-status">새로고침</button>
+                        </div>
+                        <div class="status-list" id="settings-status"><span class="settings-hint">불러오는 중...</span></div>
+                    </section>
+                </div>
             </div>
         </section>
     </div>

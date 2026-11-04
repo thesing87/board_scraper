@@ -44,11 +44,9 @@ d = Chrome(options=o)
 js = d.execute_script
 try:
     d.get(BASE); time.sleep(2.5)
-    summary = js("return document.getElementById('alert-summary').textContent")
-    print('sidebar summary', summary.split('\n'))
-    assert '싼타페 · 동영상 글만' in summary and '삼성 · 전체 알림' in summary and '싼 모음 · 동영상 글만' in summary
     # 4) 관리 패널: 게시판별 스위치로 '싼타페' 전체 알림 켜기
     js("document.querySelector('.topbar [data-action=\"open-settings\"]').click()"); time.sleep(0.4)
+    js("document.querySelector('[data-action=\"settings-tab\"][data-tab=\"alerts\"]').click()"); time.sleep(0.2)
     # 게시판별 줄 (맨 아래 '보관한 글에 새 댓글' 줄은 게시판이 아님)
     rows = js("return [...document.querySelectorAll('#settings-alerts .alert-row:not(.alert-row-saved) .alert-row-name')].map(e => e.textContent)")
     print('alert rows', rows)
@@ -59,7 +57,6 @@ try:
     d.save_screenshot(os.path.join(SHOTS, 'settings.png'))
     after = {x['name']: x for x in storage.list_groups()}
     assert after['싼타페']['alert'] is True and after['캐스퍼']['alert'] is False
-    assert '싼타페 · 전체 알림' in js("return document.getElementById('alert-summary').textContent")
     # 암호 없이 바꾸면 거부되고 스위치가 원래대로
     js("window.alert = () => {}; document.getElementById('admin-pwd-input').value = '';"
        f"document.querySelector('[data-action=\"toggle-alert\"][data-group-id=\"{g['캐스퍼']['id']}\"][data-type=\"alert\"]').click();")

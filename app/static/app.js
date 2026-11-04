@@ -4,15 +4,15 @@
 // 상태 및 공용 유틸
 // ==========================================
 const ALL_KEY = '__all__';            // 모든 게시판을 합친 통합 피드
-// 보기: 고른 게시판 안에서 어떤 글을 볼지 (하나만 고름)
+// 보기: 고른 게시판 안에서 어떤 글을 볼지 (하나만 고름). more: 보기 탭 끝 '더보기' 목록에 넣는 보기
 const FILTERS = [
     { key: 'all', label: '모든 글' },
     { key: 'unread', label: '안 읽은 글', short: '안 읽음' },   // short: 칸이 좁은 모바일 보기 탭용
     { key: 'comments', label: '새 댓글' },
     { key: 'video', label: '동영상' },
     { key: 'image', label: '이미지' },
-    { key: 'saved', label: '보관함' },
-    { key: 'deleted', label: '삭제됨' }
+    { key: 'saved', label: '보관함', more: true },
+    { key: 'deleted', label: '삭제됨', more: true }
 ];
 // 글 순서: 최신순(수집 순) 또는 추천+댓글이 많은 인기순(기간: 최근 하루·일주일·한 달·전체). 기기마다 기억
 const SORTS = [
@@ -182,6 +182,8 @@ async function postJSON(url, body) {
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify(body)
     });
+    // 관리자 암호가 틀리면 관리 화면에 암호 칸을 다시 보여 줌
+    if (res.status === 401 && 'password' in body) needPassword('관리자 암호가 맞지 않습니다. 다시 입력한 뒤 눌러 주세요.');
     return res.json();
 }
 
@@ -329,7 +331,7 @@ function countBadge(filter, count) {
 }
 
 const ADD_BOARD_BUTTON = `
-    <button class="icon-btn small" data-action="open-settings" aria-label="게시판 만들기">
+    <button class="icon-btn small" data-action="new-group" aria-label="게시판 만들기" title="게시판 만들기">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
     </button>`;
 
@@ -383,18 +385,32 @@ function renderNavigation() {
             ${groupList}
         </nav>`;
 
-    // 데스크톱 보기 탭 (상단 바 가운데): 이름 옆에 고른 게시판 기준 글 수
-    document.getElementById('view-bar-tabs').innerHTML = FILTERS.map(f => `
-        <button class="view-bar-tab" ${filterAttrs(f.key)} aria-pressed="${filterActive(f.key)}">
-            <span>${f.label}</span>${countBadge(f.key, filterCount(current, f.key))}
-        </button>`).join('');
+    // 보기 탭: 데스크톱은 상단 바 가운데, 모바일은 상단 메뉴 아래 한 줄. 자주 쓰는 보기는 탭으로, 보관함·삭제됨은 끝의 '더보기' 목록으로.
+    // 글 수는 확인할 글이 남은 안 읽은 글·새 댓글 탭에만 (나머지 보기의 글 수는 '더보기' 목록과 피드 제목 아래 요약에)
+    const tabBadge = f => ['unread', 'comments'].includes(f.key) && filterCount(current, f.key) > 0
+        ? countBadge(f.key, filterCount(current, f.key)) : '';
+    const viewTabs = (cls, mobile) => {
+        const more = FILTERS.filter(f => f.more);
+        const picked = more.find(f => filterActive(f.key));
+        return FILTERS.filter(f => !f.more).map(f => `
+            <button class="${cls}" ${filterAttrs(f.key)} aria-pressed="${filterActive(f.key)}">
+                <span>${mobile ? f.short || f.label : f.label}</span>${tabBadge(f)}
+            </button>`).join('') + `
+            <span class="view-more">
+                <button class="${cls} view-more-btn" data-action="toggle-view-more" aria-haspopup="true" aria-expanded="false" aria-pressed="${!!picked}">
+                    <span>${picked ? picked.label : '더보기'}${ICONS.chevronDown}</span>
+                </button>
+                <span class="view-more-list" hidden>${more.map(f => `
+                    <button class="view-more-option" ${filterAttrs(f.key)} aria-pressed="${filterActive(f.key)}">
+                        <span>${f.label}</span>${countBadge(f.key, filterCount(current, f.key))}
+                    </button>`).join('')}
+                </span>
+            </span>`;
+    };
+    document.getElementById('view-bar-tabs').innerHTML = viewTabs('view-bar-tab', false);
 
     // 모바일: 위는 한 줄 보기 칸, 아래는 가로로 넘기는 게시판 칩 (맨 앞이 전체, 안 읽은 새 글은 파란 점·새 댓글은 주황 점)
-    document.getElementById('view-tabs').innerHTML = FILTERS.map(f => `
-        <button class="view-tab" ${filterAttrs(f.key)} aria-pressed="${filterActive(f.key)}">
-            <span>${f.short || f.label}</span>
-            ${countBadge(f.key, filterCount(current, f.key))}
-        </button>`).join('');
+    document.getElementById('view-tabs').innerHTML = viewTabs('view-tab', true);
     const chip = (label, summary, active, attrs) => `
         <button class="chip ${active ? 'active' : ''}" ${attrs} ${active ? 'aria-current="true"' : ''}>
             <span>${label}</span>
@@ -422,11 +438,6 @@ function renderNavigation() {
         chip('전체', app.state.all, allActive, 'data-action="open-all"') +
         looseGroups.map(groupChip).join('') +
         shownFolders.map(f => folderChip(f) + visibleGroups(folderGroups(f), isFolderExpanded('mobile', f.id)).map(groupChip).join('')).join('');
-
-    // 사이드바 하단 알림 요약 (게시판별)
-    // 사이트가 여러 개면 같은 이름의 게시판(FM 싼타페·DC 싼타페)을 구분하도록 짧은 표시를 붙임
-    const summary = groups.map(g => `${multiSite() ? groupShort(g) + ' ' : ''}${g.name} · ${alertMode(g)}`);
-    document.getElementById('alert-summary').textContent = summary.length ? summary.join('\n') : '게시판이 없습니다.';
 }
 
 // 묶음 상자(데스크톱)·묶음 칩(모바일)의 펼침 상태. 기기마다 따로 기억 (데스크톱은 기본 펼침, 모바일은 기본 접힘)
@@ -445,11 +456,6 @@ function toggleFolderExpanded(scope, folderId) {
     if (scope === 'desktop' ? expanded : !expanded) list.push(folderId);
     storageSet(localStorage, FOLDER_EXPAND_KEYS[scope], JSON.stringify(list));
     renderNavigation();
-}
-
-function alertMode(group) {
-    const mode = group.alert ? '전체 알림' : (group.video_alert ? '동영상 글만' : '알림 꺼짐');
-    return group.digest ? mode + ' · 하루 요약' : mode;
 }
 
 function scrollActiveChipIntoView() {
@@ -803,6 +809,15 @@ function setPageMenuOpen(menu, open) {
 
 function closePageMenus(except) {
     document.querySelectorAll('.page-menu').forEach(menu => { if (menu !== except) setPageMenuOpen(menu, false); });
+}
+
+// 보기 탭 끝 '더보기' 목록 (보관함·삭제됨)
+function setViewMoreOpen(box, open) {
+    box.querySelector('.view-more-list').hidden = !open;
+    box.querySelector('.view-more-btn').setAttribute('aria-expanded', String(open));
+}
+function closeViewMore(except) {
+    document.querySelectorAll('.view-more').forEach(box => { if (box !== except) setViewMoreOpen(box, false); });
 }
 
 function renderPager(page, totalPages) {
@@ -1244,7 +1259,15 @@ function renderGroupSettings() {
     }
     renderBoardChecks();
 
-    document.getElementById('group-form-title').textContent = editing ? `'${editing.name}' 게시판 수정` : '게시판 만들기';
+    // 편집 양식은 '새 게시판'이나 '수정'을 눌렀을 때만 펼침. 무시할 표현·합치기는 '고급 설정'에 접어 둠 (게시판 합치기는 수정할 때만)
+    const form = document.getElementById('group-form');
+    const wasHidden = form.hidden;
+    form.hidden = !(editing || app.groupFormOpen);
+    if (wasHidden && !form.hidden) {
+        document.getElementById('group-advanced').open = app.groupDraft.some(m => m.ignores.length);
+    }
+    document.getElementById('group-advanced-merge').hidden = !editing;
+    document.getElementById('group-form-title').textContent = editing ? `'${editing.name}' 게시판 수정` : '새 게시판';
     // 새 게시판을 넣을 묶음 (수정할 때는 아래 게시판 목록의 묶음 고르기로 옮김)
     const folderSelect = document.getElementById('group-folder-select');
     const prevFolder = folderSelect.value;
@@ -1253,7 +1276,6 @@ function renderGroupSettings() {
     if ((app.state.folders || []).some(f => String(f.id) === prevFolder)) folderSelect.value = prevFolder;
     folderSelect.hidden = !!editing;
     document.getElementById('group-save-btn').textContent = editing ? '저장' : '만들기';
-    document.getElementById('group-cancel-btn').hidden = !editing;
     const nameInput = document.getElementById('group-name-input');
     if (app.groupNameDraft !== undefined) nameInput.value = app.groupNameDraft;
     else nameInput.value = editing ? editing.name : '';
@@ -1437,6 +1459,7 @@ function addDraftMerge() {
 }
 
 function resetGroupForm() {
+    app.groupFormOpen = false;
     app.mergeDraft = [];
     app.draftBoards = undefined;
     app.editingGroupId = null;
@@ -1466,7 +1489,7 @@ async function saveGroup(button) {
     const members = app.groupDraft.map(m => ({ board: m.board, keyword: m.keyword, paused: !!m.paused, ignores: m.ignores.slice() }));
     if (!name) { alert('게시판 이름을 입력해 주세요.'); document.getElementById('group-name-input').focus(); return; }
     if (members.length === 0) { alert('키워드를 하나 이상 등록해 주세요.'); document.getElementById('group-kw-input').focus(); return; }
-    if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return; }
+    if (!pwd) { needPassword(); return; }
 
     const editingId = app.editingGroupId;
     const mergeIds = editingId ? app.mergeDraft.slice() : [];
@@ -1499,7 +1522,7 @@ async function deleteGroup(groupId, button) {
     const group = (app.state.groups || []).find(g => g.id === groupId);
     if (!group) return;
     const pwd = adminPassword();
-    if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return; }
+    if (!pwd) { needPassword(); return; }
     const dropped = droppedKeywords(groupId, []);
     const note = dropped.length ? `\n(키워드 ${dropped.map(m => m.keyword).join(', ')}는 수집을 멈추고 모은 글도 삭제됩니다)` : '';
     if (!confirm(`'${group.name}' 게시판을 삭제할까요?${note}`)) return;
@@ -1543,7 +1566,7 @@ async function saveSite(site, button) {
     const short = row.querySelector('.site-short-input').value.trim();
     if (!name || !short) { alert('이름과 짧은 표시를 모두 입력해 주세요.'); return; }
     const pwd = adminPassword();
-    if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return; }
+    if (!pwd) { needPassword(); return; }
     button.disabled = true;
     try {
         const data = await postJSON('/api/site', { site: site, name: name, short: short, password: pwd });
@@ -1583,7 +1606,7 @@ function renderCategorySettings() {
 
 async function categoryRequest(body, button) {
     const pwd = adminPassword();
-    if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return false; }
+    if (!pwd) { needPassword(); return false; }
     button.disabled = true;
     try {
         const data = await postJSON('/api/category', { ...body, password: pwd });
@@ -1633,7 +1656,7 @@ function renderFolderSettings() {
 // 묶음·게시판 배치 요청 (관리자 암호 필요). 성공하면 상태를 다시 받아 사이드바와 관리 화면을 그림
 async function adminRequest(url, body, button) {
     const pwd = adminPassword();
-    if (!pwd) { alert('관리자 암호를 입력해야 합니다.'); document.getElementById('admin-pwd-input').focus(); return null; }
+    if (!pwd) { needPassword(); return null; }
     if (button) button.disabled = true;
     try {
         const data = await postJSON(url, { ...body, password: pwd });
@@ -1750,24 +1773,53 @@ function setSettingsOpen(open) {
     panel.hidden = !open;
     document.body.style.overflow = open ? 'hidden' : '';
     if (open) {
+        // 암호 칸은 필요할 때만 (입력한 암호는 그대로 기억)
+        document.getElementById('admin-pwd-box').hidden = true;
         renderSettings();
-        loadRuntimeStatus();
-        const pwd = document.getElementById('admin-pwd-input');
-        (pwd.value ? document.getElementById('group-name-input') : pwd).focus();
+        setSettingsTab(app.settingsTab || 'groups');
     }
+}
+
+// 관리 화면 탭: 고른 칸만 보여 주고, 수집 상태는 그 탭을 열 때 새로 받아 옴
+function setSettingsTab(tab) {
+    app.settingsTab = tab;
+    document.querySelectorAll('.settings-tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+    document.querySelectorAll('.settings-pane').forEach(p => { p.hidden = p.dataset.pane !== tab; });
+    document.querySelector('.settings-body').scrollTop = 0;
+    if (tab === 'status') loadRuntimeStatus();
+}
+
+// 게시판 탭의 편집 양식 열기 (새 게시판). 사이드바 '+'에서 부르면 관리 화면부터 엶
+function openNewGroupForm() {
+    if (document.getElementById('settings').hidden) setSettingsOpen(true);
+    setSettingsTab('groups');
+    resetGroupForm();
+    app.groupFormOpen = true;
+    renderGroupSettings();
+    document.getElementById('group-name-input').focus();
 }
 
 function adminPassword() {
     return document.getElementById('admin-pwd-input').value.trim();
 }
 
+// 암호가 없거나 틀렸을 때 관리 화면 맨 위에 암호 칸을 보여 주고 입력하게 함
+function needPassword(message) {
+    const box = document.getElementById('admin-pwd-box');
+    box.hidden = false;
+    document.getElementById('admin-pwd-hint').textContent = message || '설정을 바꾸려면 관리자 암호가 필요합니다. 입력한 뒤 다시 눌러 주세요.';
+    document.querySelector('.settings-body').scrollTop = 0;
+    const input = document.getElementById('admin-pwd-input');
+    if (message) input.select();
+    input.focus();
+}
+
 async function toggleGroupAlert(checkbox) {
     const pwd = adminPassword();
     const target = checkbox.checked;
     if (!pwd) {
-        alert('알림 설정을 변경하려면 관리자 암호를 먼저 입력해 주세요.');
         checkbox.checked = !target;
-        document.getElementById('admin-pwd-input').focus();
+        needPassword('알림 설정을 바꾸려면 관리자 암호가 필요합니다. 입력한 뒤 다시 눌러 주세요.');
         return;
     }
     const groupId = Number(checkbox.dataset.groupId);
@@ -1928,6 +1980,7 @@ document.addEventListener('click', (e) => {
     if (e.target.id === 'media-viewer' || e.target.classList.contains('mv-stage')) { closeMedia(); return; }
     // 페이지 목록 바깥을 누르면 닫음
     closePageMenus(e.target.closest('.page-menu'));
+    closeViewMore(e.target.closest('[data-action="toggle-view-more"]') && e.target.closest('.view-more'));
     const backdrop = document.getElementById('settings');
     if (e.target === backdrop) { setSettingsOpen(false); return; }
     const el = e.target.closest('[data-action]');
@@ -1962,7 +2015,12 @@ document.addEventListener('click', (e) => {
         app.groupDraft = undefined;
         app.groupNameDraft = undefined;
         renderGroupSettings();
+        document.querySelector('.settings-body').scrollTop = 0;
         document.getElementById('group-name-input').focus();
+    } else if (action === 'new-group') {
+        openNewGroupForm();
+    } else if (action === 'settings-tab') {
+        setSettingsTab(el.dataset.tab);
     } else if (action === 'add-draft-keyword') {
         addDraftKeyword();
     } else if (action === 'toggle-draft-pause') {
@@ -1999,6 +2057,9 @@ document.addEventListener('click', (e) => {
         deleteCategory(el.dataset.key, el);
     } else if (action === 'page') {
         changePage(el.dataset.target);
+    } else if (action === 'toggle-view-more') {
+        const box = el.closest('.view-more');
+        setViewMoreOpen(box, box.querySelector('.view-more-list').hidden);
     } else if (action === 'toggle-page-menu') {
         const menu = el.closest('.page-menu');
         setPageMenuOpen(menu, menu.querySelector('.page-menu-list').hidden);
@@ -2089,6 +2150,8 @@ document.addEventListener('keydown', (e) => {
         addCategory(document.querySelector('[data-action="add-category"]'));
     } else if (e.key === 'Escape' && document.querySelector('.page-menu-list:not([hidden])')) {
         closePageMenus();
+    } else if (e.key === 'Escape' && document.querySelector('.view-more-list:not([hidden])')) {
+        closeViewMore();
     } else if (e.key === 'Escape' && !document.getElementById('settings').hidden) {
         setSettingsOpen(false);
     } else if (e.key === 'Escape' && e.target.id === 'search-input' && app.searchQuery) {

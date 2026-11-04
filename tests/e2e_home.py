@@ -33,24 +33,24 @@ try:
     js("scrollTo(0, 1500)"); W(0.3)
     before = view(); print('before', before)
     assert before['title'] != '전체' and before['page'] == 2
-    d.find_element('css selector', 'a.brand-name').click(); W(1.5)
+    d.find_element('css selector', 'a.brand-link').click(); W(1.5)
     after = view(); print('after title click', after)
     assert after['title'] == '전체 · 안 읽은 글' and after['page'] == 1 and after['y'] == 0 and after['url'] == BASE
-    # 검색 중 + 텔레그램 링크(#post-ID)로 들어온 상태에서 홈 버튼
+    # 검색 중 + 텔레그램 링크(#post-ID)로 들어온 상태에서 로고로 홈
     js("document.getElementById('search-input').value='싼타페'; document.getElementById('search-form').requestSubmit()"); W(1.5)
     js("history.replaceState(null, '', '#post-123')")
     assert view()['q'] == '싼타페'
-    d.find_element('css selector', '.desktop-only[data-action="go-home"]').click(); W(1.5)
+    d.find_element('css selector', 'a.brand-link').click(); W(1.5)
     h = view(); print('after home button', h)
     assert h['title'] == '전체 · 안 읽은 글' and h['q'] == '' and h['hash'] == '' and js("return document.getElementById('search-input').value") == ''
     # 관리 패널이 열려 있어도 닫고 홈으로
     js("document.querySelector('.topbar [data-action=\"open-settings\"]').click()"); W(0.3)
-    js("document.querySelector('a.brand-name').click()"); W(1)
+    js("document.querySelector('a.brand-link').click()"); W(1)
     assert js("return document.getElementById('settings').hidden")
-    # 모바일: 홈 버튼
+    # 모바일: 제목(키워드 모니터)으로 홈
     d.set_window_size(390, 844); d.get(BASE); W(2.5)
     js("document.querySelectorAll('#chip-row .chip')[1].click()"); W(1.2)
-    d.find_element('css selector', '.mobile-only[data-action="go-home"]').click(); W(1.5)
+    d.find_element('css selector', 'a.brand-link').click(); W(1.5)
     m = view(); print('mobile', m)
     assert m['title'] == '전체 · 안 읽은 글'
     d.save_screenshot(os.path.join(SHOTS, 'mobile.png'))
