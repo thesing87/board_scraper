@@ -384,7 +384,14 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .settings-tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
 .settings-body { flex: 1 1 auto; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
 .settings-pane { display: flex; flex-direction: column; gap: 14px; }
-.pwd-card { border: 1px solid #FCD34D; background: #FFFBEB; }
+/* 관리 제목 아래 고정 암호 칸: 이름·입력 한 줄, 필요할 때만 노란 강조와 안내 문구 */
+.pwd-bar { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.pwd-bar .settings-label { flex: 0 0 auto; }
+.pwd-bar .input { flex: 1 1 160px; height: 38px; }
+.pwd-bar .settings-hint { flex-basis: 100%; }
+.pwd-bar.is-needed { background: #FFFBEB; }
+.pwd-bar.is-needed .settings-hint { color: #92400E; font-weight: 500; }
+.pwd-bar.is-needed .input { border-color: #F59E0B; }
 /* 게시판 편집 양식의 '고급 설정' (무시할 표현·게시판 합치기) */
 .settings-advanced { border-top: 1px solid var(--divider); padding-top: 10px; }
 .settings-advanced > summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--text-2); }

@@ -98,6 +98,13 @@
                 </button>
                 <h2 id="settings-title">관리</h2>
             </header>
+            <!-- 관리자 암호: 관리 제목 바로 아래에 항상 고정 (스크롤해도 그대로). 입력한 암호는 페이지를 닫기 전까지 기억,
+                 암호 없이 바꾸려 하거나 틀리면 노란 강조와 안내 문구 (app.js needPassword) -->
+            <div class="pwd-bar" id="admin-pwd-box">
+                <label for="admin-pwd-input" class="settings-label">관리자 암호</label>
+                <input id="admin-pwd-input" type="password" class="input" autocomplete="current-password" placeholder="설정을 바꿀 때 필요">
+                <span class="settings-hint" id="admin-pwd-hint" hidden></span>
+            </div>
             <!-- 관리 화면 탭: 한 번에 한 칸만 보여 줌 (app.js setSettingsTab) -->
             <nav class="settings-tabs" role="tablist" aria-label="관리 메뉴">
                 <button class="settings-tab" role="tab" data-action="settings-tab" data-tab="groups">게시판</button>
@@ -107,13 +114,6 @@
                 <button class="settings-tab" role="tab" data-action="settings-tab" data-tab="status">수집 상태</button>
             </nav>
             <div class="settings-body">
-                <!-- 관리자 암호: 바꾸기를 처음 저장할 때(또는 암호가 틀렸을 때)만 보이고, 입력한 암호는 페이지를 닫기 전까지 기억 -->
-                <section class="settings-card pwd-card" id="admin-pwd-box" hidden>
-                    <label for="admin-pwd-input" class="settings-label">관리자 암호</label>
-                    <input id="admin-pwd-input" type="password" class="input" autocomplete="current-password">
-                    <span class="settings-hint" id="admin-pwd-hint">설정을 바꾸려면 관리자 암호가 필요합니다. 입력한 뒤 다시 눌러 주세요.</span>
-                </section>
-
                 <div class="settings-pane" data-pane="groups">
                     <section class="settings-card" id="group-form" hidden>
                         <span class="settings-label" id="group-form-title">새 게시판</span>

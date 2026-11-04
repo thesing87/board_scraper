@@ -1773,8 +1773,8 @@ function setSettingsOpen(open) {
     panel.hidden = !open;
     document.body.style.overflow = open ? 'hidden' : '';
     if (open) {
-        // 암호 칸은 필요할 때만 (입력한 암호는 그대로 기억)
-        document.getElementById('admin-pwd-box').hidden = true;
+        // 암호 칸은 항상 위에 있고, 지난번 안내 강조만 지움 (입력한 암호는 그대로 기억)
+        setPasswordNotice('');
         renderSettings();
         setSettingsTab(app.settingsTab || 'groups');
     }
@@ -1803,12 +1803,17 @@ function adminPassword() {
     return document.getElementById('admin-pwd-input').value.trim();
 }
 
-// 암호가 없거나 틀렸을 때 관리 화면 맨 위에 암호 칸을 보여 주고 입력하게 함
+// 관리 제목 아래 암호 칸의 안내 문구와 노란 강조 (빈 문구면 지움)
+function setPasswordNotice(message) {
+    const hint = document.getElementById('admin-pwd-hint');
+    hint.textContent = message;
+    hint.hidden = !message;
+    document.getElementById('admin-pwd-box').classList.toggle('is-needed', !!message);
+}
+
+// 암호가 없거나 틀렸을 때 암호 칸을 강조하고 입력하게 함
 function needPassword(message) {
-    const box = document.getElementById('admin-pwd-box');
-    box.hidden = false;
-    document.getElementById('admin-pwd-hint').textContent = message || '설정을 바꾸려면 관리자 암호가 필요합니다. 입력한 뒤 다시 눌러 주세요.';
-    document.querySelector('.settings-body').scrollTop = 0;
+    setPasswordNotice(message || '설정을 바꾸려면 관리자 암호가 필요합니다. 입력한 뒤 다시 눌러 주세요.');
     const input = document.getElementById('admin-pwd-input');
     if (message) input.select();
     input.focus();
@@ -2119,6 +2124,7 @@ document.addEventListener('change', (e) => {
 
 document.addEventListener('input', (e) => {
     if (e.target.id === 'group-name-input') app.groupNameDraft = e.target.value;
+    else if (e.target.id === 'admin-pwd-input') setPasswordNotice('');
 });
 
 document.addEventListener('submit', (e) => {
