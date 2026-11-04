@@ -78,7 +78,7 @@ try:
     assert view()['title'] == '전체'
     # 홈 버튼도 같은 규칙
     js("document.querySelector('#view-bar-tabs [data-action=\"set-view\"][data-filter=\"unread\"]').click()"); W(1.2)
-    js("document.querySelector('a.brand-name').click()"); W(1.2)
+    js("document.querySelector('a.brand-link').click()"); W(1.2)
     assert view()['title'] == '전체'
 
     # 6) 모바일: 칩 맨 앞이 전체, 안 읽은 글이 없으니 '모든 글' 보기 탭이 선택됨
