@@ -39,11 +39,13 @@ visible = lambda sel: js("return [...document.querySelectorAll(arguments[0])].fi
 try:
     d.get(f'http://127.0.0.1:{port}/'); time.sleep(2.5)
     js("app.filter = 'all'; openView(ALL_KEY, 1)"); time.sleep(1.5)
-    # 0) 조회·추천·댓글 칩: 추천 0도 표시, 추천 5·10개·댓글 10·20개부터 색이 진해짐
+    # 0) 조회·추천·댓글 칩: 추천 0도 표시, 조회 100·500·1000회, 추천·댓글 1·10·20개부터 4단계로 진해짐
     assert js("return [...document.querySelectorAll('#post-801 .stat')].map(s => s.textContent.trim())") == ['조회1', '추천0', '댓글0']
     assert js("return document.querySelector('#post-801 .stat-votes').className") == 'stat stat-votes'
-    assert js("return [4, 5, 10].map(n => statLevel(n, STAT_LEVELS.votes))") == ['', ' is-warm', ' is-hot']
-    assert js("return [9, 10, 20].map(n => statLevel(n, STAT_LEVELS.comments))") == ['', ' is-warm', ' is-hot']
+    assert js("return [0, 1, 9, 10, 19, 20].map(n => statLevel(n, STAT_LEVELS.votes))") == ['', ' is-some', ' is-some', ' is-warm', ' is-warm', ' is-hot']
+    assert js("return [0, 1, 10, 20].map(n => statLevel(n, STAT_LEVELS.comments))") == ['', ' is-some', ' is-warm', ' is-hot']
+    assert js("return [99, 100, 499, 500, 999, 1000].map(n => statLevel(n, STAT_LEVELS.views))") == ['', ' is-some', ' is-some', ' is-warm', ' is-warm', ' is-hot']
+    assert js("return document.querySelector('#post-801 .stat-views').className") == 'stat stat-views'   # 조회 1
     assert js("return statNumber('1,204')") == 1204
     # 1) 펼친 화면에서는 미리보기를 숨기고, 접으면 본문 한 줄과 썸네일
     assert visible('.fold-preview') == 0

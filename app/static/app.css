@@ -344,13 +344,18 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .keys kbd { min-width: 22px; height: 20px; padding: 0 5px; border-radius: 5px; border: 1px solid var(--border); border-bottom-width: 2px; background: var(--surface-muted); font-family: inherit; font-size: 11px; font-weight: 700; color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; }
 .post-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--text-3); }
 .post-meta .author { font-weight: 500; color: var(--text); }
-/* 조회·추천·댓글 칩 (추천·댓글이 많으면 is-warm → is-hot 순으로 진하게) */
+/* 조회·추천·댓글 칩 (많을수록 is-some → is-warm → is-hot 순으로 진하게. 조회 초록, 추천 주황, 댓글 파랑) */
 .post-stats { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .stat { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border-radius: 999px; background: #F1F3F6; color: var(--text-2); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stat svg { flex: 0 0 auto; }
-.stat-votes.is-warm { background: #FFEDD5; color: #9A3412; }
+.stat-views.is-some { background: #F0FDF4; color: #15803D; }
+.stat-views.is-warm { background: #BBF7D0; color: #166534; }
+.stat-views.is-hot { background: #16A34A; color: #FFFFFF; }
+.stat-votes.is-some { background: #FFF7ED; color: #C2410C; }
+.stat-votes.is-warm { background: #FED7AA; color: #9A3412; }
 .stat-votes.is-hot { background: #EA580C; color: #FFFFFF; }
-.stat-comments.is-warm { background: #DBEAFE; color: #1E40AF; }
+.stat-comments.is-some { background: #EFF6FF; color: #1D4ED8; }
+.stat-comments.is-warm { background: #BFDBFE; color: #1E40AF; }
 .stat-comments.is-hot { background: #1D4ED8; color: #FFFFFF; }
 
 .post-content { font-size: 15px; line-height: 1.75; color: var(--text-body); }

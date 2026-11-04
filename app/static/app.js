@@ -607,19 +607,21 @@ function highlightTerms(text) {
     return escaped.replace(new RegExp('(' + terms.join('|') + ')', 'gi'), '<mark>$1</mark>');
 }
 
-// 조회·추천·댓글 칩: 추천·댓글이 많으면 색을 진하게 (추천 5·10개, 댓글 10·20개 이상부터). 추천 0도 표시
-const STAT_LEVELS = { votes: [5, 10], comments: [10, 20] };
+// 조회·추천·댓글 칩: 많을수록 색을 4단계로 진하게 (기본 회색 → is-some 연하게 → is-warm 중간 → is-hot 진하게).
+// 조회 100·500·1000회, 추천·댓글 1·10·20개 이상부터. 추천 0도 표시
+const STAT_LEVELS = { views: [100, 500, 1000], votes: [1, 10, 20], comments: [1, 10, 20] };
 function statNumber(value) {
     return parseInt(String(value || '0').replace(/[^\d]/g, ''), 10) || 0;
 }
-function statLevel(n, [warm, hot]) {
-    return n >= hot ? ' is-hot' : n >= warm ? ' is-warm' : '';
+function statLevel(n, [some, warm, hot]) {
+    return n >= hot ? ' is-hot' : n >= warm ? ' is-warm' : n >= some ? ' is-some' : '';
 }
 function renderPostStats(post) {
+    const views = statNumber(post.views);
     const votes = statNumber(post.votes);
     const comments = statNumber(post.comment_count);
     return `<div class="post-stats">
-        <span class="stat stat-views" title="조회">${ICONS.eye}<span class="sr-only">조회</span>${esc(post.views || '0')}</span>
+        <span class="stat stat-views${statLevel(views, STAT_LEVELS.views)}" title="조회">${ICONS.eye}<span class="sr-only">조회</span>${views.toLocaleString('ko-KR')}</span>
         <span class="stat stat-votes${statLevel(votes, STAT_LEVELS.votes)}" title="추천">${ICONS.thumb}<span class="sr-only">추천</span>${votes.toLocaleString('ko-KR')}</span>
         <span class="stat stat-comments${statLevel(comments, STAT_LEVELS.comments)}" title="댓글">${ICONS.comment}<span class="sr-only">댓글</span>${comments.toLocaleString('ko-KR')}</span>
     </div>`;
