@@ -187,6 +187,13 @@ def _create_schema(conn):
             rejected_at  TEXT NOT NULL,
             PRIMARY KEY (board, keyword, post_id)
         );
+
+        -- 새 글로 수집했지만 알림을 보내지 않은 글 (그 키워드의 게시판이 모두 알림을 꺼 둠 등).
+        -- 다른 키워드(다른 게시판)에서 같은 글이 걸렸을 때, 그 게시판이 알림을 원하면 그때 한 번 보내려고 기억
+        CREATE TABLE IF NOT EXISTS unalerted_posts (
+            post_id      TEXT PRIMARY KEY REFERENCES posts(id) ON DELETE CASCADE,
+            collected_at TEXT NOT NULL
+        );
     """)
 
 def _now():
@@ -1590,6 +1597,22 @@ def add_rejected_post(board, keyword, post_id):
     with _db() as conn, conn:
         conn.execute("INSERT OR IGNORE INTO rejected_posts(board, keyword, post_id, rejected_at) VALUES(?, ?, ?, ?)",
                      (board, keyword, str(post_id), _now()))
+
+def add_unalerted_post(post_id):
+    """새 글로 수집했지만 알림을 보내지 않은 글로 기억"""
+    with _db() as conn, conn:
+        conn.execute("INSERT OR IGNORE INTO unalerted_posts(post_id, collected_at) VALUES(?, ?)", (str(post_id), _now()))
+
+def take_unalerted_post(post_id):
+    """알림을 보내지 않은 글이면 기억에서 지우고 True (다른 키워드에서 한 번만 알림을 보내도록)"""
+    with _db() as conn, conn:
+        return conn.execute("DELETE FROM unalerted_posts WHERE post_id = ?", (str(post_id),)).rowcount > 0
+
+def prune_unalerted_posts(hours):
+    """hours시간 지난 기억 삭제 (같은 글은 보통 같은 주기나 몇 주기 안에 다른 키워드에서도 걸림). 삭제한 수 반환"""
+    cutoff = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+    with _db() as conn, conn:
+        return conn.execute("DELETE FROM unalerted_posts WHERE collected_at < ?", (cutoff,)).rowcount
 
 def prune_rejected_posts(keep_per_keyword):
     """키워드마다 최근에 거른 keep_per_keyword개만 남기고 삭제한 수 반환.

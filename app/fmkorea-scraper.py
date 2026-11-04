@@ -39,6 +39,9 @@ from storage import (
     load_rejected_posts,
     add_rejected_post,
     prune_rejected_posts,
+    add_unalerted_post,
+    take_unalerted_post,
+    prune_unalerted_posts,
     recent_keyword_posts,
     save_keyword_post,
     update_post,
@@ -90,6 +93,8 @@ HEARTBEAT_SECONDS = 3600
 DELETION_CHECKS_PER_KEYWORD = 3
 # 키워드마다 기억해 두는 거른 글 수 (검색 목록 첫 페이지보다 넉넉하게. 더 오래된 기록은 하루 한 번 정리)
 REJECTED_KEEP_PER_KEYWORD = 300
+# 알림을 보내지 않은 새 글을 다른 키워드에서 알림 보낼 수 있게 기억하는 시간 (하루 한 번 정리)
+UNALERTED_KEEP_HOURS = 24
 # 페이지가 이 시간(초) 안에 열리지 않으면 포기. 크롬 기본값(300초)이 셀레늄의 응답 대기 한도(120초)보다 길어,
 # NAS가 느려지면 페이지마다 응답 대기 한도를 다 채우고서야 실패했음 (한 번에 2분씩, 연달아 몇 번)
 PAGE_LOAD_TIMEOUT = 30
@@ -367,8 +372,9 @@ def run_daily_maintenance():
         log_msg(f"[DB] 오래된 글 정리 실패: {short_err(e)}", "ERROR")
     try:
         prune_rejected_posts(REJECTED_KEEP_PER_KEYWORD)
+        prune_unalerted_posts(UNALERTED_KEEP_HOURS)
     except Exception as e:
-        log_msg(f"[DB] 거른 글 기록 정리 실패: {short_err(e)}", "ERROR")
+        log_msg(f"[DB] 거른 글·알림 안 보낸 글 기록 정리 실패: {short_err(e)}", "ERROR")
     try:
         # 정리됐거나 키워드와 함께 지워진 글의 저장 이미지 폴더 삭제
         remove_orphan_image_dirs(existing_post_ids)
@@ -620,13 +626,12 @@ def main():
                                 continue
 
                             post_data['list_comment_count'] = post_info['list_comment_count']
-                            # 같은 글이 여러 키워드(예: 싼타페·싼하)에 걸리면 처음 수집한 키워드에서만 알림
+                            # 같은 글이 여러 키워드(예: 싼타페·싼하)에 걸려도 알림은 한 번만: 처음 수집한 키워드에서 보내고,
+                            # 그때 알림을 보내지 않았으면(그 게시판들이 알림을 꺼 둠 등) 나중에 걸린 키워드의 게시판이 원할 때 보냄
                             already_collected = post_exists(post_data['id'])
                             save_keyword_post(board, keyword, post_data, is_new=True)
-                            if already_collected:
-                                log_msg(f"[새 글] {target} #{post_data['id']} 다른 키워드로 이미 수집된 글 → 알림 생략", "DEBUG")
-                                continue
-                            stats['new'] += 1
+                            if not already_collected:
+                                stats['new'] += 1
 
                             has_video = len(post_data.get('videos', [])) > 0
                             # 키워드가 등록된 게시판 중 하나라도 이 글의 알림을 원하면 발송
@@ -639,12 +644,24 @@ def main():
                             quiet = (board, keyword) in resumed
                             should_send_alert = bool(alert_boards) and not quiet
 
+                            if already_collected:
+                                # 처음 수집한 키워드에서 알림을 보내지 않은 글만, 이 키워드의 게시판이 알림을 원하면 보냄
+                                if not (should_send_alert and take_unalerted_post(post_data['id'])):
+                                    log_msg(f"[새 글] {target} #{post_data['id']} 다른 키워드로 이미 수집된 글 → 알림 생략", "DEBUG")
+                                    continue
+                                log_msg(f"[새 글] {target} #{post_data['id']} {short_title(post_data['title'])} "
+                                        f"다른 키워드로 수집할 때 알림을 보내지 않은 글 → 알림 발송")
+                                send_post_alert(post_data, alert_boards, keyword, board_name, *post_urls(post_data))
+                                continue
+
                             alert_result = ("알림 발송" if should_send_alert else
                                             "일시정지 동안 올라온 글이라 알림 생략" if alert_boards else "알림 꺼짐")
                             log_msg(f"[새 글] {target} #{post_data['id']} {short_title(post_data['title'])}{' (동영상)' if has_video else ''} → {alert_result}")
 
                             if should_send_alert:
                                 send_post_alert(post_data, alert_boards, keyword, board_name, *post_urls(post_data))
+                            else:
+                                add_unalerted_post(post_data['id'])
                         except Exception as deep_ex:
                             stats['errors'] += 1
                             log_msg(f"[오류] {target} #{post_info['id']} 새 글 수집 실패: {short_err(deep_ex)}", "WARN")
