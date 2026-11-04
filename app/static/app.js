@@ -34,6 +34,8 @@ const app = {
     state: null,          // /api/state 응답
     activeKey: ALL_KEY,   // 고른 게시판: ALL_KEY(전체) 또는 "group:<게시판 ID>"
     filter: 'all',        // 고른 보기: FILTERS의 key
+    previewMedia: {},     // 접힌 글 썸네일의 크게 보기용 {글 ID: 사진·동영상 목록}
+    openPostIds: new Set(), // 접힌 상태에서 하나씩 펼친 글 (post-ID)
     sort: 'latest',       // 글 순서: SORTS의 key (안 읽은 글·새 댓글 보기에는 쓰지 않음)
     unreadSince: null,    // 안 읽은 글 보기를 연 서버 시각 (보는 중 읽은 글이 빠져 페이지가 밀리지 않게). 없으면 다음 요청 때 서버가 정함
     renderedUnreadIds: null, // 안 읽은 글·새 댓글 보기를 그릴 때의 글 ID (새 글 배너 계산용)
@@ -274,7 +276,6 @@ function checkReadSentinels() {
     readCheckScheduled = false;
     const ids = [];
     document.querySelectorAll('.read-sentinel:not([data-read])').forEach(el => {
-        if (isFoldedCard(el.closest('.post-card'))) return;  // 접힌 글은 제목만 본 것이라 읽음 아님
         const top = el.getBoundingClientRect().top;
         // 텔레그램 링크로 건너뛴 위쪽 글(data-skipped)은 지나친 것만으로는 읽음이 아니므로, 글 끝이 실제로 화면에 보일 때만
         let seen = el.dataset.skipped ? top >= 0 && top < window.innerHeight : top < window.innerHeight;
@@ -648,6 +649,7 @@ function renderPost(post, isUnread) {
                     ${votes}
                     <span>댓글 ${esc(post.comment_count)}</span>
                 </div>
+                ${renderFoldPreview(post)}
             </div>
             <div class="post-content">${renderContent(post.content)}</div>
             ${renderComments(post)}
@@ -665,6 +667,75 @@ const GALLERY_PER_PAGE = { image: 12, video: 12 };
 
 function isGalleryView() {
     return !app.searchQuery && (app.filter === 'video' || app.filter === 'image');
+}
+
+// ==========================================
+// 접힌 글 미리보기: 본문 첫 부분 한 줄과 첨부 사진·동영상 썸네일 (4개보다 많으면 3개와 +N, 누르면 전부)
+// 사진·동영상 고르는 기준은 모아보기(서버 storage.post_images·post_videos)와 같음
+// ==========================================
+const PREVIEW_THUMBS = 3;
+const MEDIA_IMAGE_SRC = /^(https?:\/\/[^/]+(\/[^?#]*)?\/files\/attach\/|\/images\/[a-z0-9_-]+\/)/i;
+const YOUTUBE_EMBED = /youtube(?:-nocookie)?\.com\/embed\/([\w-]{6,})/;
+
+function postMedia(post) {
+    const videos = (post.videos || []).filter(src => /^https?:\/\//i.test(src)).map(src => {
+        const yt = YOUTUBE_EMBED.exec(src);
+        if (yt) return { type: 'youtube', src, thumb: `https://i.ytimg.com/vi/${yt[1]}/hqdefault.jpg` };
+        return { type: /\.(mp4|webm|mov)([?#]|$)/i.test(src) ? 'file' : 'embed', src };
+    });
+    const doc = new DOMParser().parseFromString((post.content || []).join(''), 'text/html');
+    const images = [...new Set([...doc.querySelectorAll('img')].map(img => {
+        const src = img.getAttribute('src') || '';
+        return src.startsWith('//') ? 'https:' + src : src;
+    }).filter(src => MEDIA_IMAGE_SRC.test(src)))].map(src => ({ type: 'image', src }));
+    const media = videos.concat(images);
+    return media.map((m, i) => ({ ...m, index: i + 1, of: media.length,
+        post: { id: post.id, title: post.title, link: post.link, keywords: post.keywords } }));
+}
+
+// 본문의 글자만 이어 붙인 첫 부분 (사진·동영상·링크 미리보기 상자는 뺌)
+function postExcerpt(post) {
+    const text = (post.content || []).filter(b => b && !/^<(img|video|div|iframe)/.test(b)).join(' ');
+    const plain = new DOMParser().parseFromString(text, 'text/html').body.textContent || '';
+    return plain.replace(/\s+/g, ' ').trim().slice(0, 200);
+}
+
+function renderFoldPreview(post) {
+    const excerpt = postExcerpt(post);
+    const media = postMedia(post);
+    app.previewMedia[post.id] = media;
+    const many = media.length > PREVIEW_THUMBS + 1;
+    const thumbs = media.map((m, i) => {
+        const inner = m.type === 'image' ? `<img src="${esc(m.src)}" alt="" loading="lazy">`
+            : m.type === 'youtube' ? `<img src="${esc(m.thumb)}" alt="" loading="lazy">`
+            : m.type === 'file' ? `<video src="${esc(m.src)}#t=0.5" preload="metadata" muted playsinline tabindex="-1"></video>` : '';
+        const play = m.type !== 'image' ? `<span class="ft-play" aria-hidden="true">${ICONS.play}</span>` : '';
+        return `<button class="fold-thumb${many && i >= PREVIEW_THUMBS ? ' is-extra' : ''}${m.type !== 'image' ? ' is-video' : ''}"
+            data-action="open-post-media" data-post-id="${esc(post.id)}" data-index="${i}" aria-label="${m.type === 'image' ? '사진' : '동영상'} ${i + 1} 크게 보기">${inner}${play}</button>`;
+    }).join('');
+    const more = many ? `<button class="fold-thumb fold-more" data-action="more-thumbs" data-more="${media.length - PREVIEW_THUMBS}"
+        aria-expanded="false">+${media.length - PREVIEW_THUMBS}</button>` : '';
+    if (!excerpt && !media.length) return '';
+    return `<div class="fold-preview">
+        ${excerpt ? `<p class="fold-excerpt">${esc(excerpt)}</p>` : ''}
+        ${media.length ? `<div class="fold-thumbs">${thumbs}${more}</div>` : ''}
+    </div>`;
+}
+
+// +N: 그 글의 나머지 썸네일을 펼치거나 다시 3개로
+function toggleMoreThumbs(btn) {
+    const box = btn.closest('.fold-thumbs');
+    const open = box.classList.toggle('show-all');
+    btn.textContent = open ? '접기' : '+' + btn.dataset.more;
+    btn.setAttribute('aria-expanded', String(open));
+}
+
+// 접힌 글의 썸네일을 누르면 그 글의 사진·동영상만 모아 크게 보기
+function openPostMedia(postId, index) {
+    const media = app.previewMedia[postId];
+    if (!media || !media.length) return;
+    app.galleryItems = media;
+    openMedia(index);
 }
 
 function mediaSource(post) {
@@ -760,6 +831,14 @@ function closeMedia() {
 // 모아보기에서 고른 글을 그 글이 있는 게시판·페이지에서 열고, 돌아올 모아보기 화면을 기억
 function gotoPostFromGallery(postId) {
     closeMedia();
+    const card = document.getElementById('post-' + postId);
+    if (!isGalleryView() && card) {
+        app.openPostIds.add(card.id);
+        applyFold();
+        window.scrollTo({ top: card.getBoundingClientRect().top + window.pageYOffset - stickyHeight() - 12 });
+        scheduleReadCheck();
+        return;
+    }
     app.galleryReturn = { key: app.activeKey, filter: app.filter, page: app.page, sort: app.sort, scrollY: window.scrollY };
     window.location.hash = 'post-' + postId;
 }
@@ -780,6 +859,7 @@ function returnToGallery() {
 
 // ==========================================
 // 본문·댓글 전부 접기/펼치기 (G 키): 접으면 글마다 제목 줄만. 접힌 글은 제목 줄을 눌러 그 글만 펼침
+// (접힌 글도 끝(제목 줄 아래)이 화면에 들어오면 펼친 글과 같이 읽음 처리)
 // ==========================================
 function foldLabel() {
     return app.folded ? `${ICONS.chevronDown} 전부 펼치기` : `${ICONS.up} 전부 접기`;
@@ -800,10 +880,6 @@ function foldMap() {
 function foldedFor(key) {
     const map = foldMap();
     return key in map ? !!map[key] : storageGet(localStorage, LEGACY_FOLD_STORAGE_KEY, '0') === '1';
-}
-
-function isFoldedCard(card) {
-    return !!(app.folded && card && !card.classList.contains('is-open'));
 }
 
 function applyFold() {
@@ -1155,6 +1231,7 @@ function renderFeed(data) {
         ? [(data.page - 1) * data.per_page + 1, (data.page - 1) * data.per_page + data.items.length] : null;
     document.body.classList.toggle('gallery-mode', isGalleryView());
     app.openPostIds = new Set();  // 접힌 상태에서 하나씩 펼친 글은 화면을 새로 그리면 다시 접음
+    app.previewMedia = {};        // 접힌 글 썸네일의 크게 보기용 {글 ID: 사진·동영상 목록}
     if (!searching) {
         storageSet(sessionStorage, 'last_active_tab', app.activeKey);
         storageSet(sessionStorage, 'last_active_filter', app.filter);
@@ -1371,7 +1448,7 @@ function goNextPost() {
     const current = currentPostCard();
     if (!cards.length || !current) return;
     const sentinel = current.querySelector('.read-sentinel');
-    if (sentinel && !sentinel.dataset.read && !isFoldedCard(current)) {
+    if (sentinel && !sentinel.dataset.read) {
         sentinel.dataset.read = '1';
         markRead([sentinel.dataset.postId]);
     }
@@ -2453,6 +2530,10 @@ document.addEventListener('click', (e) => {
         refreshCurrent();
     } else if (action === 'scroll-top') {
         window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else if (action === 'open-post-media') {
+        openPostMedia(el.dataset.postId, Number(el.dataset.index));
+    } else if (action === 'more-thumbs') {
+        toggleMoreThumbs(el);
     } else if (action === 'toggle-fold') {
         toggleFold();
     } else if (action === 'toggle-keys') {

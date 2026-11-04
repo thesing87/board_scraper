@@ -39,6 +39,7 @@ js = d.execute_script
 key = lambda k: js("document.body.dispatchEvent(new KeyboardEvent('keydown', {key: arguments[0], bubbles: true}))", k)
 try:
     d.get(f'http://127.0.0.1:{port}/'); time.sleep(2.5)
+    assert not {'801', '802', '803'} & read_ids(), read_ids()   # 긴 글 셋은 펼친 첫 화면에서 끝까지 안 보임
     # 1) G: 전부 접기 → 글마다 제목 줄만, 버튼 이름이 바뀌고 기기에 기억
     key('g'); time.sleep(0.5)
     assert js("return document.getElementById('feed').classList.contains('is-folded')")
@@ -46,17 +47,15 @@ try:
     assert js("return getComputedStyle(document.querySelector('.post-card .comments')).display") == 'none'
     assert '전부 펼치기' in js("return document.querySelector('[data-action=toggle-fold]').textContent")
     assert js("return JSON.parse(localStorage.getItem('posts_folded_by_view'))") == {'__all__': True}
-    # 2) 접힌 글은 화면을 지나가도 읽음 아님 (접기 전 첫 화면에서 읽힌 짧은 글 기록은 지우고 봄)
-    db.execute('DELETE FROM read_posts'); db.commit()
-    js("window.scrollTo(0, document.body.scrollHeight)"); time.sleep(2.5)
-    assert read_ids() == set(), read_ids()
-    # 3) 제목 줄을 누르면 그 글만 펼침 → 끝까지 보면 그 글만 읽음
+    # 2) 접힌 글도 화면에 보이면 읽음 (접혀서 한 화면에 다 들어옴)
+    time.sleep(2.5)
+    assert {'801', '802', '803'} <= read_ids(), read_ids()
+    # 3) 제목 줄을 누르면 그 글만 펼침
     js("window.scrollTo(0, 0); document.querySelector('#post-802 .post-title').click()"); time.sleep(0.3)
     assert js("return [...document.querySelectorAll('.post-card.is-open')].map(c => c.id)") == ['post-802']
-    js("window.scrollTo(0, document.querySelector('#post-802 .read-sentinel').getBoundingClientRect().top + scrollY - 200)"); time.sleep(2.5)
-    assert read_ids() == {'802'}, read_ids()
     # 4) 새로고침해도 접힌 상태, G로 다시 전부 펼침
     d.refresh(); time.sleep(2.5)
+    js("app.filter = 'all'; openView(ALL_KEY, 1)"); time.sleep(1.5)   # 모두 읽어 첫 화면(안 읽은 글)이 비었으므로 모든 글로
     assert js("return document.getElementById('feed').classList.contains('is-folded')")
     key('G'); time.sleep(0.5)
     assert not js("return document.getElementById('feed').classList.contains('is-folded')")

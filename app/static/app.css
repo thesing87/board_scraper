@@ -308,6 +308,25 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .feed.is-folded .post-card:not(.is-open) > :not(.post-head):not(.read-sentinel) { display: none; }
 .feed.is-folded .post-card .post-head { cursor: pointer; }
 .feed.is-folded .post-card:not(.is-open) .post-head:hover .post-title { color: var(--accent); }
+/* 접힌 글 미리보기: 본문 한 줄 + 사진·동영상 썸네일 (펼친 글·펼친 화면에서는 숨김) */
+.fold-preview { display: none; }
+.feed.is-folded .post-card:not(.is-open) .fold-preview { display: flex; flex-direction: column; gap: 8px; }
+.fold-excerpt { margin: 0; font-size: 13px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.fold-thumbs { display: flex; flex-wrap: wrap; gap: 6px; }
+.fold-thumb { position: relative; flex: 0 0 auto; width: 64px; height: 48px; padding: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: #E5E7EB; cursor: zoom-in; }
+.fold-thumb.is-video { background: #1F2937; }
+.fold-thumb img, .fold-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.ft-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #FFFFFF; }
+.ft-play svg { width: 14px; height: 14px; padding: 5px; box-sizing: content-box; border-radius: 50%; background: rgba(17,24,39,0.6); }
+.fold-thumbs:not(.show-all) .is-extra { display: none; }
+.fold-more { background: var(--surface); color: var(--text-2); font-size: 13px; font-weight: 700; cursor: pointer; }
+.fold-more:hover { background: var(--surface-muted); }
+@media (max-width: 899px) {
+    /* 모바일: 썸네일 줄을 4칸으로 나눠 화면 폭에 맞춤 */
+    .fold-thumbs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+    .fold-thumb { width: auto; height: auto; aspect-ratio: 4 / 3; }
+    .fold-excerpt { font-size: 12px; }
+}
 
 /* 단축키 안내 (사이드바 맨 아래) */
 .shortcut-guide { margin-top: auto; padding: 10px 8px 0; border-top: 1px solid var(--border-soft); }
