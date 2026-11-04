@@ -1036,6 +1036,7 @@ function renderFeed(data) {
     window.scrollTo({ top: 0 });
     // 글이 없는 화면에서는 다음 글 버튼을 숨김
     document.querySelector('.fab-next').hidden = empty || isGalleryView();
+    updateNextButton();
     // 텔레그램 알림 링크(#post-ID)로 연 글이 있으면 그 글로 이동 (읽음 확인보다 먼저)
     const target = app.highlightPostId && document.getElementById('post-' + app.highlightPostId);
     app.highlightPostId = null;
@@ -1105,7 +1106,45 @@ function currentPostCard() {
         .find(card => card.getBoundingClientRect().bottom > headerBottom + 8) || null;
 }
 
+// 모바일 '새 댓글' 보기: 다음 글 버튼이 글 단위가 아니라 마지막 댓글 단위로 이동
+function lastCommentMode() {
+    return !app.searchQuery && app.filter === 'comments' && window.matchMedia('(max-width: 899px)').matches;
+}
+
+// 떠 있는 버튼(맨 위로·다음 글 두 개를 쌓은 높이 약 120px)에 가리지 않도록 화면 아래쪽에 남기는 여백
+const FAB_ROOM = 130;
+function scrollToLastComment(card) {
+    const comments = card.querySelectorAll('.comments .comment');
+    const target = comments[comments.length - 1] || card;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // 마지막 댓글의 아래 끝을 버튼 바로 위에 맞춤 (그 위로 앞의 새 댓글들이 보이게)
+    window.scrollTo({ top: target.getBoundingClientRect().bottom + window.pageYOffset - window.innerHeight + FAB_ROOM,
+                      behavior: reduceMotion ? 'auto' : 'smooth' });
+}
+
+// 마지막 댓글이 아직 화면 아래에 있는 첫 글로 이동: 지금 글의 마지막 댓글을 아직 못 봤으면 그 댓글로,
+// 이미 보이면 다음 글의 마지막 댓글로 (글 순서대로라 마지막 댓글 위치도 순서대로). 페이지 끝이면 다음 페이지
+function goNextLastComment() {
+    const lastOf = card => {
+        const comments = card.querySelectorAll('.comments .comment');
+        return comments[comments.length - 1] || card;
+    };
+    const target = [...document.querySelectorAll('#feed .post-card')]
+        .find(card => lastOf(card).getBoundingClientRect().bottom > window.innerHeight - FAB_ROOM + 8);
+    if (target) scrollToLastComment(target);
+    else if (app.page < app.totalPages) changePage('next');
+}
+
+// 다음 글 버튼의 이름: 모바일 '새 댓글' 보기에서는 마지막 댓글로 이동
+function updateNextButton() {
+    const label = lastCommentMode() ? '마지막 댓글로' : '다음 글';
+    const btn = document.querySelector('.fab-next');
+    btn.setAttribute('aria-label', label);
+    btn.title = lastCommentMode() ? label : label + ' (J)';
+}
+
 function goNextPost() {
+    if (lastCommentMode()) { goNextLastComment(); return; }
     const cards = [...document.querySelectorAll('#feed .post-card')];
     const current = currentPostCard();
     if (!cards.length || !current) return;
