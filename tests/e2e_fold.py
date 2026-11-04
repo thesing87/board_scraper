@@ -47,8 +47,8 @@ try:
     assert js("return getComputedStyle(document.querySelector('.post-card .comments')).display") == 'none'
     assert '전부 펼치기' in js("return document.querySelector('[data-action=toggle-fold]').textContent")
     assert js("return JSON.parse(localStorage.getItem('posts_folded_by_view'))") == {'__all__': True}
-    # 2) 접힌 글도 화면에 보이면 읽음 (접혀서 한 화면에 다 들어옴)
-    time.sleep(2.5)
+    # 2) 접힌 글도 화면에 보이면 읽음 (접혀서 짧아진 글 끝까지 내려 봄)
+    js("window.scrollTo(0, document.body.scrollHeight)"); time.sleep(2.5)
     assert {'801', '802', '803'} <= read_ids(), read_ids()
     # 3) 제목 줄을 누르면 그 글만 펼침
     js("window.scrollTo(0, 0); document.querySelector('#post-802 .post-title').click()"); time.sleep(0.3)

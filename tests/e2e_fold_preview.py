@@ -21,6 +21,7 @@ save('801', ['<p>글자만 있는   글입니다</p>', '', '<p>둘째 <b>줄</b>
 save('802', [img('x'), img('y')])
 save('803', ['<p>출고 후기</p>', '<img src="https://www.fmkorea.com/modules/emoticon/x.gif">'] + [img(f'a{i}') for i in range(6)],
      ['https://mediag5jvqbd.fmkorea.com/files/attach/new5/v.mp4'])
+save('804', ['<p>' + '아주 긴 본문 글자 ' * 60 + '</p>'])   # 한 줄이 카드 폭보다 훨씬 긴 글
 db = sqlite3.connect(config.DB_FILE)
 
 with socket.socket() as s:
@@ -38,6 +39,12 @@ visible = lambda sel: js("return [...document.querySelectorAll(arguments[0])].fi
 try:
     d.get(f'http://127.0.0.1:{port}/'); time.sleep(2.5)
     js("app.filter = 'all'; openView(ALL_KEY, 1)"); time.sleep(1.5)
+    # 0) 조회·추천·댓글 칩: 추천 0도 표시, 추천 5·10개·댓글 10·20개부터 색이 진해짐
+    assert js("return [...document.querySelectorAll('#post-801 .stat')].map(s => s.textContent.trim())") == ['조회1', '추천0', '댓글0']
+    assert js("return document.querySelector('#post-801 .stat-votes').className") == 'stat stat-votes'
+    assert js("return [4, 5, 10].map(n => statLevel(n, STAT_LEVELS.votes))") == ['', ' is-warm', ' is-hot']
+    assert js("return [9, 10, 20].map(n => statLevel(n, STAT_LEVELS.comments))") == ['', ' is-warm', ' is-hot']
+    assert js("return statNumber('1,204')") == 1204
     # 1) 펼친 화면에서는 미리보기를 숨기고, 접으면 본문 한 줄과 썸네일
     assert visible('.fold-preview') == 0
     js("toggleFold()"); time.sleep(0.5)
@@ -46,6 +53,10 @@ try:
     assert js("return document.querySelector('#post-801 .fold-thumbs')") is None
     assert js("return document.querySelector('#post-802 .fold-excerpt')") is None and visible('#post-802 .fold-thumb') == 2
     assert js("return document.querySelector('#post-801 .fold-excerpt').offsetHeight") < 24   # 한 줄
+    # 넓은 화면(2단 배치)에서도 긴 본문 한 줄은 카드 폭 안에서 말줄임으로 잘림
+    assert js("const e = document.querySelector('#post-804 .fold-excerpt'), c = e.closest('.post-card'); "
+              "return e.getBoundingClientRect().right <= c.getBoundingClientRect().right && e.scrollWidth > e.clientWidth")
+    assert js("return document.documentElement.scrollWidth <= innerWidth")
     # 2) 7개(동영상 먼저, 이모티콘 제외) → 3개 + '+4', 누르면 전부, 다시 누르면 3개 (글은 펼치지 않음)
     assert visible('#post-803 .fold-thumb') == 4
     assert js("return document.querySelector('#post-803 .fold-thumb').classList.contains('is-video')")
@@ -65,9 +76,11 @@ try:
     assert js("return document.getElementById('media-viewer').hidden")
     assert js("return document.getElementById('post-803').classList.contains('is-open')") and js("return location.hash") == ''
     assert visible('#post-803 .fold-preview') == 0 and visible('#post-803 .post-content') == 1
-    # 접힌 채 화면에 보인 글도 읽음
-    time.sleep(2)
-    assert {'801', '802', '803'} <= {r[0] for r in db.execute('SELECT post_id FROM read_posts')}
+    # 접힌 채 화면에 보인 글도 읽음 (맨 아래까지 내려 봄)
+    js("window.scrollTo(0, document.body.scrollHeight)"); time.sleep(2.5)
+    # (첫 화면에 들어온 글은 위에서 기록을 지우기 전에 이미 보냈으므로 화면의 읽음 표시로 확인, 맨 아래 글은 서버 기록까지)
+    assert js("return [...document.querySelectorAll('.read-sentinel')].every(e => e.dataset.read === '1')")
+    assert '801' in {r[0] for r in db.execute('SELECT post_id FROM read_posts')}
     print('PREVIEW VIEWER OK')
 
     # 4) 모바일: 썸네일 4칸

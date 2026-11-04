@@ -62,6 +62,9 @@ const ICONS = {
     star: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"></path></svg>',
     pause: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>',
     play: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5l12 7-12 7z"></path></svg>',
+    eye: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>',
+    thumb: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 11v9H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3z"></path><path d="M7 11l4-8a2 2 0 0 1 2 2v4h5.5a2 2 0 0 1 2 2.3l-1.2 7A2 2 0 0 1 17.3 20H7"></path></svg>',
+    comment: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"></path></svg>',
     chevronDown: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>'
 };
 
@@ -604,6 +607,24 @@ function highlightTerms(text) {
     return escaped.replace(new RegExp('(' + terms.join('|') + ')', 'gi'), '<mark>$1</mark>');
 }
 
+// 조회·추천·댓글 칩: 추천·댓글이 많으면 색을 진하게 (추천 5·10개, 댓글 10·20개 이상부터). 추천 0도 표시
+const STAT_LEVELS = { votes: [5, 10], comments: [10, 20] };
+function statNumber(value) {
+    return parseInt(String(value || '0').replace(/[^\d]/g, ''), 10) || 0;
+}
+function statLevel(n, [warm, hot]) {
+    return n >= hot ? ' is-hot' : n >= warm ? ' is-warm' : '';
+}
+function renderPostStats(post) {
+    const votes = statNumber(post.votes);
+    const comments = statNumber(post.comment_count);
+    return `<div class="post-stats">
+        <span class="stat stat-views" title="조회">${ICONS.eye}<span class="sr-only">조회</span>${esc(post.views || '0')}</span>
+        <span class="stat stat-votes${statLevel(votes, STAT_LEVELS.votes)}" title="추천">${ICONS.thumb}<span class="sr-only">추천</span>${votes.toLocaleString('ko-KR')}</span>
+        <span class="stat stat-comments${statLevel(comments, STAT_LEVELS.comments)}" title="댓글">${ICONS.comment}<span class="sr-only">댓글</span>${comments.toLocaleString('ko-KR')}</span>
+    </div>`;
+}
+
 function renderPost(post, isUnread) {
     const classes = ['post-card'];
     if (post.is_deleted) classes.push('is-deleted');
@@ -629,7 +650,6 @@ function renderPost(post, isUnread) {
         <button class="star-btn share-btn" data-action="share-post" data-post-id="${esc(post.id)}" aria-haspopup="true" aria-expanded="false"
             aria-label="공유" title="공유">${ICONS.share}</button>
     </span>`;
-    const votes = post.votes && post.votes !== '0' ? `<span>추천 ${esc(post.votes)}</span>` : '';
     return `
         <article class="${classes.join(' ')}" id="post-${esc(post.id)}">
             <div class="post-head">
@@ -645,10 +665,8 @@ function renderPost(post, isUnread) {
                 <div class="post-meta">
                     <span class="author">${esc(post.author)}</span>
                     <span>${esc(post.date)}</span>
-                    <span>조회 ${esc(post.views)}</span>
-                    ${votes}
-                    <span>댓글 ${esc(post.comment_count)}</span>
                 </div>
+                ${renderPostStats(post)}
                 ${renderFoldPreview(post)}
             </div>
             <div class="post-content">${renderContent(post.content)}</div>
