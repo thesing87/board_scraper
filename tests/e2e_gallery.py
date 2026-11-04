@@ -52,6 +52,12 @@ try:
     first = js("return document.querySelector('.mv-foot').textContent")
     js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight', bubbles: true}))")
     assert js("return document.querySelector('.mv-foot').textContent") != first and first.startswith('1 / 3')
+    # A·D 키도 방향키처럼 이전·다음
+    js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'd', bubbles: true}))")
+    assert js("return document.querySelector('.mv-foot').textContent").startswith('3 / 3')
+    js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'A', bubbles: true}))")
+    js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'a', bubbles: true}))")
+    assert js("return document.querySelector('.mv-foot').textContent").startswith('1 / 3')
     js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
     assert js("return document.getElementById('media-viewer').hidden")
     time.sleep(2)

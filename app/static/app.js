@@ -23,8 +23,9 @@ const SORTS = [
     { key: 'popular-all', label: '인기 · 전체' }
 ];
 const SORT_STORAGE_KEY = 'feed_sort';
-// 본문·댓글 전부 접기(제목만) 상태와 단축키 안내를 접어 둔 상태 (기기마다 기억)
-const FOLD_STORAGE_KEY = 'posts_folded';
+// 본문·댓글 전부 접기(제목만) 상태(게시판마다 {게시판 키: 접힘})와 단축키 안내를 접어 둔 상태 (기기마다 기억)
+const FOLD_STORAGE_KEY = 'posts_folded_by_view';
+const LEGACY_FOLD_STORAGE_KEY = 'posts_folded';  // 예전 버전의 모든 게시판 공통 접기 상태 (정한 적 없는 게시판의 기본값)
 const KEYS_STORAGE_KEY = 'shortcut_guide_closed';
 const POLL_INTERVAL_MS = 60 * 1000;   // 새 글 확인 주기
 const LEGACY_READ_IDS_KEY = 'read_post_ids';
@@ -784,6 +785,23 @@ function foldLabel() {
     return app.folded ? `${ICONS.chevronDown} 전부 펼치기` : `${ICONS.up} 전부 접기`;
 }
 
+// 접기 상태는 게시판(전체·게시판·묶음)마다, 검색 결과는 따로 하나
+function foldKey() {
+    return app.searchQuery ? 'search' : app.activeKey;
+}
+function foldMap() {
+    try {
+        const map = JSON.parse(storageGet(localStorage, FOLD_STORAGE_KEY, '{}'));
+        return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
+    } catch (e) {
+        return {};
+    }
+}
+function foldedFor(key) {
+    const map = foldMap();
+    return key in map ? !!map[key] : storageGet(localStorage, LEGACY_FOLD_STORAGE_KEY, '0') === '1';
+}
+
 function isFoldedCard(card) {
     return !!(app.folded && card && !card.classList.contains('is-open'));
 }
@@ -807,7 +825,9 @@ function toggleFold() {
     const current = currentPostCard();
     app.folded = !app.folded;
     app.openPostIds = new Set();
-    storageSet(localStorage, FOLD_STORAGE_KEY, app.folded ? '1' : '0');
+    const map = foldMap();
+    map[foldKey()] = app.folded;
+    storageSet(localStorage, FOLD_STORAGE_KEY, JSON.stringify(map));
     applyFold();
     if (current) window.scrollTo({ top: current.getBoundingClientRect().top + window.pageYOffset - stickyHeight() - 12 });
     scheduleReadCheck();
@@ -1119,6 +1139,7 @@ async function loadCommentPosts() {
 // 글 목록 응답(또는 지난 화면 캐시)을 피드로 그림
 function renderFeed(data) {
     const feed = document.getElementById('feed');
+    app.folded = foldedFor(foldKey());  // 이 게시판에서 마지막으로 정한 접기 상태
     feed.removeAttribute('aria-busy');
     const searching = !!app.searchQuery;
     const group = findGroup(app.activeKey);
@@ -2221,7 +2242,6 @@ async function handlePostAnchor() {
 async function init() {
     updateAdminUI();
     app.sort = storageGet(localStorage, SORT_STORAGE_KEY, 'latest');
-    app.folded = storageGet(localStorage, FOLD_STORAGE_KEY, '0') === '1';
     app.openPostIds = new Set();
     if (storageGet(localStorage, KEYS_STORAGE_KEY, '0') === '1') {
         const guide = document.getElementById('shortcut-guide');
@@ -2486,9 +2506,10 @@ document.addEventListener('submit', (e) => {
 document.addEventListener('keydown', (e) => {
     const viewer = document.getElementById('media-viewer');
     if (viewer && !viewer.hidden) {
-        // 크게 보기 중에는 좌우 화살표로 넘기고 Esc로 닫음 (J 등 다른 단축키는 쓰지 않음)
+        // 크게 보기 중에는 좌우 화살표(또는 A·D)로 넘기고 Esc로 닫음 (F 등 다른 단축키는 쓰지 않음)
+        const step = { ArrowLeft: -1, ArrowRight: 1, a: -1, d: 1 }[e.key.length === 1 ? e.key.toLowerCase() : e.key];
         if (e.key === 'Escape') closeMedia();
-        else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') openMedia(app.mediaIndex + (e.key === 'ArrowLeft' ? -1 : 1));
+        else if (step && !e.ctrlKey && !e.metaKey && !e.altKey) openMedia(app.mediaIndex + step);
         else return;
         e.preventDefault();
         return;
