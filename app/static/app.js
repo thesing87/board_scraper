@@ -574,6 +574,7 @@ function renderComments(post) {
         const depth = replyDepth(c);
         if (c.is_reply) classes.push('reply');
         if (isNew) classes.push('is-new-comment');
+        if (isAuthor) classes.push('is-author');
         return `
             <div class="${classes.join(' ')}"${depth ? ` style="--depth: ${depth}"` : ''}>
                 <span class="comment-avatar av-${avatarTone(c.author)}" aria-hidden="true">${esc(Array.from(c.author || '?')[0])}</span>
