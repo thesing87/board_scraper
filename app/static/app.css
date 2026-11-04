@@ -585,7 +585,10 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .g-play svg { width: 20px; height: 20px; margin-left: 3px; }
 .g-count { position: absolute; top: 8px; right: 8px; padding: 2px 7px; border-radius: 6px; background: rgba(17,24,39,0.6); color: #FFFFFF; font-size: 11px; font-weight: 700; pointer-events: none; }
 .g-cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 8px 6px 10px; background: rgba(17,24,39,0.62); color: #FFFFFF; font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.g-src { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.g-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.g-title, .g-src { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.g-title { font-size: 12.5px; font-weight: 600; }
+.g-src { font-size: 11px; color: rgba(255,255,255,0.68); }
 .g-go { flex: 0 0 auto; height: 26px; padding: 0 10px; border: none; border-radius: 7px; background: rgba(255,255,255,0.94); color: var(--text); font-size: 12px; font-weight: 700; cursor: pointer; }
 .g-go:hover { background: #FFFFFF; }
 .g-cell.is-blank { background: transparent; border: 1px dashed var(--border); }
@@ -620,6 +623,8 @@ body.viewer-open { overflow: hidden; }
     /* 모바일 동영상은 한 줄에 하나씩 크게 (12개를 세로로) */
     .gallery.is-video { grid-template-columns: minmax(0, 1fr); }
     .g-cap { font-size: 11px; padding: 5px 6px 5px 8px; }
+    .g-title { font-size: 11.5px; }
+    .g-src { font-size: 10px; }
     .g-go { height: 24px; padding: 0 8px; font-size: 11px; }
     .mv-head { padding: 10px 12px; }
     .mv-btn { padding: 0 10px; }

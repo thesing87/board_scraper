@@ -656,7 +656,10 @@ function renderGallery(items, kind) {
                 <button class="g-open" data-action="open-media" data-index="${i}" aria-label="${esc(it.post.title)} 크게 보기">${thumb}${play}</button>
                 ${count}
                 <figcaption class="g-cap">
-                    <span class="g-src" title="${esc(it.post.title)}">${esc(mediaSource(it.post))}</span>
+                    <span class="g-text" title="${esc(it.post.title)}">
+                        <span class="g-title">${esc(it.post.title)}</span>
+                        <span class="g-src">${esc(mediaSource(it.post))}</span>
+                    </span>
                     <button class="g-go" data-action="goto-post" data-post-id="${esc(it.post.id)}">글 보기</button>
                 </figcaption>
             </figure>`;
