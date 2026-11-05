@@ -1168,19 +1168,23 @@ async function slideToBoard(chip, step) {
     }
 }
 
-// 모바일 '새 댓글' 버튼: 지금 보는 글에서 화면 위쪽보다 아래에 남은 새 댓글(보이는 댓글 페이지의)이 있으면 '새 댓글 · N',
-// 지금 글은 다 봤고 아래 다른 글에 새 댓글이 있으면 '다음 글 새 댓글'. 누르면 그 새 댓글을 화면 맨 위로
-// (아래로 내리면 위 메뉴가 숨으므로 그 기준). 다음을 남은 것으로 치지 않음:
-// - 이미 맨 위 근처(NEW_COMMENT_JUMP_SLACK 안)까지 온 새 댓글: 위쪽 사진이 늦게 떠 몇 px 밀려도 다시 세지 않게
+// 모바일 '새 댓글' 버튼: 지금 보는 글에서 화면 가운데보다 아래에 남은 새 댓글(보이는 댓글 페이지의)이 있으면 '새 댓글 · N',
+// 지금 글은 다 봤고 아래 다른 글에 새 댓글이 있으면 '다음 글 새 댓글'. 누르면 그 새 댓글을 보이는 화면 가운데로
+// (아래로 내리면 위 메뉴가 숨으므로 그 기준, 아래 보기 탭바에 가린 부분은 뺌). 다음을 남은 것으로 치지 않음:
+// - 이미 가운데 근처(NEW_COMMENT_JUMP_SLACK 안)까지 온 새 댓글: 위쪽 사진이 늦게 떠 몇 px 밀려도 다시 세지 않게
 // - 페이지가 끝까지 내려가 더 올릴 수 없는데 이미 화면에 다 보이는 새 댓글: 눌러도 움직이지 않는 버튼이 남지 않게
 const NEW_COMMENT_JUMP_SLACK = 40;
+// 위 메뉴(숨은 뒤 기준)와 아래 보기 탭바 사이, 글이 실제로 보이는 곳의 가운데
+function visibleCenter() {
+    return (scrolledTopInset() + viewBottom()) / 2;
+}
 function newCommentJump() {
-    const line = scrolledTopInset() + 12 + NEW_COMMENT_JUMP_SLACK;
+    const line = visibleCenter() + NEW_COMMENT_JUMP_SLACK;
     const pageEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
     const bottom = viewBottom();
     const remaining = c => {
         const r = c.getBoundingClientRect();
-        return r.top > line && !(pageEnd && r.bottom <= bottom + 1);
+        return (r.top + r.bottom) / 2 > line && !(pageEnd && r.bottom <= bottom + 1);
     };
     const current = currentPostCard();
     const here = current ? shownComments(current, '.comment.is-new-comment').filter(remaining) : [];
@@ -1208,7 +1212,12 @@ function jumpToNextNewComment() {
     const next = newCommentJump().targets[0];
     if (!next) return;
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    window.scrollTo({ top: next.getBoundingClientRect().top + window.pageYOffset - scrolledTopInset() - 12, behavior: reduceMotion ? 'auto' : 'smooth' });
+    // 새 댓글의 가운데를 보이는 화면 가운데에 (화면보다 긴 댓글은 위 끝이 위 메뉴 아래에 오게)
+    const r = next.getBoundingClientRect();
+    const offset = r.height > viewBottom() - scrolledTopInset() - 24
+        ? r.top - scrolledTopInset() - 12
+        : (r.top + r.bottom) / 2 - visibleCenter();
+    window.scrollTo({ top: window.pageYOffset + offset, behavior: reduceMotion ? 'auto' : 'smooth' });
 }
 
 // 글자 크기 (본문·댓글): 작게·보통·크게. 기기마다 기억하고 body 클래스(font-s·font-l)로 적용
