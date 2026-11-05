@@ -281,7 +281,9 @@ function checkReadSentinels() {
     document.querySelectorAll('.read-sentinel:not([data-read])').forEach(el => {
         const top = el.getBoundingClientRect().top;
         // 텔레그램 링크로 건너뛴 위쪽 글(data-skipped)은 지나친 것만으로는 읽음이 아니므로, 글 끝이 실제로 화면에 보일 때만
-        let seen = el.dataset.skipped ? top >= 0 && top < window.innerHeight : top < window.innerHeight;
+        // 모바일은 아래 보기 탭바에 가린 부분을 뺀 높이까지만 보인 것으로 봄
+        const bottomEdge = viewBottom();
+        let seen = el.dataset.skipped ? top >= 0 && top < bottomEdge : top < bottomEdge;
         // 새 댓글이 달린 글은 글 끝까지 내려가지 않아도 마지막 새 댓글이 화면에 다 보이면 확인한 것으로 봄
         // (이미 읽은 글에만 새 댓글이 붙으므로, 읽음 처리는 새 댓글 표시를 지우는 것뿐)
         const newComments = seen ? [] : el.closest('.post-card').querySelectorAll('.comment.is-new-comment');
@@ -289,7 +291,7 @@ function checkReadSentinels() {
             // 넓은 화면에서는 댓글 칸이 따로 스크롤되므로, 그 칸에서 실제로 보이는 범위 안에 들어와야 본 것
             const box = newComments[0].closest('.comments').getBoundingClientRect();
             const bottom = newComments[newComments.length - 1].getBoundingClientRect().bottom;
-            seen = bottom <= Math.min(window.innerHeight, box.bottom + 1) && (!el.dataset.skipped || bottom > Math.max(0, box.top));
+            seen = bottom <= Math.min(bottomEdge, box.bottom + 1) && (!el.dataset.skipped || bottom > Math.max(0, box.top));
         }
         if (seen) {
             el.dataset.read = '1';
@@ -1301,12 +1303,18 @@ function renderFeed(data) {
         ? `<button class="btn btn-outline btn-small" data-action="return-gallery">${ICONS.prev} ${filterLabel(app.galleryReturn.filter)} 모아보기로</button>`
         : (empty || isGalleryView() ? '' : `<button class="btn btn-outline btn-small fold-btn" data-action="toggle-fold" aria-pressed="${app.folded}" title="본문·댓글 전부 접기/펼치기 (G)">${foldLabel()}</button>`)
         + `<button class="btn btn-outline btn-small" data-action="mark-all-read" ${summary && pendingCount(summary) ? '' : 'hidden'}>${filter === 'comments' ? '모두 확인' : '모두 읽음'}</button>`;
+    // 모바일은 정렬·페이지 이동 줄을 접어 두고, 제목 줄 오른쪽의 작은 버튼(예: '최신순 · 1/10')으로 펼침
+    const toolsLabel = [sortable() ? currentSort().label : '', empty ? '' : `${data.page}/${data.total_pages}`].filter(Boolean).join(' · ');
+    const toolsButton = toolsLabel && (sortable() || data.total_pages > 1)
+        ? `<button class="btn btn-outline btn-small feed-tools-btn mobile-only" data-action="toggle-feed-tools" aria-expanded="false" aria-label="정렬·페이지 이동">${esc(toolsLabel)}${ICONS.chevronDown}</button>`
+        : '';
     feed.innerHTML = `
         <div class="feed-head">
             <div class="feed-head-text">
                 <div class="feed-title-row">
                     <h1 class="feed-title">${title}</h1>
                     ${headActions}
+                    ${toolsButton}
                 </div>
                 <span class="feed-sub">${feedSubText(data.total)}</span>
             </div>
@@ -1397,6 +1405,14 @@ function stickyHeight() {
     return document.querySelector('.topbar').offsetHeight;
 }
 
+function isMobile() { return window.matchMedia('(max-width: 899px)').matches; }
+// 아래로 내려 이동한 뒤 화면 위쪽을 가리는 높이: 모바일은 아래로 내리면 위 메뉴가 통째로 숨으므로 0
+function scrolledTopInset() { return isMobile() ? 0 : stickyHeight(); }
+// 화면 아래쪽에서 보기 탭바가 가리는 높이를 뺀, 글이 실제로 보이는 아래 끝 (모바일)
+function viewBottom() {
+    return window.innerHeight - (isMobile() ? document.getElementById('view-tabs').offsetHeight : 0);
+}
+
 function currentPostCard() {
     const headerBottom = document.querySelector('.topbar').getBoundingClientRect().bottom;
     return [...document.querySelectorAll('#feed .post-card')]
@@ -1405,24 +1421,26 @@ function currentPostCard() {
 
 // 모바일 '새 댓글' 보기: 다음 글 버튼이 글 단위가 아니라 마지막 댓글 단위로 이동
 function lastCommentMode() {
-    return !app.searchQuery && app.filter === 'comments' && window.matchMedia('(max-width: 899px)').matches;
+    return !app.searchQuery && app.filter === 'comments' && isMobile();
 }
 
-// 떠 있는 버튼(맨 위로·다음 글 두 개를 쌓은 높이 약 120px)에 가리지 않도록 화면 아래쪽에 남기는 여백
-const FAB_ROOM = 130;
+// 떠 있는 버튼(맨 위로·다음 글)과 아래 보기 탭바에 가리지 않도록 화면 아래쪽에 남기는 여백
+function fabRoom() {
+    return window.innerHeight - document.querySelector('.floating').getBoundingClientRect().top + 8;
+}
 function scrollToLastComment(card) {
     const comments = card.querySelectorAll('.comments .comment');
     const target = comments[comments.length - 1] || card;
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     // 마지막 댓글의 아래 끝을 버튼 바로 위에 맞춤 (그 위로 앞의 새 댓글들이 보이게)
-    window.scrollTo({ top: target.getBoundingClientRect().bottom + window.pageYOffset - window.innerHeight + FAB_ROOM,
+    window.scrollTo({ top: target.getBoundingClientRect().bottom + window.pageYOffset - window.innerHeight + fabRoom(),
                       behavior: reduceMotion ? 'auto' : 'smooth' });
 }
 
 // 첫 새 댓글을 맨 위 메뉴 바로 아래에 맞춤 (그 아래로 이어지는 댓글이 보이게).
 // 모바일은 아래로 내리면 맨 위 제목 줄이 숨으므로, 숨은 뒤의 위 메뉴 높이 기준
 function newCommentTop() {
-    return stickyHeight() - document.querySelector('.topbar .topbar-row').offsetHeight + 12;
+    return scrolledTopInset() + 12;
 }
 function scrollToComment(comment) {
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1434,7 +1452,7 @@ function scrollToComment(comment) {
 // 아직 화면에서 다 보지 못한 첫 멈출 곳으로 이동 (페이지 끝이면 다음 페이지).
 // 첫 새 댓글은 위에 맞춰 둔 뒤면 지나간 것으로 봄 (화면보다 긴 댓글에서 같은 곳에 멈추지 않게)
 function goNextLastComment() {
-    const limit = window.innerHeight - FAB_ROOM + 8;
+    const limit = window.innerHeight - fabRoom() + 8;
     const stops = [...document.querySelectorAll('#feed .post-card')].flatMap(card => {
         const comments = card.querySelectorAll('.comments .comment');
         const last = comments[comments.length - 1];
@@ -1478,10 +1496,8 @@ function goNextPost() {
         if (app.page < app.totalPages) changePage('next');
         return;
     }
-    // 모바일은 아래로 내리면 맨 위 제목 줄이 숨으므로, 숨은 뒤의 위 메뉴 높이에 맞춤
-    const topbar = document.querySelector('.topbar');
-    const mobile = window.matchMedia('(max-width: 899px)').matches;
-    const offset = stickyHeight() - (mobile ? topbar.querySelector('.topbar-row').offsetHeight : 0) + 12;
+    // 모바일은 아래로 내리면 위 메뉴가 숨으므로, 숨은 뒤 기준으로 맞춤
+    const offset = scrolledTopInset() + 12;
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     window.scrollTo({ top: next.getBoundingClientRect().top + window.pageYOffset - offset, behavior: reduceMotion ? 'auto' : 'smooth' });
 }
@@ -2432,6 +2448,13 @@ document.addEventListener('click', (e) => {
     // 페이지 목록 바깥을 누르면 닫음
     closePageMenus(e.target.closest('.page-menu'));
     closeViewMore(e.target.closest('[data-action="toggle-view-more"]') && e.target.closest('.view-more'));
+    // 모바일 정렬·페이지 이동 목록 바깥을 누르면 닫음
+    if (!e.target.closest('.feed-tools, [data-action="toggle-feed-tools"]')) {
+        document.querySelectorAll('.feed-head.tools-open').forEach(head => {
+            head.classList.remove('tools-open');
+            head.querySelector('.feed-tools-btn')?.setAttribute('aria-expanded', 'false');
+        });
+    }
     // 공유 목록 바깥을 누르면 닫음 (텔레그램 링크는 열린 뒤 닫음: 누르는 중에 지우면 링크가 열리지 않을 수 있음)
     closeShareMenus(e.target.closest('.share-wrap'));
     if (e.target.closest('.share-menu a')) setTimeout(() => closeShareMenus(), 0);
@@ -2516,6 +2539,9 @@ document.addEventListener('click', (e) => {
         deleteCategory(el.dataset.key, el);
     } else if (action === 'page') {
         changePage(el.dataset.target);
+    } else if (action === 'toggle-feed-tools') {
+        const head = el.closest('.feed-head');
+        el.setAttribute('aria-expanded', String(head.classList.toggle('tools-open')));
     } else if (action === 'toggle-view-more') {
         const box = el.closest('.view-more');
         setViewMoreOpen(box, box.querySelector('.view-more-list').hidden);
@@ -2667,15 +2693,15 @@ document.addEventListener('visibilitychange', () => {
 
 window.addEventListener('hashchange', handlePostAnchor);
 
-// 모바일: 아래로 내리면 맨 위 제목 줄(홈·검색·관리)만 숨기고, 조금이라도 위로 올리거나 맨 위 근처면 다시 보임.
+// 모바일: 아래로 내리면 위 메뉴(제목 줄·게시판 칩)를 통째로 숨겨 글을 넓게 보고, 조금이라도 위로 올리거나 맨 위 근처면 다시 보임.
+// 보기 탭은 화면 아래 탭바에 있어 늘 보임.
 // 손 떨림 같은 작은 움직임에 깜빡이지 않도록 마지막으로 바꾼 위치에서 일정 거리 이상 움직였을 때만 바꿈
 const TITLE_ROW_SCROLL_STEP = 10;
 let titleRowScrollY = 0;
 function updateTitleRow() {
     const topbar = document.querySelector('.topbar');
-    const row = topbar.querySelector('.topbar-row');
     const y = window.scrollY;
-    const keepShown = !window.matchMedia('(max-width: 899px)').matches || y < row.offsetHeight
+    const keepShown = !isMobile() || y < topbar.offsetHeight
         || topbar.classList.contains('search-open') || !document.getElementById('settings').hidden;
     if (keepShown) {
         topbar.classList.remove('title-hidden');
@@ -2683,10 +2709,65 @@ function updateTitleRow() {
         return;
     }
     if (Math.abs(y - titleRowScrollY) < TITLE_ROW_SCROLL_STEP) return;
-    topbar.style.setProperty('--title-row-h', row.offsetHeight + 'px');
+    // 아래 그림자까지 가려지도록 조금 더 올림
+    topbar.style.setProperty('--title-row-h', (topbar.offsetHeight + 4) + 'px');
     topbar.classList.toggle('title-hidden', y > titleRowScrollY);
     titleRowScrollY = y;
 }
+
+// 모바일 당겨서 새로고침: 맨 위에서 손가락을 아래로 충분히 당겼다 놓으면 페이지를 다시 불러오지 않고 새 글을 받아 옴.
+// 브라우저 자체의 당겨서 새로고침(페이지 전체 다시 읽기)은 CSS overscroll-behavior로 막음
+const PULL_TRIGGER = 110;   // 손가락이 이만큼(px) 내려가면 놓을 때 새로고침
+let pull = null;
+function pullBlocked() {
+    return !isMobile() || window.scrollY > 0 || !document.getElementById('settings').hidden
+        || !document.getElementById('login').hidden || document.body.classList.contains('viewer-open');
+}
+function resetPull(indicator) {
+    indicator.classList.add('is-releasing');
+    indicator.classList.remove('is-ready');
+    indicator.style.transform = '';
+    indicator.style.opacity = '';
+    setTimeout(() => indicator.classList.remove('is-releasing'), 250);
+}
+document.addEventListener('touchstart', e => {
+    if (pull && pull.refreshing) return;
+    pull = !pullBlocked() && e.touches.length === 1 ? { startY: e.touches[0].clientY, dy: 0 } : null;
+}, { passive: true });
+document.addEventListener('touchmove', e => {
+    if (!pull || pull.refreshing) return;
+    const indicator = document.getElementById('pull-refresh');
+    pull.dy = e.touches[0].clientY - pull.startY;
+    if (pull.dy <= 0 || window.scrollY > 0) {
+        pull = null;
+        resetPull(indicator);
+        return;
+    }
+    const shift = Math.min(pull.dy * 0.5, 80);
+    indicator.style.transform = `translateY(${shift - 48}px) rotate(${pull.dy * 2}deg)`;
+    indicator.style.opacity = String(Math.min(1, pull.dy / PULL_TRIGGER));
+    indicator.classList.toggle('is-ready', pull.dy >= PULL_TRIGGER);
+}, { passive: true });
+document.addEventListener('touchend', async () => {
+    if (!pull || pull.refreshing) return;
+    const indicator = document.getElementById('pull-refresh');
+    if (pull.dy < PULL_TRIGGER) {
+        pull = null;
+        resetPull(indicator);
+        return;
+    }
+    pull.refreshing = true;
+    indicator.style.transform = '';
+    indicator.style.opacity = '';
+    indicator.classList.add('is-refreshing');
+    try {
+        await refreshCurrent();
+    } finally {
+        indicator.classList.remove('is-refreshing');
+        resetPull(indicator);
+        pull = null;
+    }
+});
 
 window.addEventListener('scroll', () => {
     document.getElementById('floating-top-btn').classList.toggle('visible', window.scrollY > 400);

@@ -145,9 +145,39 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .view-more-option:hover { background: var(--surface-muted); }
 .view-more-option[aria-pressed="true"] { background: var(--accent-weak); color: var(--accent); font-weight: 700; }
 
-/* 모바일에서 아래로 내리면 맨 위 제목 줄만 위로 밀어 숨김 (보기 칸·게시판 칩은 남김, --title-row-h는 app.js가 잼) */
+/* 모바일에서 아래로 내리면 위 메뉴(제목 줄·게시판 칩)를 통째로 위로 밀어 숨김 (보기 탭은 화면 아래에 남음,
+   --title-row-h는 app.js가 위 메뉴 높이로 잼) */
 .topbar { transition: transform 0.2s ease; }
 .topbar.title-hidden { transform: translateY(calc(-1 * var(--title-row-h, 60px))); }
+
+/* 모바일 화면 아래 보기 탭바: 엄지로 누르기 쉽게 화면 맨 아래에 고정, 고른 탭은 파란 글씨와 위쪽 막대 */
+:root { --bottom-tabs-h: 0px; }
+@media (max-width: 899px) {
+    :root { --bottom-tabs-h: calc(58px + env(safe-area-inset-bottom, 0px)); }
+    .view-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; margin: 0; padding: 0 4px env(safe-area-inset-bottom, 0px);
+                 height: var(--bottom-tabs-h); gap: 0; border-radius: 0; background: var(--surface); border-top: 1px solid var(--border);
+                 box-shadow: 0 -2px 10px rgba(17,24,39,0.05); }
+    .view-tabs .view-tab { position: relative; height: 58px; border-radius: 0; font-size: 12.5px; gap: 2px; }
+    .view-tabs .view-tab[aria-pressed="true"] { background: transparent; box-shadow: none; color: var(--accent); }
+    .view-tabs .view-tab[aria-pressed="true"]::before { content: ''; position: absolute; top: 0; left: 22%; right: 22%; height: 3px; border-radius: 0 0 3px 3px; background: var(--accent); }
+    .view-tabs .view-tab[aria-pressed="true"] .view-more-btn svg, .view-tabs .view-more-btn[aria-pressed="true"] svg { color: var(--accent); }
+    /* 탭바의 '더보기' 목록은 위쪽으로 열림 */
+    .view-tabs .view-more-list { top: auto; bottom: calc(100% + 8px); right: 4px; }
+}
+
+/* 모바일 당겨서 새로고침: 맨 위에서 아래로 당기면 위에서 내려오는 동그란 표시 (당긴 만큼 내려오고 돌며, 충분히 당기면 파란색) */
+.pull-refresh { display: none; }
+@media (max-width: 899px) {
+    .pull-refresh { display: flex; position: fixed; top: 0; left: 50%; z-index: 55; width: 40px; height: 40px; margin-left: -20px;
+                    border-radius: 50%; background: var(--surface); color: var(--muted); box-shadow: 0 4px 12px rgba(17,24,39,0.18);
+                    align-items: center; justify-content: center; pointer-events: none; opacity: 0;
+                    transform: translateY(-48px); }
+    .pull-refresh.is-ready { color: var(--accent); }
+    .pull-refresh.is-releasing { transition: transform 0.2s ease, opacity 0.2s ease; }
+    .pull-refresh.is-refreshing { opacity: 1; color: var(--accent); transform: translateY(16px); }
+    .pull-refresh.is-refreshing svg { animation: pull-spin 0.8s linear infinite; }
+}
+@keyframes pull-spin { to { transform: rotate(360deg); } }
 
 /* ==========================================
    레이아웃 / 사이드바
@@ -296,7 +326,7 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .share-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 35; min-width: 170px; padding: 4px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); box-shadow: 0 8px 24px rgba(17,24,39,0.14); display: flex; flex-direction: column; gap: 2px; }
 .share-menu a.view-more-option { text-decoration: none; }
 /* 잠깐 뜨는 안내 (링크 복사 등) */
-.toast { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); z-index: 120; padding: 10px 16px; border-radius: 999px; background: var(--text); color: #FFFFFF; font-size: 13px; font-weight: 500; box-shadow: 0 6px 16px rgba(17,24,39,0.25); white-space: nowrap; }
+.toast { position: fixed; left: 50%; bottom: calc(var(--bottom-tabs-h) + 24px); transform: translateX(-50%); z-index: 120; padding: 10px 16px; border-radius: 999px; background: var(--text); color: #FFFFFF; font-size: 13px; font-weight: 500; box-shadow: 0 6px 16px rgba(17,24,39,0.25); white-space: nowrap; }
 .btn-original { flex: 0 0 auto; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid #D1D5DB; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: var(--text); text-decoration: none; background: var(--surface); }
 .btn-original:hover { background: var(--surface-muted); color: var(--text); }
 .btn-original.bottom { display: none; height: 44px; border-radius: 10px; border-color: var(--border); justify-content: center; font-size: 13px; }
@@ -565,8 +595,8 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
     .search-input { height: 42px; font-size: 15px; }
     .new-banner-wrap { top: 120px; }
     .layout { min-height: 0; display: block; }
-    /* 맨 아래까지 내렸을 때 떠 있는 버튼(맨 위로·다음 글)이 하단 페이지 이동을 가리지 않도록 여백 확보 */
-    .feed-wrap { padding: 12px 10px 120px; }
+    /* 맨 아래까지 내렸을 때 아래 보기 탭바와 떠 있는 버튼(맨 위로·다음 글)이 하단 페이지 이동을 가리지 않도록 여백 확보 */
+    .feed-wrap { padding: 12px 10px calc(var(--bottom-tabs-h) + 120px); }
     .feed { gap: 10px; }
     .feed-head { padding: 0 6px 2px; align-items: center; }
     .feed-title { font-size: 18px; }
@@ -586,7 +616,19 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
     .pager { justify-content: space-between; padding: 6px 6px 0; }
     .pager .btn { height: 44px; padding: 0 18px; font-size: 14px; }
     .pager .page-select { height: 44px; font-size: 14px; }
-    .floating { right: 16px; bottom: 20px; }
+    .floating { right: 16px; bottom: calc(var(--bottom-tabs-h) + 14px); }
+    /* 브라우저 자체의 당겨서 새로고침(페이지 전체 다시 읽기)을 막고 대시보드의 당겨서 새로고침을 씀 */
+    html, body { overscroll-behavior-y: contain; }
+    /* 정렬·페이지 이동은 제목 줄 오른쪽 버튼을 눌렀을 때만 아래로 펼침 */
+    .feed-head { position: relative; }
+    .feed-head-text { flex: 1 1 100%; }
+    .feed-tools-btn { margin-left: auto; gap: 4px; font-variant-numeric: tabular-nums; }
+    .feed-tools-btn svg { width: 12px; height: 12px; color: var(--muted); transition: transform 0.15s; }
+    .feed-tools-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+    .feed-head .feed-tools { display: none; }
+    .feed-head.tools-open .feed-tools { display: flex; position: absolute; top: calc(100% + 4px); left: 6px; right: 6px; z-index: 32;
+        padding: 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface);
+        box-shadow: 0 8px 24px rgba(17,24,39,0.14); justify-content: space-between; }
     .settings-panel { width: 100%; box-shadow: none; }
     .settings-backdrop { background: var(--bg); }
 }
