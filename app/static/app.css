@@ -398,7 +398,19 @@ body.font-s .comment-body { font-size: 13px; }
 body.font-l .post-content { font-size: 17.5px; }
 body.font-l .comment-body { font-size: 16px; }
 /* 모바일 긴 본문 접기·많은 댓글 접기 버튼 (넓은 화면에서는 쓰지 않음) */
-.body-more, .comments-more, .font-size-control { display: none; }
+.body-more, .font-size-control, .embed-shield { display: none; }
+/* 인스타그램·X 게시물 덮개 자리 (모바일에서만 덮음) */
+.embed-wrap { position: relative; }
+/* 댓글 페이지: 넓은 2단 화면은 댓글 칸이 따로 스크롤되어 모두 보이고, 그보다 좁으면 페이지로 나눠 아래에 이동 버튼 */
+.comment-pager { display: none; }
+@media (max-width: 1359px) {
+    .comments.is-paged .comment.c-off { display: none; }
+    .comment-pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--divider); }
+    .comment-pager .icon-btn { width: 44px; height: 40px; }
+    .comment-pager .icon-btn:disabled { background: var(--surface-muted); color: #9CA3AF; cursor: default; }
+    .comment-pager-pos { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+    .comment-pager .page-select { height: 40px; min-width: 60px; }
+}
 .content-spacer { height: 12px; }
 .content-line { margin: 4px 0; }
 .post-content a { color: var(--accent-ink) !important; font-weight: inherit !important; }
@@ -652,13 +664,11 @@ body.font-l .comment-body { font-size: 16px; }
     /* 긴 본문: 화면 70% 높이까지만 보이고 아래는 흐려지며 '본문 펼치기' */
     .post-content.is-clamped { max-height: 70vh; overflow: hidden;
         -webkit-mask-image: linear-gradient(to bottom, #000 78%, transparent); mask-image: linear-gradient(to bottom, #000 78%, transparent); }
-    .body-more, .comments-more { display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; height: 42px;
+    .embed-shield { display: block; position: absolute; inset: 0; z-index: 1; padding: 0; border: 0; background: transparent; cursor: pointer; }
+    .body-more { display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; height: 42px;
         border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); color: var(--text-2);
         font-size: 14px; font-weight: 500; cursor: pointer; }
-    .body-more svg, .comments-more svg { width: 14px; height: 14px; color: var(--muted); }
-    .comments-more { margin: 8px 0; }
-    /* 많은 댓글: 처음·끝 몇 개와 새 댓글만, 나머지는 '댓글 N개 더 보기' */
-    .comments:not(.show-all) .comment.c-more { display: none; }
+    .body-more svg { width: 14px; height: 14px; color: var(--muted); }
     .settings-panel { width: 100%; box-shadow: none; }
     .settings-backdrop { background: var(--bg); }
 }

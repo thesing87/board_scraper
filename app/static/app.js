@@ -286,7 +286,8 @@ function checkReadSentinels() {
         let seen = el.dataset.skipped ? top >= 0 && top < bottomEdge : top < bottomEdge;
         // 새 댓글이 달린 글은 글 끝까지 내려가지 않아도 마지막 새 댓글이 화면에 다 보이면 확인한 것으로 봄
         // (이미 읽은 글에만 새 댓글이 붙으므로, 읽음 처리는 새 댓글 표시를 지우는 것뿐)
-        const newComments = seen ? [] : el.closest('.post-card').querySelectorAll('.comment.is-new-comment');
+        // (댓글이 여러 페이지면 지금 보이는 페이지의 새 댓글만)
+        const newComments = seen ? [] : shownComments(el.closest('.post-card'), '.comment.is-new-comment');
         if (newComments.length) {
             // 넓은 화면에서는 댓글 칸이 따로 스크롤되므로, 그 칸에서 실제로 보이는 범위 안에 들어와야 본 것
             const box = newComments[0].closest('.comments').getBoundingClientRect();
@@ -541,7 +542,11 @@ function renderContent(blocks) {
     }).join('')
         // 페이지는 no-referrer 정책이지만, 유튜브 임베드는 출처(Referer)가 없으면 '오류 153: 동영상 플레이어 구성 오류'를 냄.
         // 이미지 핫링크 차단을 피하려고 페이지 정책은 유지하고 iframe에만 출처(도메인)를 보내도록 허용
-        .replace(/<iframe\b/gi, '<iframe referrerpolicy="strict-origin-when-cross-origin"');
+        .replace(/<iframe\b/gi, '<iframe referrerpolicy="strict-origin-when-cross-origin"')
+        // 인스타그램·X 게시물(iframe) 위의 손가락 움직임은 그 사이트로 가서 대시보드가 받지 못함 → 모바일에서는 투명 덮개를 씌워
+        // 그 위에서도 게시판 넘기기·스크롤이 되게 하고, 덮개를 한 번 누르면 걷어 게시물을 직접 조작 (넓은 화면은 덮개 없음, CSS)
+        .replace(/<iframe\b[^>]*\bsrc="[^"]*(?:instagram\.com|platform\.twitter\.com\/embed)[^"]*"[^>]*>\s*<\/iframe>/gi,
+            m => `<div class="embed-wrap">${m}<button class="embed-shield" data-action="activate-embed" aria-label="게시물 직접 조작하기 (누르면 덮개를 걷음)"></button></div>`);
 }
 
 function avatarTone(name) {
@@ -563,22 +568,59 @@ function replyDepth(comment) {
     return Math.min(Math.max(parseInt(comment.depth, 10) || 1, 1), MAX_REPLY_DEPTH);
 }
 
-// 모바일 댓글 접기: 댓글이 COMMENT_FOLD_MIN개를 넘으면 앞 COMMENT_FOLD_HEAD개·끝 COMMENT_FOLD_TAIL개·새 댓글만 보임
-const COMMENT_FOLD_MIN = 8;
-const COMMENT_FOLD_HEAD = 3;
-const COMMENT_FOLD_TAIL = 2;
+// 댓글 페이지: 댓글이 COMMENT_PAGE_SIZE개를 넘으면 그만큼씩 페이지로 나눔 (원댓글과 그 답글은 한 페이지에).
+// 페이지마다 댓글에 data-cpage를 달아 두고, 지금 페이지가 아닌 댓글은 c-off로 숨김 (숨기는 건 넓은 2단 화면이 아닐 때만, CSS).
+// 처음에는 첫 새 댓글이 있는 페이지, 새 댓글이 없으면 첫 페이지
+const COMMENT_PAGE_SIZE = 20;
+
+function commentPages(comments) {
+    const pages = [];
+    let page = [];
+    comments.forEach((c, i) => {
+        // 원댓글에서만 페이지를 나눠, 답글이 원댓글과 다른 페이지로 갈라지지 않게
+        if (!c.is_reply && page.length >= COMMENT_PAGE_SIZE) { pages.push(page); page = []; }
+        page.push(i);
+    });
+    if (page.length) pages.push(page);
+    const pageOf = [];
+    pages.forEach((idxs, p) => idxs.forEach(i => { pageOf[i] = p + 1; }));
+    return { count: pages.length, pageOf };
+}
+
+function renderCommentPager(current, total) {
+    const options = Array.from({ length: total }, (_, i) => `<option value="${i + 1}" ${i + 1 === current ? 'selected' : ''}>${i + 1}</option>`).join('');
+    return `<nav class="comment-pager" aria-label="댓글 페이지">
+        <button class="icon-btn" data-action="comment-page" data-step="-1" aria-label="이전 댓글 페이지" ${current <= 1 ? 'disabled' : ''}>${ICONS.prev}</button>
+        <span class="comment-pager-pos">댓글 <select class="page-select" data-action="go-comment-page" aria-label="댓글 페이지 선택">${options}</select> / ${total}</span>
+        <button class="icon-btn" data-action="comment-page" data-step="1" aria-label="다음 댓글 페이지" ${current >= total ? 'disabled' : ''}>${ICONS.next}</button>
+    </nav>`;
+}
+
+// 댓글 페이지 바꾸기: 그 페이지 댓글만 보이고, 댓글 맨 위(제목)로 이동
+function setCommentPage(section, page) {
+    const total = Number(section.dataset.pages);
+    page = Math.min(Math.max(1, page), total);
+    section.dataset.page = String(page);
+    section.querySelectorAll('.comment').forEach(c => c.classList.toggle('c-off', Number(c.dataset.cpage) !== page));
+    section.querySelectorAll('.comment-pager').forEach(nav => nav.outerHTML = renderCommentPager(page, total));
+    const title = section.querySelector('.comments-title');
+    window.scrollTo({ top: title.getBoundingClientRect().top + window.pageYOffset - scrolledTopInset() - 12 });
+    scheduleReadCheck();
+}
+
+// 숨긴 댓글(다른 페이지)을 뺀, 지금 보이는 댓글 (새 댓글 읽음 판정·'마지막 댓글로' 이동에 씀)
+function shownComments(root, selector = '.comment') {
+    return [...root.querySelectorAll(selector)].filter(c => c.offsetParent !== null);
+}
 
 function renderComments(post) {
     if (!post.comments || post.comments.length === 0) {
         // 넓은 화면의 2단 배치에서 오른쪽 댓글 자리를 유지하기 위한 빈 댓글 칸 (좁은 화면에서는 CSS로 숨김)
         return '<section class="comments is-empty"><h3 class="comments-title">댓글 0</h3><p class="comments-empty">아직 댓글이 없습니다.</p></section>';
     }
-    // 모바일: 댓글이 많으면 처음 몇 개와 끝 몇 개, 새 댓글만 보이고 나머지는 '댓글 N개 더 보기'로 접음
-    // (접을 댓글에 c-more 표시만 해 두고 실제로 숨기는 건 모바일 CSS. 넓은 화면은 모두 보임)
-    const many = post.comments.length > COMMENT_FOLD_MIN;
-    const folds = post.comments.map((c, i) => many && i >= COMMENT_FOLD_HEAD && i < post.comments.length - COMMENT_FOLD_TAIL
-        && !isNewComment(c, post));
-    const hiddenCount = folds.filter(Boolean).length;
+    const pages = commentPages(post.comments);
+    const firstNew = post.comments.findIndex(c => isNewComment(c, post));
+    const startPage = firstNew >= 0 ? pages.pageOf[firstNew] : 1;
     const items = post.comments.map((c, i) => {
         const body = (c.content || []).map(t => t ? `<p class="comment-line">${t}</p>` : '<br>').join('');
         const isAuthor = c.author === post.author;
@@ -588,11 +630,10 @@ function renderComments(post) {
         if (c.is_reply) classes.push('reply');
         if (isNew) classes.push('is-new-comment');
         if (isAuthor) classes.push('is-author');
-        if (folds[i]) classes.push('c-more');
-        const moreButton = folds[i] && folds.indexOf(true) === i
-            ? `<button class="comments-more" data-action="show-all-comments">${ICONS.chevronDown} 댓글 ${hiddenCount}개 더 보기</button>` : '';
-        return `${moreButton}
-            <div class="${classes.join(' ')}"${depth ? ` style="--depth: ${depth}"` : ''}>
+        if (pages.count > 1 && pages.pageOf[i] !== startPage) classes.push('c-off');
+        const pageAttr = pages.count > 1 ? ` data-cpage="${pages.pageOf[i]}"` : '';
+        return `
+            <div class="${classes.join(' ')}"${pageAttr}${depth ? ` style="--depth: ${depth}"` : ''}>
                 <span class="comment-avatar av-${avatarTone(c.author)}" aria-hidden="true">${esc(Array.from(c.author || '?')[0])}</span>
                 <div class="comment-main">
                     <div class="comment-meta">
@@ -608,7 +649,9 @@ function renderComments(post) {
     }).join('');
     // 수집 시점의 댓글 수 표기와 실제 수집된 댓글 개수 중 큰 값 (새 댓글이 수집됐는데 수 표기가 늦게 갱신되는 경우 대비)
     const count = Math.max(parseInt(String(post.comment_count).replace(/[^\d]/g, ''), 10) || 0, post.comments.length);
-    return `<section class="comments"><h3 class="comments-title">댓글 ${count}</h3>${items}</section>`;
+    if (pages.count <= 1) return `<section class="comments"><h3 class="comments-title">댓글 ${count}</h3>${items}</section>`;
+    return `<section class="comments is-paged" data-pages="${pages.count}" data-page="${startPage}">
+        <h3 class="comments-title">댓글 ${count}</h3>${items}${renderCommentPager(startPage, pages.count)}</section>`;
 }
 
 function safeLink(url) {
@@ -1658,7 +1701,7 @@ function fabRoom() {
     return window.innerHeight - document.querySelector('.floating').getBoundingClientRect().top + 8;
 }
 function scrollToLastComment(card) {
-    const comments = card.querySelectorAll('.comments .comment');
+    const comments = shownComments(card, '.comments .comment');
     const target = comments[comments.length - 1] || card;
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     // 마지막 댓글의 아래 끝을 버튼 바로 위에 맞춤 (그 위로 앞의 새 댓글들이 보이게)
@@ -1683,10 +1726,10 @@ function scrollToComment(comment) {
 function goNextLastComment() {
     const limit = window.innerHeight - fabRoom() + 8;
     const stops = [...document.querySelectorAll('#feed .post-card')].flatMap(card => {
-        const comments = card.querySelectorAll('.comments .comment');
+        const comments = shownComments(card, '.comments .comment');
         const last = comments[comments.length - 1];
         if (!last) return [{ card, el: card }];
-        const firstNew = card.querySelector('.comments .comment.is-new-comment');
+        const firstNew = shownComments(card, '.comments .comment.is-new-comment')[0];
         return (firstNew && firstNew !== last ? [{ card, el: firstNew, top: true }] : []).concat([{ card, el: last }]);
     });
     const next = stops.find(stop => {
@@ -2775,10 +2818,11 @@ document.addEventListener('click', (e) => {
         deleteCategory(el.dataset.key, el);
     } else if (action === 'page') {
         changePage(el.dataset.target);
-    } else if (action === 'show-all-comments') {
-        el.closest('.comments').classList.add('show-all');
+    } else if (action === 'activate-embed') {
         el.remove();
-        scheduleReadCheck();
+    } else if (action === 'comment-page') {
+        const section = el.closest('.comments');
+        setCommentPage(section, Number(section.dataset.page) + Number(el.dataset.step));
     } else if (action === 'expand-body') {
         expandBody(el);
     } else if (action === 'set-font-size') {
@@ -2859,6 +2903,7 @@ document.addEventListener('change', (e) => {
         arrangeGroup({ id: Number(e.target.dataset.groupId), folder_id: value ? Number(value) : null }, e.target);
     }
     else if (e.target.dataset.action === 'go-page') changePage(e.target.value);
+    else if (e.target.dataset.action === 'go-comment-page') setCommentPage(e.target.closest('.comments'), Number(e.target.value));
     else if (e.target.dataset.action === 'set-sort') setSort(e.target.value);
 });
 
