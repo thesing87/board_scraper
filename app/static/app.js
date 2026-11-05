@@ -1800,9 +1800,12 @@ function stickyHeight() {
 function isMobile() { return window.matchMedia('(max-width: 899px)').matches; }
 // 아래로 내려 이동한 뒤 화면 위쪽을 가리는 높이: 모바일은 아래로 내리면 위 메뉴가 통째로 숨으므로 0
 function scrolledTopInset() { return isMobile() ? 0 : stickyHeight(); }
-// 화면 아래쪽에서 보기 탭바가 가리는 높이를 뺀, 글이 실제로 보이는 아래 끝 (모바일)
+// 화면 아래쪽에서 보기 탭바·게시판 칩 줄(보일 때)이 가리는 높이를 뺀, 글이 실제로 보이는 아래 끝 (모바일)
 function viewBottom() {
-    return window.innerHeight - (isMobile() ? document.getElementById('view-tabs').offsetHeight : 0);
+    if (!isMobile()) return window.innerHeight;
+    const tabsTop = document.getElementById('view-tabs').getBoundingClientRect().top;
+    const chipsTop = document.getElementById('chip-row').getBoundingClientRect().top;
+    return Math.min(tabsTop, chipsTop);
 }
 
 function currentPostCard() {
@@ -3108,7 +3111,7 @@ document.addEventListener('visibilitychange', () => {
 
 window.addEventListener('hashchange', handlePostAnchor);
 
-// 모바일: 아래로 내리면 위 메뉴(제목 줄·게시판 칩)를 통째로 숨겨 글을 넓게 보고, 조금이라도 위로 올리거나 맨 위 근처면 다시 보임.
+// 모바일: 아래로 내리면 위 메뉴(제목 줄)와 아래 게시판 칩 줄을 숨겨 글을 넓게 보고, 조금이라도 위로 올리거나 맨 위 근처면 다시 보임.
 // 보기 탭은 화면 아래 탭바에 있어 늘 보임.
 // 손 떨림 같은 작은 움직임에 깜빡이지 않도록 마지막으로 바꾼 위치에서 일정 거리 이상 움직였을 때만 바꿈
 const TITLE_ROW_SCROLL_STEP = 10;
@@ -3120,6 +3123,7 @@ function updateTitleRow() {
         || topbar.classList.contains('search-open') || !document.getElementById('settings').hidden;
     if (keepShown) {
         topbar.classList.remove('title-hidden');
+        document.body.classList.remove('chips-hidden');
         titleRowScrollY = y;
         return;
     }
@@ -3127,6 +3131,8 @@ function updateTitleRow() {
     // 아래 그림자까지 가려지도록 조금 더 올림
     topbar.style.setProperty('--title-row-h', (topbar.offsetHeight + 4) + 'px');
     topbar.classList.toggle('title-hidden', y > titleRowScrollY);
+    // 아래 게시판 칩 줄도 위 메뉴와 함께 숨기고 보임
+    document.body.classList.toggle('chips-hidden', y > titleRowScrollY);
     titleRowScrollY = y;
 }
 

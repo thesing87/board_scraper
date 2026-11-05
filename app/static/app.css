@@ -145,15 +145,21 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .view-more-option:hover { background: var(--surface-muted); }
 .view-more-option[aria-pressed="true"] { background: var(--accent-weak); color: var(--accent); font-weight: 700; }
 
-/* 모바일에서 아래로 내리면 위 메뉴(제목 줄·게시판 칩)를 통째로 위로 밀어 숨김 (보기 탭은 화면 아래에 남음,
+/* 모바일에서 아래로 내리면 위 메뉴(제목 줄)를 위로 밀어 숨김 (보기 탭은 화면 아래에 남고, 게시판 칩 줄은 탭바 뒤로 숨음,
    --title-row-h는 app.js가 위 메뉴 높이로 잼) */
 .topbar { transition: transform 0.2s ease; }
 .topbar.title-hidden { transform: translateY(calc(-1 * var(--title-row-h, 60px))); }
 
 /* 모바일 화면 아래 보기 탭바: 엄지로 누르기 쉽게 화면 맨 아래에 고정, 고른 탭은 파란 글씨와 위쪽 막대 */
-:root { --bottom-tabs-h: 0px; }
+:root { --bottom-tabs-h: 0px; --bottom-chips-h: 0px; }
 @media (max-width: 899px) {
-    :root { --bottom-tabs-h: calc(58px + env(safe-area-inset-bottom, 0px)); }
+    :root { --bottom-tabs-h: calc(58px + env(safe-area-inset-bottom, 0px)); --bottom-chips-h: 52px; }
+    /* 게시판 칩 줄: 보기 탭바 바로 위. 아래로 스크롤하면(body.chips-hidden) 탭바 뒤로 내려가 숨고,
+       그 위의 떠 있는 버튼·안내도 함께 내려옴 (--bottom-chips-h를 0으로) */
+    body.chips-hidden { --bottom-chips-h: 0px; }
+    .chip-row { position: fixed; left: 0; right: 0; bottom: var(--bottom-tabs-h); z-index: 44; height: 52px; align-items: center;
+                padding: 0 16px; background: var(--surface); border-top: 1px solid var(--border); transition: transform 0.2s ease; }
+    body.chips-hidden .chip-row { transform: translateY(100%); }
     .view-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; margin: 0; padding: 0 4px env(safe-area-inset-bottom, 0px);
                  height: var(--bottom-tabs-h); gap: 0; border-radius: 0; background: var(--surface); border-top: 1px solid var(--border);
                  box-shadow: 0 -2px 10px rgba(17,24,39,0.05); }
@@ -326,7 +332,7 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .share-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 35; min-width: 170px; padding: 4px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); box-shadow: 0 8px 24px rgba(17,24,39,0.14); display: flex; flex-direction: column; gap: 2px; }
 .share-menu a.view-more-option { text-decoration: none; }
 /* 잠깐 뜨는 안내 (링크 복사 등) */
-.toast { position: fixed; left: 50%; bottom: calc(var(--bottom-tabs-h) + 24px); transform: translateX(-50%); z-index: 120; padding: 10px 16px; border-radius: 999px; background: var(--text); color: #FFFFFF; font-size: 13px; font-weight: 500; box-shadow: 0 6px 16px rgba(17,24,39,0.25); white-space: nowrap; }
+.toast { position: fixed; left: 50%; bottom: calc(var(--bottom-tabs-h) + var(--bottom-chips-h) + 24px); transform: translateX(-50%); z-index: 120; padding: 10px 16px; border-radius: 999px; background: var(--text); color: #FFFFFF; font-size: 13px; font-weight: 500; box-shadow: 0 6px 16px rgba(17,24,39,0.25); white-space: nowrap; }
 .btn-original { flex: 0 0 auto; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid #D1D5DB; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: var(--text); text-decoration: none; background: var(--surface); }
 .btn-original:hover { background: var(--surface-muted); color: var(--text); }
 .btn-original.bottom { display: none; height: 44px; border-radius: 10px; border-color: var(--border); justify-content: center; font-size: 13px; }
@@ -626,10 +632,10 @@ body.font-l .comment-body { font-size: 16px; }
     .search-form { display: none; order: 3; flex-basis: 100%; max-width: none; margin: 0 0 10px; padding-right: 8px; }
     .topbar.search-open .search-form { display: flex; }
     .search-input { height: 42px; font-size: 15px; }
-    .new-banner-wrap { top: 120px; }
+    .new-banner-wrap { top: 72px; }
     .layout { min-height: 0; display: block; }
     /* 맨 아래까지 내렸을 때 아래 보기 탭바와 떠 있는 버튼(맨 위로·다음 글)이 하단 페이지 이동을 가리지 않도록 여백 확보 */
-    .feed-wrap { padding: 12px 10px calc(var(--bottom-tabs-h) + 120px); }
+    .feed-wrap { padding: 12px 10px calc(var(--bottom-tabs-h) + var(--bottom-chips-h) + 120px); }
     .feed { gap: 10px; }
     .feed-head { padding: 0 6px 2px; align-items: center; }
     .feed-title { font-size: 18px; }
@@ -649,9 +655,9 @@ body.font-l .comment-body { font-size: 16px; }
     .pager { justify-content: space-between; padding: 6px 6px 0; }
     .pager .btn { height: 44px; padding: 0 18px; font-size: 14px; }
     .pager .page-select { height: 44px; font-size: 14px; }
-    .floating { right: 16px; bottom: calc(var(--bottom-tabs-h) + 14px); }
+    .floating { right: 16px; bottom: calc(var(--bottom-tabs-h) + var(--bottom-chips-h) + 14px); transition: bottom 0.2s ease; }
     /* '다음 새 댓글' 버튼: 떠 있는 '다음 글' 버튼 왼쪽, 새 댓글 색(주황) */
-    .new-comment-jump { position: fixed; right: 70px; bottom: calc(var(--bottom-tabs-h) + 14px); z-index: 40; height: 44px; padding: 0 16px 0 12px;
+    .new-comment-jump { position: fixed; right: 70px; bottom: calc(var(--bottom-tabs-h) + var(--bottom-chips-h) + 14px); transition: bottom 0.2s ease; z-index: 40; height: 44px; padding: 0 16px 0 12px;
         border: none; border-radius: 999px; background: #EA580C; color: #FFFFFF; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums;
         display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 6px 16px rgba(234,88,12,0.35); cursor: pointer; }
     .new-comment-jump svg { width: 16px; height: 16px; }

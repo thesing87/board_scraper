@@ -56,9 +56,6 @@
                 </button>
             </div>
         </div>
-        <nav class="chip-row mobile-only" id="chip-row" aria-label="게시판">
-            <span class="sk sk-chip"></span><span class="sk sk-chip"></span><span class="sk sk-chip"></span><span class="sk sk-chip"></span>
-        </nav>
         <!-- 화면을 그리는 요청 동안 표시하는 진행 막대 (app.js withProgress) -->
         <div class="top-progress" id="top-progress" role="progressbar" aria-label="불러오는 중" hidden><i></i></div>
     </header>
@@ -109,6 +106,10 @@
     </div>
 
     <!-- 모바일 보기 탭: 엄지가 닿는 화면 아래에 고정 (위 메뉴가 스크롤로 숨어도 남음) -->
+    <!-- 모바일 게시판 칩: 보기 탭바 바로 위 (아래로 스크롤하면 탭바 뒤로 숨고, 위로 올리면 다시 보임) -->
+    <nav class="chip-row mobile-only" id="chip-row" aria-label="게시판">
+        <span class="sk sk-chip"></span><span class="sk sk-chip"></span><span class="sk sk-chip"></span><span class="sk sk-chip"></span>
+    </nav>
     <nav class="view-tabs mobile-only" id="view-tabs" aria-label="보기"></nav>
     <!-- 모바일 당겨서 새로고침 표시 (app.js 당겨서 새로고침) -->
     <div class="pull-refresh" id="pull-refresh" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"></path><path d="M21 4v5h-5"></path></svg></div>
