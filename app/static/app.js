@@ -570,7 +570,7 @@ function replyDepth(comment) {
 
 // 댓글 페이지: 댓글이 COMMENT_PAGE_SIZE개를 넘으면 그만큼씩 페이지로 나눔 (원댓글과 그 답글은 한 페이지에).
 // 페이지마다 댓글에 data-cpage를 달아 두고, 지금 페이지가 아닌 댓글은 c-off로 숨김 (숨기는 건 넓은 2단 화면이 아닐 때만, CSS).
-// 처음에는 첫 새 댓글이 있는 페이지, 새 댓글이 없으면 첫 페이지
+// 처음에는 첫 새 댓글이 있는 페이지, 새 댓글이 없으면 가장 최근 댓글이 있는 마지막 페이지
 const COMMENT_PAGE_SIZE = 20;
 
 function commentPages(comments) {
@@ -620,7 +620,7 @@ function renderComments(post) {
     }
     const pages = commentPages(post.comments);
     const firstNew = post.comments.findIndex(c => isNewComment(c, post));
-    const startPage = firstNew >= 0 ? pages.pageOf[firstNew] : 1;
+    const startPage = firstNew >= 0 ? pages.pageOf[firstNew] : pages.count;
     const items = post.comments.map((c, i) => {
         const body = (c.content || []).map(t => t ? `<p class="comment-line">${t}</p>` : '<br>').join('');
         const isAuthor = c.author === post.author;
