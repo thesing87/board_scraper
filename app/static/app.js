@@ -602,6 +602,7 @@ function setCommentPage(section, page) {
     page = Math.min(Math.max(1, page), total);
     section.dataset.page = String(page);
     section.querySelectorAll('.comment').forEach(c => c.classList.toggle('c-off', Number(c.dataset.cpage) !== page));
+    scheduleNewCommentJump();
     section.querySelectorAll('.comment-pager').forEach(nav => nav.outerHTML = renderCommentPager(page, total));
     const title = section.querySelector('.comments-title');
     window.scrollTo({ top: title.getBoundingClientRect().top + window.pageYOffset - scrolledTopInset() - 12 });
@@ -1167,6 +1168,33 @@ async function slideToBoard(chip, step) {
     }
 }
 
+// 모바일 '다음 새 댓글' 버튼: 지금 화면 위쪽보다 아래에 새 댓글(보이는 댓글 페이지의)이 남아 있으면 남은 수와 함께 보이고,
+// 누르면 다음 새 댓글을 화면 맨 위로 (아래로 내리면 위 메뉴가 숨으므로 그 기준)
+function newCommentJumpTargets() {
+    const line = scrolledTopInset() + 12 + 4;
+    return shownComments(document.getElementById('feed'), '.comment.is-new-comment')
+        .filter(c => c.getBoundingClientRect().top > line);
+}
+let newCommentJumpScheduled = false;
+function updateNewCommentJump() {
+    newCommentJumpScheduled = false;
+    const btn = document.getElementById('new-comment-jump');
+    const targets = isMobile() && !isGalleryView() ? newCommentJumpTargets() : [];
+    btn.hidden = !targets.length;
+    if (targets.length) btn.innerHTML = `${ICONS.chevronDown}새 댓글 · ${targets.length}`;
+}
+function scheduleNewCommentJump() {
+    if (newCommentJumpScheduled) return;
+    newCommentJumpScheduled = true;
+    requestAnimationFrame(updateNewCommentJump);
+}
+function jumpToNextNewComment() {
+    const next = newCommentJumpTargets()[0];
+    if (!next) return;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: next.getBoundingClientRect().top + window.pageYOffset - scrolledTopInset() - 12, behavior: reduceMotion ? 'auto' : 'smooth' });
+}
+
 // 글자 크기 (본문·댓글): 작게·보통·크게. 기기마다 기억하고 body 클래스(font-s·font-l)로 적용
 const FONT_SIZES = [{ key: 's', label: '작게' }, { key: 'm', label: '보통' }, { key: 'l', label: '크게' }];
 const FONT_SIZE_KEY = 'font_size';
@@ -1608,6 +1636,7 @@ function renderFeed(data) {
     if (target) jumpToPost(target);
     anchorCommentBoxes();
     applyFold();
+    scheduleNewCommentJump();
     updateShortcutGuide();
     observeReadSentinels();
     return !!target;
@@ -2901,6 +2930,8 @@ document.addEventListener('click', (e) => {
         deleteCategory(el.dataset.key, el);
     } else if (action === 'page') {
         changePage(el.dataset.target);
+    } else if (action === 'next-new-comment') {
+        jumpToNextNewComment();
     } else if (action === 'comments-to-bottom') {
         scrollCommentsToBottom(el);
     } else if (action === 'activate-embed') {
@@ -3148,6 +3179,7 @@ document.addEventListener('touchend', async () => {
 window.addEventListener('scroll', () => {
     document.getElementById('floating-top-btn').classList.toggle('visible', window.scrollY > 400);
     scheduleCommentFit();
+    scheduleNewCommentJump();
     updateTitleRow();
     scheduleReadCheck();
 }, { passive: true });

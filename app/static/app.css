@@ -398,7 +398,7 @@ body.font-s .comment-body { font-size: 13px; }
 body.font-l .post-content { font-size: 17.5px; }
 body.font-l .comment-body { font-size: 16px; }
 /* 모바일 긴 본문 접기·많은 댓글 접기 버튼 (넓은 화면에서는 쓰지 않음) */
-.body-more, .font-size-control, .embed-shield, .comments-bottom { display: none; }
+.body-more, .font-size-control, .embed-shield, .comments-bottom, .new-comment-jump { display: none; }
 /* 인스타그램·X 게시물 덮개 자리 (모바일에서만 덮음) */
 .embed-wrap { position: relative; }
 /* 댓글 페이지: 넓은 2단 화면은 댓글 칸이 따로 스크롤되어 모두 보이고, 그보다 좁으면 페이지로 나눠 아래에 이동 버튼 */
@@ -650,6 +650,11 @@ body.font-l .comment-body { font-size: 16px; }
     .pager .btn { height: 44px; padding: 0 18px; font-size: 14px; }
     .pager .page-select { height: 44px; font-size: 14px; }
     .floating { right: 16px; bottom: calc(var(--bottom-tabs-h) + 14px); }
+    /* '다음 새 댓글' 버튼: 떠 있는 '다음 글' 버튼 왼쪽, 새 댓글 색(주황) */
+    .new-comment-jump { position: fixed; right: 70px; bottom: calc(var(--bottom-tabs-h) + 14px); z-index: 40; height: 44px; padding: 0 16px 0 12px;
+        border: none; border-radius: 999px; background: #EA580C; color: #FFFFFF; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums;
+        display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 6px 16px rgba(234,88,12,0.35); cursor: pointer; }
+    .new-comment-jump svg { width: 16px; height: 16px; }
     /* 브라우저 자체의 당겨서 새로고침(페이지 전체 다시 읽기)을 막고 대시보드의 당겨서 새로고침을 씀 */
     html, body { overscroll-behavior-y: contain; }
     /* 게시판을 밀어 넘길 때 글 목록이 화면 밖으로 나가도 가로 스크롤이 생기지 않게 (clip은 sticky를 깨지 않음) */
