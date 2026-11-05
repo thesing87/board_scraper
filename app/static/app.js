@@ -1657,9 +1657,24 @@ function anchorCommentBox(box) {
 }
 function anchorCommentBoxes(root = document) {
     root.querySelectorAll('.post-card.has-comments > .comments').forEach(box => {
+        fitOpeningCommentBox(box);
         anchorCommentBox(box);
         updateCommentsBottom(box);
     });
+}
+
+// 넓은 화면 댓글 칸 높이는 CSS로 '창 높이 − 위 메뉴'(칸이 위 메뉴 아래에 붙었을 때 기준)라, 게시판을 막 열어 게시판 제목 줄
+// 아래에서 시작하는 첫 글은 칸 끝이 창 밖으로 나가 마지막 댓글이 안 보였음. 글 목록을 그릴 때 한 번만, 그렇게 아래에서
+// 시작하는 칸은 창 아래 끝까지만 오도록 높이를 정해 둠 (스크롤 중에는 바꾸지 않아 스크롤이 걸리지 않음)
+const COMMENT_BOX_BOTTOM_GAP = 24;
+const COMMENT_BOX_MIN = 240;
+function fitOpeningCommentBox(box) {
+    box.style.maxHeight = '';
+    if (!WIDE_QUERY.matches) return;
+    const top = box.getBoundingClientRect().top;
+    const stickyTop = parseFloat(getComputedStyle(box).top) || 0;
+    if (top <= stickyTop + 4 || top >= window.innerHeight) return;   // 위 메뉴 아래에 붙어 있거나 화면 밖이면 CSS 높이 그대로
+    box.style.maxHeight = Math.max(COMMENT_BOX_MIN, Math.round(window.innerHeight - top - COMMENT_BOX_BOTTOM_GAP)) + 'px';
 }
 
 // 넓은 화면 댓글 칸의 떠 있는 버튼: 칸 위쪽보다 아래에 새 댓글이 남아 있으면 '다음 새 댓글'(남은 새 댓글 수),
