@@ -398,7 +398,7 @@ body.font-s .comment-body { font-size: 13px; }
 body.font-l .post-content { font-size: 17.5px; }
 body.font-l .comment-body { font-size: 16px; }
 /* 모바일 긴 본문 접기·많은 댓글 접기 버튼 (넓은 화면에서는 쓰지 않음) */
-.body-more, .font-size-control, .embed-shield { display: none; }
+.body-more, .font-size-control, .embed-shield, .comments-bottom { display: none; }
 /* 인스타그램·X 게시물 덮개 자리 (모바일에서만 덮음) */
 .embed-wrap { position: relative; }
 /* 댓글 페이지: 넓은 2단 화면은 댓글 칸이 따로 스크롤되어 모두 보이고, 그보다 좁으면 페이지로 나눠 아래에 이동 버튼 */
@@ -480,6 +480,14 @@ body.font-l .comment-body { font-size: 16px; }
     .post-card.has-comments > .comments.is-empty { display: flex; }
     /* 좁은 칸에서는 답글 들여쓰기를 줄여 답글 글자 영역도 넓게 */
     .post-card.has-comments > .comments { --reply-indent: 18px; --reply-step: 14px; }
+    /* 댓글 칸 '맨 아래' 버튼: 칸 오른쪽 아래에 붙어 떠 있음 (맨 아래면 투명하게 숨김, 자리는 그대로) */
+    .post-card.has-comments > .comments .comments-bottom { display: inline-flex; position: sticky; bottom: 12px; z-index: 2; align-self: flex-end;
+        align-items: center; gap: 4px; flex: 0 0 auto; height: 32px; margin-top: 8px; padding: 0 12px 0 10px; border: none; border-radius: 999px;
+        background: var(--text); color: #FFFFFF; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer;
+        box-shadow: 0 4px 12px rgba(17,24,39,0.2); opacity: 0; visibility: hidden; transition: opacity 0.15s, visibility 0.15s; }
+    .post-card.has-comments > .comments .comments-bottom.is-shown { opacity: 1; visibility: visible; }
+    .post-card.has-comments > .comments .comments-bottom:hover { background: var(--accent); }
+    .comments-bottom svg { width: 14px; height: 14px; }
     .post-card.has-comments > .comments .comment.reply { padding: 10px; }
     .post-content { font-size: 16px; }
 }

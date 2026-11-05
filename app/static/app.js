@@ -649,9 +649,11 @@ function renderComments(post) {
     }).join('');
     // 수집 시점의 댓글 수 표기와 실제 수집된 댓글 개수 중 큰 값 (새 댓글이 수집됐는데 수 표기가 늦게 갱신되는 경우 대비)
     const count = Math.max(parseInt(String(post.comment_count).replace(/[^\d]/g, ''), 10) || 0, post.comments.length);
-    if (pages.count <= 1) return `<section class="comments"><h3 class="comments-title">댓글 ${count}</h3>${items}</section>`;
+    // 넓은 화면 댓글 칸의 '맨 아래' 버튼 (updateCommentsBottom이 보일지 정함)
+    const bottomButton = `<button class="comments-bottom" data-action="comments-to-bottom">${ICONS.chevronDown}맨 아래<span class="cb-count"></span></button>`;
+    if (pages.count <= 1) return `<section class="comments"><h3 class="comments-title">댓글 ${count}</h3>${items}${bottomButton}</section>`;
     return `<section class="comments is-paged" data-pages="${pages.count}" data-page="${startPage}">
-        <h3 class="comments-title">댓글 ${count}</h3>${items}${renderCommentPager(startPage, pages.count)}</section>`;
+        <h3 class="comments-title">댓글 ${count}</h3>${items}${renderCommentPager(startPage, pages.count)}${bottomButton}</section>`;
 }
 
 function safeLink(url) {
@@ -1625,7 +1627,29 @@ function anchorCommentBox(box) {
     }
 }
 function anchorCommentBoxes(root = document) {
-    root.querySelectorAll('.post-card.has-comments > .comments').forEach(anchorCommentBox);
+    root.querySelectorAll('.post-card.has-comments > .comments').forEach(box => {
+        anchorCommentBox(box);
+        updateCommentsBottom(box);
+    });
+}
+
+// 넓은 화면 댓글 칸의 '맨 아래' 버튼: 칸이 맨 아래가 아닐 때만 칸 오른쪽 아래에 떠 있고, 아래에 남은 댓글 수를 보여 줌
+const WIDE_QUERY = window.matchMedia('(min-width: 1360px)');
+function updateCommentsBottom(box) {
+    const btn = box.querySelector('.comments-bottom');
+    if (!btn) return;
+    const left = box.scrollHeight - box.clientHeight - box.scrollTop;
+    // 보이고 숨길 때 칸 높이가 바뀌어 흔들리지 않도록 자리는 그대로 두고 보이기만 바꿈
+    if (!WIDE_QUERY.matches || left < 40) { btn.classList.remove('is-shown'); return; }
+    const edge = box.getBoundingClientRect().bottom - 8;
+    const below = [...box.querySelectorAll('.comment')].filter(c => c.getBoundingClientRect().top > edge).length;
+    btn.querySelector('.cb-count').textContent = below ? ` · ${below}` : '';
+    btn.classList.add('is-shown');
+}
+function scrollCommentsToBottom(btn) {
+    const box = btn.closest('.comments');
+    box.dataset.userScrolled = '1';   // 늦게 뜬 사진 때문에 시작 위치로 되돌리지 않게
+    box.scrollTo({ top: box.scrollHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 }
 ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach(type => document.addEventListener(type, e => {
     const box = e.target.closest && e.target.closest('.post-card.has-comments > .comments');
@@ -1633,13 +1657,13 @@ function anchorCommentBoxes(root = document) {
 }, { passive: true, capture: true }));
 document.addEventListener('load', e => {
     const box = e.target.closest && e.target.closest('.post-card.has-comments > .comments');
-    if (box) anchorCommentBox(box);
+    if (box) { anchorCommentBox(box); updateCommentsBottom(box); }
     // 본문 사진이 늦게 떠서 길어진 글은 긴 본문 접기를 다시 판단
     const card = e.target.closest && e.target.closest('#feed .post-card');
     if (card && e.target.closest('.post-content')) clampLongBodies(card);
 }, true);
 // 창을 넓혀 댓글 칸이 따로 스크롤되기 시작할 때도 같은 시작 위치로
-window.matchMedia('(min-width: 1360px)').addEventListener('change', e => { if (e.matches) anchorCommentBoxes(); });
+WIDE_QUERY.addEventListener('change', () => anchorCommentBoxes());
 
 // 맨 위를 거쳐 미끄러지듯 내려가지 않도록 애니메이션 없이 바로 이동.
 // 위쪽 글의 이미지·동영상·SNS 게시물이 늦게 떠서 높이가 바뀌면 글이 밀리므로, 사용자가 직접 스크롤하기 전까지
@@ -2818,6 +2842,8 @@ document.addEventListener('click', (e) => {
         deleteCategory(el.dataset.key, el);
     } else if (action === 'page') {
         changePage(el.dataset.target);
+    } else if (action === 'comments-to-bottom') {
+        scrollCommentsToBottom(el);
     } else if (action === 'activate-embed') {
         el.remove();
     } else if (action === 'comment-page') {
@@ -3068,7 +3094,10 @@ window.addEventListener('scroll', () => {
 window.addEventListener('resize', () => { updateTitleRow(); scheduleReadCheck(); }, { passive: true });
 // 댓글 칸 안의 스크롤은 창으로 전달되지 않으므로 캡처 단계에서 받아 새 댓글 확인 (넓은 화면)
 document.addEventListener('scroll', e => {
-    if (e.target !== document && e.target.classList && e.target.classList.contains('comments')) scheduleReadCheck();
+    if (e.target !== document && e.target.classList && e.target.classList.contains('comments')) {
+        scheduleReadCheck();
+        updateCommentsBottom(e.target);
+    }
 }, { passive: true, capture: true });
 
 document.addEventListener('DOMContentLoaded', init);
