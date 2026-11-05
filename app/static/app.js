@@ -1168,20 +1168,36 @@ async function slideToBoard(chip, step) {
     }
 }
 
-// 모바일 '다음 새 댓글' 버튼: 지금 화면 위쪽보다 아래에 새 댓글(보이는 댓글 페이지의)이 남아 있으면 남은 수와 함께 보이고,
-// 누르면 다음 새 댓글을 화면 맨 위로 (아래로 내리면 위 메뉴가 숨으므로 그 기준)
-function newCommentJumpTargets() {
-    const line = scrolledTopInset() + 12 + 4;
-    return shownComments(document.getElementById('feed'), '.comment.is-new-comment')
-        .filter(c => c.getBoundingClientRect().top > line);
+// 모바일 '새 댓글' 버튼: 지금 보는 글에서 화면 위쪽보다 아래에 남은 새 댓글(보이는 댓글 페이지의)이 있으면 '새 댓글 · N',
+// 지금 글은 다 봤고 아래 다른 글에 새 댓글이 있으면 '다음 글 새 댓글'. 누르면 그 새 댓글을 화면 맨 위로
+// (아래로 내리면 위 메뉴가 숨으므로 그 기준). 다음을 남은 것으로 치지 않음:
+// - 이미 맨 위 근처(NEW_COMMENT_JUMP_SLACK 안)까지 온 새 댓글: 위쪽 사진이 늦게 떠 몇 px 밀려도 다시 세지 않게
+// - 페이지가 끝까지 내려가 더 올릴 수 없는데 이미 화면에 다 보이는 새 댓글: 눌러도 움직이지 않는 버튼이 남지 않게
+const NEW_COMMENT_JUMP_SLACK = 40;
+function newCommentJump() {
+    const line = scrolledTopInset() + 12 + NEW_COMMENT_JUMP_SLACK;
+    const pageEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+    const bottom = viewBottom();
+    const remaining = c => {
+        const r = c.getBoundingClientRect();
+        return r.top > line && !(pageEnd && r.bottom <= bottom + 1);
+    };
+    const current = currentPostCard();
+    const here = current ? shownComments(current, '.comment.is-new-comment').filter(remaining) : [];
+    if (here.length) return { targets: here, nextPost: false };
+    const later = shownComments(document.getElementById('feed'), '.comment.is-new-comment')
+        .filter(c => c.closest('.post-card') !== current && remaining(c));
+    return { targets: later, nextPost: later.length > 0 };
 }
 let newCommentJumpScheduled = false;
 function updateNewCommentJump() {
     newCommentJumpScheduled = false;
     const btn = document.getElementById('new-comment-jump');
-    const targets = isMobile() && !isGalleryView() ? newCommentJumpTargets() : [];
-    btn.hidden = !targets.length;
-    if (targets.length) btn.innerHTML = `${ICONS.chevronDown}새 댓글 · ${targets.length}`;
+    const jump = isMobile() && !isGalleryView() ? newCommentJump() : { targets: [] };
+    btn.hidden = !jump.targets.length;
+    if (!jump.targets.length) return;
+    btn.classList.toggle('is-next-post', jump.nextPost);
+    btn.innerHTML = jump.nextPost ? `${ICONS.chevronDown}다음 글 새 댓글` : `${ICONS.chevronDown}새 댓글 · ${jump.targets.length}`;
 }
 function scheduleNewCommentJump() {
     if (newCommentJumpScheduled) return;
@@ -1189,7 +1205,7 @@ function scheduleNewCommentJump() {
     requestAnimationFrame(updateNewCommentJump);
 }
 function jumpToNextNewComment() {
-    const next = newCommentJumpTargets()[0];
+    const next = newCommentJump().targets[0];
     if (!next) return;
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     window.scrollTo({ top: next.getBoundingClientRect().top + window.pageYOffset - scrolledTopInset() - 12, behavior: reduceMotion ? 'auto' : 'smooth' });
@@ -1727,6 +1743,8 @@ function scrollCommentsToBottom(btn) {
 document.addEventListener('load', e => {
     const box = e.target.closest && e.target.closest('.post-card.has-comments > .comments');
     if (box) { anchorCommentBox(box); updateCommentsBottom(box); }
+    // 사진이 늦게 떠 글 위치가 바뀌면 모바일 '새 댓글' 버튼도 다시 확인
+    scheduleNewCommentJump();
     // 본문 사진이 늦게 떠서 길어진 글은 긴 본문 접기를 다시 판단
     const card = e.target.closest && e.target.closest('#feed .post-card');
     if (card && e.target.closest('.post-content')) clampLongBodies(card);
