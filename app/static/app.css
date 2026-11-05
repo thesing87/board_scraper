@@ -487,6 +487,9 @@ body.font-l .comment-body { font-size: 16px; }
         box-shadow: 0 4px 12px rgba(17,24,39,0.2); opacity: 0; visibility: hidden; transition: opacity 0.15s, visibility 0.15s; }
     .post-card.has-comments > .comments .comments-bottom.is-shown { opacity: 1; visibility: visible; }
     .post-card.has-comments > .comments .comments-bottom:hover { background: var(--accent); }
+    /* 다음 새 댓글로 가는 버튼은 새 댓글 색(주황) */
+    .post-card.has-comments > .comments .comments-bottom.is-new { background: #EA580C; }
+    .post-card.has-comments > .comments .comments-bottom.is-new:hover { background: #C2410C; }
     .comments-bottom svg { width: 14px; height: 14px; }
     .post-card.has-comments > .comments .comment.reply { padding: 10px; }
     .post-content { font-size: 16px; }

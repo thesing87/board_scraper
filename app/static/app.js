@@ -649,8 +649,8 @@ function renderComments(post) {
     }).join('');
     // 수집 시점의 댓글 수 표기와 실제 수집된 댓글 개수 중 큰 값 (새 댓글이 수집됐는데 수 표기가 늦게 갱신되는 경우 대비)
     const count = Math.max(parseInt(String(post.comment_count).replace(/[^\d]/g, ''), 10) || 0, post.comments.length);
-    // 넓은 화면 댓글 칸의 '맨 아래' 버튼 (updateCommentsBottom이 보일지 정함)
-    const bottomButton = `<button class="comments-bottom" data-action="comments-to-bottom">${ICONS.chevronDown}맨 아래<span class="cb-count"></span></button>`;
+    // 넓은 화면 댓글 칸의 '다음 새 댓글'·'맨 아래' 버튼 (updateCommentsBottom이 보일지·글자를 정함)
+    const bottomButton = `<button class="comments-bottom" data-action="comments-to-bottom">${ICONS.chevronDown}<span class="cb-label">맨 아래</span><span class="cb-count"></span></button>`;
     if (pages.count <= 1) return `<section class="comments"><h3 class="comments-title">댓글 ${count}</h3>${items}${bottomButton}</section>`;
     return `<section class="comments is-paged" data-pages="${pages.count}" data-page="${startPage}">
         <h3 class="comments-title">댓글 ${count}</h3>${items}${renderCommentPager(startPage, pages.count)}${bottomButton}</section>`;
@@ -1633,23 +1633,48 @@ function anchorCommentBoxes(root = document) {
     });
 }
 
-// 넓은 화면 댓글 칸의 '맨 아래' 버튼: 칸이 맨 아래가 아닐 때만 칸 오른쪽 아래에 떠 있고, 아래에 남은 댓글 수를 보여 줌
+// 넓은 화면 댓글 칸의 떠 있는 버튼: 칸 위쪽보다 아래에 새 댓글이 남아 있으면 '다음 새 댓글'(남은 새 댓글 수),
+// 없으면 '맨 아래'(아래에 남은 댓글 수). 누르면 다음 새 댓글을 칸 맨 위로, 없으면 맨 아래로.
+// 맨 아래이고 남은 새 댓글도 없으면 숨김
 const WIDE_QUERY = window.matchMedia('(min-width: 1360px)');
+const COMMENT_TOP_GAP = 8;   // 새 댓글로 옮길 때 칸 위쪽과 띄울 간격
+function newCommentsBelow(box) {
+    const rect = box.getBoundingClientRect();
+    const top = rect.top + COMMENT_TOP_GAP + 4;
+    // 칸이 맨 아래까지 내려가 더 올릴 수 없으면, 이미 칸 안에 다 보이는 새 댓글은 남은 것으로 치지 않음
+    const atBottom = box.scrollHeight - box.clientHeight - box.scrollTop < 2;
+    return [...box.querySelectorAll('.comment.is-new-comment')].filter(c => {
+        const r = c.getBoundingClientRect();
+        return r.top > top && !(atBottom && r.bottom <= rect.bottom + 1);
+    });
+}
 function updateCommentsBottom(box) {
     const btn = box.querySelector('.comments-bottom');
     if (!btn) return;
     const left = box.scrollHeight - box.clientHeight - box.scrollTop;
+    const newBelow = WIDE_QUERY.matches ? newCommentsBelow(box) : [];
     // 보이고 숨길 때 칸 높이가 바뀌어 흔들리지 않도록 자리는 그대로 두고 보이기만 바꿈
-    if (!WIDE_QUERY.matches || left < 40) { btn.classList.remove('is-shown'); return; }
-    const edge = box.getBoundingClientRect().bottom - 8;
-    const below = [...box.querySelectorAll('.comment')].filter(c => c.getBoundingClientRect().top > edge).length;
-    btn.querySelector('.cb-count').textContent = below ? ` · ${below}` : '';
+    if (!WIDE_QUERY.matches || (left < 40 && !newBelow.length)) { btn.classList.remove('is-shown'); return; }
+    if (newBelow.length) {
+        btn.querySelector('.cb-label').textContent = '다음 새 댓글';
+        btn.querySelector('.cb-count').textContent = ` · ${newBelow.length}`;
+        btn.classList.add('is-new');
+    } else {
+        const edge = box.getBoundingClientRect().bottom - 8;
+        const below = [...box.querySelectorAll('.comment')].filter(c => c.getBoundingClientRect().top > edge).length;
+        btn.querySelector('.cb-label').textContent = '맨 아래';
+        btn.querySelector('.cb-count').textContent = below ? ` · ${below}` : '';
+        btn.classList.remove('is-new');
+    }
     btn.classList.add('is-shown');
 }
 function scrollCommentsToBottom(btn) {
     const box = btn.closest('.comments');
     box.dataset.userScrolled = '1';   // 늦게 뜬 사진 때문에 시작 위치로 되돌리지 않게
-    box.scrollTo({ top: box.scrollHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    const next = newCommentsBelow(box)[0];
+    const top = next ? box.scrollTop + next.getBoundingClientRect().top - box.getBoundingClientRect().top - COMMENT_TOP_GAP : box.scrollHeight;
+    box.scrollTo({ top, behavior });
 }
 ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach(type => document.addEventListener(type, e => {
     const box = e.target.closest && e.target.closest('.post-card.has-comments > .comments');
