@@ -563,12 +563,23 @@ function replyDepth(comment) {
     return Math.min(Math.max(parseInt(comment.depth, 10) || 1, 1), MAX_REPLY_DEPTH);
 }
 
+// 모바일 댓글 접기: 댓글이 COMMENT_FOLD_MIN개를 넘으면 앞 COMMENT_FOLD_HEAD개·끝 COMMENT_FOLD_TAIL개·새 댓글만 보임
+const COMMENT_FOLD_MIN = 8;
+const COMMENT_FOLD_HEAD = 3;
+const COMMENT_FOLD_TAIL = 2;
+
 function renderComments(post) {
     if (!post.comments || post.comments.length === 0) {
         // 넓은 화면의 2단 배치에서 오른쪽 댓글 자리를 유지하기 위한 빈 댓글 칸 (좁은 화면에서는 CSS로 숨김)
         return '<section class="comments is-empty"><h3 class="comments-title">댓글 0</h3><p class="comments-empty">아직 댓글이 없습니다.</p></section>';
     }
-    const items = post.comments.map(c => {
+    // 모바일: 댓글이 많으면 처음 몇 개와 끝 몇 개, 새 댓글만 보이고 나머지는 '댓글 N개 더 보기'로 접음
+    // (접을 댓글에 c-more 표시만 해 두고 실제로 숨기는 건 모바일 CSS. 넓은 화면은 모두 보임)
+    const many = post.comments.length > COMMENT_FOLD_MIN;
+    const folds = post.comments.map((c, i) => many && i >= COMMENT_FOLD_HEAD && i < post.comments.length - COMMENT_FOLD_TAIL
+        && !isNewComment(c, post));
+    const hiddenCount = folds.filter(Boolean).length;
+    const items = post.comments.map((c, i) => {
         const body = (c.content || []).map(t => t ? `<p class="comment-line">${t}</p>` : '<br>').join('');
         const isAuthor = c.author === post.author;
         const isNew = isNewComment(c, post);
@@ -577,7 +588,10 @@ function renderComments(post) {
         if (c.is_reply) classes.push('reply');
         if (isNew) classes.push('is-new-comment');
         if (isAuthor) classes.push('is-author');
-        return `
+        if (folds[i]) classes.push('c-more');
+        const moreButton = folds[i] && folds.indexOf(true) === i
+            ? `<button class="comments-more" data-action="show-all-comments">${ICONS.chevronDown} 댓글 ${hiddenCount}개 더 보기</button>` : '';
+        return `${moreButton}
             <div class="${classes.join(' ')}"${depth ? ` style="--depth: ${depth}"` : ''}>
                 <span class="comment-avatar av-${avatarTone(c.author)}" aria-hidden="true">${esc(Array.from(c.author || '?')[0])}</span>
                 <div class="comment-main">
@@ -916,6 +930,8 @@ function applyFold() {
         btn.innerHTML = foldLabel();
         btn.setAttribute('aria-pressed', String(!!app.folded));
     }
+    // 긴 본문 접기 (전부 접기로 숨은 본문은 높이가 0이라, 펼쳐 보일 때 판단)
+    clampLongBodies();
 }
 
 function toggleFold() {
@@ -943,6 +959,88 @@ function toggleCardFold(e) {
     applyFold();
     scheduleReadCheck();
     return true;
+}
+
+// ==========================================
+// 모바일 읽기 편의: 긴 본문 접기, 많은 댓글 접기(renderComments), 본문 사진 크게 보기, 글자 크기
+// ==========================================
+// 본문이 화면 높이의 BODY_CLAMP_RATIO배보다 길면 화면 70% 높이까지만 보이고 '본문 펼치기'로 엶.
+// 사진이 늦게 떠서 길어지면 그때 다시 확인 (아래 load 이벤트). 한 번 펼친 본문은 다시 접지 않음
+const BODY_CLAMP_RATIO = 1.3;
+function clampLongBodies(root = document) {
+    if (!isMobile()) return;
+    root.querySelectorAll('#feed .post-card .post-content:not([data-expanded])').forEach(content => {
+        if (content.classList.contains('is-clamped') || content.scrollHeight <= window.innerHeight * BODY_CLAMP_RATIO) return;
+        content.classList.add('is-clamped');
+        content.insertAdjacentHTML('afterend', `<button class="body-more" data-action="expand-body">${ICONS.chevronDown} 본문 펼치기</button>`);
+    });
+}
+function expandBody(button) {
+    const content = button.previousElementSibling;
+    content.classList.remove('is-clamped');
+    content.dataset.expanded = '1';
+    button.remove();
+    scheduleReadCheck();
+}
+
+// 본문 사진을 누르면 그 글의 사진·동영상을 모아 크게 보기 (링크로 감싼 사진·작은 그림(이모티콘)은 그대로)
+function openBodyImage(img) {
+    if (img.closest('a') || img.naturalWidth && img.naturalWidth < 80) return false;
+    const card = img.closest('.post-card');
+    const postId = card.id.replace(/^post-/, '');
+    const src = img.getAttribute('src') || '';
+    const full = src.startsWith('//') ? 'https:' + src : src;
+    const media = app.previewMedia[postId] || [];
+    const index = media.findIndex(m => m.src === full);
+    if (index >= 0) {
+        app.galleryItems = media;
+        openMedia(index);
+    } else {
+        const title = card.querySelector('.post-title').textContent.trim();
+        app.galleryItems = [{ type: 'image', src: full, index: 1, of: 1, post: { id: postId, title, link: '', keywords: [] } }];
+        openMedia(0);
+    }
+    return true;
+}
+
+// 크게 보기에서 좌우로 밀면 이전·다음 (모바일)
+let viewerSwipe = null;
+document.addEventListener('touchstart', e => {
+    viewerSwipe = e.target.closest('.mv-stage') && e.touches.length === 1
+        ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+}, { passive: true });
+document.addEventListener('touchend', e => {
+    if (!viewerSwipe) return;
+    const dx = e.changedTouches[0].clientX - viewerSwipe.x;
+    const dy = e.changedTouches[0].clientY - viewerSwipe.y;
+    viewerSwipe = null;
+    // 확대한 상태(두 손가락으로 키운 화면)에서는 밀어도 넘기지 않음
+    if (window.visualViewport && window.visualViewport.scale > 1.05) return;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) openMedia(app.mediaIndex + (dx < 0 ? 1 : -1));
+}, { passive: true });
+
+// 글자 크기 (본문·댓글): 작게·보통·크게. 기기마다 기억하고 body 클래스(font-s·font-l)로 적용
+const FONT_SIZES = [{ key: 's', label: '작게' }, { key: 'm', label: '보통' }, { key: 'l', label: '크게' }];
+const FONT_SIZE_KEY = 'font_size';
+function applyFontSize() {
+    const size = storageGet(localStorage, FONT_SIZE_KEY, 'm');
+    document.body.classList.toggle('font-s', size === 's');
+    document.body.classList.toggle('font-l', size === 'l');
+}
+function renderFontSizeControl() {
+    const current = storageGet(localStorage, FONT_SIZE_KEY, 'm');
+    return `<div class="font-size-control" role="group" aria-label="글자 크기">
+        <span class="font-size-label">글자</span>
+        ${FONT_SIZES.map(f => `<button class="font-size-btn fs-${f.key}" data-action="set-font-size" data-size="${f.key}" aria-pressed="${f.key === current}">${f.label}</button>`).join('')}
+    </div>`;
+}
+function setFontSize(size) {
+    if (!FONT_SIZES.some(f => f.key === size)) return;
+    storageSet(localStorage, FONT_SIZE_KEY, size);
+    applyFontSize();
+    document.querySelectorAll('.font-size-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.size === size)));
+    // 글자 크기가 바뀌면 본문 길이도 달라지므로 접기를 다시 판단
+    clampLongBodies();
 }
 
 // ==========================================
@@ -1305,9 +1403,8 @@ function renderFeed(data) {
         + `<button class="btn btn-outline btn-small" data-action="mark-all-read" ${summary && pendingCount(summary) ? '' : 'hidden'}>${filter === 'comments' ? '모두 확인' : '모두 읽음'}</button>`;
     // 모바일은 정렬·페이지 이동 줄을 접어 두고, 제목 줄 오른쪽의 작은 버튼(예: '최신순 · 1/10')으로 펼침
     const toolsLabel = [sortable() ? currentSort().label : '', empty ? '' : `${data.page}/${data.total_pages}`].filter(Boolean).join(' · ');
-    const toolsButton = toolsLabel && (sortable() || data.total_pages > 1)
-        ? `<button class="btn btn-outline btn-small feed-tools-btn mobile-only" data-action="toggle-feed-tools" aria-expanded="false" aria-label="정렬·페이지 이동">${esc(toolsLabel)}${ICONS.chevronDown}</button>`
-        : '';
+    // (글자 크기도 이 목록에 있어 늘 보임. 정렬·페이지가 없는 화면은 '보기 설정')
+    const toolsButton = `<button class="btn btn-outline btn-small feed-tools-btn mobile-only" data-action="toggle-feed-tools" aria-expanded="false" aria-label="정렬·페이지 이동·글자 크기">${esc(toolsLabel || '보기 설정')}${ICONS.chevronDown}</button>`;
     feed.innerHTML = `
         <div class="feed-head">
             <div class="feed-head-text">
@@ -1321,6 +1418,7 @@ function renderFeed(data) {
             <div class="feed-tools">
                 ${sortable() ? renderSortSelect() : ''}
                 ${renderPagerMini(data.page, data.total_pages, empty)}
+                ${renderFontSizeControl()}
             </div>
         </div>
         ${body}
@@ -1365,6 +1463,9 @@ function anchorCommentBoxes(root = document) {
 document.addEventListener('load', e => {
     const box = e.target.closest && e.target.closest('.post-card.has-comments > .comments');
     if (box) anchorCommentBox(box);
+    // 본문 사진이 늦게 떠서 길어진 글은 긴 본문 접기를 다시 판단
+    const card = e.target.closest && e.target.closest('#feed .post-card');
+    if (card && e.target.closest('.post-content')) clampLongBodies(card);
 }, true);
 // 창을 넓혀 댓글 칸이 따로 스크롤되기 시작할 때도 같은 시작 위치로
 window.matchMedia('(min-width: 1360px)').addEventListener('change', e => { if (e.matches) anchorCommentBoxes(); });
@@ -2355,6 +2456,7 @@ async function handlePostAnchor() {
 
 async function init() {
     updateAdminUI();
+    applyFontSize();
     app.sort = storageGet(localStorage, SORT_STORAGE_KEY, 'latest');
     app.openPostIds = new Set();
     if (storageGet(localStorage, KEYS_STORAGE_KEY, '0') === '1') {
@@ -2443,6 +2545,8 @@ window.addEventListener('message', (e) => {
 document.addEventListener('click', (e) => {
     if (handleVideoClick(e)) return;
     if (toggleCardFold(e)) return;
+    // 본문 사진을 누르면 크게 보기
+    if (e.target.tagName === 'IMG' && e.target.closest('#feed .post-content') && openBodyImage(e.target)) return;
     // 크게 보기 창의 어두운 바깥을 누르면 닫음
     if (e.target.id === 'media-viewer' || e.target.classList.contains('mv-stage')) { closeMedia(); return; }
     // 페이지 목록 바깥을 누르면 닫음
@@ -2539,6 +2643,14 @@ document.addEventListener('click', (e) => {
         deleteCategory(el.dataset.key, el);
     } else if (action === 'page') {
         changePage(el.dataset.target);
+    } else if (action === 'show-all-comments') {
+        el.closest('.comments').classList.add('show-all');
+        el.remove();
+        scheduleReadCheck();
+    } else if (action === 'expand-body') {
+        expandBody(el);
+    } else if (action === 'set-font-size') {
+        setFontSize(el.dataset.size);
     } else if (action === 'toggle-feed-tools') {
         const head = el.closest('.feed-head');
         el.setAttribute('aria-expanded', String(head.classList.toggle('tools-open')));

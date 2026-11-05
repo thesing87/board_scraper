@@ -389,6 +389,16 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .stat-comments.is-hot { background: #1D4ED8; color: #FFFFFF; }
 
 .post-content { font-size: 15px; line-height: 1.75; color: var(--text-body); }
+/* 본문 사진은 눌러서 크게 보기 (링크로 감싼 사진은 링크 그대로) */
+.post-content img { cursor: zoom-in; }
+.post-content a img { cursor: pointer; }
+/* 글자 크기 설정 (본문·댓글): body.font-s 작게, body.font-l 크게 (보통은 그대로) */
+body.font-s .post-content { font-size: 14px; }
+body.font-s .comment-body { font-size: 13px; }
+body.font-l .post-content { font-size: 17.5px; }
+body.font-l .comment-body { font-size: 16px; }
+/* 모바일 긴 본문 접기·많은 댓글 접기 버튼 (넓은 화면에서는 쓰지 않음) */
+.body-more, .comments-more, .font-size-control { display: none; }
 .content-spacer { height: 12px; }
 .content-line { margin: 4px 0; }
 .post-content a { color: var(--accent-ink) !important; font-weight: inherit !important; }
@@ -628,7 +638,25 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
     .feed-head .feed-tools { display: none; }
     .feed-head.tools-open .feed-tools { display: flex; position: absolute; top: calc(100% + 4px); left: 6px; right: 6px; z-index: 32;
         padding: 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface);
-        box-shadow: 0 8px 24px rgba(17,24,39,0.14); justify-content: space-between; }
+        box-shadow: 0 8px 24px rgba(17,24,39,0.14); justify-content: space-between; flex-wrap: wrap; row-gap: 10px; }
+    /* 글자 크기: 정렬·페이지 목록 아래 줄 (가 크기로 미리 보여 줌) */
+    .feed-head.tools-open .font-size-control { display: flex; flex-basis: 100%; align-items: center; gap: 6px; padding-top: 10px; border-top: 1px solid var(--divider); }
+    .font-size-label { margin-right: auto; font-size: 13px; color: var(--text-3); }
+    .font-size-btn { height: 36px; min-width: 56px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text-2); cursor: pointer; }
+    .font-size-btn.fs-s { font-size: 12px; }
+    .font-size-btn.fs-m { font-size: 14px; }
+    .font-size-btn.fs-l { font-size: 16px; }
+    .font-size-btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-weak); color: var(--accent); font-weight: 700; }
+    /* 긴 본문: 화면 70% 높이까지만 보이고 아래는 흐려지며 '본문 펼치기' */
+    .post-content.is-clamped { max-height: 70vh; overflow: hidden;
+        -webkit-mask-image: linear-gradient(to bottom, #000 78%, transparent); mask-image: linear-gradient(to bottom, #000 78%, transparent); }
+    .body-more, .comments-more { display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; height: 42px;
+        border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); color: var(--text-2);
+        font-size: 14px; font-weight: 500; cursor: pointer; }
+    .body-more svg, .comments-more svg { width: 14px; height: 14px; color: var(--muted); }
+    .comments-more { margin: 8px 0; }
+    /* 많은 댓글: 처음·끝 몇 개와 새 댓글만, 나머지는 '댓글 N개 더 보기' */
+    .comments:not(.show-all) .comment.c-more { display: none; }
     .settings-panel { width: 100%; box-shadow: none; }
     .settings-backdrop { background: var(--bg); }
 }
