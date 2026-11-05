@@ -662,6 +662,86 @@ body.font-l .comment-body { font-size: 16px; }
 }
 
 /* ==========================================
+   다크 모드 (모바일): body.theme-dark. 휴대폰 설정을 따르거나 보기 설정에서 고름 (app.js applyTheme)
+   공용 색 변수를 어두운 색으로 바꾸고, 변수 대신 고정 색을 쓰는 곳만 따로 덮어씀
+   ========================================== */
+body.theme-dark {
+    --bg: #0F1115;
+    --surface: #181B21;
+    --surface-muted: #1F232B;
+    --border: #2C313A;
+    --border-soft: #262A32;
+    --divider: #262A32;
+    --text: #E8EAED;
+    --text-body: #D6D9DE;
+    --text-2: #C3C7CE;
+    --text-3: #A4AAB4;
+    --muted: #8B929D;
+    --accent: #4C8DFF;
+    --accent-ink: #7FADFF;
+    --accent-weak: #1B2944;
+    --ok-bg: #12291C;
+    --ok-text: #74D69D;
+    --ok-dot: #34C76F;
+    --video-bg: #33250F;
+    --video-text: #F2B866;
+    --danger-bg: #3A1818;
+    --danger-text: #F28B8B;
+    color-scheme: dark;
+}
+body.theme-dark .input, body.theme-dark .btn-original { border-color: #3A404A; }
+body.theme-dark .icon-btn.small, body.theme-dark .kw-chip, body.theme-dark .stat, body.theme-dark .count-badge,
+body.theme-dark .kw-tag, body.theme-dark .site-chip-folder { background: #252A33; }
+body.theme-dark .site-chip-folder { border-color: #3A404A; }
+/* 보기 탭의 글 수는 배지가 아니라 글자만 (밝은 화면과 같게) */
+body.theme-dark .view-tab .count-badge, body.theme-dark .view-bar-tab .count-badge { background: none; }
+body.theme-dark .site-chip.active.site-chip-folder { background: #4B5563; border-color: #4B5563; }
+body.theme-dark .site-chip-open .site-tag { background: #181B21; }
+body.theme-dark .chip-folder-box { border-color: #2C4A80; }
+body.theme-dark .site-fmkorea { background: #1E2D4D; color: #8DB4FF; }
+body.theme-dark .site-dcinside { background: #2B2346; color: #C4B5FD; }
+body.theme-dark .site-multi { background: #163222; color: #86EFAC; }
+body.theme-dark .post-card { border-color: #262A32; }
+body.theme-dark .post-card.highlight { background-color: #3A3413; }
+body.theme-dark .post-card.is-deleted { background: #241819; border-color: #5A3030; }
+body.theme-dark .badge-new-comments { background: #3D2412; color: #FDBA74; }
+body.theme-dark .star-btn[aria-pressed="true"] { color: #FBBF24; border-color: #6B5512; background: #2E2610; }
+body.theme-dark .new-divider::before, body.theme-dark .new-divider::after { background: #2C313A; }
+body.theme-dark .comment { border-top-color: #262A32; }
+body.theme-dark .comment.reply { background: #20242C; }
+body.theme-dark .comment.reply::before { border-color: #3A404A; }
+body.theme-dark .comment.is-new-comment { background: #2E2114; }
+body.theme-dark .comment.reply.is-new-comment { background: #3A2815; }
+body.theme-dark .stat-views.is-some { background: #13281B; color: #86EFAC; }
+body.theme-dark .stat-views.is-warm { background: #1C4A2C; color: #BBF7D0; }
+body.theme-dark .stat-votes.is-some { background: #2E1E12; color: #FDBA74; }
+body.theme-dark .stat-votes.is-warm { background: #5A3014; color: #FED7AA; }
+body.theme-dark .stat-comments.is-some { background: #14213A; color: #93C5FD; }
+body.theme-dark .stat-comments.is-warm { background: #1E3A6E; color: #BFDBFE; }
+body.theme-dark .av-0 { background: #272D52; color: #C7D2FE; }
+body.theme-dark .av-1 { background: #45203A; color: #F9A8D4; }
+body.theme-dark .av-2 { background: #163222; color: #86EFAC; }
+body.theme-dark .av-3 { background: #3B2E10; color: #FCD34D; }
+body.theme-dark .av-4 { background: #12304A; color: #7DD3FC; }
+body.theme-dark .av-5 { background: #2B2346; color: #C4B5FD; }
+body.theme-dark .fold-thumb, body.theme-dark .g-cell, body.theme-dark .sk { background: #252A33; }
+body.theme-dark .fab-next, body.theme-dark .toast { background: #E8EAED; color: #111827; }
+body.theme-dark .pager-mini .icon-btn:disabled { color: #4B5563; }
+body.theme-dark .pager .btn-outline:disabled { color: #6B7280; }
+body.theme-dark mark { background: #6B5A12; color: #FFF7CC; }
+body.theme-dark .board-check[aria-pressed="true"] { background: #1B2944; }
+body.theme-dark .kw-tag.is-paused { background: #1F232B; border-color: #3A404A; }
+body.theme-dark .kw-tag-paused, body.theme-dark .kw-tag button:hover { background: #2C313A; }
+body.theme-dark .cat-pending { background: #3B2E10; color: #FCD34D; }
+body.theme-dark .status-ok { color: #74D69D; }
+body.theme-dark .status-warn { color: #FB923C; }
+body.theme-dark .switch .slider { background: #3A404A; }
+/* 수집한 글 본문에 박혀 있는 글자·바탕색(검은 글자, 흰 바탕 등)은 어두운 화면에서 안 보이므로 무시 */
+body.theme-dark .post-content [style*="color"], body.theme-dark .post-content font[color],
+body.theme-dark .comment-body [style*="color"] { color: inherit !important; }
+body.theme-dark .post-content [style*="background"], body.theme-dark .post-content [bgcolor] { background-color: transparent !important; }
+
+/* ==========================================
    수집된 본문 미디어 크기 보정 (에펨코리아 원본 마크업)
    ========================================== */
 .post-content video, .post-content iframe, .post-content embed, .post-content object { max-width: 100%; }

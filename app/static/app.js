@@ -1019,6 +1019,52 @@ document.addEventListener('touchend', e => {
     if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) openMedia(app.mediaIndex + (dx < 0 ? 1 : -1));
 }, { passive: true });
 
+// 모바일: 글 목록을 좌우로 빠르게 밀면 게시판 칩 순서대로 이전·다음 게시판 (왼쪽으로 밀면 다음).
+// 읽다가 실수로 넘어가지 않도록 가로로 충분히·빠르게 민 경우만, 가로로 스크롤되는 곳(넓은 표·칩 줄)·동영상·버튼 위는 제외
+const BOARD_SWIPE_MIN = 90;      // 가로로 민 거리(px)
+const BOARD_SWIPE_MS = 600;      // 이 시간 안에 민 경우만
+let boardSwipe = null;
+function scrollsSideways(el) {
+    for (; el && el !== document.body; el = el.parentElement) {
+        if (el.scrollWidth > el.clientWidth + 4 && /(auto|scroll)/.test(getComputedStyle(el).overflowX)) return true;
+    }
+    return false;
+}
+document.addEventListener('touchstart', e => {
+    const t = e.target;
+    boardSwipe = isMobile() && e.touches.length === 1 && t.closest('#feed') && !isGalleryView()
+        && !t.closest('a, button, input, select, video, iframe, .chip-row, .feed-tools') && !scrollsSideways(t)
+        && document.getElementById('settings').hidden && !document.body.classList.contains('viewer-open')
+        ? { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() } : null;
+}, { passive: true });
+document.addEventListener('touchend', e => {
+    if (!boardSwipe) return;
+    const dx = e.changedTouches[0].clientX - boardSwipe.x;
+    const dy = e.changedTouches[0].clientY - boardSwipe.y;
+    const quick = Date.now() - boardSwipe.at < BOARD_SWIPE_MS;
+    boardSwipe = null;
+    // 두 손가락으로 확대한 상태에서는 화면을 옮기는 동작이므로 넘기지 않음
+    if (window.visualViewport && window.visualViewport.scale > 1.05) return;
+    if (quick && Math.abs(dx) >= BOARD_SWIPE_MIN && Math.abs(dx) > Math.abs(dy) * 2) switchBoardBy(dx < 0 ? 1 : -1);
+}, { passive: true });
+
+// 게시판 칩 줄의 순서(전체 → 게시판·묶음)에서 지금 칩의 앞·뒤 칩을 눌러 이동하고, 어디로 갔는지 잠깐 안내
+function switchBoardBy(step) {
+    const chips = [...document.querySelectorAll('#chip-row [data-action="open-all"], #chip-row [data-action="open-group"], #chip-row [data-action="open-folder"]')];
+    const current = chips.findIndex(c => c.getAttribute('aria-current') === 'true');
+    const next = chips[current + step];
+    if (current < 0 || !next) {
+        showToast(step > 0 ? '마지막 게시판입니다' : '첫 게시판입니다');
+        return;
+    }
+    next.click();
+    next.scrollIntoView({ block: 'nearest', inline: 'center' });
+    const d = next.dataset;
+    const name = d.groupId ? (findGroup('group:' + d.groupId) || {}).name
+        : d.folderId ? (findFolder('folder:' + d.folderId) || {}).name : '전체';
+    showToast(name || '');
+}
+
 // 글자 크기 (본문·댓글): 작게·보통·크게. 기기마다 기억하고 body 클래스(font-s·font-l)로 적용
 const FONT_SIZES = [{ key: 's', label: '작게' }, { key: 'm', label: '보통' }, { key: 'l', label: '크게' }];
 const FONT_SIZE_KEY = 'font_size';
@@ -1029,11 +1075,36 @@ function applyFontSize() {
 }
 function renderFontSizeControl() {
     const current = storageGet(localStorage, FONT_SIZE_KEY, 'm');
+    const theme = storageGet(localStorage, THEME_KEY, 'auto');
     return `<div class="font-size-control" role="group" aria-label="글자 크기">
         <span class="font-size-label">글자</span>
         ${FONT_SIZES.map(f => `<button class="font-size-btn fs-${f.key}" data-action="set-font-size" data-size="${f.key}" aria-pressed="${f.key === current}">${f.label}</button>`).join('')}
+    </div>
+    <div class="font-size-control" role="group" aria-label="화면 밝기">
+        <span class="font-size-label">화면</span>
+        ${THEMES.map(t => `<button class="font-size-btn theme-btn" data-action="set-theme" data-theme="${t.key}" aria-pressed="${t.key === theme}">${t.label}</button>`).join('')}
     </div>`;
 }
+
+// 다크 모드 (모바일): 자동(휴대폰 설정을 따름)·밝게·어둡게. 기기마다 기억하고 body.theme-dark로 적용,
+// 휴대폰 위 상태 표시줄 색(theme-color)도 화면 색에 맞춤
+const THEMES = [{ key: 'auto', label: '자동' }, { key: 'light', label: '밝게' }, { key: 'dark', label: '어둡게' }];
+const THEME_KEY = 'theme';
+const DARK_QUERY = window.matchMedia('(prefers-color-scheme: dark)');
+function applyTheme() {
+    const theme = storageGet(localStorage, THEME_KEY, 'auto');
+    const dark = isMobile() && (theme === 'dark' || (theme === 'auto' && DARK_QUERY.matches));
+    document.body.classList.toggle('theme-dark', dark);
+    document.getElementById('theme-color').setAttribute('content', dark ? '#181B21' : '#FFFFFF');
+}
+function setTheme(theme) {
+    if (!THEMES.some(t => t.key === theme)) return;
+    storageSet(localStorage, THEME_KEY, theme);
+    applyTheme();
+    document.querySelectorAll('.theme-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.theme === theme)));
+}
+DARK_QUERY.addEventListener('change', applyTheme);
+window.matchMedia('(max-width: 899px)').addEventListener('change', applyTheme);
 function setFontSize(size) {
     if (!FONT_SIZES.some(f => f.key === size)) return;
     storageSet(localStorage, FONT_SIZE_KEY, size);
@@ -2457,6 +2528,7 @@ async function handlePostAnchor() {
 async function init() {
     updateAdminUI();
     applyFontSize();
+    applyTheme();
     app.sort = storageGet(localStorage, SORT_STORAGE_KEY, 'latest');
     app.openPostIds = new Set();
     if (storageGet(localStorage, KEYS_STORAGE_KEY, '0') === '1') {
@@ -2651,6 +2723,8 @@ document.addEventListener('click', (e) => {
         expandBody(el);
     } else if (action === 'set-font-size') {
         setFontSize(el.dataset.size);
+    } else if (action === 'set-theme') {
+        setTheme(el.dataset.theme);
     } else if (action === 'toggle-feed-tools') {
         const head = el.closest('.feed-head');
         el.setAttribute('aria-expanded', String(head.classList.toggle('tools-open')));

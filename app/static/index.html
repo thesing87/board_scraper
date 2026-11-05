@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>키워드 모니터</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563EB'/%3E%3Ccircle cx='14.5' cy='14.5' r='6.5' fill='none' stroke='white' stroke-width='3'/%3E%3Cpath d='M19.5 19.5l5 5' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+    <!-- 홈 화면에 추가하면 주소창 없이 앱처럼 열림 (안드로이드: manifest, 아이폰: apple- 설정). 위 상태 표시줄 색은 화면 색에 맞춤 -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="키워드 모니터">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#FFFFFF" id="theme-color">
     <link rel="stylesheet" href="/app.css">
     <script src="/app.js" defer></script>
 </head>

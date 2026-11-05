@@ -85,6 +85,11 @@ STATIC_FILES = {
     '/index.html': ('index.html', 'text/html; charset=utf-8'),
     '/app.js': ('app.js', 'application/javascript; charset=utf-8'),
     '/app.css': ('app.css', 'text/css; charset=utf-8'),
+    # 휴대폰 홈 화면에 앱처럼 추가할 때 쓰는 앱 정보와 아이콘
+    '/manifest.webmanifest': ('manifest.webmanifest', 'application/manifest+json; charset=utf-8'),
+    '/icon-192.png': ('icon-192.png', 'image/png'),
+    '/icon-512.png': ('icon-512.png', 'image/png'),
+    '/apple-touch-icon.png': ('apple-touch-icon.png', 'image/png'),
 }
 
 # 본문 HTML은 저장 시 정화되지만, 스크립트는 같은 출처의 app.js만 실행되도록 브라우저 차원에서 한 번 더 제한
