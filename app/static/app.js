@@ -504,7 +504,7 @@ function openView(key, page) {
     app.page = page || 1;
     renderNavigation();
     scrollActiveChipIntoView();
-    loadPosts().then(jumped => { if (!jumped) window.scrollTo({ top: 0 }); });
+    return loadPosts().then(jumped => { if (!jumped) window.scrollTo({ top: 0 }); });
 }
 
 // 보기 바꾸기 (고른 게시판은 유지)
@@ -518,7 +518,7 @@ function setFilter(filter) {
 function openBoard(key) {
     app.filter = defaultFilter(key);
     app.galleryReturn = null;
-    openView(key, 1);
+    return openView(key, 1);
 }
 
 // 홈: 검색·관리 패널·텔레그램 링크(#post-ID)를 정리하고 전체 게시판 첫 화면으로
@@ -1019,10 +1019,15 @@ document.addEventListener('touchend', e => {
     if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) openMedia(app.mediaIndex + (dx < 0 ? 1 : -1));
 }, { passive: true });
 
-// 모바일: 글 목록을 좌우로 빠르게 밀면 게시판 칩 순서대로 이전·다음 게시판 (왼쪽으로 밀면 다음).
-// 읽다가 실수로 넘어가지 않도록 가로로 충분히·빠르게 민 경우만, 가로로 스크롤되는 곳(넓은 표·칩 줄)·동영상·버튼 위는 제외
-const BOARD_SWIPE_MIN = 90;      // 가로로 민 거리(px)
-const BOARD_SWIPE_MS = 600;      // 이 시간 안에 민 경우만
+// 모바일: 글 목록을 좌우로 밀면 게시판 칩 순서대로 이전·다음 게시판 (왼쪽으로 밀면 다음).
+// 미는 동안 목록이 손가락을 따라 움직이고, 충분히 밀었다 놓으면 지금 목록이 밀려 나가고 다음 게시판 목록이 반대쪽에서 들어옴.
+// 덜 밀었으면 제자리로 돌아오고, 끝 게시판에서는 조금만 끌려오다 돌아옴.
+// 세로 스크롤과 헷갈리지 않도록 처음 움직임이 가로일 때만, 가로로 스크롤되는 곳(넓은 표·칩 줄)·동영상·버튼 위는 제외
+const BOARD_SWIPE_DECIDE = 12;     // 이만큼(px) 움직인 뒤 가로인지 세로인지 정함
+const BOARD_SWIPE_RATIO = 0.25;    // 화면 폭의 이 비율 넘게 밀면 넘김
+const BOARD_SWIPE_FLICK = 60;      // 또는 빠르게(BOARD_SWIPE_MS 안에) 이만큼 밀면 넘김
+const BOARD_SWIPE_MS = 300;
+const BOARD_SLIDE_MS = 200;        // 밀려 나가고 들어오는 시간
 let boardSwipe = null;
 function scrollsSideways(el) {
     for (; el && el !== document.body; el = el.parentElement) {
@@ -1030,39 +1035,85 @@ function scrollsSideways(el) {
     }
     return false;
 }
-document.addEventListener('touchstart', e => {
-    const t = e.target;
-    boardSwipe = isMobile() && e.touches.length === 1 && t.closest('#feed') && !isGalleryView()
-        && !t.closest('a, button, input, select, video, iframe, .chip-row, .feed-tools') && !scrollsSideways(t)
-        && document.getElementById('settings').hidden && !document.body.classList.contains('viewer-open')
-        ? { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() } : null;
-}, { passive: true });
-document.addEventListener('touchend', e => {
-    if (!boardSwipe) return;
-    const dx = e.changedTouches[0].clientX - boardSwipe.x;
-    const dy = e.changedTouches[0].clientY - boardSwipe.y;
-    const quick = Date.now() - boardSwipe.at < BOARD_SWIPE_MS;
-    boardSwipe = null;
-    // 두 손가락으로 확대한 상태에서는 화면을 옮기는 동작이므로 넘기지 않음
-    if (window.visualViewport && window.visualViewport.scale > 1.05) return;
-    if (quick && Math.abs(dx) >= BOARD_SWIPE_MIN && Math.abs(dx) > Math.abs(dy) * 2) switchBoardBy(dx < 0 ? 1 : -1);
-}, { passive: true });
-
-// 게시판 칩 줄의 순서(전체 → 게시판·묶음)에서 지금 칩의 앞·뒤 칩을 눌러 이동하고, 어디로 갔는지 잠깐 안내
-function switchBoardBy(step) {
+// 게시판 칩 줄의 순서(전체 → 게시판·묶음)에서 지금 칩의 앞·뒤 칩
+function neighborBoardChip(step) {
     const chips = [...document.querySelectorAll('#chip-row [data-action="open-all"], #chip-row [data-action="open-group"], #chip-row [data-action="open-folder"]')];
     const current = chips.findIndex(c => c.getAttribute('aria-current') === 'true');
-    const next = chips[current + step];
-    if (current < 0 || !next) {
-        showToast(step > 0 ? '마지막 게시판입니다' : '첫 게시판입니다');
+    return current < 0 ? null : chips[current + step] || null;
+}
+function setFeedSlide(x, opacity, transition) {
+    const feed = document.getElementById('feed');
+    feed.style.transition = transition || 'none';
+    feed.style.transform = x ? `translateX(${x})` : '';
+    feed.style.opacity = opacity === 1 ? '' : String(opacity);
+}
+document.addEventListener('touchstart', e => {
+    const t = e.target;
+    boardSwipe = isMobile() && e.touches.length === 1 && t.closest('#feed') && !isGalleryView() && !document.body.classList.contains('board-sliding')
+        && !t.closest('a, button, input, select, video, iframe, .chip-row, .feed-tools') && !scrollsSideways(t)
+        && document.getElementById('settings').hidden && !document.body.classList.contains('viewer-open')
+        // 두 손가락으로 확대한 상태에서는 화면을 옮기는 동작이므로 넘기지 않음
+        && !(window.visualViewport && window.visualViewport.scale > 1.05)
+        ? { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now(), dragging: false, dx: 0 } : null;
+}, { passive: true });
+// 가로로 끄는 동안에는 세로 스크롤을 막아야 하므로 passive가 아닌 리스너 (끄는 중이 아니면 바로 돌아감)
+document.addEventListener('touchmove', e => {
+    if (!boardSwipe) return;
+    const dx = e.touches[0].clientX - boardSwipe.x;
+    const dy = e.touches[0].clientY - boardSwipe.y;
+    if (!boardSwipe.dragging) {
+        if (Math.abs(dx) < BOARD_SWIPE_DECIDE && Math.abs(dy) < BOARD_SWIPE_DECIDE) return;
+        if (Math.abs(dx) <= Math.abs(dy) * 1.5) { boardSwipe = null; return; }   // 세로 스크롤
+        boardSwipe.dragging = true;
+        boardSwipe.prev = neighborBoardChip(-1);
+        boardSwipe.next = neighborBoardChip(1);
+        // 맨 위에서 당겨서 새로고침이 같이 시작됐으면 취소
+        if (pull) { pull = null; resetPull(document.getElementById('pull-refresh')); }
+    }
+    e.preventDefault();
+    boardSwipe.dx = dx;
+    // 넘어갈 게시판이 없는 쪽으로는 조금만 끌려옴
+    const target = dx < 0 ? boardSwipe.next : boardSwipe.prev;
+    const shown = target ? dx : dx * 0.25;
+    setFeedSlide(`${shown}px`, 1 - Math.min(0.4, Math.abs(shown) / window.innerWidth * 0.6));
+}, { passive: false });
+document.addEventListener('touchend', e => {
+    if (!boardSwipe) return;
+    const swipe = boardSwipe;
+    boardSwipe = null;
+    if (!swipe.dragging) return;
+    const dx = swipe.dx;
+    const step = dx < 0 ? 1 : -1;
+    const target = step > 0 ? swipe.next : swipe.prev;
+    const far = Math.abs(dx) > window.innerWidth * BOARD_SWIPE_RATIO;
+    const flick = Date.now() - swipe.at < BOARD_SWIPE_MS && Math.abs(dx) >= BOARD_SWIPE_FLICK;
+    if (target && (far || flick)) {
+        slideToBoard(target, step);
         return;
     }
-    next.click();
-    next.scrollIntoView({ block: 'nearest', inline: 'center' });
-    const d = next.dataset;
-    const name = d.groupId ? (findGroup('group:' + d.groupId) || {}).name
-        : d.folderId ? (findFolder('folder:' + d.folderId) || {}).name : '전체';
-    showToast(name || '');
+    if (!target && (far || flick)) showToast(step > 0 ? '마지막 게시판입니다' : '첫 게시판입니다');
+    // 덜 밀었으면 제자리로
+    setFeedSlide('', 1, `transform ${BOARD_SLIDE_MS}ms ease-out, opacity ${BOARD_SLIDE_MS}ms ease-out`);
+}, { passive: true });
+
+// 지금 목록을 민 쪽으로 밀어 내보내고, 다음 게시판 목록을 받아 반대쪽에서 들여옴
+async function slideToBoard(chip, step) {
+    document.body.classList.add('board-sliding');
+    const out = step > 0 ? '-100vw' : '100vw';
+    setFeedSlide(out, 0, `transform ${BOARD_SLIDE_MS}ms ease-in, opacity ${BOARD_SLIDE_MS}ms ease-in`);
+    await new Promise(r => setTimeout(r, BOARD_SLIDE_MS));
+    const d = chip.dataset;
+    const key = d.groupId ? 'group:' + d.groupId : d.folderId ? 'folder:' + d.folderId : ALL_KEY;
+    const name = d.groupId ? (findGroup(key) || {}).name : d.folderId ? (findFolder(key) || {}).name : '전체';
+    try {
+        await openBoard(key);
+    } finally {
+        setFeedSlide(step > 0 ? '40vw' : '-40vw', 0);
+        document.getElementById('feed').getBoundingClientRect();   // 들어올 위치를 먼저 그린 뒤 움직이게
+        setFeedSlide('', 1, `transform ${BOARD_SLIDE_MS + 60}ms ease-out, opacity ${BOARD_SLIDE_MS + 60}ms ease-out`);
+        setTimeout(() => { setFeedSlide('', 1); document.body.classList.remove('board-sliding'); }, BOARD_SLIDE_MS + 80);
+        showToast(name || '');
+    }
 }
 
 // 글자 크기 (본문·댓글): 작게·보통·크게. 기기마다 기억하고 body 클래스(font-s·font-l)로 적용
