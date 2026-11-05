@@ -391,7 +391,7 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .post-content { font-size: 15px; line-height: 1.75; color: var(--text-body); }
 /* 본문 사진은 눌러서 크게 보기 (링크로 감싼 사진은 링크 그대로) */
 .post-content img { cursor: zoom-in; }
-.post-content a img { cursor: pointer; }
+.post-content a:not(.highslide) img { cursor: pointer; }
 /* 글자 크기 설정 (본문·댓글): body.font-s 작게, body.font-l 크게 (보통은 그대로) */
 body.font-s .post-content { font-size: 14px; }
 body.font-s .comment-body { font-size: 13px; }

@@ -983,9 +983,14 @@ function expandBody(button) {
     scheduleReadCheck();
 }
 
-// 본문 사진을 누르면 그 글의 사진·동영상을 모아 크게 보기 (링크로 감싼 사진·작은 그림(이모티콘)은 그대로)
+// 본문 사진을 누르면 그 글의 사진·동영상을 모아 크게 보기. 에펨코리아 사진은 원본 사진으로 가는 링크(a.highslide)로
+// 감싸여 있어 그 링크는 크게 보기로 대신하고, 다른 곳으로 가는 링크로 감싼 사진·작은 그림(이모티콘)은 그대로
+function isImageLink(a) {
+    return a.classList.contains('highslide') || /\.(jpe?g|png|gif|webp|bmp)([?#].*)?$/i.test(a.getAttribute('href') || '');
+}
 function openBodyImage(img) {
-    if (img.closest('a') || img.naturalWidth && img.naturalWidth < 80) return false;
+    const link = img.closest('a');
+    if (link && !isImageLink(link) || img.naturalWidth && img.naturalWidth < 80) return false;
     const card = img.closest('.post-card');
     const postId = card.id.replace(/^post-/, '');
     const src = img.getAttribute('src') || '';
@@ -1022,7 +1027,8 @@ document.addEventListener('touchend', e => {
 // 모바일: 글 목록을 좌우로 밀면 게시판 칩 순서대로 이전·다음 게시판 (왼쪽으로 밀면 다음).
 // 미는 동안 목록이 손가락을 따라 움직이고, 충분히 밀었다 놓으면 지금 목록이 밀려 나가고 다음 게시판 목록이 반대쪽에서 들어옴.
 // 덜 밀었으면 제자리로 돌아오고, 끝 게시판에서는 조금만 끌려오다 돌아옴.
-// 세로 스크롤과 헷갈리지 않도록 처음 움직임이 가로일 때만, 가로로 스크롤되는 곳(넓은 표·칩 줄)·동영상·버튼 위는 제외
+// 세로 스크롤과 헷갈리지 않도록 처음 움직임이 가로일 때만, 가로로 스크롤되는 곳(넓은 표·칩 줄)·동영상·입력칸 위는 제외.
+// 링크·사진·버튼 위에서 시작해도 끌 수 있음 (끌면 브라우저가 누름으로 치지 않아 링크가 열리지 않음)
 const BOARD_SWIPE_DECIDE = 12;     // 이만큼(px) 움직인 뒤 가로인지 세로인지 정함
 const BOARD_SWIPE_RATIO = 0.25;    // 화면 폭의 이 비율 넘게 밀면 넘김
 const BOARD_SWIPE_FLICK = 60;      // 또는 빠르게(BOARD_SWIPE_MS 안에) 이만큼 밀면 넘김
@@ -1050,7 +1056,7 @@ function setFeedSlide(x, opacity, transition) {
 document.addEventListener('touchstart', e => {
     const t = e.target;
     boardSwipe = isMobile() && e.touches.length === 1 && t.closest('#feed') && !isGalleryView() && !document.body.classList.contains('board-sliding')
-        && !t.closest('a, button, input, select, video, iframe, .chip-row, .feed-tools') && !scrollsSideways(t)
+        && !t.closest('input, select, textarea, video, iframe, .chip-row, .feed-tools') && !scrollsSideways(t)
         && document.getElementById('settings').hidden && !document.body.classList.contains('viewer-open')
         // 두 손가락으로 확대한 상태에서는 화면을 옮기는 동작이므로 넘기지 않음
         && !(window.visualViewport && window.visualViewport.scale > 1.05)
@@ -2669,7 +2675,10 @@ document.addEventListener('click', (e) => {
     if (handleVideoClick(e)) return;
     if (toggleCardFold(e)) return;
     // 본문 사진을 누르면 크게 보기
-    if (e.target.tagName === 'IMG' && e.target.closest('#feed .post-content') && openBodyImage(e.target)) return;
+    if (e.target.tagName === 'IMG' && e.target.closest('#feed .post-content') && openBodyImage(e.target)) {
+        e.preventDefault();   // 사진을 감싼 원본 사진 링크로 이동하지 않게
+        return;
+    }
     // 크게 보기 창의 어두운 바깥을 누르면 닫음
     if (e.target.id === 'media-viewer' || e.target.classList.contains('mv-stage')) { closeMedia(); return; }
     // 페이지 목록 바깥을 누르면 닫음
