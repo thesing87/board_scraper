@@ -1628,8 +1628,42 @@ function anchorCommentBox(box) {
 }
 function anchorCommentBoxes(root = document) {
     root.querySelectorAll('.post-card.has-comments > .comments').forEach(box => {
+        fitCommentBox(box);
         anchorCommentBox(box);
         updateCommentsBottom(box);
+    });
+}
+
+// 넓은 화면 댓글 칸의 높이: 칸 아래 끝이 항상 창 아래(COMMENT_BOX_BOTTOM_GAP 위)에 오도록.
+// CSS 고정 높이(창 높이 − 위 메뉴)는 칸이 위 메뉴 아래에 붙었을 때 기준이라, 게시판을 막 열어 첫 글이 게시판 제목 줄 아래에
+// 있으면 칸 끝이 창 밖으로 나가 마지막 댓글이 안 보였음. 글이 아래에 있을수록 짧게, 스크롤해 올라오면 길게 맞춤.
+// 맨 아래를 보던 칸은 높이가 바뀌어도 맨 아래를 그대로 보여 줌
+const COMMENT_BOX_BOTTOM_GAP = 24;
+const COMMENT_BOX_MIN = 240;
+function fitCommentBox(box) {
+    if (!WIDE_QUERY.matches) {
+        box.style.maxHeight = '';
+        return;
+    }
+    const top = box.getBoundingClientRect().top;
+    if (top > window.innerHeight || box.getBoundingClientRect().bottom < 0) return;   // 화면 밖의 칸은 그대로
+    const stickyTop = parseFloat(getComputedStyle(box).top) || 0;
+    const height = Math.max(COMMENT_BOX_MIN, Math.round(window.innerHeight - Math.max(top, stickyTop) - COMMENT_BOX_BOTTOM_GAP));
+    if (box.style.maxHeight === height + 'px') return;
+    const atBottom = box.scrollHeight - box.clientHeight - box.scrollTop < 2;
+    box.style.maxHeight = height + 'px';
+    if (atBottom) box.scrollTop = box.scrollHeight;
+}
+let commentFitScheduled = false;
+function scheduleCommentFit() {
+    if (commentFitScheduled || !WIDE_QUERY.matches) return;
+    commentFitScheduled = true;
+    requestAnimationFrame(() => {
+        commentFitScheduled = false;
+        document.querySelectorAll('#feed .post-card.has-comments > .comments').forEach(box => {
+            fitCommentBox(box);
+            updateCommentsBottom(box);
+        });
     });
 }
 
@@ -3113,10 +3147,11 @@ document.addEventListener('touchend', async () => {
 
 window.addEventListener('scroll', () => {
     document.getElementById('floating-top-btn').classList.toggle('visible', window.scrollY > 400);
+    scheduleCommentFit();
     updateTitleRow();
     scheduleReadCheck();
 }, { passive: true });
-window.addEventListener('resize', () => { updateTitleRow(); scheduleReadCheck(); }, { passive: true });
+window.addEventListener('resize', () => { updateTitleRow(); scheduleReadCheck(); scheduleCommentFit(); }, { passive: true });
 // 댓글 칸 안의 스크롤은 창으로 전달되지 않으므로 캡처 단계에서 받아 새 댓글 확인 (넓은 화면)
 document.addEventListener('scroll', e => {
     if (e.target !== document && e.target.classList && e.target.classList.contains('comments')) {
