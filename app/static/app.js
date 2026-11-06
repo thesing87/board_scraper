@@ -1701,6 +1701,26 @@ function fitOpeningCommentBox(box) {
     if (top <= stickyTop + 4 || top >= window.innerHeight) return;   // 위 메뉴 아래에 붙어 있거나 화면 밖이면 CSS 높이 그대로
     box.style.maxHeight = Math.max(COMMENT_BOX_MIN, Math.round(window.innerHeight - top - COMMENT_BOX_BOTTOM_GAP)) + 'px';
 }
+// 위에서 줄여 둔 칸은 글을 올리면 위쪽이 올라온 만큼 다시 늘림 (위 메뉴 아래에 붙으면 CSS 높이로 되돌림).
+// 늘리기만 하므로 칸 안의 스크롤 위치는 흔들리지 않음
+let growCommentsQueued = false;
+function growShrunkCommentBoxes() {
+    growCommentsQueued = false;
+    if (!WIDE_QUERY.matches) return;
+    document.querySelectorAll('.post-card.has-comments > .comments[style*="max-height"]').forEach(box => {
+        const top = box.getBoundingClientRect().top;
+        if (top >= window.innerHeight || box.getBoundingClientRect().bottom <= 0) return;
+        const stickyTop = parseFloat(getComputedStyle(box).top) || 0;
+        if (top <= stickyTop + 4) { box.style.maxHeight = ''; updateCommentsBottom(box); return; }
+        const want = Math.round(window.innerHeight - top - COMMENT_BOX_BOTTOM_GAP);
+        if (want > parseFloat(box.style.maxHeight)) { box.style.maxHeight = want + 'px'; updateCommentsBottom(box); }
+    });
+}
+function scheduleGrowCommentBoxes() {
+    if (growCommentsQueued) return;
+    growCommentsQueued = true;
+    requestAnimationFrame(growShrunkCommentBoxes);
+}
 
 // 넓은 화면 댓글 칸의 떠 있는 버튼: 칸 위쪽보다 아래에 새 댓글이 남아 있으면 '다음 새 댓글'(남은 새 댓글 수),
 // 없으면 '맨 아래'(아래에 남은 댓글 수). 누르면 다음 새 댓글을 칸 맨 위로, 없으면 맨 아래로.
@@ -3195,6 +3215,7 @@ window.addEventListener('scroll', () => {
     scheduleNewCommentJump();
     updateTitleRow();
     scheduleReadCheck();
+    scheduleGrowCommentBoxes();
 }, { passive: true });
 window.addEventListener('resize', () => { updateTitleRow(); scheduleReadCheck(); }, { passive: true });
 // 댓글 칸 안의 스크롤은 창으로 전달되지 않으므로 캡처 단계에서 받아 새 댓글 확인 (넓은 화면)
