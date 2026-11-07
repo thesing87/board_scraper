@@ -36,7 +36,7 @@ for a in ['--headless=new', '--window-size=1440,900']:
 d = Chrome(options=o)
 js = d.execute_script
 try:
-    d.get(f'http://127.0.0.1:{port}/'); time.sleep(2)
+    d.get(f'http://127.0.0.1:{port}/board/'); time.sleep(2)
     # 1) 이미지 보기: 글 대신 첨부 이미지만 격자로 (이모티콘 제외), 여러 장이면 몇 번째인지
     js("setFilter('image')"); time.sleep(2)
     db.execute('DELETE FROM read_posts'); db.commit()   # 첫 화면(안 읽은 글)에서 읽힌 기록은 지우고 모아보기만 봄

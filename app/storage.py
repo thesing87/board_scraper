@@ -1466,6 +1466,27 @@ def query_posts_by_ids(post_ids):
     by_id = {r['id']: _row_to_post(r) for r in rows}
     return [by_id[i] for i in ids if i in by_id]
 
+def dashboard_summary(recent_limit=3):
+    """메인 대시보드의 키워드 게시판 카드: 오늘(0시 이후) 처음 수집한 글 수, 최근 수집한 글(제목·게시판·추천·댓글·수집 시각·읽음)"""
+    today = datetime.now().strftime('%Y-%m-%d 00:00:00')
+    with _db() as conn:
+        today_count = conn.execute("SELECT COUNT(*) FROM posts WHERE created_at >= ?", (today,)).fetchone()[0]
+        rows = conn.execute("""
+            SELECT p.id, p.title, p.votes, p.comment_count, p.created_at, rp.post_id IS NOT NULL AS is_read,
+                   (SELECT g.name FROM keyword_posts kp
+                    JOIN keyword_group_members gm ON gm.board = kp.board AND gm.keyword = kp.keyword
+                    JOIN keyword_groups g ON g.id = gm.group_id
+                    WHERE kp.post_id = p.id ORDER BY g.position, g.id LIMIT 1) AS group_name
+            FROM posts p
+            LEFT JOIN read_posts rp ON rp.post_id = p.id
+            WHERE p.is_deleted = 0
+            ORDER BY p.created_at DESC, p.id DESC LIMIT ?
+        """, (recent_limit,)).fetchall()
+    return {'today_count': today_count,
+            'recent': [{'id': r['id'], 'title': r['title'], 'votes': r['votes'], 'comment_count': r['comment_count'],
+                        'collected_at': r['created_at'], 'is_read': bool(r['is_read']), 'group': r['group_name'] or ''}
+                       for r in rows]}
+
 def recent_post_ids(limit_per_keyword):
     """키워드별 최근 글 ID 집합 (메인 루프가 목록의 댓글 수로 매 주기 변화를 감시하는 범위, 일시정지한 키워드는 감시 안 함)"""
     ids = set()

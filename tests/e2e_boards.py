@@ -23,16 +23,17 @@ assert len(storage.list_groups()) == len(kws)
 
 srv = web_server.ThreadedHTTPServer(('127.0.0.1', 18093), web_server.KeywordAPIServer)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
-BASE = 'http://127.0.0.1:18093/'
+ROOT_URL = 'http://127.0.0.1:18093/'
+BASE = ROOT_URL + 'board/'
 SHOTS = shot_dir('board_shots')
 
 # 키워드 단독 API는 사라짐
 try:
-    urllib.request.urlopen(urllib.request.Request(BASE + 'api/keyword', data=b'{}', method='POST'))
+    urllib.request.urlopen(urllib.request.Request(ROOT_URL + 'api/keyword', data=b'{}', method='POST'))
     raise AssertionError('keyword api still alive')
 except urllib.error.HTTPError as e:
     assert e.code == 404
-state = json.load(urllib.request.urlopen(BASE + 'api/state'))
+state = json.load(urllib.request.urlopen(ROOT_URL + 'api/state'))
 assert 'tabs' not in state and state['all']['total'] == db.execute('select count(distinct post_id) from keyword_posts').fetchone()[0]
 
 def distinct_count(pairs):

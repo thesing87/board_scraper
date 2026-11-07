@@ -35,7 +35,7 @@ web_server.build_state = slow_state
 web_server.build_posts_page = slow_page
 srv = web_server.ThreadedHTTPServer(('127.0.0.1', 18099), web_server.KeywordAPIServer)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
-BASE = 'http://127.0.0.1:18099/'
+BASE = 'http://127.0.0.1:18099/board/'
 SHOTS = shot_dir('loading')
 o = Options()
 for a in ['--headless=new', '--window-size=1440,900']:

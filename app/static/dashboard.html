@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>대시보드</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563EB'/%3E%3Crect x='8' y='8' width='7' height='7' rx='1.5' fill='white'/%3E%3Crect x='17' y='8' width='7' height='7' rx='1.5' fill='white'/%3E%3Crect x='8' y='17' width='7' height='7' rx='1.5' fill='white'/%3E%3Crect x='17' y='17' width='7' height='7' rx='1.5' fill='white'/%3E%3C/svg%3E">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <meta name="theme-color" content="#F4F5F7">
+    <link rel="stylesheet" href="/dashboard.css">
+    <script src="/dashboard.js" defer></script>
+</head>
+<body>
+    <main class="dash">
+        <header class="dash-top">
+            <div class="dash-logo">
+                <span class="dash-mark" aria-hidden="true">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="#FFFFFF"><rect x="4" y="4" width="7" height="7" rx="1.5"></rect><rect x="13" y="4" width="7" height="7" rx="1.5"></rect><rect x="4" y="13" width="7" height="7" rx="1.5"></rect><rect x="13" y="13" width="7" height="7" rx="1.5"></rect></svg>
+                </span>
+                <h1>대시보드</h1>
+            </div>
+            <span class="dash-clock" id="dash-clock"></span>
+        </header>
+
+        <div class="dash-grid">
+            <!-- 키워드 게시판: 안 읽은 새 글·새 댓글·오늘 수집, 새 글 있는 게시판, 최근 수집 글, 수집 상태 (dashboard.js renderBoard) -->
+            <section class="card" id="card-board" aria-labelledby="board-title">
+                <a class="card-head" href="/board/">
+                    <span class="card-icon is-board" aria-hidden="true">
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+                    </span>
+                    <span class="card-name">
+                        <span class="card-title" id="board-title">키워드 게시판</span>
+                        <span class="card-sub" id="board-sub">불러오는 중</span>
+                    </span>
+                    <span class="card-open">열기<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg></span>
+                </a>
+                <div class="card-body" id="board-body"><div class="skeleton"></div></div>
+            </section>
+
+            <!-- 전기차 vs 내연기관: 이 기기에 저장된 계산기 입력값으로 계산한 요약 (dashboard.js renderEv) -->
+            <section class="card" id="card-ev" aria-labelledby="ev-title">
+                <a class="card-head" href="/ev/">
+                    <span class="card-icon is-ev" aria-hidden="true">
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"></path></svg>
+                    </span>
+                    <span class="card-name">
+                        <span class="card-title" id="ev-title">전기차 vs 내연기관</span>
+                        <span class="card-sub">유지비 비교 계산기</span>
+                    </span>
+                    <span class="card-open">열기<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg></span>
+                </a>
+                <div class="card-body" id="ev-body"></div>
+            </section>
+        </div>
+    </main>
+</body>
+</html>

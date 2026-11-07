@@ -27,7 +27,7 @@ for a in ['--headless=new', '--window-size=1440,1000']:
 d = Chrome(options=o)
 js = d.execute_script
 try:
-    d.get('http://127.0.0.1:18102/'); time.sleep(2.5)
+    d.get('http://127.0.0.1:18102/board/'); time.sleep(2.5)
     js("localStorage.setItem('admin_token', 'Secr3t!'); updateAdminUI(); document.querySelector('.topbar [data-action=\"open-settings\"]').click()")
     js("document.querySelector('[data-action=\"settings-tab\"][data-tab=\"status\"]').click()"); time.sleep(1)
     rows = js("return [...document.querySelectorAll('#settings-status .status-row')].map(r => r.textContent.replace(/\\s+/g, ' ').trim())")

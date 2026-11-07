@@ -40,6 +40,7 @@ from storage import (
     list_groups,
     feed_summary,
     query_posts_by_ids,
+    dashboard_summary,
     save_group,
     delete_group,
     category_names,
@@ -81,10 +82,18 @@ WATCH_STARTED = datetime.now()
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 STATIC_FILES = {
-    '/': ('index.html', 'text/html; charset=utf-8'),
+    # 메인 대시보드 (기능 페이지로 가는 카드와 요약)
+    '/': ('dashboard.html', 'text/html; charset=utf-8'),
+    '/dashboard.js': ('dashboard.js', 'application/javascript; charset=utf-8'),
+    '/dashboard.css': ('dashboard.css', 'text/css; charset=utf-8'),
+    # 키워드 게시판
+    '/board/': ('index.html', 'text/html; charset=utf-8'),
     '/index.html': ('index.html', 'text/html; charset=utf-8'),
     '/app.js': ('app.js', 'application/javascript; charset=utf-8'),
     '/app.css': ('app.css', 'text/css; charset=utf-8'),
+    # 전기차 vs 내연기관 유지비 계산기
+    '/ev/': ('ev.html', 'text/html; charset=utf-8'),
+    '/ev.js': ('ev.js', 'application/javascript; charset=utf-8'),
     # 휴대폰 홈 화면에 앱처럼 추가할 때 쓰는 앱 정보와 아이콘
     '/manifest.webmanifest': ('manifest.webmanifest', 'application/manifest+json; charset=utf-8'),
     '/icon-192.png': ('icon-192.png', 'image/png'),
@@ -311,6 +320,13 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         try:
             if pure_path in STATIC_FILES:
                 self._serve_static(*STATIC_FILES[pure_path])
+            elif pure_path in ('/board', '/ev'):
+                # 끝 슬래시 없이 들어오면 붙여서 (페이지 안의 상대 주소가 맞도록)
+                self._send_body(301, b'', 'text/plain; charset=utf-8', {'Location': pure_path + '/'})
+            elif pure_path == '/api/dashboard':
+                self._send_data(200, {**dashboard_summary(), 'check_interval': CHECK_INTERVAL,
+                                      'collector': runtime_status.snapshot().get('last_cycle'),
+                                      'now': datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
             elif pure_path.startswith(IMAGE_URL_PREFIX):
                 self._serve_image(pure_path[len(IMAGE_URL_PREFIX):])
             elif pure_path == '/api/state':

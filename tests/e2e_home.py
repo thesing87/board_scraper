@@ -14,7 +14,7 @@ from selenium.webdriver.chrome.options import Options
 storage.init_db()
 srv = web_server.ThreadedHTTPServer(('127.0.0.1', 18096), web_server.KeywordAPIServer)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
-BASE = 'http://127.0.0.1:18096/'
+BASE = 'http://127.0.0.1:18096/board/'
 SHOTS = shot_dir('home_shots')
 o = Options()
 for a in ['--headless=new', '--window-size=1440,900']:

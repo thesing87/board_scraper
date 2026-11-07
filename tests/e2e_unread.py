@@ -14,7 +14,7 @@ from selenium.webdriver.chrome.options import Options
 storage.init_db()
 srv = web_server.ThreadedHTTPServer(('127.0.0.1', 18097), web_server.KeywordAPIServer)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
-BASE = 'http://127.0.0.1:18097/'
+BASE = 'http://127.0.0.1:18097/board/'
 SHOTS = shot_dir('unread_shots')
 summary = storage.feed_summary()
 print('unread total', summary['unread_count'])

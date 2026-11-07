@@ -40,7 +40,7 @@ def tap(el):
     d.execute_cdp_cmd('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
     time.sleep(1.2)
 try:
-    d.get(f'http://127.0.0.1:{port}/'); time.sleep(2)
+    d.get(f'http://127.0.0.1:{port}/board/'); time.sleep(2)
     assert chips() == ['전체', '한국시리즈', '통합', '에펨'], chips()
     js("localStorage.setItem('admin_token', 'Secr3t!'); updateAdminUI(); document.querySelector('[data-action=\"open-settings\"]').click()"); time.sleep(0.8)
     down = f"#settings-groups [data-action=move-group][data-group-id='{ids['한국시리즈']}'][data-direction=down]"
@@ -57,7 +57,7 @@ try:
     print('MOBILE ORDER OK')
 
     # 새 글 배너: × 로 닫으면 같은 수로는 다시 안 뜨고, 새 글이 더 오면 다시 뜸
-    d.get(f'http://127.0.0.1:{port}/'); time.sleep(2)
+    d.get(f'http://127.0.0.1:{port}/board/'); time.sleep(2)
     js("app.filter = 'all'; openView(ALL_KEY, 1)"); time.sleep(1.2)
     banner = "document.getElementById('new-banner')"
     storage.save_keyword_post('car', '싼타페', post('702'), is_new=True)

@@ -33,7 +33,7 @@ d = Chrome(options=o)
 js = d.execute_script
 box = "document.querySelector('#post-902 > .comments')"
 try:
-    d.get(f'http://127.0.0.1:{port}/'); time.sleep(2)
+    d.get(f'http://127.0.0.1:{port}/board/'); time.sleep(2)
     js("app.filter = 'all'; openView(ALL_KEY, 1)"); time.sleep(2)
     top0 = js(f"return {box}.getBoundingClientRect().top")
     h0 = js(f"return {box}.clientHeight")

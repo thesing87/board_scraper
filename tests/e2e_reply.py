@@ -39,7 +39,7 @@ for a in ['--headless=new', '--window-size=1440,1000']:
 d = Chrome(options=o)
 js = d.execute_script
 try:
-    d.get('http://127.0.0.1:18098/'); time.sleep(2.5)
+    d.get('http://127.0.0.1:18098/board/'); time.sleep(2.5)
     js("openView(ALL_KEY, 1)"); time.sleep(1.5)
     # 답글은 단계별 들여쓰기(--depth)로만 구분 (답글 뱃지·원댓글 인용은 쓰지 않음)
     info = js("""return [...document.querySelectorAll('.post-card')].map(card => ({

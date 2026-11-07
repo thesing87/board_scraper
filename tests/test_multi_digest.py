@@ -98,10 +98,10 @@ storage.set_group_alert(fm_id, 'digest', True)
 assert storage.list_groups()[0]['digest'] is True
 m.send_daily_digests(); m.send_daily_digests()
 assert len(digests) == 1 and digests[0][:2] == ('싼타페', 4) and digests[0][2][:2] == ['503', '502'], digests
-assert digests[0][3] == 'http://dash#post-503', digests
+assert digests[0][3] == 'http://dash/board/#post-503', digests
 m.notify_saved_comments(post('501', 'FM 글'), new)
 m.notify_saved_comments(post('502', '보관 안 한 글'), new)
 storage.set_saved_comment_alert(False)
 m.notify_saved_comments(post('501', 'FM 글'), new)
-assert comment_alerts == [('501', 1, ('http://dash#post-501', 'https://www.fmkorea.com/501'))], comment_alerts
+assert comment_alerts == [('501', 1, ('http://dash/board/#post-501', 'https://www.fmkorea.com/501'))], comment_alerts
 print('SCRAPER HOOKS OK')

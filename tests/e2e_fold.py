@@ -38,7 +38,7 @@ d = Chrome(options=o)
 js = d.execute_script
 key = lambda k: js("document.body.dispatchEvent(new KeyboardEvent('keydown', {key: arguments[0], bubbles: true}))", k)
 try:
-    d.get(f'http://127.0.0.1:{port}/'); time.sleep(2.5)
+    d.get(f'http://127.0.0.1:{port}/board/'); time.sleep(2.5)
     assert not {'801', '802', '803'} & read_ids(), read_ids()   # 긴 글 셋은 펼친 첫 화면에서 끝까지 안 보임
     # 1) G: 전부 접기 → 글마다 제목 줄만, 버튼 이름이 바뀌고 기기에 기억
     key('g'); time.sleep(0.5)

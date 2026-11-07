@@ -33,7 +33,7 @@ for a in ['--headless=new', '--window-size=1440,900']:
 d = Chrome(options=o)
 js = d.execute_script
 try:
-    d.get(f'http://127.0.0.1:{port}/'); time.sleep(2)
+    d.get(f'http://127.0.0.1:{port}/board/'); time.sleep(2)
     js("app.filter = 'comments'; openView(ALL_KEY, 1)"); time.sleep(2)
     assert js("return document.querySelectorAll('.comment.is-new-comment').length") == 40
     assert js("const c = document.querySelector('.post-card > .comments'); return c.scrollHeight > c.clientHeight")

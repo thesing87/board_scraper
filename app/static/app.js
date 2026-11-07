@@ -2824,6 +2824,15 @@ async function init() {
     setInterval(pollState, POLL_INTERVAL_MS);
     // 텔레그램 알림 링크(#post-ID)로 들어온 경우 해당 글이 있는 탭/페이지로 바로 이동
     if (await handlePostAnchor()) return;
+    // 대시보드의 게시판 칩(#board-게시판ID)으로 들어오면 그 게시판의 기본 보기
+    const boardAnchor = /^#board-(\d+)$/.exec(window.location.hash);
+    if (boardAnchor) {
+        history.replaceState(null, '', window.location.pathname);
+        if (isKnownView('group:' + boardAnchor[1])) {
+            savedTab = 'group:' + boardAnchor[1];
+            savedFilter = defaultFilter(savedTab);
+        }
+    }
     // 같은 탭에서 새로고침하면 보던 게시판·보기의 첫 페이지,
     // 새로 들어오면 첫 화면(전체 게시판의 기본 보기: 안 읽은 글 → 새 댓글 → 모든 글)
     if (isKnownView(savedTab)) {

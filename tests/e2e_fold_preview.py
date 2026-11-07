@@ -37,7 +37,7 @@ d = Chrome(options=o)
 js = d.execute_script
 visible = lambda sel: js("return [...document.querySelectorAll(arguments[0])].filter(e => e.offsetWidth > 0).length", sel)
 try:
-    d.get(f'http://127.0.0.1:{port}/'); time.sleep(2.5)
+    d.get(f'http://127.0.0.1:{port}/board/'); time.sleep(2.5)
     js("app.filter = 'all'; openView(ALL_KEY, 1)"); time.sleep(1.5)
     # 0) 조회·추천·댓글 칩: 추천 0도 표시, 조회 100·500·1000회, 추천·댓글 1·10·20개부터 4단계로 진해짐
     assert js("return [...document.querySelectorAll('#post-801 .stat')].map(s => s.textContent.trim())") == ['조회1', '추천0', '댓글0']

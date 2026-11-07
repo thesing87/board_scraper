@@ -35,7 +35,7 @@ assert [x['name'] for x in t[('car', '싼타페')]] == ['싼타페', '싼 모음
 
 srv = web_server.ThreadedHTTPServer(('127.0.0.1', 18094), web_server.KeywordAPIServer)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
-BASE = 'http://127.0.0.1:18094/'
+BASE = 'http://127.0.0.1:18094/board/'
 SHOTS = shot_dir('alert_shots')
 o = Options()
 for a in ['--headless=new', '--window-size=1440,900', '--force-device-scale-factor=1']:

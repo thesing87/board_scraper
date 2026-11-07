@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>전기차 vs 내연기관 유지비 비교</title>
+<style>
+:root{
+  --bg:#f4f5f7; --card:#fff; --ink:#15181d; --sub:#6b7280; --line:#e6e8ec;
+  --ev:#0f9d7a; --ev-soft:#e3f5ef; --ice:#e0782a; --ice-soft:#fdeee2;
+  --radius:18px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;}
+.wrap{max-width:480px;margin:0 auto;padding:calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 32px)}
+header h1{font-size:20px;margin:4px 2px 2px;letter-spacing:-.3px}
+header p{margin:0 2px 14px;color:var(--sub);font-size:13px}
+
+/* summary */
+.summary{background:var(--ink);color:#fff;border-radius:var(--radius);padding:18px;position:sticky;top:8px;z-index:5;box-shadow:0 8px 24px rgba(0,0,0,.12)}
+.summary .label{font-size:12px;opacity:.7}
+.summary .big{font-size:26px;font-weight:800;letter-spacing:-.5px;margin:2px 0 12px}
+.summary .big b{color:#5ee0b8}
+.summary .big.ice b{color:#ffb27a}
+.bars{display:grid;gap:8px}
+.bar-row{display:grid;grid-template-columns:52px 1fr 92px;align-items:center;gap:8px;font-size:12px}
+.bar{height:10px;border-radius:6px;background:rgba(255,255,255,.12);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:6px;transition:width .25s}
+.bar-row .v{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.period{display:flex;gap:6px;margin-top:14px}
+.period button{flex:1;border:0;border-radius:10px;padding:8px 0;font-size:13px;font-weight:600;background:rgba(255,255,255,.1);color:#fff}
+.period button.on{background:#fff;color:var(--ink)}
+
+/* cards */
+.card{background:var(--card);border-radius:var(--radius);padding:16px;margin-top:12px}
+.card h2{font-size:15px;margin:0 0 4px;display:flex;align-items:center;gap:8px}
+.dot{width:10px;height:10px;border-radius:50%}
+.card .unitcost{font-size:12px;color:var(--sub);margin-bottom:6px}
+.card .unitcost b{color:var(--ink)}
+.field{padding:12px 0;border-top:1px solid var(--line)}
+.field:first-of-type{border-top:0}
+.field-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.field label{font-size:14px;font-weight:600}
+.field small{display:block;word-break:keep-all;color:var(--sub);font-size:11px;margin-top:2px;font-weight:400}
+.num{display:flex;align-items:center;background:var(--bg);border-radius:10px;padding:0 10px;height:38px}
+.num input{width:76px;border:0;background:transparent;font-size:16px;font-weight:700;text-align:right;color:var(--ink);outline:none;font-variant-numeric:tabular-nums}
+.num span{font-size:12px;color:var(--sub);margin-left:4px;white-space:nowrap}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:28px;background:transparent;margin-top:6px}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:4px;background:linear-gradient(to right,var(--c) var(--p),var(--line) var(--p))}
+input[type=range]::-moz-range-track{height:6px;border-radius:4px;background:var(--line)}
+input[type=range]::-moz-range-progress{height:6px;border-radius:4px;background:var(--c)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--c);margin-top:-9px;box-shadow:0 2px 6px rgba(0,0,0,.15)}
+input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid var(--c)}
+.slider{touch-action:pan-y;padding:4px 0;cursor:grab;user-select:none;-webkit-user-select:none}
+.slider.dragging{cursor:grabbing}
+.slider input[type=range]{pointer-events:none;display:block}
+.slider.dragging input[type=range]::-webkit-slider-thumb{transform:scale(1.15)}
+.stepper{display:flex;align-items:center;gap:6px}
+.stepper button{width:34px;height:34px;flex:none;border:0;border-radius:10px;background:var(--bg);color:var(--c);font-size:20px;font-weight:700;line-height:1;
+  display:flex;align-items:center;justify-content:center;touch-action:manipulation;user-select:none;-webkit-user-select:none;transition:transform .08s,background .15s}
+.stepper button:active{transform:scale(.92);background:var(--line)}
+.stepper .num{width:132px;justify-content:flex-end}
+.stepper .num input{width:100%;min-width:0}
+.stepper .num span{min-width:44px;text-align:left}
+.ev{--c:var(--ev)} .ice{--c:var(--ice)} .common{--c:#3b4250}
+.loss-note{margin-top:8px;background:var(--ev-soft);color:#0b6b53;font-size:12px;border-radius:10px;padding:8px 10px}
+
+/* chart */
+.chart-head{display:flex;justify-content:space-between;align-items:baseline}
+.chart-head span{font-size:11px;color:var(--sub)}
+svg text{font-family:inherit}
+.insight{font-size:13px;line-height:1.55;color:#374151;margin-top:8px}
+.insight b{color:var(--ink)}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--sub);margin-top:4px}
+.legend i{display:inline-block;width:12px;height:3px;border-radius:2px;vertical-align:middle;margin-right:4px}
+footer{color:var(--sub);font-size:11px;text-align:center;margin-top:18px;line-height:1.6}
+.reset{display:block;margin:14px auto 0;border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 16px;font-size:13px;color:var(--sub)}
+/* 대시보드로 돌아가기 */
+.back{display:inline-flex;align-items:center;gap:4px;margin:0 0 10px;padding:6px 10px 6px 6px;border-radius:999px;background:#fff;color:var(--sub);font-size:13px;text-decoration:none;border:1px solid var(--line)}
+.back:hover{color:var(--ink)}
+</style>
+<script src="/ev.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="back" href="/" aria-label="대시보드로"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>대시보드</a>
+    <h1>⚡ 전기차 vs ⛽ 내연기관</h1>
+    <p>전비·충전비·연비·유류비를 바꿔가며 유지비를 비교해보세요.</p>
+  </header>
+
+  <section class="summary" aria-live="polite">
+    <div class="label" id="sumLabel">월 기준</div>
+    <div class="big" id="sumBig">–</div>
+    <div class="bars">
+      <div class="bar-row"><span>전기차</span><div class="bar"><i id="barEv" style="background:#5ee0b8"></i></div><span class="v" id="valEv">–</span></div>
+      <div class="bar-row"><span>내연기관</span><div class="bar"><i id="barIce" style="background:#ffb27a"></i></div><span class="v" id="valIce">–</span></div>
+    </div>
+    <div class="period" id="period">
+      <button data-p="1" class="on">월</button>
+      <button data-p="12">1년</button>
+      <button data-p="60">5년</button>
+    </div>
+  </section>
+
+  <section class="card common">
+    <h2><span class="dot" style="background:#3b4250"></span>주행거리</h2>
+    <div class="field">
+      <div class="field-top"><label for="dist">월 주행거리</label>
+        <div class="num"><input id="dist" type="number" inputmode="decimal"><span>km</span></div></div>
+      <input type="range" data-for="dist" min="100" max="5000" step="50">
+    </div>
+  </section>
+
+  <section class="card ev">
+    <h2><span class="dot" style="background:var(--ev)"></span>전기차</h2>
+    <div class="unitcost">km당 <b id="evKm">–</b> · 실효 전비 <b id="evEff">–</b></div>
+    <div class="field">
+      <div class="field-top"><label for="evEffIn">전비<small>배터리 기준 효율</small></label>
+        <div class="num"><input id="evEffIn" type="number" inputmode="decimal" step="0.1"><span>km/kWh</span></div></div>
+      <input type="range" data-for="evEffIn" min="2" max="8" step="0.1">
+    </div>
+    <div class="field">
+      <div class="field-top"><label for="evPrice">충전 단가</label>
+        <div class="num"><input id="evPrice" type="number" inputmode="decimal"><span>원/kWh</span></div></div>
+      <input type="range" data-for="evPrice" min="50" max="600" step="1">
+    </div>
+    <div class="field">
+      <div class="field-top"><label for="evLoss">충전 손실<small>충전기→배터리 사이 손실</small></label>
+        <div class="num"><input id="evLoss" type="number" inputmode="decimal" step="0.5"><span>%</span></div></div>
+      <input type="range" data-for="evLoss" min="0" max="30" step="0.5">
+      <div class="loss-note" id="lossNote">–</div>
+    </div>
+  </section>
+
+  <section class="card ice">
+    <h2><span class="dot" style="background:var(--ice)"></span>내연기관</h2>
+    <div class="unitcost">km당 <b id="iceKm">–</b></div>
+    <div class="field">
+      <div class="field-top"><label for="iceEff">연비</label>
+        <div class="num"><input id="iceEff" type="number" inputmode="decimal" step="0.1"><span>km/L</span></div></div>
+      <input type="range" data-for="iceEff" min="4" max="25" step="0.1">
+    </div>
+    <div class="field">
+      <div class="field-top"><label for="icePrice">유류비</label>
+        <div class="num"><input id="icePrice" type="number" inputmode="decimal"><span>원/L</span></div></div>
+      <input type="range" data-for="icePrice" min="1000" max="2500" step="5">
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="chart-head"><h2>⚡ 전기료가 바뀌면?</h2><span>km당 비용(원)</span></div>
+    <div class="legend"><span><i style="background:var(--ev)"></i>전기차</span><span><i style="background:var(--ice)"></i>내연기관 (현재 유가 고정)</span></div>
+    <svg id="chartEv" viewBox="0 0 340 214" width="100%" role="img" aria-label="충전 단가별 km당 비용 차트"></svg>
+    <div class="insight" id="insightEv"></div>
+  </section>
+
+  <section class="card">
+    <div class="chart-head"><h2>⛽ 유류비가 바뀌면?</h2><span>km당 비용(원)</span></div>
+    <div class="legend"><span><i style="background:var(--ice)"></i>내연기관</span><span><i style="background:var(--ev)"></i>전기차 (현재 전기료 고정)</span></div>
+    <svg id="chartIce" viewBox="0 0 340 214" width="100%" role="img" aria-label="유가별 km당 비용 차트"></svg>
+    <div class="insight" id="insightIce"></div>
+  </section>
+
+  <button class="reset" id="reset">기본값으로 되돌리기</button>
+  <footer>기본값은 예시이며 실제 단가·효율로 바꿔 입력하세요.<br>전기차 비용 = 충전단가 ÷ (전비 × (1 − 충전손실))</footer>
+</div>
+
+</body>
+</html>

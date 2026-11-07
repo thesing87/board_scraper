@@ -16,7 +16,7 @@ from selenium.webdriver.common.keys import Keys
 storage.init_db()
 srv = web_server.ThreadedHTTPServer(('127.0.0.1', 18090), web_server.KeywordAPIServer)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
-BASE = 'http://127.0.0.1:18090/'
+BASE = 'http://127.0.0.1:18090/board/'
 SHOTS = shot_dir('p1_shots')
 db = sqlite3.connect(config.DB_FILE)
 read_count = lambda: db.execute('select count(*) from read_posts').fetchone()[0]

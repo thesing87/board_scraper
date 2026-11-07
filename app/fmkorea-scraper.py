@@ -246,7 +246,8 @@ def post_urls(post):
     base_url = (DDNS_URL or "").strip()
     if base_url and not base_url.startswith(("http://", "https://")):
         base_url = f"http://{base_url}"
-    board_post_url = f"{base_url}#post-{post['id']}" if base_url else ""
+    # 키워드 게시판은 /board/ (메인 / 는 대시보드. 예전 /#post- 링크도 대시보드가 게시판으로 넘겨 줌)
+    board_post_url = f"{base_url.rstrip('/')}/board/#post-{post['id']}" if base_url else ""
     original_post_url = (post.get('link') or "").strip()
     # 디시 글 주소는 수집할 때부터 전체 주소. 에펨코리아는 상대 주소일 수 있어 보정
     if original_post_url and not original_post_url.startswith(("http://", "https://")):

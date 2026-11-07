@@ -68,6 +68,9 @@ body:not(.is-admin) .admin-only, body.is-admin .guest-only { display: none !impo
 .topbar-row { height: 56px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .brand-mark { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 8px; background: var(--accent); display: flex; align-items: center; justify-content: center; }
+.brand-main { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dash-link { flex: 0 0 auto; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--muted); text-decoration: none; }
+.dash-link:hover { background: var(--divider); color: var(--accent); }
 .brand-link { display: flex; align-items: center; gap: 12px; min-width: 0; color: inherit; text-decoration: none; }
 .brand-name { font-size: 16px; font-weight: 700; white-space: nowrap; }
 .brand-link:hover .brand-name { color: var(--accent); }

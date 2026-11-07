@@ -21,12 +21,18 @@
         <div class="topbar-row">
             <!-- 로고·이름은 홈, 상태 표시는 누르면 새로고침 (따로 홈·새로고침 버튼을 두지 않음) -->
             <div class="brand">
-                <a class="brand-link" href="/" data-action="go-home" title="홈으로" aria-label="키워드 모니터 홈">
+                <div class="brand-main">
+                <!-- 메인 대시보드로 (로고·이름은 이 게시판의 홈) -->
+                <a class="dash-link" href="/" title="대시보드" aria-label="대시보드로">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"></rect><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"></rect><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"></rect><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"></rect></svg>
+                </a>
+                <a class="brand-link" href="/board/" data-action="go-home" title="홈으로" aria-label="키워드 모니터 홈">
                     <span class="brand-mark" aria-hidden="true">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
                     </span>
                     <span class="brand-name">키워드 모니터</span>
                 </a>
+                </div>
                 <button class="status-pill" id="status-pill" data-action="refresh" title="지금 새로고침">
                     <span class="status-dot"></span><span id="status-text">불러오는 중</span>
                     <svg class="status-refresh" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"></path><path d="M21 4v5h-5"></path></svg>
