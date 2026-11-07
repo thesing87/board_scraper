@@ -323,6 +323,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             elif pure_path in ('/board', '/ev'):
                 # 끝 슬래시 없이 들어오면 붙여서 (페이지 안의 상대 주소가 맞도록)
                 self._send_body(301, b'', 'text/plain; charset=utf-8', {'Location': pure_path + '/'})
+            elif pure_path in ('/index.html/board', '/index.html/board/'):
+                # DDNS_URL에 index.html이 붙어 있을 때 보낸 예전 알림 링크 (#post-ID는 브라우저가 그대로 넘겨 줌)
+                self._send_body(301, b'', 'text/plain; charset=utf-8', {'Location': '/board/'})
             elif pure_path == '/api/dashboard':
                 self._send_data(200, {**dashboard_summary(), 'check_interval': CHECK_INTERVAL,
                                       'collector': runtime_status.snapshot().get('last_cycle'),

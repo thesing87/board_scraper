@@ -1,6 +1,7 @@
 import os
 import time
 import sys
+import re
 import threading
 import traceback
 from datetime import date, datetime, timedelta
@@ -246,6 +247,8 @@ def post_urls(post):
     base_url = (DDNS_URL or "").strip()
     if base_url and not base_url.startswith(("http://", "https://")):
         base_url = f"http://{base_url}"
+    # 'https://주소/index.html'처럼 페이지 파일까지 적어 둔 경우 그 파일 이름은 빼고 사이트 주소만 사용
+    base_url = re.sub(r'/[^/]*\.html?$', '', base_url.split('#')[0].split('?')[0])
     # 키워드 게시판은 /board/ (메인 / 는 대시보드. 예전 /#post- 링크도 대시보드가 게시판으로 넘겨 줌)
     board_post_url = f"{base_url.rstrip('/')}/board/#post-{post['id']}" if base_url else ""
     original_post_url = (post.get('link') or "").strip()
