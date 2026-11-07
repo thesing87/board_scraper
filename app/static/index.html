@@ -87,7 +87,10 @@
 
         <main class="feed-wrap">
             <div class="new-banner-wrap">
-                <button class="new-banner" id="new-banner" data-action="show-new" hidden></button>
+                <div class="new-banner" id="new-banner" hidden>
+                    <button class="new-banner-open" data-action="show-new"></button>
+                    <button class="new-banner-close" data-action="dismiss-new" aria-label="새 글 알림 닫기" title="닫기 (새 글이 더 오면 다시 표시)"></button>
+                </div>
             </div>
             <div class="feed" id="feed" aria-busy="true">
                 <!-- 첫 화면 뼈대: 서버 응답(글 목록)이 오면 app.js가 실제 글로 바꿈 -->

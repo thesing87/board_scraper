@@ -293,8 +293,14 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 
 /* 1분마다 확인한 새 글 알림 배너 (피드 위에 떠서 표시, 공간은 차지하지 않음) */
 .new-banner-wrap { position: sticky; top: 68px; z-index: 30; height: 0; display: flex; justify-content: center; }
-.new-banner { height: 38px; padding: 0 16px; border: none; border-radius: 999px; background: var(--accent); color: #FFFFFF; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; box-shadow: 0 6px 16px rgba(37,99,235,0.35); }
-.new-banner:hover { background: var(--accent-ink); }
+.new-banner { height: 38px; border-radius: 999px; background: var(--accent); color: #FFFFFF; display: inline-flex; align-items: stretch; overflow: hidden; box-shadow: 0 6px 16px rgba(37,99,235,0.35); }
+.new-banner[hidden] { display: none; }
+.new-banner button { border: none; background: transparent; color: inherit; cursor: pointer; display: inline-flex; align-items: center; }
+.new-banner-open { padding: 0 10px 0 16px; font-size: 13px; font-weight: 700; gap: 6px; }
+/* 닫기(×): 누르면 배너만 숨기고, 그 뒤에 새 글이 더 들어올 때 다시 표시 */
+.new-banner-close { padding: 0 14px 0 10px; border-left: 1px solid rgba(255,255,255,0.3) !important; }
+.new-banner-close svg { width: 13px; height: 13px; }
+.new-banner button:hover { background: var(--accent-ink); }
 
 /* 통합 피드·검색에서 글이 모인 키워드 표시 */
 .kw-chip { padding: 2px 8px; border-radius: 999px; background: #F1F3F6; color: var(--text-3); font-size: 11px; font-weight: 500; }

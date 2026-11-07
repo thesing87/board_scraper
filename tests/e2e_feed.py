@@ -109,7 +109,7 @@ try:
     print('banner', banner)
     assert not banner['hidden'] and '새 글 1개' in banner['text']
     d.save_screenshot(os.path.join(SHOTS, '4_banner.png'))
-    js("document.getElementById('new-banner').click()"); wait(1.5)
+    js("document.querySelector('#new-banner .new-banner-open').click()"); wait(1.5)
     first = js("const c=document.querySelector('.post-card'); return { id: c.id, isNew: !!c.querySelector('.badge-new'), bannerHidden: document.getElementById('new-banner').hidden }")
     print('after banner click', first)
     assert first['id'] == 'post-10999999901' and first['isNew'] and first['bannerHidden']

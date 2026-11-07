@@ -482,6 +482,7 @@ def init_db():
                 _migrate_keywords_to_boards(conn)
                 _seed_categories(conn)
                 _migrate_site_folders(conn)
+                _migrate_top_order(conn)
         # 커밋이 끝난 뒤에만 기존 파일을 정리하여, 이전 도중 실패하면 다음 기동 시 다시 시도
         for path in migrated_files:
             _mark_legacy_migrated(path)
@@ -756,7 +757,7 @@ def list_groups(id_limit=500):
     groups = []
     with _db() as conn:
         for g in conn.execute("""
-            SELECT id, site, name, alert, video_alert, digest, folder_id FROM keyword_groups ORDER BY position, id
+            SELECT id, site, name, alert, video_alert, digest, folder_id, position FROM keyword_groups ORDER BY position, id
         """).fetchall():
             members = [dict(board=r['board'], keyword=r['keyword'], paused=bool(r['paused']),
                             ignores=_keyword_ignores(conn, r['board'], r['keyword']))
@@ -768,7 +769,7 @@ def list_groups(id_limit=500):
             # 게시판은 한 사이트의 키워드만 담음 (save_group에서 검사). 사이드바에서 사이트별로 묶어 보여줌
             groups.append({'id': g['id'], 'name': g['name'], 'site': g['site'], 'members': members,
                            'alert': bool(g['alert']), 'video_alert': bool(g['video_alert']), 'digest': bool(g['digest']),
-                           'folder_id': g['folder_id'],
+                           'folder_id': g['folder_id'], 'position': g['position'],
                            **_feed_summary(conn, id_limit, g['id'])})
     return groups
 
@@ -810,7 +811,7 @@ def save_group(group_id, name, members, merge_ids=(), folder_id=None):
         if group_id is None:
             if folder_id is not None and not conn.execute("SELECT 1 FROM group_folders WHERE id = ?", (folder_id,)).fetchone():
                 raise ValueError('존재하지 않는 묶음입니다.')
-            position = conn.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM keyword_groups").fetchone()[0]
+            position = _end_position(conn, folder_id)
             group_id = conn.execute("INSERT INTO keyword_groups(site, name, created_at, folder_id, position) VALUES(?, ?, ?, ?, ?)",
                                     (site, name, _now(), folder_id, position)).lastrowid
         else:
@@ -850,8 +851,8 @@ def _migrate_site_folders(conn):
 def list_folders(id_limit=500):
     """묶음 목록 (표시 순서): 이름과 묶음 안 모든 게시판을 합친 피드 요약 (게시판과 같은 형태)"""
     with _db() as conn:
-        return [{'id': r['id'], 'name': r['name'], **_feed_summary(conn, id_limit, folder_id=r['id'])}
-                for r in conn.execute("SELECT id, name FROM group_folders ORDER BY position, id").fetchall()]
+        return [{'id': r['id'], 'name': r['name'], 'position': r['position'], **_feed_summary(conn, id_limit, folder_id=r['id'])}
+                for r in conn.execute("SELECT id, name, position FROM group_folders ORDER BY position, id").fetchall()]
 
 def save_folder(folder_id, name):
     """묶음 만들기(folder_id=None, 맨 뒤에) 또는 이름 바꾸기. 묶음 ID 반환, 이름 중복·없는 묶음은 ValueError"""
@@ -859,7 +860,7 @@ def save_folder(folder_id, name):
         if conn.execute("SELECT 1 FROM group_folders WHERE name = ? AND id != ?", (name, folder_id or -1)).fetchone():
             raise ValueError('같은 이름의 묶음이 이미 있습니다.')
         if folder_id is None:
-            position = conn.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM group_folders").fetchone()[0]
+            position = _end_position(conn, None)
             return conn.execute("INSERT INTO group_folders(name, position, created_at) VALUES(?, ?, ?)",
                                 (name, position, _now())).lastrowid
         if conn.execute("UPDATE group_folders SET name = ? WHERE id = ?", (name, folder_id)).rowcount == 0:
@@ -869,8 +870,18 @@ def save_folder(folder_id, name):
 def delete_folder(folder_id):
     """묶음 삭제. 안에 있던 게시판은 지우지 않고 묶음 없이 둠. 없는 묶음이면 False"""
     with _db() as conn, conn:
+        # 안의 게시판은 묶음이 있던 자리에 (묶음 안 순서대로) 놓음
+        items = []
+        for item in _top_items(conn):
+            if item == ('f', folder_id):
+                items += [('g', r[0]) for r in conn.execute(
+                    "SELECT id FROM keyword_groups WHERE folder_id = ? ORDER BY position, id", (folder_id,))]
+            else:
+                items.append(item)
         conn.execute("UPDATE keyword_groups SET folder_id = NULL WHERE folder_id = ?", (folder_id,))
-        return conn.execute("DELETE FROM group_folders WHERE id = ?", (folder_id,)).rowcount > 0
+        deleted = conn.execute("DELETE FROM group_folders WHERE id = ?", (folder_id,)).rowcount > 0
+        _renumber_top(conn, [i for i in items if i != ('f', folder_id)])
+        return deleted
 
 def _move(conn, table, item_id, direction, where='1 = 1', params=()):
     """같은 범위(where) 안에서 항목을 한 칸 위('up')·아래('down')로 옮기고 순서를 1부터 다시 매김"""
@@ -883,16 +894,64 @@ def _move(conn, table, item_id, direction, where='1 = 1', params=()):
         ids[i], ids[j] = ids[j], ids[i]
     conn.executemany(f"UPDATE {table} SET position = ? WHERE id = ?", [(n, item_id_) for n, item_id_ in enumerate(ids, 1)])
 
+# 맨 위 단계(사이드바에서 '전체' 아래)의 순서: 묶음 없는 게시판과 묶음을 한 줄로 섞어 position으로 정렬.
+# 묶음 안 게시판의 position은 그 묶음 안 순서
+def _top_items(conn):
+    """맨 위 단계 항목을 표시 순서로: ('g', 게시판 ID) 또는 ('f', 묶음 ID). 같은 position이면 게시판 먼저"""
+    rows = [(r[1], 0, r[0], 'g') for r in conn.execute("SELECT id, position FROM keyword_groups WHERE folder_id IS NULL")]
+    rows += [(r[1], 1, r[0], 'f') for r in conn.execute("SELECT id, position FROM group_folders")]
+    return [(kind, item_id) for _, _, item_id, kind in sorted(rows)]
+
+def _renumber_top(conn, items):
+    for n, (kind, item_id) in enumerate(items, 1):
+        table = 'keyword_groups' if kind == 'g' else 'group_folders'
+        conn.execute(f"UPDATE {table} SET position = ? WHERE id = ?", (n, item_id))
+
+def _end_position(conn, folder_id):
+    """folder_id 묶음 안(None이면 맨 위 단계)의 맨 뒤 position"""
+    if folder_id is not None:
+        return conn.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM keyword_groups WHERE folder_id = ?", (folder_id,)).fetchone()[0]
+    return max(conn.execute("SELECT COALESCE(MAX(position), 0) FROM keyword_groups WHERE folder_id IS NULL").fetchone()[0],
+               conn.execute("SELECT COALESCE(MAX(position), 0) FROM group_folders").fetchone()[0]) + 1
+
+def _move_top(conn, item, direction):
+    """맨 위 단계에서 한 칸 옮김. 사이드바에 보이지 않는 빈 묶음은 건너뜀 (옮기는 것이 빈 묶음이면 그대로 한 칸)"""
+    items = _top_items(conn)
+    if item not in items:
+        return
+    filled = {r[0] for r in conn.execute("SELECT DISTINCT folder_id FROM keyword_groups WHERE folder_id IS NOT NULL")}
+    hidden = lambda t: t[0] == 'f' and t[1] not in filled
+    step = -1 if direction == 'up' else 1
+    i = items.index(item)
+    j = i + step
+    while not hidden(item) and 0 <= j < len(items) and hidden(items[j]):
+        j += step
+    if 0 <= j < len(items):
+        items.pop(i)
+        items.insert(j, item)
+    _renumber_top(conn, items)
+
+def _migrate_top_order(conn):
+    """묶음 없는 게시판과 묶음을 한 줄 순서로 합치기 전에는 묶음 없는 게시판이 늘 묶음보다 앞이었으므로,
+    1회 그 순서대로 번호를 다시 매김"""
+    if _get_meta(conn, 'top_order_merged'):
+        return
+    loose = [('g', r[0]) for r in conn.execute("SELECT id FROM keyword_groups WHERE folder_id IS NULL ORDER BY position, id")]
+    folders = [('f', r[0]) for r in conn.execute("SELECT id FROM group_folders ORDER BY position, id")]
+    _renumber_top(conn, loose + folders)
+    _set_meta(conn, 'top_order_merged', '1')
+
 def move_folder(folder_id, direction):
-    """묶음 순서를 한 칸 옮김. 없는 묶음이면 False"""
+    """묶음을 맨 위 단계(묶음 없는 게시판과 함께)에서 한 칸 옮김. 없는 묶음이면 False"""
     with _db() as conn, conn:
         if not conn.execute("SELECT 1 FROM group_folders WHERE id = ?", (folder_id,)).fetchone():
             return False
-        _move(conn, 'group_folders', folder_id, direction)
+        _move_top(conn, ('f', folder_id), direction)
         return True
 
 def arrange_group(group_id, folder_id=..., direction=None):
-    """게시판을 다른 묶음으로 옮기거나(folder_id, None이면 묶음 없음, 옮긴 묶음의 맨 뒤로) 같은 묶음 안에서 한 칸 옮김(direction).
+    """게시판을 다른 묶음으로 옮기거나(folder_id, None이면 묶음 없음, 옮긴 묶음의 맨 뒤로) 한 칸 옮김(direction).
+    묶음 안 게시판은 그 묶음 안에서, 묶음 없는 게시판은 묶음들과 섞인 맨 위 단계에서 옮김.
     게시판 이름 반환, 없는 게시판은 None, 없는 묶음은 ValueError"""
     with _db() as conn, conn:
         row = conn.execute("SELECT name, folder_id FROM keyword_groups WHERE id = ?", (group_id,)).fetchone()
@@ -901,11 +960,14 @@ def arrange_group(group_id, folder_id=..., direction=None):
         if folder_id is not ... and folder_id != row['folder_id']:
             if folder_id is not None and not conn.execute("SELECT 1 FROM group_folders WHERE id = ?", (folder_id,)).fetchone():
                 raise ValueError('존재하지 않는 묶음입니다.')
-            position = conn.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM keyword_groups").fetchone()[0]
+            position = _end_position(conn, folder_id)
             conn.execute("UPDATE keyword_groups SET folder_id = ?, position = ? WHERE id = ?", (folder_id, position, group_id))
         if direction:
             current = conn.execute("SELECT folder_id FROM keyword_groups WHERE id = ?", (group_id,)).fetchone()['folder_id']
-            _move(conn, 'keyword_groups', group_id, direction, 'folder_id IS ?', (current,))
+            if current is None:   # 묶음 없는 게시판은 묶음들 사이로도 옮김
+                _move_top(conn, ('g', group_id), direction)
+            else:
+                _move(conn, 'keyword_groups', group_id, direction, 'folder_id = ?', (current,))
         return row['name']
 
 def delete_group(group_id):

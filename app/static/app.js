@@ -366,9 +366,11 @@ function renderNavigation() {
     // 고른 게시판 안을 걸러 보는 보기는 상단 바 가운데 보기 탭(view-bar-tabs)
     // 게시판은 사용자가 만든 묶음별로 색 상자에 담아 보여 줌 (묶음 없는 게시판은 '전체' 바로 아래). '전체'는 모든 게시판을 합친 피드
     const folders = app.state.folders || [];
-    const looseGroups = groups.filter(g => !folders.some(f => f.id === g.folder_id));
+    const top = topItems();
     const folderGroups = f => groups.filter(g => g.folder_id === f.id);
-    const shownFolders = folders.filter(f => folderGroups(f).length);
+    // 맨 위 단계 순서대로 게시판·(빈 묶음은 빼고) 묶음을 그림
+    const renderTop = (group, folder) => top.map(t => t.kind === 'group' ? group(t.item)
+        : folderGroups(t.item).length ? folder(t.item) : '').join('');
     const groupLabel = g => (multiSite() ? groupTag(g) : '') + esc(g.name);
     const groupItem = g => navItem(groupLabel(g), '', g.unread_count, isActive(g),
         `data-action="open-group" data-group-id="${g.id}"`, g.comment_count);
@@ -376,7 +378,7 @@ function renderNavigation() {
     const visibleGroups = (list, expanded) => expanded ? list : list.filter(isActive);
     const groupList = !groups.length
         ? '<span class="kw-group-name">게시판이 없습니다. 관리에서 만들어 주세요.</span>'
-        : looseGroups.map(groupItem).join('') + shownFolders.map(f => {
+        : renderTop(groupItem, f => {
             // 제목 줄(누르면 묶음 안 모든 게시판의 글) 옆에 묶음의 안 읽은 새 글 수 (게시판끼리 겹치는 글은 한 번만),
             // 오른쪽 끝 화살표 칸은 접기·펼치기
             const expanded = isFolderExpanded('desktop', f.id);
@@ -394,7 +396,7 @@ function renderNavigation() {
                     </div>
                     ${visibleGroups(folderGroups(f), expanded).map(groupItem).join('')}
                 </div>`;
-        }).join('');
+        });
     document.getElementById('keyword-groups').innerHTML = `
         <nav class="kw-group" aria-label="게시판">
             <div class="sidebar-head"><span>게시판</span>${ADD_BOARD_BUTTON}</div>
@@ -462,8 +464,16 @@ function renderNavigation() {
     };
     document.getElementById('chip-row').innerHTML =
         chip('전체', app.state.all, allActive, 'data-action="open-all"') +
-        looseGroups.map(groupChip).join('') +
-        shownFolders.map(folderChips).join('');
+        renderTop(groupChip, folderChips);
+}
+
+// '전체' 아래 맨 위 단계의 순서: 묶음 없는 게시판과 묶음을 한 줄로 섞어 position 순 (같으면 게시판 먼저).
+// [{ kind: 'group' | 'folder', item }]
+function topItems() {
+    const folders = app.state.folders || [];
+    const loose = (app.state.groups || []).filter(g => !folders.some(f => f.id === g.folder_id));
+    return [...loose.map(g => ({ kind: 'group', item: g, order: 0 })), ...folders.map(f => ({ kind: 'folder', item: f, order: 1 }))]
+        .sort((a, b) => (a.item.position || 0) - (b.item.position || 0) || a.order - b.order || a.item.id - b.item.id);
 }
 
 // 묶음 상자(데스크톱)·묶음 칩(모바일)의 펼침 상태. 기기마다 따로 기억 (데스크톱은 기본 펼침, 모바일은 기본 접힘)
@@ -1572,6 +1582,7 @@ function renderFeed(data) {
     const summary = viewSummary(app.activeKey);
     app.renderedTotal = searching || isPopular() ? null : (summary ? filterCount(summary, filter) : null);
     app.renderedPostTotal = data.total;
+    app.bannerDismissedAt = 0;
     app.renderedUnreadIds = filter === 'unread' ? new Set(summary.unread_ids)
         : filter === 'comments' ? new Set(app.commentIds) : null;
     app.galleryRange = isGalleryView() && data.items
@@ -1962,6 +1973,11 @@ function clearSearch() {
 function hideNewBanner() {
     document.getElementById('new-banner').hidden = true;
 }
+// × 로 닫은 배너: 닫을 때의 새 글 수를 기억해 두고 그보다 더 늘어날 때만 다시 표시 (화면을 새로 그리면 초기화)
+function dismissNewBanner() {
+    app.bannerDismissedAt = app.bannerShownCount || 0;
+    hideNewBanner();
+}
 
 async function pollState() {
     if (document.hidden || !app.state) return;
@@ -1988,11 +2004,13 @@ async function pollState() {
     const added = app.renderedUnreadIds
         ? pendingIds(summary).filter(id => !app.renderedUnreadIds.has(id)).length
         : filterCount(summary, app.filter) - app.renderedTotal;
-    if (added > 0) {
+    if (added > (app.bannerDismissedAt || 0)) {
         const banner = document.getElementById('new-banner');
+        app.bannerShownCount = added;
         const what = app.filter === 'comments' ? '새 댓글이 달린 글' : app.filter === 'deleted' ? '새로 삭제된 글'
             : app.filter === 'saved' ? '새로 보관한 글' : '새 글';
-        banner.innerHTML = `${ICONS.up}<span>${what} ${added}개 · 눌러서 보기</span>`;
+        banner.querySelector('.new-banner-open').innerHTML = `${ICONS.up}<span>${what} ${added}개 · 눌러서 보기</span>`;
+        banner.querySelector('.new-banner-close').innerHTML = ICONS.close;
         banner.hidden = false;
     }
 }
@@ -2144,12 +2162,11 @@ function renderGroupSettings() {
 
     const groups = app.state.groups || [];
     const memberText = (m, g) => (isMultiGroup(g) ? esc(siteLabel(boardSite(m.board)).short) + ' ' : '') + esc(m.keyword) + (m.paused ? ' (일시정지)' : '') + (m.ignores.length ? ` (무시: ${m.ignores.map(esc).join(', ')})` : '');
-    // 게시판 목록: 묶음 순서대로(묶음 없는 게시판 먼저) 묶음 고르기와 같은 묶음 안 순서 옮기기
+    // 게시판 목록: 사이드바 순서대로. 묶음 고르기와 순서 옮기기 (묶음 안 게시판은 그 묶음 안에서, 묶음 없는 게시판은 묶음들 사이로도)
     const folders = app.state.folders || [];
     const folderOptions = g => `<option value="" ${folders.some(f => f.id === g.folder_id) ? '' : 'selected'}>묶음 없음</option>`
         + folders.map(f => `<option value="${f.id}" ${f.id === g.folder_id ? 'selected' : ''}>${esc(f.name)}</option>`).join('');
-    const ordered = [null, ...folders.map(f => f.id)].flatMap(id => groups.filter(g =>
-        id === null ? !folders.some(f => f.id === g.folder_id) : g.folder_id === id));
+    const ordered = topItems().flatMap(t => t.kind === 'group' ? [t.item] : groups.filter(g => g.folder_id === t.item.id));
     document.getElementById('settings-groups').innerHTML = ordered.length ? ordered.map(g => `
         <div class="group-row">
             <div class="group-row-main">
@@ -2455,7 +2472,11 @@ async function addCategory(button) {
 function renderFolderSettings() {
     const folders = app.state.folders || [];
     const groups = app.state.groups || [];
-    document.getElementById('settings-folders').innerHTML = folders.length ? folders.map((f, i) => {
+    // 묶음은 묶음 없는 게시판과 함께 한 줄 순서에서 옮김 (맨 앞·맨 뒤면 그쪽 화살표를 끔)
+    const top = topItems();
+    const first = top[0], last = top[top.length - 1];
+    const isTop = (t, f) => t && t.kind === 'folder' && t.item.id === f.id;
+    document.getElementById('settings-folders').innerHTML = folders.length ? folders.map(f => {
         const names = groups.filter(g => g.folder_id === f.id).map(g => esc(g.name));
         return `
         <div class="group-row">
@@ -2463,8 +2484,8 @@ function renderFolderSettings() {
                 <span class="group-row-name">${esc(f.name)}</span>
                 <span class="group-row-members">${names.length ? names.join(' · ') : '(비어 있음 · 사이드바에 보이지 않음)'}</span>
             </div>
-            <button class="icon-btn small" data-action="move-folder" data-folder-id="${f.id}" data-direction="up" aria-label="${esc(f.name)} 묶음 위로" ${i === 0 ? 'disabled' : ''}>${ICONS.up}</button>
-            <button class="icon-btn small" data-action="move-folder" data-folder-id="${f.id}" data-direction="down" aria-label="${esc(f.name)} 묶음 아래로" ${i === folders.length - 1 ? 'disabled' : ''}>${ICONS.down}</button>
+            <button class="icon-btn small" data-action="move-folder" data-folder-id="${f.id}" data-direction="up" aria-label="${esc(f.name)} 묶음 위로" ${isTop(first, f) ? 'disabled' : ''}>${ICONS.up}</button>
+            <button class="icon-btn small" data-action="move-folder" data-folder-id="${f.id}" data-direction="down" aria-label="${esc(f.name)} 묶음 아래로" ${isTop(last, f) ? 'disabled' : ''}>${ICONS.down}</button>
             <button class="btn btn-outline btn-small" data-action="rename-folder" data-folder-id="${f.id}">이름</button>
             <button class="btn btn-outline btn-small btn-danger" data-action="delete-folder" data-folder-id="${f.id}">삭제</button>
         </div>`;
@@ -2992,6 +3013,8 @@ document.addEventListener('click', (e) => {
         markAllRead();
     } else if (action === 'show-new') {
         showNewPosts();
+    } else if (action === 'dismiss-new') {
+        dismissNewBanner();
     } else if (action === 'toggle-search') {
         const topbar = document.querySelector('.topbar');
         topbar.classList.toggle('search-open');
