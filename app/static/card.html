@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>카드 혜택 한도</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563EB'/%3E%3Crect x='7' y='10' width='18' height='12' rx='2' fill='white'/%3E%3Crect x='7' y='13' width='18' height='3' fill='%232563EB'/%3E%3C/svg%3E">
+    <meta name="theme-color" content="#F4F5F7">
+    <link rel="stylesheet" href="/card.css">
+    <script src="/card.js" defer></script>
+</head>
+<body>
+    <main class="page">
+        <header class="top">
+            <a class="back" href="/" aria-label="대시보드로">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+            </a>
+            <h1>카드 혜택 한도</h1>
+            <div class="month" id="month-nav" hidden>
+                <button type="button" class="icon-btn" id="prev" aria-label="이전 달">‹</button>
+                <span id="month-label"></span>
+                <button type="button" class="icon-btn" id="next" aria-label="다음 달">›</button>
+            </div>
+        </header>
+
+        <!-- 소비 내역이라 볼 때부터 로그인 필요 (키워드 게시판과 같은 로그인 키를 이 기기에 기억) -->
+        <form class="panel login" id="login" hidden>
+            <label for="login-password">이 페이지는 관리자 로그인이 필요합니다</label>
+            <div class="login-row">
+                <input type="password" id="login-password" autocomplete="current-password" placeholder="관리자 암호">
+                <button type="submit" class="primary">로그인</button>
+            </div>
+            <p class="error" id="login-error"></p>
+        </form>
+
+        <div id="content" hidden>
+            <section class="hero" id="hero" aria-live="polite">
+                <div class="hero-line"><span id="hero-title"></span><b id="pct"></b></div>
+                <div class="hero-main">
+                    <span class="used"><span id="used"></span><small id="limit"></small></span>
+                    <b class="left" id="left"></b>
+                </div>
+                <div class="track"><i id="fill"></i></div>
+            </section>
+
+            <section class="panel">
+                <button type="button" class="fold" id="entry-fold" aria-expanded="false" aria-controls="entry">
+                    <b>혜택 등록</b>
+                    <span class="fold-side"><span class="sub" id="entry-summary"></span><span class="chevron" aria-hidden="true"></span></span>
+                </button>
+                <div class="fold-body" id="entry" hidden>
+                    <p class="label">날짜</p>
+                    <div class="dates">
+                        <input type="date" id="date" aria-label="날짜">
+                        <button type="button" data-offset="0">오늘</button>
+                        <button type="button" data-offset="1">어제</button>
+                        <button type="button" data-offset="2">그저께</button>
+                    </div>
+                    <div id="recent-block">
+                        <p class="label">최근 입력</p>
+                        <div class="quick" id="quick"></div>
+                    </div>
+                    <p class="label">사용처와 혜택 금액</p>
+                    <form class="entry-row" id="entry-form" autocomplete="off">
+                        <div class="combo">
+                            <input id="place" maxlength="30" placeholder="사용처 입력 또는 선택" aria-label="사용처">
+                            <button type="button" class="arrow" id="arrow" aria-label="최근 입력 목록">
+                                <span class="chevron" aria-hidden="true"></span>
+                            </button>
+                        </div>
+                        <input id="amount" inputmode="numeric" placeholder="혜택 금액" aria-label="혜택 금액">
+                        <button type="submit" class="primary" id="add">추가</button>
+                    </form>
+                    <div class="dropdown" id="dropdown" hidden></div>
+                    <p class="error" id="entry-error"></p>
+                    <div class="undo" id="undo" hidden>
+                        <span id="undo-text"></span>
+                        <button type="button" id="undo-btn">취소</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <button type="button" class="fold" id="history-fold" aria-expanded="false" aria-controls="history">
+                    <b>등록 이력</b>
+                    <span class="fold-side"><span class="sub" id="count"></span><span class="chevron" aria-hidden="true"></span></span>
+                </button>
+                <div class="fold-body" id="history" hidden>
+                    <div class="chips" id="chips"></div>
+                    <input id="search" class="search" placeholder="사용처 검색" aria-label="사용처 검색">
+                    <div id="list"></div>
+                </div>
+            </section>
+        </div>
+    </main>
+</body>
+</html>

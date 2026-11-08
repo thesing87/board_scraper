@@ -55,7 +55,11 @@ from storage import (
     save_folder,
     delete_folder,
     move_folder,
-    arrange_group
+    arrange_group,
+    card_benefits,
+    add_card_benefit,
+    update_card_benefit,
+    delete_card_benefit
 )
 
 MAX_BODY_BYTES = 10 * 1024
@@ -69,6 +73,10 @@ MAX_CATEGORY_NAME_LENGTH = 20
 MAX_CATEGORY_INPUT_LENGTH = 300
 MAX_SITE_NAME_LENGTH = 20
 MAX_SITE_SHORT_LENGTH = 4
+# 카드 혜택: 한 달 혜택 한도(원), 사용처 이름 길이, 한 건 금액 상한
+CARD_BENEFIT_LIMIT = 30000
+MAX_CARD_PLACE_LENGTH = 30
+MAX_CARD_AMOUNT = 10000000
 # 에펨코리아 게시판 mid (글 주소 'fmkorea.com/12345'와 헷갈리지 않게 숫자만인 값은 제외)
 BOARD_KEY_RE = re.compile(r'(?![0-9]+$)[a-z0-9_]{1,40}')
 POSTS_PER_PAGE = 10
@@ -94,6 +102,10 @@ STATIC_FILES = {
     # 전기차 vs 내연기관 유지비 계산기
     '/ev/': ('ev.html', 'text/html; charset=utf-8'),
     '/ev.js': ('ev.js', 'application/javascript; charset=utf-8'),
+    # 카드 혜택 한도
+    '/card/': ('card.html', 'text/html; charset=utf-8'),
+    '/card.js': ('card.js', 'application/javascript; charset=utf-8'),
+    '/card.css': ('card.css', 'text/css; charset=utf-8'),
     # 휴대폰 홈 화면에 앱처럼 추가할 때 쓰는 앱 정보와 아이콘
     '/manifest.webmanifest': ('manifest.webmanifest', 'application/manifest+json; charset=utf-8'),
     '/icon-192.png': ('icon-192.png', 'image/png'),
@@ -320,7 +332,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         try:
             if pure_path in STATIC_FILES:
                 self._serve_static(*STATIC_FILES[pure_path])
-            elif pure_path in ('/board', '/ev'):
+            elif pure_path in ('/board', '/ev', '/card'):
                 # 끝 슬래시 없이 들어오면 붙여서 (페이지 안의 상대 주소가 맞도록)
                 self._send_body(301, b'', 'text/plain; charset=utf-8', {'Location': pure_path + '/'})
             elif pure_path in ('/index.html/board', '/index.html/board/'):
@@ -429,6 +441,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/category': '_handle_category',
         '/api/site': '_handle_site',
         '/api/login': '_handle_login',
+        '/api/card': '_handle_card',
     }
 
     def do_POST(self):
@@ -608,6 +621,68 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_data(200, {'success': True, 'message': '로그인했습니다.', 'token': ADMIN_TOKEN})
         except Exception as e:
             log_msg(f"[API] 로그인 처리 오류: {short_err(e)}", "ERROR")
+            try:
+                self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
+            except Exception:
+                pass
+
+    @staticmethod
+    def _card_date(value):
+        """'YYYY-MM-DD' 형식의 오늘까지 날짜면 그대로, 아니면 None"""
+        if not isinstance(value, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+            return None
+        try:
+            return value if datetime.strptime(value, '%Y-%m-%d').date() <= datetime.now().date() else None
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _card_amount(value):
+        return value if type(value) is int and 0 < value <= MAX_CARD_AMOUNT else None
+
+    def _handle_card(self):
+        """카드 혜택 조회·등록·수정·삭제. 소비 내역이라 조회까지 모두 로그인 필요"""
+        try:
+            params = self._body
+            if not self._authorize(params.get('password', ''), '카드 혜택'):
+                return
+            action = params.get('action')
+            if action == 'list':
+                month = params.get('month') or datetime.now().strftime('%Y-%m')
+                if not isinstance(month, str) or not re.fullmatch(r'\d{4}-(0[1-9]|1[0-2])', month):
+                    self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                    return
+                self._send_data(200, {'success': True, 'month': month, 'limit': CARD_BENEFIT_LIMIT,
+                                      'today': datetime.now().strftime('%Y-%m-%d'), **card_benefits(month)})
+                return
+            if action == 'delete':
+                ok = isinstance(params.get('id'), int) and delete_card_benefit(params['id'])
+            elif action in ('add', 'update'):
+                used_on = self._card_date(params.get('date'))
+                amount = self._card_amount(params.get('amount'))
+                if used_on is None:
+                    self._send_json(400, False, '❌ 오늘까지의 날짜를 골라 주세요.')
+                    return
+                if amount is None:
+                    self._send_json(400, False, '❌ 혜택 금액을 숫자로 입력해 주세요.')
+                    return
+                if action == 'add':
+                    place = str(params.get('place') or '').strip()
+                    if not place or len(place) > MAX_CARD_PLACE_LENGTH or any(ch in place for ch in '\r\n\t'):
+                        self._send_json(400, False, f'❌ 사용처는 줄바꿈 없이 {MAX_CARD_PLACE_LENGTH}자 이하로 입력해 주세요.')
+                        return
+                    self._send_data(200, {'success': True, 'id': add_card_benefit(used_on, place, amount)})
+                    return
+                ok = isinstance(params.get('id'), int) and update_card_benefit(params['id'], used_on, amount)
+            else:
+                self._send_json(400, False, '❌ 지원하지 않는 작업입니다.')
+                return
+            if ok:
+                self._send_json(200, True, '저장했습니다.')
+            else:
+                self._send_json(400, False, '❌ 존재하지 않는 항목입니다.')
+        except Exception as e:
+            log_msg(f"[API] 카드 혜택 처리 오류: {short_err(e)}", "ERROR")
             try:
                 self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
             except Exception:

@@ -194,6 +194,16 @@ def _create_schema(conn):
             post_id      TEXT PRIMARY KEY REFERENCES posts(id) ON DELETE CASCADE,
             collected_at TEXT NOT NULL
         );
+
+        -- 카드 혜택 한도 페이지에 직접 등록한 혜택 (used_on: 'YYYY-MM-DD', amount: 혜택 받은 금액(원))
+        CREATE TABLE IF NOT EXISTS card_benefits (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            used_on    TEXT NOT NULL,
+            place      TEXT NOT NULL,
+            amount     INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_card_benefits_used_on ON card_benefits(used_on);
     """)
 
 def _now():
@@ -1465,6 +1475,39 @@ def query_posts_by_ids(post_ids):
         """, params + tuple(ids)).fetchall()
     by_id = {r['id']: _row_to_post(r) for r in rows}
     return [by_id[i] for i in ids if i in by_id]
+
+# ==========================================
+# 카드 혜택 한도
+# ==========================================
+def card_benefits(month, recent_limit=8):
+    """그 달('YYYY-MM')의 등록 내역(최근 날짜·최근 등록 순)과, 달에 상관없이 최근에 등록한 사용처·금액 조합(최근 순, 중복 없이)"""
+    with _db() as conn:
+        items = conn.execute("""
+            SELECT id, used_on, place, amount FROM card_benefits
+            WHERE used_on >= ? AND used_on < ? ORDER BY used_on DESC, id DESC
+        """, (f'{month}-01', f'{month}-99')).fetchall()
+        recent = conn.execute("""
+            SELECT place, amount, MAX(id) AS last_id FROM card_benefits
+            GROUP BY place, amount ORDER BY last_id DESC LIMIT ?
+        """, (recent_limit,)).fetchall()
+    return {'items': [dict(r) for r in items],
+            'recent': [{'place': r['place'], 'amount': r['amount']} for r in recent]}
+
+def add_card_benefit(used_on, place, amount):
+    with _db() as conn, conn:
+        return conn.execute("INSERT INTO card_benefits(used_on, place, amount, created_at) VALUES(?, ?, ?, ?)",
+                            (used_on, place, amount, _now())).lastrowid
+
+def update_card_benefit(benefit_id, used_on, amount):
+    """날짜·금액 수정. 없는 항목이면 False"""
+    with _db() as conn, conn:
+        return conn.execute("UPDATE card_benefits SET used_on = ?, amount = ? WHERE id = ?",
+                            (used_on, amount, benefit_id)).rowcount > 0
+
+def delete_card_benefit(benefit_id):
+    """삭제. 없는 항목이면 False"""
+    with _db() as conn, conn:
+        return conn.execute("DELETE FROM card_benefits WHERE id = ?", (benefit_id,)).rowcount > 0
 
 def dashboard_summary(recent_limit=3):
     """메인 대시보드의 키워드 게시판 카드: 오늘(0시 이후) 처음 수집한 글 수, 최근 수집한 글(제목·게시판·추천·댓글·수집 시각·읽음)"""

@@ -151,11 +151,55 @@ function renderEv() {
         </div>`;
 }
 
+// ==========================================
+// 카드 혜택 한도 카드 (소비 내역이라 로그인 키가 있는 기기에서만 조회)
+// ==========================================
+const ADMIN_TOKEN_KEY = 'admin_token';
+
+function renderBenefitMessage(text) {
+    $('benefit-body').innerHTML = `<span class="empty">${text}</span>`;
+}
+
+async function loadBenefit() {
+    let token = '';
+    try { token = localStorage.getItem(ADMIN_TOKEN_KEY) || ''; } catch (e) { token = ''; }
+    if (!token) { renderBenefitMessage('열어서 로그인하면 이번 달 사용액이 표시됩니다'); return; }
+    try {
+        const res = await fetch('/api/card', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ action: 'list', password: token })
+        });
+        if (res.status === 401) {
+            // 틀린 키로 1분마다 다시 요청하면 잠길 수 있어 바로 지움
+            try { localStorage.removeItem(ADMIN_TOKEN_KEY); } catch (e) { /* 지우지 못해도 표시만 바꿈 */ }
+            renderBenefitMessage('열어서 로그인하면 이번 달 사용액이 표시됩니다');
+            return;
+        }
+        if (!res.ok) throw new Error(res.status);
+        const data = await res.json();
+        const total = data.items.reduce((sum, x) => sum + x.amount, 0);
+        const level = total >= data.limit ? 'is-over' : total >= data.limit * 0.8 ? 'is-warn' : '';
+        const left = total > data.limit ? `${num(total - data.limit)}원 초과`
+            : total === data.limit ? '한도 도달' : `남은 혜택 ${num(data.limit - total)}원`;
+        $('benefit-sub').textContent = `삼성카드 ${+data.month.slice(5)}월`;
+        $('benefit-body').innerHTML = `<div>
+            <div class="benefit-main">
+                <span class="benefit-used">${num(total)}<small>/ ${num(data.limit)}원</small></span>
+                <span class="benefit-left ${total > data.limit ? 'is-over' : ''}">${left}</span>
+            </div>
+            <div class="benefit-bar ${level}"><i style="width:${Math.min(total / data.limit * 100, 100)}%"></i></div>
+        </div>`;
+    } catch (e) {
+        renderBenefitMessage('잠시 후 자동으로 다시 시도합니다');
+    }
+}
+
 renderClock();
 renderEv();
 loadBoard();
-setInterval(() => { renderClock(); loadBoard(); }, REFRESH_MS);
+loadBenefit();
+setInterval(() => { renderClock(); loadBoard(); loadBenefit(); }, REFRESH_MS);
 // 계산기에서 값을 바꾸고 돌아오면(다른 탭 포함) 다시 계산
 window.addEventListener('storage', e => { if (e.key === 'evice') renderEv(); });
 window.addEventListener('pageshow', renderEv);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderClock(); renderEv(); loadBoard(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderClock(); renderEv(); loadBoard(); loadBenefit(); } });
