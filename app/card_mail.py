@@ -33,7 +33,8 @@ SENDER = 'cardweb@samsungcard.com'
 SUBJECT_TEXT = '전자상거래 결제내역'
 MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
 
-PAID_AT_RE = re.compile(r'결제일시\s*:?\s*(\d{4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})\.?\s+(\d{1,2}):(\d{2})')
+# 실제 메일은 숫자·구분자가 칸으로 나뉘어 있어 글자로 바꾸면 '2026 . 11 . 08 09 : 36'처럼 띄어짐
+PAID_AT_RE = re.compile(r'결제일시\s*:?\s*(\d{4})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})\s*\.?\s+(\d{1,2})\s*:\s*(\d{2})')
 PLACE_RE = re.compile(r'이용가맹점\s*:?\s*(.+?)\s*결제금액')
 AMOUNT_RE = re.compile(r'결제금액\s*:?\s*([\d,]+)\s*원')
 APPROVAL_RE = re.compile(r'승인번호\s*:?\s*(\d+)')

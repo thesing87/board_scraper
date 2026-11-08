@@ -20,6 +20,8 @@ expected = {'approval_no': '48968246', 'paid_at': '2026-11-08 09:36', 'place': '
 assert card_mail.parse_payment(body()) == expected
 assert card_mail.parse_payment(body(sep=' ')) == expected
 assert card_mail.parse_payment(body(sep='\n : \n')) == expected
+# 실제 메일 HTML을 글자로 바꾼 모양 (날짜·시각 숫자가 띄어져 있음)
+assert card_mail.parse_payment('삼성카드 이용내역 결제일시 2026 . 11 . 08 09 : 36 이용자 임*범 님 이용가맹점 스타벅스_주문 결제금액 3,600 원 승인번호 48968246 결제유형 일시불') == expected
 assert card_mail.parse_payment(body(place='투썸플레이스 강남점', amount='12,300'))['place'] == '투썸플레이스 강남점'
 assert card_mail.parse_payment(body() + ' 승인취소') is None
 assert card_mail.parse_payment('아무 내용') is None
