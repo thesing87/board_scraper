@@ -37,6 +37,30 @@ services:
         limits:
           memory: 1G
 
+  # 삼성카드 결제 메일 감시 (app/card_mail.py). .env의 NAVER_MAIL_USER·NAVER_MAIL_APP_PASSWORD가 없으면 아무것도 하지 않음
+  fmkorea-mail:
+    build: .
+    image: fmkorea-scraper:local
+    container_name: fmkorea-mail
+    command: ["python", "-u", "app/card_mail.py"]
+    env_file:
+      - .env
+    environment:
+      - OUTPUT_DIR=/output
+      - TZ=Asia/Seoul
+      - LOG_LEVEL=INFO
+      - PYTHONDONTWRITEBYTECODE=1
+      - DEBUG_LOG_NAME=mail-debug.log
+    cpu_shares: 256
+    restart: unless-stopped
+    volumes:
+      - /volume2/docker/fmkorea-scraper/output:/output
+      - .:/app:ro
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
   fmkorea-web:
     build: .
     image: fmkorea-scraper:local

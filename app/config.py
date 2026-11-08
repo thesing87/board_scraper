@@ -88,6 +88,10 @@ INSECURE_ADMIN_PASSWORDS = {'', 'admin1234'}
 # 대시보드 포트가 프록시를 거치지 않고 인터넷에 열려 있으면 이 값을 켜지 말 것 (헤더를 꾸며 잠금을 피할 수 있음)
 TRUST_PROXY_HEADERS = os.environ.get('TRUST_PROXY_HEADERS', '0').strip() == '1'
 DDNS_URL = os.environ.get('DDNS_URL')
+# 카드 결제 메일을 읽을 네이버 계정 (app/card_mail.py). 비밀번호는 네이버 로그인 암호가 아닌 애플리케이션 비밀번호
+NAVER_MAIL_USER = (os.environ.get('NAVER_MAIL_USER') or '').strip()
+NAVER_MAIL_APP_PASSWORD = (os.environ.get('NAVER_MAIL_APP_PASSWORD') or '').strip()
+CARD_MAIL_FOLDER = (os.environ.get('CARD_MAIL_FOLDER') or 'INBOX').strip()
 
 MAX_DATA_PER_KEYWORD = 100
 # 수집한 지 이 일수가 지난 글은 하루 한 번 정리 (각 키워드의 최근 MAX_DATA_PER_KEYWORD개는 새 글 판별 기준이라 유지). 0이면 정리 안 함

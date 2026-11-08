@@ -49,7 +49,7 @@ if [ -n "$REASON" ]; then
 else
     # 컨테이너마다 ID를 비교: 새로 만들어진 컨테이너는 이미 새 코드로 시작했고, 그대로인 컨테이너는 재시작해야 새 코드를 읽음
     # (예: .env만 바뀌면 한쪽만 새로 만들어지므로, 전부 아니면 전무로 판단하면 다른 쪽이 옛 코드로 계속 돎)
-    SERVICES='fmkorea-scraper fmkorea-web'
+    SERVICES='fmkorea-scraper fmkorea-web fmkorea-mail'
     # 그대로인 컨테이너 중 재시작할 것: update.sh가 넘긴 바뀐 파일(CHANGED_FILES)을 보고 고름. 없으면(restart 등) 모두
     #  - 화면(app/static)·테스트·배포 스크립트·문서만: 재시작하지 않음 (웹서버가 화면 파일을 요청마다 디스크에서 읽음)
     #  - 웹서버 코드(app/web_server.py)만: 웹서버만
@@ -62,6 +62,7 @@ else
             case "$f" in
                 app/static/*|tests/*|deploy/*|*.md) ;;
                 app/web_server.py) RESTART="$RESTART fmkorea-web" ;;
+                app/card_mail.py) RESTART="$RESTART fmkorea-mail" ;;
                 app/*) RESTART="$RESTART $SERVICES" ;;
             esac
         done

@@ -59,7 +59,9 @@ from storage import (
     card_benefits,
     add_card_benefit,
     update_card_benefit,
-    delete_card_benefit
+    delete_card_benefit,
+    add_card_keyword,
+    delete_card_keyword
 )
 
 MAX_BODY_BYTES = 10 * 1024
@@ -653,7 +655,20 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                     self._send_json(400, False, '❌ 잘못된 요청입니다.')
                     return
                 self._send_data(200, {'success': True, 'month': month, 'limit': CARD_BENEFIT_LIMIT,
-                                      'today': datetime.now().strftime('%Y-%m-%d'), **card_benefits(month)})
+                                      'today': datetime.now().strftime('%Y-%m-%d'),
+                                      'now': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), **card_benefits(month)})
+                return
+            if action in ('keyword_add', 'keyword_delete'):
+                keyword = str(params.get('keyword') or '').strip()
+                if not keyword or len(keyword) > MAX_CARD_PLACE_LENGTH or any(ch in keyword for ch in '\r\n\t'):
+                    self._send_json(400, False, f'❌ 가게 이름은 줄바꿈 없이 {MAX_CARD_PLACE_LENGTH}자 이하로 입력해 주세요.')
+                    return
+                if action == 'keyword_add':
+                    self._send_data(200, {'success': True, 'applied': add_card_keyword(keyword)})
+                elif delete_card_keyword(keyword):
+                    self._send_json(200, True, '삭제했습니다.')
+                else:
+                    self._send_json(400, False, '❌ 존재하지 않는 가게입니다.')
                 return
             if action == 'delete':
                 ok = isinstance(params.get('id'), int) and delete_card_benefit(params['id'])
@@ -664,7 +679,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                     self._send_json(400, False, '❌ 오늘까지의 날짜를 골라 주세요.')
                     return
                 if amount is None:
-                    self._send_json(400, False, '❌ 혜택 금액을 숫자로 입력해 주세요.')
+                    self._send_json(400, False, '❌ 결제 금액을 숫자로 입력해 주세요.')
                     return
                 if action == 'add':
                     place = str(params.get('place') or '').strip()

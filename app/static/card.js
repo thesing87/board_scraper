@@ -1,4 +1,4 @@
-// 카드 혜택 한도: 혜택 받은 금액을 직접 등록해 그 달 한도를 얼마나 썼는지 보여 줌.
+// 카드 혜택 한도: 차감할 가게의 결제 금액(메일로 자동 또는 직접 입력)을 합쳐 그 달 한도를 얼마나 썼는지 보여 줌.
 // 소비 내역이라 조회까지 로그인이 필요하고, 키워드 게시판과 같은 로그인 키(localStorage admin_token)를 씀
 'use strict';
 
@@ -17,7 +17,9 @@ const niceDate = s => { const d = toDate(s); return `${d.getMonth() + 1}월 ${d.
 function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } }
 function setToken(v) { try { if (v) localStorage.setItem(TOKEN_KEY, v); else localStorage.removeItem(TOKEN_KEY); } catch (e) { /* 저장 불가: 이번 화면에서만 다시 로그인 */ } }
 
-const state = { month: '', today: '', limit: 0, items: [], recent: [], filter: '전체', last: null };
+const state = { month: '', today: '', now: '', limit: 0, items: [], recent: [], others: [], keywords: [], mail: { state: 'off' }, filter: '전체', last: null };
+// 메일 확인 기록이 이보다 오래되면 멈춘 것으로 표시
+const MAIL_STALL_MINUTES = 15;
 
 // ==========================================
 // 서버 통신
@@ -46,7 +48,8 @@ async function load(month) {
     const data = await api({ action: 'list', month });
     if (!data) return false;
     const firstLoad = !state.today;
-    Object.assign(state, { month: data.month, today: data.today, limit: data.limit, items: data.items, recent: data.recent });
+    Object.assign(state, { month: data.month, today: data.today, now: data.now, limit: data.limit, items: data.items, recent: data.recent,
+                           others: data.others, keywords: data.keywords, mail: data.mail });
     if (state.filter !== '전체' && !state.items.some(x => x.place === state.filter)) state.filter = '전체';
     if (firstLoad) { $('date').value = state.today; $('date').max = state.today; }
     $('login').hidden = true;
@@ -76,14 +79,45 @@ function renderHero() {
     const total = state.items.reduce((sum, x) => sum + x.amount, 0);
     const monthNo = +state.month.slice(5);
     $('month-label').textContent = `${state.month.slice(0, 4)}년 ${monthNo}월`;
-    $('hero-title').textContent = `삼성카드 ${monthNo}월 혜택`;
+    $('hero-title').textContent = `삼성카드 ${monthNo}월 카페 한도`;
     $('used').textContent = won(total);
     $('limit').textContent = `/ ${won(state.limit)}원`;
     $('pct').textContent = `${Math.round(total / state.limit * 100)}% 사용`;
     $('fill').style.width = `${Math.min(total / state.limit * 100, 100)}%`;
     $('hero').className = 'hero' + (total >= state.limit ? ' over' : total >= state.limit * WARN_RATIO ? ' warn' : '');
     $('left').textContent = total > state.limit ? `${won(total - state.limit)}원 초과`
-        : total === state.limit ? '한도 도달' : `남은 혜택 ${won(state.limit - total)}원`;
+        : total === state.limit ? '한도 도달' : `남은 한도 ${won(state.limit - total)}원`;
+}
+
+function renderMail() {
+    const bar = $('mail-bar'), mail = state.mail || {};
+    const stamp = s => new Date(s.replace(' ', 'T'));
+    const minutes = mail.checked_at && state.now ? Math.max(0, Math.round((stamp(state.now) - stamp(mail.checked_at)) / 60000)) : 0;
+    let cls = '', text;
+    if (mail.state === 'off' || !mail.state) { cls = 'is-off'; text = '메일 연결 전 (NAS 설정 필요)'; }
+    else if (mail.state === 'error') { cls = 'is-bad'; text = mail.message || '메일을 확인하지 못했습니다'; }
+    else if (minutes > MAIL_STALL_MINUTES) { cls = 'is-bad'; text = `메일 확인이 멈춘 것 같습니다 (${minutes}분 전 확인)`; }
+    else {
+        text = `메일 자동 확인 중 · ${minutes < 1 ? '방금' : `${minutes}분 전`} 확인`;
+        if (mail.message) { cls = 'is-bad'; text += ` · ${mail.message}`; }
+    }
+    bar.className = 'mail-bar ' + cls;
+    bar.textContent = text;
+}
+
+function renderKeywords() {
+    $('keyword-count').textContent = `${state.keywords.length}곳`;
+    $('keywords').innerHTML = state.keywords.map(k => `<span class="keyword">${esc(k)}<button type="button" aria-label="${esc(k)} 삭제" data-keyword="${esc(k)}">×</button></span>`).join('')
+        || '<span class="sub">등록한 가게가 없습니다.</span>';
+}
+
+function renderOthers() {
+    $('others-count').textContent = `${state.others.length}건`;
+    $('others').innerHTML = state.others.map(x => `<div class="other">
+            <div><div class="row-name">${esc(x.place)}</div><div class="sub">${esc(x.paid_at.slice(5).replace('-', '/'))}</div></div>
+            <span class="other-amount">${won(x.amount)}원</span>
+            <button type="button" data-add-keyword="${esc(x.place.split(/[_\s]/)[0])}">가게 추가</button>
+        </div>`).join('') || '<div class="none">없습니다.</div>';
 }
 
 function offsetDate(days) {
@@ -133,9 +167,9 @@ function renderList() {
         const group = rows.filter(x => x.used_on === day);
         return `<div class="day"><span>${niceDate(day)}</span><span>${won(group.reduce((sum, x) => sum + x.amount, 0))}원</span></div>`
             + group.map(x => `<div class="row">
-                <div class="row-info"><div class="row-name">${esc(x.place)}</div><div class="sub">누적 ${won(cumulative.get(x.id))}원</div></div>
+                <div class="row-info"><div class="row-name">${esc(x.place)}${x.from_mail ? '<span class="mail-tag">메일</span>' : ''}</div><div class="sub">누적 ${won(cumulative.get(x.id))}원</div></div>
                 <input type="date" max="${state.today}" aria-label="${esc(x.place)} 날짜" data-date-id="${x.id}" value="${x.used_on}">
-                <input class="amt" inputmode="numeric" aria-label="${esc(x.place)} 혜택 금액" data-amount-id="${x.id}" value="${won(x.amount)}">
+                <input class="amt" inputmode="numeric" aria-label="${esc(x.place)} 결제 금액" data-amount-id="${x.id}" value="${won(x.amount)}">
                 <button type="button" class="del" aria-label="${esc(x.place)} 삭제" data-del="${x.id}">×</button>
             </div>`).join('');
     }).join('') || '<div class="none">이 달의 등록 이력이 없습니다.</div>';
@@ -143,6 +177,9 @@ function renderList() {
 
 function render() {
     renderHero();
+    renderMail();
+    renderKeywords();
+    renderOthers();
     renderDate();
     renderQuick();
     renderUndo();
@@ -174,7 +211,7 @@ async function submitEntry() {
     const error = $('entry-error');
     if (!date) { error.textContent = '날짜를 고르세요.'; return; }
     if (!place) { error.textContent = '사용처를 입력하세요.'; return; }
-    if (!(amount > 0)) { error.textContent = '혜택 금액을 숫자로 입력하세요.'; return; }
+    if (!(amount > 0)) { error.textContent = '결제 금액을 숫자로 입력하세요.'; return; }
     $('add').disabled = true;
     try {
         const data = await api({ action: 'add', date, place, amount });
@@ -212,6 +249,30 @@ function guarded(promise) {
 
 $('entry-fold').addEventListener('click', () => toggleFold($('entry-fold'), $('entry')));
 $('history-fold').addEventListener('click', () => toggleFold($('history-fold'), $('history')));
+$('keyword-fold').addEventListener('click', () => toggleFold($('keyword-fold'), $('keywords-body')));
+$('others-fold').addEventListener('click', () => toggleFold($('others-fold'), $('others-body')));
+$('keyword').addEventListener('input', () => { $('keyword-error').textContent = ''; });
+$('keyword-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const keyword = $('keyword').value.trim();
+    if (!keyword) { $('keyword-error').textContent = '가게 이름을 입력하세요.'; return; }
+    try {
+        const data = await api({ action: 'keyword_add', keyword });
+        if (!data) return;
+        $('keyword').value = '';
+        await load(state.month);
+    } catch (err) {
+        $('keyword-error').textContent = err.message || '추가하지 못했습니다.';
+    }
+});
+$('keywords').addEventListener('click', e => {
+    const b = e.target.closest('[data-keyword]');
+    if (b) guarded(mutate({ action: 'keyword_delete', keyword: b.dataset.keyword }));
+});
+$('others').addEventListener('click', e => {
+    const b = e.target.closest('[data-add-keyword]');
+    if (b) guarded(mutate({ action: 'keyword_add', keyword: b.dataset.addKeyword }));
+});
 $('prev').addEventListener('click', () => shiftMonth(-1));
 $('next').addEventListener('click', () => shiftMonth(1));
 $('date').addEventListener('change', renderDate);

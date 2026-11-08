@@ -180,7 +180,7 @@ async function loadBenefit() {
         const total = data.items.reduce((sum, x) => sum + x.amount, 0);
         const level = total >= data.limit ? 'is-over' : total >= data.limit * 0.8 ? 'is-warn' : '';
         const left = total > data.limit ? `${num(total - data.limit)}원 초과`
-            : total === data.limit ? '한도 도달' : `남은 혜택 ${num(data.limit - total)}원`;
+            : total === data.limit ? '한도 도달' : `남은 한도 ${num(data.limit - total)}원`;
         $('benefit-sub').textContent = `삼성카드 ${+data.month.slice(5)}월`;
         $('benefit-body').innerHTML = `<div>
             <div class="benefit-main">

@@ -55,6 +55,20 @@ button:disabled { opacity: .6; cursor: default; }
 .warn .track i { background: #EF9F27; }
 .over .track i { background: #E24B4A; }
 
+.mail-bar { padding: 9px 12px; border-radius: 10px; background: #E1F5EE; color: #085041; font-size: 13px; }
+.mail-bar.is-off { background: #F1F2F4; color: var(--muted); }
+.mail-bar.is-bad { background: #FCEBEB; color: #791F1F; }
+
+.keywords { display: flex; flex-wrap: wrap; gap: 6px; }
+.keyword { display: inline-flex; align-items: center; gap: 2px; height: 32px; padding: 0 4px 0 12px; border-radius: 999px; background: #FAECE7; color: #712B13; font-size: 13px; font-weight: 600; }
+.keyword button { width: 24px; height: 24px; padding: 0; border: 0; background: none; color: inherit; font-size: 15px; }
+.keyword-row { display: grid; grid-template-columns: minmax(0, 1fr) 62px; gap: 8px; margin-top: 10px; }
+.pending { padding: 2px 8px; border-radius: 8px; background: #FAEEDA; color: #633806; font-size: 12px; font-weight: 700; }
+.other { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 9px 0; border-top: 1px solid var(--divider); }
+.other button { height: 30px; font-size: 12px; }
+.other-amount { font-variant-numeric: tabular-nums; }
+.mail-tag { margin-left: 6px; padding: 2px 7px; border-radius: 6px; background: #E1F5EE; color: #085041; font-size: 11px; font-weight: 700; }
+
 .fold { display: flex; width: 100%; height: auto; min-height: 24px; padding: 0; justify-content: space-between; align-items: center; gap: 10px; border: 0; background: none; font-size: 15px; }
 .fold-side { display: flex; align-items: center; gap: 8px; }
 .chevron { display: inline-block; width: 8px; height: 8px; margin: 0 4px 3px; border: solid var(--muted); border-width: 0 2px 2px 0; transform: rotate(45deg); transition: transform .15s; }
@@ -83,6 +97,7 @@ button:disabled { opacity: .6; cursor: default; }
 
 .fold-body { margin-top: 12px; }
 .fold-body > .label:first-child { margin-top: 0; }
+.fold-body > .sub:first-child { margin: 0 0 8px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .chips button { height: 30px; font-size: 13px; border-radius: 999px; }
 .chips button.is-on { background: var(--accent-dark); border-color: var(--accent-dark); color: #fff; }

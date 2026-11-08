@@ -43,9 +43,11 @@
                 <div class="track"><i id="fill"></i></div>
             </section>
 
+            <div class="mail-bar" id="mail-bar"></div>
+
             <section class="panel">
                 <button type="button" class="fold" id="entry-fold" aria-expanded="false" aria-controls="entry">
-                    <b>혜택 등록</b>
+                    <b>직접 등록</b>
                     <span class="fold-side"><span class="sub" id="entry-summary"></span><span class="chevron" aria-hidden="true"></span></span>
                 </button>
                 <div class="fold-body" id="entry" hidden>
@@ -60,7 +62,7 @@
                         <p class="label">최근 입력</p>
                         <div class="quick" id="quick"></div>
                     </div>
-                    <p class="label">사용처와 혜택 금액</p>
+                    <p class="label">사용처와 결제 금액</p>
                     <form class="entry-row" id="entry-form" autocomplete="off">
                         <div class="combo">
                             <input id="place" maxlength="30" placeholder="사용처 입력 또는 선택" aria-label="사용처">
@@ -68,7 +70,7 @@
                                 <span class="chevron" aria-hidden="true"></span>
                             </button>
                         </div>
-                        <input id="amount" inputmode="numeric" placeholder="혜택 금액" aria-label="혜택 금액">
+                        <input id="amount" inputmode="numeric" placeholder="결제 금액" aria-label="결제 금액">
                         <button type="submit" class="primary" id="add">추가</button>
                     </form>
                     <div class="dropdown" id="dropdown" hidden></div>
@@ -77,6 +79,32 @@
                         <span id="undo-text"></span>
                         <button type="button" id="undo-btn">취소</button>
                     </div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <button type="button" class="fold" id="keyword-fold" aria-expanded="false" aria-controls="keywords-body">
+                    <b>차감할 가게</b>
+                    <span class="fold-side"><span class="sub" id="keyword-count"></span><span class="chevron" aria-hidden="true"></span></span>
+                </button>
+                <div class="fold-body" id="keywords-body" hidden>
+                    <div class="keywords" id="keywords"></div>
+                    <form class="keyword-row" id="keyword-form" autocomplete="off">
+                        <input id="keyword" maxlength="30" placeholder="가게 이름 (이디야)" aria-label="가게 이름">
+                        <button type="submit" class="primary">추가</button>
+                    </form>
+                    <p class="error" id="keyword-error"></p>
+                </div>
+            </section>
+
+            <section class="panel">
+                <button type="button" class="fold" id="others-fold" aria-expanded="false" aria-controls="others-body">
+                    <b>차감 안 한 결제</b>
+                    <span class="fold-side"><span class="pending" id="others-count"></span><span class="chevron" aria-hidden="true"></span></span>
+                </button>
+                <div class="fold-body" id="others-body" hidden>
+                    <p class="sub">메일로 찾았지만 차감할 가게가 아닌 결제입니다.</p>
+                    <div id="others"></div>
                 </div>
             </section>
 

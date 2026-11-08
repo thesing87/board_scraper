@@ -124,14 +124,36 @@ try:
 
     # 대시보드 카드
     d.get(BASE + '/'); time.sleep(1.5)
-    assert '2,370' in text('benefit-body') and '남은 혜택 27,630원' in text('benefit-body')
+    assert '2,370' in text('benefit-body') and '남은 한도 27,630원' in text('benefit-body')
     assert js("return document.querySelector('#card-benefit .card-head').getAttribute('href')") == '/card/'
     print('PAGE OK')
 
-    # 모바일: 가로 넘침 없음
+    # 메일로 찾은 결제: 차감할 가게면 바로 합계에, 아니면 '차감 안 한 결제'에서 가게 추가
+    now_text = today.isoformat() + ' 10:00'
+    assert storage.record_card_payment('9001', now_text, '스타벅스_주문', 3600) == 'matched'
+    assert storage.record_card_payment('9002', now_text, '이디야커피 역삼점', 4500) == 'other'
     d.get(BASE + '/card/'); time.sleep(1.5)
+    assert text('used') == '5,970' and '메일 연결 전' in text('mail-bar')
+    assert text('keyword-count') == '2곳' and text('others-count') == '1건'
+    assert hidden('keywords-body') and hidden('others-body')
+    js("document.getElementById('keyword-fold').click(); document.getElementById('others-fold').click(); document.getElementById('history-fold').click()")
+    assert not hidden('keywords-body') and not hidden('others-body')
+    assert js("return [...document.querySelectorAll('.row-name')].filter(e => e.querySelector('.mail-tag')).length") == 1
+    storage.set_card_mail_status('ok', mode='idle')
+    js("document.querySelector('[data-add-keyword]').click()"); time.sleep(1)
+    assert text('used') == '10,470' and text('others-count') == '0건' and '이디야커피' in text('keywords')
+    assert '메일 자동 확인 중' in text('mail-bar')
+    # 가게를 지워도 이미 차감한 금액은 그대로
+    js("document.querySelector('[data-keyword=\"이디야커피\"]').click()"); time.sleep(1)
+    assert text('used') == '10,470' and text('keyword-count') == '2곳'
+    # 직접 추가
+    js("document.getElementById('keyword').value='메가커피'; document.getElementById('keyword-form').requestSubmit()"); time.sleep(1)
+    assert '메가커피' in text('keywords') and js("return document.getElementById('keyword').value") == ''
+    print('MAIL UI OK')
+
+    # 모바일: 가로 넘침 없음
     d.set_window_size(390, 844); time.sleep(0.8)
-    js("document.getElementById('entry-fold').click(); document.getElementById('history-fold').click()"); time.sleep(0.3)
+    js("document.getElementById('entry-fold').click()"); time.sleep(0.3)
     assert js("return document.documentElement.scrollWidth <= innerWidth")
     print('MOBILE OK')
 finally:
