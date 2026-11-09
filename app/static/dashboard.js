@@ -194,10 +194,216 @@ async function loadBenefit() {
     }
 }
 
+// ==========================================
+// 카드 배치 편집 (이동·크기). 화면 크기가 기기마다 달라 이 기기에만 저장
+// ==========================================
+const LAYOUT_KEY = 'dashboard_layout_v1';
+const COLUMNS = 12;
+const MIN_COLUMNS = 3;
+const DEFAULT_LAYOUT = [{ id: 'card-board', w: 7, h: null }, { id: 'card-ev', w: 5, h: null }, { id: 'card-benefit', w: 5, h: null }];
+const MIN_HEIGHT = 120, MAX_HEIGHT = 1200, HEIGHT_STEP = 10;
+const narrowScreen = window.matchMedia('(max-width: 820px)');
+const grid = $('dash-grid');
+const cardOf = id => document.getElementById(id);
+const clamp = (v, low, high) => Math.min(Math.max(v, low), high);
+
+function defaultLayout() { return DEFAULT_LAYOUT.map(c => ({ ...c })); }
+
+function loadLayout() {
+    let saved = [];
+    try { saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || '[]'); } catch (e) { saved = []; }
+    if (!Array.isArray(saved)) saved = [];
+    // 저장 뒤에 카드가 늘거나 줄어도 동작하도록 아는 카드만 쓰고, 빠진 카드는 뒤에 붙임
+    const used = new Set();
+    const list = [];
+    saved.forEach(c => {
+        const base = c && DEFAULT_LAYOUT.find(d => d.id === c.id);
+        if (!base || used.has(c.id)) return;
+        used.add(c.id);
+        list.push({ id: c.id, w: Number.isInteger(c.w) ? clamp(c.w, MIN_COLUMNS, COLUMNS) : base.w,
+                    h: Number.isFinite(c.h) ? clamp(c.h, MIN_HEIGHT, MAX_HEIGHT) : null });
+    });
+    return list.concat(defaultLayout().filter(c => !used.has(c.id)));
+}
+
+let layout = loadLayout();
+
+function saveLayout() {
+    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch (e) { /* 저장 불가: 이번 화면에서만 적용 */ }
+}
+
+function rowGap() { return narrowScreen.matches ? 12 : 14; }
+
+function syncRowSpans() {
+    layout.forEach(c => {
+        const span = `span ${Math.ceil(cardOf(c.id).getBoundingClientRect().height) + rowGap()}`;
+        if (cardOf(c.id).style.gridRowEnd !== span) cardOf(c.id).style.gridRowEnd = span;
+    });
+}
+
+function applyLayout() {
+    layout.forEach((c, i) => {
+        const card = cardOf(c.id);
+        card.style.order = i;
+        card.style.gridColumn = `span ${narrowScreen.matches ? COLUMNS : c.w}`;
+        card.style.height = c.h ? `${c.h}px` : '';
+    });
+    syncRowSpans();
+    grid.classList.add('is-ready');
+}
+
+function moveCard(item, toIndex) {
+    const from = layout.indexOf(item);
+    const to = clamp(toIndex, 0, layout.length - 1);
+    if (from === to) return;
+    layout.splice(from, 1);
+    layout.splice(to, 0, item);
+    applyLayout();
+}
+
+function placeUnderPointer(card, e, grabX, grabY) {
+    card.style.transform = '';
+    const rect = card.getBoundingClientRect();
+    card.style.transform = `translate(${e.clientX - grabX - rect.left}px, ${e.clientY - grabY - rect.top}px)`;
+}
+
+function startDrag(item, e) {
+    const card = cardOf(item.id), grip = e.currentTarget;
+    const rect = card.getBoundingClientRect();
+    const grabX = e.clientX - rect.left, grabY = e.clientY - rect.top;
+    let lastTarget = null;
+    grip.setPointerCapture(e.pointerId);
+    card.classList.add('is-dragging');
+    const onMove = ev => {
+        // 다른 카드 위에 올라가면 그 자리로. 크기가 달라 자리를 바꾼 뒤에도 그 카드 위일 수 있어, 벗어나기 전에는 다시 바꾸지 않음
+        const target = layout.find(c => {
+            if (c === item) return false;
+            const r = cardOf(c.id).getBoundingClientRect();
+            return ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
+        }) || null;
+        if (target !== lastTarget) {
+            lastTarget = target;
+            if (target) moveCard(item, layout.indexOf(target));
+        }
+        placeUnderPointer(card, ev, grabX, grabY);
+    };
+    const onEnd = () => {
+        grip.removeEventListener('pointermove', onMove);
+        grip.removeEventListener('pointerup', onEnd);
+        grip.removeEventListener('pointercancel', onEnd);
+        card.style.transform = '';
+        card.classList.remove('is-dragging');
+        saveLayout();
+    };
+    grip.addEventListener('pointermove', onMove);
+    grip.addEventListener('pointerup', onEnd);
+    grip.addEventListener('pointercancel', onEnd);
+}
+
+function columnWidth() {
+    const gap = narrowScreen.matches ? 12 : 14;
+    return { size: (grid.clientWidth - gap * (COLUMNS - 1)) / COLUMNS, gap };
+}
+
+function startResize(item, e) {
+    const card = cardOf(item.id), handle = e.currentTarget;
+    const rect = card.getBoundingClientRect();
+    const startY = e.clientY;
+    const offsetRight = rect.right - e.clientX, offsetBottom = rect.bottom - e.clientY;
+    let heightChanged = false;
+    handle.setPointerCapture(e.pointerId);
+    const onMove = ev => {
+        if (!narrowScreen.matches) {
+            const { size, gap } = columnWidth();
+            item.w = clamp(Math.round((ev.clientX + offsetRight - rect.left + gap) / (size + gap)), MIN_COLUMNS, COLUMNS);
+        }
+        // 가로로만 끌었을 때 높이가 '내용에 맞춤'에서 고정으로 바뀌지 않도록, 세로로 움직였을 때만 높이를 정함
+        if (Math.abs(ev.clientY - startY) > HEIGHT_STEP) heightChanged = true;
+        if (heightChanged) {
+            const height = ev.clientY + offsetBottom - rect.top;
+            item.h = clamp(Math.round(height / HEIGHT_STEP) * HEIGHT_STEP, MIN_HEIGHT, MAX_HEIGHT);
+        }
+        applyLayout();
+    };
+    const onEnd = () => {
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onEnd);
+        handle.removeEventListener('pointercancel', onEnd);
+        saveLayout();
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onEnd);
+    handle.addEventListener('pointercancel', onEnd);
+}
+
+function onGripKey(item, e) {
+    const delta = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key];
+    if (!delta) return;
+    e.preventDefault();
+    moveCard(item, layout.indexOf(item) + delta);
+    saveLayout();
+}
+
+function onResizeKey(item, e) {
+    const card = cardOf(item.id);
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') item.w = clamp(item.w + (e.key === 'ArrowRight' ? 1 : -1), MIN_COLUMNS, COLUMNS);
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        const now = item.h || Math.round(card.getBoundingClientRect().height);
+        item.h = clamp(now + (e.key === 'ArrowDown' ? HEIGHT_STEP : -HEIGHT_STEP), MIN_HEIGHT, MAX_HEIGHT);
+    } else return;
+    e.preventDefault();
+    applyLayout();
+    saveLayout();
+}
+
+function setEditing(on) {
+    document.body.classList.toggle('is-editing', on);
+    $('layout-edit').textContent = on ? '완료' : '편집';
+    $('layout-edit').setAttribute('aria-pressed', String(on));
+    $('layout-reset').hidden = !on;
+}
+
+DEFAULT_LAYOUT.forEach(({ id }) => {
+    const card = cardOf(id);
+    const name = card.querySelector('.card-title').textContent;
+    const button = (cls, text, label) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = cls;
+        b.textContent = text;
+        b.setAttribute('aria-label', label);
+        card.appendChild(b);
+        return b;
+    };
+    const itemOf = () => layout.find(c => c.id === id);
+    const grip = button('card-grip', '이동', `${name} 옮기기 (방향키)`);
+    const resize = button('card-resize', '', `${name} 크기 조절 (방향키)`);
+    grip.addEventListener('pointerdown', e => { e.preventDefault(); startDrag(itemOf(), e); });
+    resize.addEventListener('pointerdown', e => { e.preventDefault(); startResize(itemOf(), e); });
+    grip.addEventListener('keydown', e => onGripKey(itemOf(), e));
+    resize.addEventListener('keydown', e => onResizeKey(itemOf(), e));
+});
+
+$('layout-edit').addEventListener('click', () => setEditing(!document.body.classList.contains('is-editing')));
+$('layout-reset').addEventListener('click', () => {
+    layout = defaultLayout();
+    applyLayout();
+    saveLayout();
+});
+// 편집 중에는 카드 안의 링크로 이동하지 않음
+grid.addEventListener('click', e => {
+    if (document.body.classList.contains('is-editing') && e.target.closest('a')) e.preventDefault();
+}, true);
+// 내용이 새로 그려지거나 글자 줄이 바뀌어 카드 높이가 달라지면 쌓인 위치를 다시 맞춤
+new ResizeObserver(syncRowSpans).observe(grid);
+DEFAULT_LAYOUT.forEach(({ id }) => new ResizeObserver(syncRowSpans).observe(cardOf(id)));
+narrowScreen.addEventListener('change', applyLayout);
+
 renderClock();
 renderEv();
 loadBoard();
 loadBenefit();
+applyLayout();
 setInterval(() => { renderClock(); loadBoard(); loadBenefit(); }, REFRESH_MS);
 // 계산기에서 값을 바꾸고 돌아오면(다른 탭 포함) 다시 계산
 window.addEventListener('storage', e => { if (e.key === 'evice') renderEv(); });

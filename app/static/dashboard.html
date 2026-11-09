@@ -20,10 +20,14 @@
                 </span>
                 <h1>대시보드</h1>
             </div>
-            <span class="dash-clock" id="dash-clock"></span>
+            <div class="dash-tools">
+                <span class="dash-clock" id="dash-clock"></span>
+                <button type="button" class="tool-btn" id="layout-reset" hidden>기본값</button>
+                <button type="button" class="tool-btn" id="layout-edit" aria-pressed="false">편집</button>
+            </div>
         </header>
 
-        <div class="dash-grid">
+        <div class="dash-grid" id="dash-grid">
             <!-- 키워드 게시판: 안 읽은 새 글·새 댓글·오늘 수집, 새 글 있는 게시판, 최근 수집 글, 수집 상태 (dashboard.js renderBoard) -->
             <section class="card" id="card-board" aria-labelledby="board-title">
                 <a class="card-head" href="/board/">
@@ -39,7 +43,6 @@
                 <div class="card-body" id="board-body"><div class="skeleton"></div></div>
             </section>
 
-            <div class="dash-col">
             <!-- 전기차 vs 내연기관: 이 기기에 저장된 계산기 입력값으로 계산한 요약 (dashboard.js renderEv) -->
             <section class="card" id="card-ev" aria-labelledby="ev-title">
                 <a class="card-head" href="/ev/">
@@ -69,7 +72,6 @@
                 </a>
                 <div class="card-body" id="benefit-body"></div>
             </section>
-            </div>
         </div>
     </main>
 </body>
