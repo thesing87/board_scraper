@@ -27,7 +27,7 @@ total, rows = storage.query_all_posts(0, 10, group_id=gid, popular=True, since=s
 assert total == 3 and ids(rows) == ['702', '701', '703'], (total, ids(rows))                        # 기간 밖 704 제외
 assert ids(storage.query_all_posts(0, 10, group_id=gid, video_only=True, popular=True)[1]) == ['704']
 # 인기순은 안 읽은 글 조건과 함께 써도 됨
-assert storage.query_all_posts(0, 10, group_id=gid, popular=True, since=since, unread_since='2000-01-01 00:00:00')[0] == 3
+assert storage.query_all_posts(0, 10, group_id=gid, popular=True, since=since, unread_since='2999-01-01 00:00:00')[0] == 3
 # 웹서버: sort=popular, days(1·7·30)
 page = web_server.build_posts_page(1, False, group_id=gid, popular=True)
 assert ids(page['posts'])[0] == '702' and page['total'] == 4

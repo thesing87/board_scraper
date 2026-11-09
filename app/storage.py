@@ -1361,8 +1361,8 @@ def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=N
                     image_only=False, saved_only=False, folder_id=None, popular=False, since=None):
     """게시판에 등록된 키워드의 글을 한 번씩만(중복 제거) 최신 수집순으로 조회.
     group_id가 있으면 그 게시판만, folder_id가 있으면 그 묶음의 게시판만, query가 있으면 검색 결과.
-    unread_since가 있으면 안 읽은 새 글만: 그 시각 이후에 읽은 글은 계속 포함해
-    보는 도중 읽음 처리가 되어도 페이지가 밀리지 않게 함.
+    unread_since가 있으면 그 시각까지 수집된 안 읽은 새 글만: 그 시각 이후에 읽은 글은 계속 포함하고
+    그 뒤에 수집된 글은 빼서, 보는 도중 읽음 처리나 새 글 수집이 있어도 페이지가 밀리지 않게 함.
     deleted_only면 원문이 삭제된 글만, 최근 삭제 순 (삭제된 글은 더 갱신하지 않으므로 updated_at이 삭제 확인 시각).
     saved_only면 보관함(별표를 단 글)만, 최근 보관 순.
     popular면 추천+댓글이 많은 순(보기의 순서보다 우선), since가 있으면 그 시각 이후 처음 수집한 글만"""
@@ -1375,8 +1375,9 @@ def query_all_posts(offset=0, limit=10, video_only=False, query=None, group_id=N
         filter_sql += "AND p.created_at >= ? "
         params += (since,)
     if unread_since is not None:
-        filter_sql += "AND kp.is_new = 1 AND (rp.read_at IS NULL OR rp.first_read_at > ?)"
-        params += (unread_since,)
+        # 그 시각 이후에 수집된 글(연결)은 빼서, 보는 도중 새 글이 위에 끼어 다음 페이지에 읽은 글이 다시 밀려 나오지 않게
+        filter_sql += "AND kp.is_new = 1 AND kp.matched_at <= ? AND (rp.read_at IS NULL OR rp.first_read_at > ?)"
+        params += (unread_since, unread_since)
     base = f"""
         {feed_sql}
         JOIN posts p ON p.id = kp.post_id
