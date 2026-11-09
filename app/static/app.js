@@ -1359,33 +1359,44 @@ function closePageMenus(except) {
     document.querySelectorAll('.page-menu').forEach(menu => { if (menu !== except) setPageMenuOpen(menu, false); });
 }
 
-// ---------- 글 공유 (원문 주소와 제목) ----------
-// 휴대폰 공유 창(navigator.share)은 https에서만 쓸 수 있어, 그 밖에서는 '링크 복사'·'텔레그램으로 보내기' 목록을 띄움
-function sharePostInfo(postId) {
+// ---------- 글 공유 ----------
+// 공유 버튼을 누르면 무엇을 보낼지 고르는 목록: '원문 보내기'(에펨코리아·디시 원래 글 주소) 또는
+// '이 글 보내기'(이 게시판 페이지에서 그 글을 여는 주소, /board/#post-글ID). 고르면 휴대폰 공유 창(navigator.share, https에서만)을 띄우고,
+// 공유 창이 없는 브라우저에서는 제목과 주소를 복사
+function sharePostInfo(postId, kind) {
     const card = document.getElementById('post-' + postId);
+    const title = card ? card.querySelector('.post-title').textContent.trim() : '';
+    // 게시판 페이지 주소(지금은 /board/) 그대로에 #post-글ID
+    if (kind === 'dashboard') return { url: `${location.origin}${location.pathname}#post-${postId}`, title };
     const link = card && card.querySelector('.btn-original.top');
     const url = link && link.getAttribute('href') !== '#' ? link.href : originalUrl(postId);
-    const title = card ? card.querySelector('.post-title').textContent.trim() : '';
     return { url, title };
 }
 
-async function sharePost(button) {
-    const { url, title } = sharePostInfo(button.dataset.postId);
-    if (navigator.share) {
-        try { await navigator.share({ title, url }); } catch (e) { /* 공유 창을 닫음 */ }
-        return;
-    }
+function sharePost(button) {
     const wrap = button.closest('.share-wrap');
     const open = wrap.querySelector('.share-menu');
     closeShareMenus();
     if (open) return;  // 열려 있던 목록을 다시 누르면 닫기만
-    const telegram = 'https://t.me/share/url?' + new URLSearchParams({ url, text: title }).toString();
+    const id = esc(button.dataset.postId);
     wrap.insertAdjacentHTML('beforeend', `
         <span class="share-menu" role="menu">
-            <button class="view-more-option" role="menuitem" data-action="copy-post-link" data-post-id="${esc(button.dataset.postId)}">링크 복사</button>
-            <a class="view-more-option" role="menuitem" href="${esc(telegram)}" target="_blank" rel="noopener noreferrer">텔레그램으로 보내기</a>
+            <button class="view-more-option" role="menuitem" data-action="share-link" data-kind="original" data-post-id="${id}">
+                <span>원문 보내기</span><span class="share-hint">원래 사이트 글</span></button>
+            <button class="view-more-option" role="menuitem" data-action="share-link" data-kind="dashboard" data-post-id="${id}">
+                <span>이 글 보내기</span><span class="share-hint">키워드 모니터에서 열기</span></button>
         </span>`);
     button.setAttribute('aria-expanded', 'true');
+}
+
+async function shareLink(postId, kind) {
+    const { url, title } = sharePostInfo(postId, kind);
+    closeShareMenus();
+    if (navigator.share) {
+        try { await navigator.share({ title, url }); } catch (e) { /* 공유 창을 닫음 */ }
+        return;
+    }
+    showToast(await copyText(title ? `${title}\n${url}` : url) ? '링크를 복사했습니다' : '복사하지 못했습니다');
 }
 
 function closeShareMenus(except) {
@@ -1413,12 +1424,6 @@ async function copyText(text) {
         area.remove();
         return ok;
     }
-}
-
-async function copyPostLink(postId) {
-    const { url, title } = sharePostInfo(postId);
-    closeShareMenus();
-    showToast(await copyText(title ? `${title}\n${url}` : url) ? '링크를 복사했습니다' : '복사하지 못했습니다');
 }
 
 // 화면 아래 가운데에 잠깐 뜨는 안내
@@ -2907,9 +2912,8 @@ document.addEventListener('click', (e) => {
             head.querySelector('.feed-tools-btn')?.setAttribute('aria-expanded', 'false');
         });
     }
-    // 공유 목록 바깥을 누르면 닫음 (텔레그램 링크는 열린 뒤 닫음: 누르는 중에 지우면 링크가 열리지 않을 수 있음)
+    // 공유 목록 바깥을 누르면 닫음
     closeShareMenus(e.target.closest('.share-wrap'));
-    if (e.target.closest('.share-menu a')) setTimeout(() => closeShareMenus(), 0);
     const backdrop = document.getElementById('settings');
     if (e.target === backdrop) { setSettingsOpen(false); return; }
     if (e.target.id === 'login') { closeLogin(); return; }
@@ -2962,8 +2966,8 @@ document.addEventListener('click', (e) => {
         toggleDraftBoard(el.dataset.board);
     } else if (action === 'share-post') {
         sharePost(el);
-    } else if (action === 'copy-post-link') {
-        copyPostLink(el.dataset.postId);
+    } else if (action === 'share-link') {
+        shareLink(el.dataset.postId, el.dataset.kind);
     } else if (action === 'toggle-saved') {
         toggleSaved(el);
     } else if (action === 'remove-draft-keyword') {

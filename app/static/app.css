@@ -335,11 +335,12 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .star-btn:hover { background: var(--surface-muted); }
 .star-btn[aria-pressed="true"] { color: #D97706; border-color: #FCD34D; background: #FFFBEB; }
 .star-btn[aria-pressed="true"] svg { fill: currentColor; }
-/* 공유: 휴대폰 공유 창이 없을 때(https가 아닐 때) 버튼 아래에 '링크 복사'·'텔레그램으로 보내기' 목록 */
+/* 공유: 버튼 아래에 '원문 보내기'·'이 글 보내기' 목록 (고르면 휴대폰 공유 창, 없으면 복사) */
 .share-wrap { position: relative; display: inline-flex; }
 .share-btn[aria-expanded="true"] { background: var(--surface-muted); color: var(--text); }
 .share-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 35; min-width: 170px; padding: 4px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); box-shadow: 0 8px 24px rgba(17,24,39,0.14); display: flex; flex-direction: column; gap: 2px; }
-.share-menu a.view-more-option { text-decoration: none; }
+.share-menu .view-more-option { height: auto; min-height: 44px; padding: 6px 12px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; }
+.share-hint { font-size: 11px; font-weight: 400; color: var(--muted); }
 /* 잠깐 뜨는 안내 (링크 복사 등) */
 .toast { position: fixed; left: 50%; bottom: calc(var(--bottom-tabs-h) + var(--bottom-chips-h) + 24px); transform: translateX(-50%); z-index: 120; padding: 10px 16px; border-radius: 999px; background: var(--text); color: #FFFFFF; font-size: 13px; font-weight: 500; box-shadow: 0 6px 16px rgba(17,24,39,0.25); white-space: nowrap; }
 .btn-original { flex: 0 0 auto; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid #D1D5DB; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: var(--text); text-decoration: none; background: var(--surface); }
