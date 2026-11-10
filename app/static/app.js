@@ -41,6 +41,8 @@ const app = {
     renderedUnreadIds: null, // 안 읽은 글·새 댓글 보기를 그릴 때의 글 ID (새 글 배너 계산용)
     commentIds: null,     // 새 댓글 보기를 연 때의 글 ID 목록 (보는 중 확인한 글이 빠져 페이지가 밀리지 않게)
     searchQuery: '',      // 검색 중이면 검색어
+    searchHere: false,    // 검색 범위: 지금 게시판·묶음 안에서만 (아니면 모든 게시판)
+    searchDays: 0,        // 검색 기간(일): 최근 그 기간에 수집한 글만. 0이면 전체 기간
     page: 1,
     totalPages: 1,
     highlightPostId: null,
@@ -510,7 +512,7 @@ function resetViewSnapshot() {
 function openView(key, page) {
     app.activeKey = key;
     resetViewSnapshot();
-    app.searchQuery = '';
+    app.searchQuery = ''; app.searchHere = false; app.searchDays = 0;
     document.getElementById('search-input').value = '';
     app.page = page || 1;
     renderNavigation();
@@ -675,7 +677,7 @@ function highlightTerms(text) {
     // 검색어를 제목에서 강조 (이스케이프한 뒤 표시용 태그만 추가)
     const escaped = esc(text);
     if (!app.searchQuery) return escaped;
-    const terms = app.searchQuery.split(/\s+/).filter(Boolean).map(t => esc(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const terms = searchWords().map(t => esc(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
     if (!terms.length) return escaped;
     return escaped.replace(new RegExp('(' + terms.join('|') + ')', 'gi'), '<mark>$1</mark>');
 }
@@ -1466,7 +1468,12 @@ function feedSubText(total) {
     // 인기순은 뒤에 표시하고, 기간을 정했으면 그 기간에 수집한 글 수도 (예: 최근 일주일 인기순 12개)
     const sortNote = !isPopular() ? '' : currentSort().days
         ? ` · 최근 ${currentSort().label.replace('인기 · ', '')} 인기순 ${total}개` : ' · 인기순';
-    if (app.searchQuery) return `모든 게시판에서 ${total}건${isPopular() ? ` · ${currentSort().label}` : ''}`;
+    if (app.searchQuery) {
+        const scope = searchScope();
+        const period = SEARCH_PERIODS.find(p => p.days === app.searchDays);
+        return `${scope ? `'${esc(scope.name)}'에서` : '모든 게시판에서'} ${total}건`
+            + (period && period.days ? ` · 최근 ${period.label}` : '') + (isPopular() ? ` · ${currentSort().label}` : '');
+    }
     const summary = viewSummary(app.activeKey);
     if (!summary) return '';
     const unread = summary.unread_count;
@@ -1502,7 +1509,8 @@ function renderFeedSub() {
 
 // 검색 중이면 검색 결과, 아니면 '게시판|보기' (응답이 늦게 와서 다른 화면을 덮어쓰지 않게 비교용)
 function currentViewKey() {
-    return (app.searchQuery ? 'search:' + app.searchQuery : app.activeKey + '|' + app.filter) + '|' + currentSort().key;
+    const search = `search:${app.searchQuery}|${searchScope() ? app.activeKey : ''}|${app.searchDays}`;
+    return (app.searchQuery ? search : app.activeKey + '|' + app.filter) + '|' + currentSort().key;
 }
 
 // 지금 화면에 쓰는 정렬: 안 읽은 글(읽는 중 순서가 밀리지 않게)·새 댓글(최근 댓글 순) 보기는 항상 그 보기의 순서
@@ -1540,6 +1548,10 @@ async function loadPosts() {
     }
     if (searching) {
         params.set('q', app.searchQuery);
+        // 범위를 지금 게시판·묶음으로 좁혔으면 그 안에서만, 기간을 골랐으면 최근 그 기간에 수집한 글만
+        if (searchScope() && group) params.set('group', group.id);
+        else if (searchScope()) params.set('folder', findFolder(app.activeKey).id);
+        if (app.searchDays) params.set('sdays', app.searchDays);
     } else {
         if (group) params.set('group', group.id);
         if (findFolder(app.activeKey)) params.set('folder', findFolder(app.activeKey).id);
@@ -1656,6 +1668,7 @@ function renderFeed(data) {
                     ${toolsButton}
                 </div>
                 <span class="feed-sub">${feedSubText(data.total)}</span>
+                ${searching ? renderSearchOptions() : ''}
             </div>
             <div class="feed-tools">
                 ${sortable() ? renderSortSelect() : ''}
@@ -1954,6 +1967,67 @@ function markAllRead() {
 // ==========================================
 // 검색
 // ==========================================
+// 검색 조건: 범위(모든 게시판·지금 게시판), 기간, 작성자. 작성자는 검색어 안에 '작성자:닉네임'으로 적는 것과 같음
+const SEARCH_PERIODS = [
+    { days: 0, label: '전체 기간' }, { days: 1, label: '하루' }, { days: 7, label: '일주일' },
+    { days: 30, label: '한 달' }, { days: 90, label: '석 달' }
+];
+const SEARCH_AUTHOR_RE = /^(?:작성자|author):(.*)$/i;
+
+// 검색어에서 작성자 조건을 뺀 낱말들 (제목 강조용)
+function searchWords() {
+    return app.searchQuery.split(/\s+/).filter(t => t && !SEARCH_AUTHOR_RE.test(t));
+}
+function searchAuthor() {
+    const found = app.searchQuery.split(/\s+/).map(t => SEARCH_AUTHOR_RE.exec(t)).find(m => m && m[1]);
+    return found ? found[1] : '';
+}
+// 범위를 좁혀 찾는 중인 게시판·묶음 (모든 게시판에서 찾는 중이면 null)
+function searchScope() {
+    if (!app.searchQuery || !app.searchHere) return null;
+    return findGroup(app.activeKey) || findFolder(app.activeKey) || null;
+}
+
+function renderSearchOptions() {
+    const here = findGroup(app.activeKey) || findFolder(app.activeKey);
+    const scopeBtn = (on, label, value) =>
+        `<button class="search-opt-btn" data-action="search-scope" data-here="${value}" aria-pressed="${on}">${esc(label)}</button>`;
+    return `<div class="search-opts">
+        ${here ? `<div class="search-opt-group" role="group" aria-label="검색 범위">
+            ${scopeBtn(!app.searchHere, '모든 게시판', 0)}${scopeBtn(app.searchHere, here.name, 1)}
+        </div>` : ''}
+        <select class="page-select search-days" data-action="search-days" aria-label="검색 기간">
+            ${SEARCH_PERIODS.map(p => `<option value="${p.days}" ${p.days === app.searchDays ? 'selected' : ''}>${p.label}</option>`).join('')}
+        </select>
+        <input class="search-author" type="text" data-action="search-author" maxlength="30" autocomplete="off"
+            placeholder="작성자" aria-label="작성자로 좁히기" value="${esc(searchAuthor())}">
+    </div>`;
+}
+
+function setSearchScope(here) {
+    app.searchHere = here;
+    app.page = 1;
+    loadPosts();
+}
+
+function setSearchDays(days) {
+    if (!SEARCH_PERIODS.some(p => p.days === days)) return;
+    app.searchDays = days;
+    app.page = 1;
+    loadPosts();
+}
+
+// 작성자 칸: 검색어 안의 '작성자:닉네임'을 바꿔 다시 찾음 (비우면 조건을 뺌)
+function setSearchAuthor(name) {
+    const author = (name || '').trim().split(/\s+/)[0] || '';
+    if (author === searchAuthor()) return;
+    const words = app.searchQuery.split(/\s+/).filter(t => t && !SEARCH_AUTHOR_RE.test(t));
+    if (author) words.push('작성자:' + author);
+    const query = words.join(' ').slice(0, 50);
+    document.getElementById('search-input').value = query;
+    runSearch(query);
+}
+
 function runSearch(query) {
     const q = (query || '').trim();
     if (!q) { clearSearch(); return; }
@@ -1965,6 +2039,8 @@ function runSearch(query) {
 
 function clearSearch() {
     app.searchQuery = '';
+    app.searchHere = false;
+    app.searchDays = 0;
     document.getElementById('search-input').value = '';
     document.querySelector('.topbar').classList.remove('search-open');
     app.page = 1;
@@ -2348,7 +2424,7 @@ async function saveGroup(button) {
         resetGroupForm();
         // 만들거나 고친 게시판을 바로 열어서 보여줌
         app.activeKey = 'group:' + data.id;
-        app.searchQuery = '';
+        app.searchQuery = ''; app.searchHere = false; app.searchDays = 0;
         app.page = 1;
         setSettingsOpen(false);
         await loadState();
@@ -3110,6 +3186,8 @@ document.addEventListener('click', (e) => {
 document.addEventListener('change', (e) => {
     if (e.target.dataset.action === 'toggle-alert') toggleGroupAlert(e.target);
     else if (e.target.dataset.action === 'set-popular-min') setPopularMin(e.target);
+    else if (e.target.dataset.action === 'search-days') setSearchDays(Number(e.target.value));
+    else if (e.target.dataset.action === 'search-author') setSearchAuthor(e.target.value);
     else if (e.target.dataset.action === 'set-group-folder') {
         const value = e.target.value;
         arrangeGroup({ id: Number(e.target.dataset.groupId), folder_id: value ? Number(value) : null }, e.target);

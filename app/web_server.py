@@ -89,6 +89,8 @@ BOARD_KEY_RE = re.compile(r'(?![0-9]+$)[a-z0-9_]{1,40}')
 POSTS_PER_PAGE = 10
 # 인기순으로 볼 수 있는 기간(일). 없으면 전체 기간
 POPULAR_DAYS = ('1', '7', '30')
+# 검색에서 고를 수 있는 기간(일): 최근 그 기간에 수집한 글만. 없으면 전체 기간
+SEARCH_DAYS = ('1', '7', '30', '90')
 # 첫 화면 조회를 미리 돌려 두는 간격 (_keep_warm)
 WARMUP_INTERVAL_SECONDS = 30
 # 수집기 멈춤을 확인하는 간격 (_watch_collector)
@@ -420,7 +422,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 search = query.get('q', [''])[0].strip()[:MAX_QUERY_LENGTH]
                 image_only = query.get('image_only', ['0'])[0] in ('1', 'true') and not search
                 group_param = query.get('group', [''])[0]
-                group_id = int(group_param) if group_param.isdigit() and not search else None
+                # 검색은 기본이 모든 게시판. group·folder를 함께 보내면 그 게시판·묶음 안에서만 찾음
+                group_id = int(group_param) if group_param.isdigit() else None
                 # 안 읽은 글 보기: 화면을 연 시각(서버 시각 'YYYY-MM-DD HH:MM:SS') 이후 읽은 글은 계속 포함.
                 # 'now'면 지금 시각을 기준으로 정해 응답에 담아 줌 (화면이 다음 페이지에도 같은 기준을 쓰도록)
                 since = query.get('unread_since', [''])[0]
@@ -434,9 +437,14 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 days = query.get('days', [''])[0]
                 since = ((datetime.now() - timedelta(days=int(days))).strftime('%Y-%m-%d %H:%M:%S')
                          if popular and days in POPULAR_DAYS else None)
-                # 묶음 (사이드바 묶음 제목): 묶음 안 모든 게시판의 글. 게시판을 고른 경우와 검색에는 쓰지 않음
+                # 검색 기간 (sdays): 인기순 기간과 함께 오면 더 짧은 쪽
+                search_days = query.get('sdays', [''])[0]
+                if search and search_days in SEARCH_DAYS:
+                    search_since = (datetime.now() - timedelta(days=int(search_days))).strftime('%Y-%m-%d %H:%M:%S')
+                    since = max(since, search_since) if since else search_since
+                # 묶음 (사이드바 묶음 제목): 묶음 안 모든 게시판의 글. 게시판을 고른 경우에는 쓰지 않음
                 folder_param = query.get('folder', [''])[0]
-                folder_id = int(folder_param) if folder_param.isdigit() and group_id is None and not search else None
+                folder_id = int(folder_param) if folder_param.isdigit() and group_id is None else None
                 media = query.get('media', [''])[0]
                 if media in ('image', 'video') and not search:
                     per = query.get('per', [''])[0]

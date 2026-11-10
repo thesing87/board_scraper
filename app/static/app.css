@@ -274,6 +274,18 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .page-select { height: 32px; min-width: 56px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer; }
 .page-select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .sort-select { min-width: 0; padding: 0 8px; font-weight: 500; }
+/* 검색 조건 줄: 범위(모든 게시판·지금 게시판) · 기간 · 작성자 */
+.search-opts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 6px; }
+.search-opt-group { display: flex; }
+.search-opt-btn { height: 32px; max-width: 160px; padding: 0 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
+    font: inherit; font-size: 13px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-opt-btn:first-child { border-radius: 8px 0 0 8px; }
+.search-opt-btn:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
+.search-opt-btn[aria-pressed="true"] { position: relative; border-color: var(--accent); background: var(--accent-weak); color: var(--accent); font-weight: 700; }
+.search-days { min-width: 0; height: 32px; padding: 0 8px; font-weight: 500; }
+.search-author { width: 120px; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+    color: var(--text); font: inherit; font-size: 13px; }
+.search-author::placeholder { color: var(--muted); }
 .page-total { color: var(--muted); }
 .pager .page-select { height: 40px; min-width: 64px; border-radius: 10px; }
 /* 맨 아래 페이지 선택: 버튼 위쪽으로 열리는 목록 */

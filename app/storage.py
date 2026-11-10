@@ -1387,11 +1387,23 @@ def post_videos(videos):
 _POPULAR_SQL = ("(CAST(REPLACE(p.votes, ',', '') AS INTEGER) + "
                 "CAST(REPLACE(p.comment_count, ',', '') AS INTEGER))")
 
+# 검색어 안의 작성자 조건: '작성자:닉네임' (그 사람이 쓴 글만). 화면의 검색 조건 줄도 같은 표기를 씀
+SEARCH_AUTHOR_PREFIXES = ('작성자:', 'author:')
+
 def _search_conditions(query):
-    """검색어를 공백으로 나눠 모든 단어가 포함된 글만 (대소문자 무시, LIKE 특수문자 이스케이프)"""
-    terms = [t for t in (query or '').lower().split() if t][:5]
+    """검색어를 공백으로 나눠 모든 단어가 포함된 글만 (대소문자 무시, LIKE 특수문자 이스케이프).
+    '작성자:닉네임'은 글 작성자가 그 닉네임인 글만 (단어 없이 작성자만 적어도 됨)"""
+    like = lambda t: t.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+    terms, authors = [], []
+    for t in [t for t in (query or '').lower().split() if t][:5]:
+        prefix = next((p for p in SEARCH_AUTHOR_PREFIXES if t.startswith(p)), None)
+        if prefix is None:
+            terms.append(t)
+        elif t[len(prefix):]:
+            authors.append(t[len(prefix):])
     sql = ''.join(" AND b.search_text LIKE ? ESCAPE '\\'" for _ in terms)
-    params = tuple('%' + t.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%' for t in terms)
+    sql += ''.join(" AND p.author LIKE ? ESCAPE '\\'" for _ in authors)
+    params = tuple('%' + like(t) + '%' for t in terms) + tuple(like(a) for a in authors)
     return sql, params
 
 def recent_keyword_posts(board, keyword, limit):
