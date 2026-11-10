@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup
 
 from config import log_msg, short_err, NAVER_MAIL_USER, NAVER_MAIL_APP_PASSWORD, CARD_MAIL_FOLDER
 from notifier import send_telegram_message
-from storage import card_mail_position, set_card_mail_position, set_card_mail_status, record_card_payment
+from card_store import card_mail_position, set_card_mail_position, set_card_mail_status, record_card_payment
 
 IMAP_HOST = 'imap.naver.com'
 IMAP_PORT = 993

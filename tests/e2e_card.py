@@ -5,7 +5,7 @@ import tempfile, threading, time, socket, json, urllib.request, urllib.error
 os.environ.update(OUTPUT_DIR=tempfile.mkdtemp(), LOG_LEVEL='CRITICAL', ADMIN_PASSWORD='Secr3t!', TELEGRAM_TOKEN='')
 for name in [k for k in os.environ if k.startswith('KEYWORDS_')]:
     os.environ[name] = ''
-import storage, web_server
+import storage, web_server, card_store
 from datetime import date, timedelta
 from selenium.webdriver import Chrome
 from selenium.webdriver.chrome.options import Options
@@ -130,8 +130,8 @@ try:
 
     # 메일로 찾은 결제: 차감할 가게면 바로 합계에, 아니면 '차감 안 한 결제'에서 가게 추가
     now_text = today.isoformat() + ' 10:00'
-    assert storage.record_card_payment('9001', now_text, '스타벅스_주문', 3600) == 'matched'
-    assert storage.record_card_payment('9002', now_text, '이디야커피 역삼점', 4500) == 'other'
+    assert card_store.record_card_payment('9001', now_text, '스타벅스_주문', 3600) == 'matched'
+    assert card_store.record_card_payment('9002', now_text, '이디야커피 역삼점', 4500) == 'other'
     d.get(BASE + '/card/'); time.sleep(1.5)
     assert text('used') == '5,970' and '메일 연결 전' in text('mail-bar')
     assert text('keyword-count') == '2곳' and text('others-count') == '1건'
@@ -139,7 +139,7 @@ try:
     js("document.getElementById('keyword-fold').click(); document.getElementById('others-fold').click(); document.getElementById('history-fold').click()")
     assert not hidden('keywords-body') and not hidden('others-body')
     assert js("return [...document.querySelectorAll('.row-name')].filter(e => e.querySelector('.mail-tag')).length") == 1
-    storage.set_card_mail_status('ok', mode='idle')
+    card_store.set_card_mail_status('ok', mode='idle')
     js("document.querySelector('[data-add-keyword]').click()"); time.sleep(1)
     assert text('used') == '10,470' and text('others-count') == '0건' and '이디야커피' in text('keywords')
     assert '메일 자동 확인 중' in text('mail-bar')
