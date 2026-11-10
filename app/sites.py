@@ -5,6 +5,7 @@
   (갤러리마다 글 번호가 따로 매겨지므로 갤러리 id까지 넣어 겹치지 않게 함)
 """
 import re
+import time
 
 FMKOREA = 'fmkorea'
 DCINSIDE = 'dcinside'
@@ -52,8 +53,19 @@ def _collector(site):
     import scraper
     return scraper
 
+# 목록이 아닌 페이지가 한 번 왔다고 바로 차단으로 보지 않고, 이 시간(초) 뒤에 한 번 더 열어 봄.
+# 사이트가 가끔 한 번씩 돌려주는 일시적인 오류 화면에 차단 의심 알림이 가지 않게 함 (디시 목록 200번에 한 번꼴)
+LIST_RETRY_SECONDS = 5
+
 def get_list_page_posts(driver, board, keyword, page=1):
-    return _collector(board_site(board)).get_list_page_posts(driver, board, keyword, page)
+    collector = _collector(board_site(board))
+    try:
+        return collector.get_list_page_posts(driver, board, keyword, page)
+    except collector.BlockedError as first:
+        from config import log_msg
+        log_msg(f"[수집] {board}/{keyword} {first} → {LIST_RETRY_SECONDS}초 뒤 한 번 더 시도", "DEBUG")
+        time.sleep(LIST_RETRY_SECONDS)
+        return collector.get_list_page_posts(driver, board, keyword, page)
 
 def scrape_post_detail(driver, post_info, all_comment_pages=True):
     """all_comment_pages=False면 첫 화면의 댓글 페이지만 읽음 (삭제 여부 확인처럼 댓글이 필요 없을 때)"""

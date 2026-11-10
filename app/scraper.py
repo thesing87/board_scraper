@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from config import log_msg, COMMENT_PAGE_LIMIT
+from config import log_msg, short_err, COMMENT_PAGE_LIMIT
 from sanitize import sanitize_tree
 from embeds import convert_x_embeds, remove_duplicate_instagram_placeholders, is_sns_embed
 
@@ -21,6 +21,20 @@ def extract_post_id(link):
 
 class BlockedError(Exception):
     """목록 페이지가 정상 게시판 화면이 아님 (접속 차단·보안 확인·점검 페이지 등으로 추정)"""
+
+def log_unexpected_page(driver, target):
+    """목록이 아닌 페이지가 왔을 때 무엇이 왔는지 기록 (차단 화면인지, 서버의 일시적인 오류 화면인지 나중에 가려 보려고):
+    응답 코드, 실제 주소, 화면에 보이는 글의 앞부분"""
+    try:
+        info = driver.execute_script("""
+            const nav = performance.getEntriesByType('navigation')[0];
+            return {status: nav && nav.responseStatus, url: location.href,
+                    text: (document.body ? document.body.innerText : '').replace(/\\s+/g, ' ').trim().slice(0, 200)};
+        """) or {}
+        log_msg(f"[차단 의심] {target} 목록이 아닌 페이지: 응답 코드 {info.get('status') or '알 수 없음'}, "
+                f"주소 {info.get('url')}, 내용 \"{info.get('text') or '(빈 화면)'}\"", "DEBUG")
+    except Exception as e:
+        log_msg(f"[차단 의심] {target} 목록이 아닌 페이지의 내용을 읽지 못함: {short_err(e)}", "DEBUG")
 
 DELETED_PAGE_PHRASES =("삭제된 글입니다", "삭제된 문서입니다", "존재하지 않습니다", "존재하지 않는", "권한이 없습니다")
 
@@ -135,6 +149,7 @@ def get_list_page_posts(driver, board, keyword, page=1):
             log_msg(f"[수집] 목록 {board}/{keyword}: 0건 (검색 결과 없음)", "DEBUG")
             return []
         page_title = (driver.title or '').strip()[:60] or '제목 없음'
+        log_unexpected_page(driver, f"{board}/{keyword}")
         raise BlockedError(f"게시판 목록이 아닌 페이지 응답 (제목: {page_title})")
     post_list = _parse_list_rows(soup)
 

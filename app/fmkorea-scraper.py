@@ -110,6 +110,8 @@ POPULAR_ALERTS_PER_CYCLE = 5
 DIGEST_DATE_META = 'digest_date'
 # 차단이 의심되면 대기 시간을 주기 x 2, x 4, x 8 ... 로 늘리되 이 값을 넘기지 않음
 BACKOFF_MAX_SECONDS = 3600
+# 차단 의심이 이 횟수만큼 주기를 이어서 났을 때 텔레그램으로 알림 (한 주기만 실패하고 돌아오는 일시적인 오류는 로그에만)
+BLOCK_ALERT_STREAK = 2
 
 try:
     if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
@@ -701,7 +703,7 @@ def main():
                 block_streak += 1
                 next_wait = min(CHECK_INTERVAL * (2 ** block_streak), BACKOFF_MAX_SECONDS)
                 log_msg(f"[차단 의심] {blocked_reason} → {next_wait // 60}분 {next_wait % 60}초 후 다시 확인 (연속 {block_streak}회)", "WARN")
-                if block_streak == 1:
+                if block_streak == BLOCK_ALERT_STREAK:
                     labels = site_labels()
                     blocked_label = '·'.join(labels[site]['name'] for site in SITE_NAMES if site in blocked_sites)
                     send_telegram_message(
@@ -710,7 +712,9 @@ def main():
                     )
             elif block_streak:
                 log_msg(f"[복구] 정상 응답 확인 (차단 의심 {block_streak}회 후) → 원래 주기 {CHECK_INTERVAL}초로 복귀")
-                send_telegram_message(f"✅ {blocked_label} 접속이 정상으로 돌아왔습니다. (차단 의심 {block_streak}회 후 복구)")
+                # 차단 의심을 알렸을 때만 복구도 알림
+                if block_streak >= BLOCK_ALERT_STREAK:
+                    send_telegram_message(f"✅ {blocked_label} 접속이 정상으로 돌아왔습니다. (차단 의심 {block_streak}회 후 복구)")
                 block_streak = 0
                 next_wait = CHECK_INTERVAL
 

@@ -16,7 +16,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from config import log_msg, short_err, COMMENT_PAGE_LIMIT
 from images import save_post_image, clear_post_images, MAX_IMAGES_PER_POST
-from scraper import BlockedError, parse_count, content_lines, comment_lines
+from scraper import BlockedError, log_unexpected_page, parse_count, content_lines, comment_lines
 from sites import dc_gallery, dc_post_id
 
 BASE_URL = 'https://gall.dcinside.com'
@@ -87,6 +87,7 @@ def get_list_page_posts(driver, board, keyword, page=1):
     soup = BeautifulSoup(driver.page_source, 'html.parser')
     if not soup.select_one('table.gall_list'):
         page_title = (driver.title or '').strip()[:60] or '제목 없음'
+        log_unexpected_page(driver, f"{board}/{keyword}")
         raise BlockedError(f"갤러리 목록이 아닌 페이지 응답 (제목: {page_title})")
     post_list = _parse_list_rows(soup, gallery)
     log_msg(f"[수집] 목록 {board}/{keyword}: {len(post_list)}건", "DEBUG")
