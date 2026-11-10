@@ -112,6 +112,11 @@ STATIC_FILES = {
     '/board/': ('index.html', 'text/html; charset=utf-8'),
     '/index.html': ('index.html', 'text/html; charset=utf-8'),
     '/app.js': ('app.js', 'application/javascript; charset=utf-8'),
+    # app.js에 이어 순서대로 불러오는 나머지 화면 스크립트
+    '/app-feed.js': ('app-feed.js', 'application/javascript; charset=utf-8'),
+    '/app-view.js': ('app-view.js', 'application/javascript; charset=utf-8'),
+    '/app-admin.js': ('app-admin.js', 'application/javascript; charset=utf-8'),
+    '/app-main.js': ('app-main.js', 'application/javascript; charset=utf-8'),
     '/app.css': ('app.css', 'text/css; charset=utf-8'),
     # 전기차 vs 내연기관 유지비 계산기
     '/ev/': ('ev.html', 'text/html; charset=utf-8'),
