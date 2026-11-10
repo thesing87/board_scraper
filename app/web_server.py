@@ -31,6 +31,7 @@ from images import image_file, IMAGE_URL_PREFIX
 from storage import (
     init_db,
     set_group_alert,
+    set_group_popular,
     saved_comment_alert,
     set_saved_comment_alert,
     query_all_posts,
@@ -77,6 +78,8 @@ MAX_CATEGORY_NAME_LENGTH = 20
 MAX_CATEGORY_INPUT_LENGTH = 300
 MAX_SITE_NAME_LENGTH = 20
 MAX_SITE_SHORT_LENGTH = 4
+# 인기 글 알림 기준(추천+댓글 수)의 상한
+MAX_POPULAR_MIN = 100000
 # 카드 혜택: 한 달 혜택 한도(원), 사용처 이름 길이, 한 건 금액 상한
 CARD_BENEFIT_LIMIT = 30000
 MAX_CARD_PLACE_LENGTH = 30
@@ -895,6 +898,20 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 set_saved_comment_alert(enabled)
                 log_msg(f"[API] 알림 설정 변경: 보관한 글 새 댓글 {'켜짐' if enabled else '꺼짐'}")
                 self._send_json(200, True, f"⭐ 보관한 글의 새 댓글 알림이 {'켜짐' if enabled else '꺼짐'} 상태로 변경되었습니다.")
+                return
+            if alert_type == 'popular':
+                # 인기 글 알림: 추천+댓글이 min 이상이 되면 알림 (0이면 끔)
+                minimum = params.get('min')
+                if type(minimum) is not int or not 0 <= minimum <= MAX_POPULAR_MIN or not isinstance(group_id, int):
+                    self._send_json(400, False, f'❌ 인기 글 기준은 0~{MAX_POPULAR_MIN:,} 사이 숫자로 입력해 주세요.')
+                    return
+                name = set_group_popular(group_id, minimum)
+                if name is None:
+                    self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
+                    return
+                log_msg(f"[API] 알림 설정 변경: {name} 인기 글 알림 {f'추천+댓글 {minimum} 이상' if minimum else '꺼짐'}")
+                self._send_json(200, True, f"🔥 '{name}' 게시판의 인기 글 알림을 "
+                                           f"{f'추천+댓글 {minimum:,} 이상으로 정했습니다.' if minimum else '껐습니다.'}")
                 return
             if alert_type not in ('alert', 'video_alert', 'digest') or not isinstance(group_id, int):
                 self._send_json(400, False, '❌ 잘못된 요청입니다.')

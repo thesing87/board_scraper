@@ -67,13 +67,16 @@ from storage import (
     saved_posts_to_check,
     mark_saved_checked,
     saved_comment_alert,
+    popular_posts_to_alert,
+    mark_popular_alerted,
     digest_groups,
     digest_posts,
     get_meta,
     set_meta
 )
 from images import remove_orphan_image_dirs
-from notifier import send_telegram_message, send_post_alert, send_comment_alert, send_digest, retry_pending_alerts
+from notifier import (send_telegram_message, send_post_alert, send_comment_alert, send_digest, send_popular_alert,
+                      retry_pending_alerts)
 from scraper import parse_count, BlockedError
 # 목록·상세·게시판 확인은 카테고리(글)의 사이트에 맞는 수집기(에펨코리아·디시인사이드)로
 from sites import (
@@ -101,6 +104,8 @@ UNALERTED_KEEP_HOURS = 24
 PAGE_LOAD_TIMEOUT = 30
 # 키워드 목록 감시 범위를 벗어난 보관한 글을 한 주기에 다시 여는 최대 개수 (SAVED_CHECK_MINUTES마다 한 번씩 돌아가며)
 SAVED_CHECKS_PER_CYCLE = 3
+# 한 주기에 보내는 인기 글 알림 최대 개수 (남은 글은 다음 주기에)
+POPULAR_ALERTS_PER_CYCLE = 5
 # 하루 요약을 마지막으로 보낸 날짜 (meta)
 DIGEST_DATE_META = 'digest_date'
 # 차단이 의심되면 대기 시간을 주기 x 2, x 4, x 8 ... 로 늘리되 이 값을 넘기지 않음
@@ -288,6 +293,15 @@ def check_saved_posts(driver, stats):
         finally:
             # 실패해도 확인한 것으로 기록해 같은 글만 매 주기 다시 열지 않음
             mark_saved_checked(post['id'])
+
+def send_popular_alerts():
+    """인기 글 알림을 켠 게시판에서 추천+댓글이 기준을 넘긴 글을 한 번씩 알림 (수는 매 주기 목록 값으로 갱신됨)"""
+    for post in popular_posts_to_alert(POPULAR_ALERTS_PER_CYCLE):
+        # 먼저 기록해 발송 실패로 매 주기 다시 보내지 않게 함
+        mark_popular_alerted(post['id'])
+        log_msg(f"[인기 글] {', '.join(post['boards'])} #{post['id']} {short_title(post.get('title'))} "
+                f"추천+댓글 {post['score']} → 알림 발송")
+        send_popular_alert(post, post['boards'], post['score'], *post_urls(post))
 
 def send_daily_digests():
     """하루 한 번 DIGEST_HOUR가 지난 뒤 하루 요약을 켠 게시판마다 최근 24시간 새 글 중 추천·댓글이 많은 글을 알림.
@@ -717,6 +731,10 @@ def main():
             if maintenance_date != date.today():
                 maintenance_date = date.today()
                 run_daily_maintenance()
+            try:
+                send_popular_alerts()
+            except Exception as e:
+                log_msg(f"[인기 글] 인기 글 알림 실패: {short_err(e)}", "ERROR")
             try:
                 send_daily_digests()
             except Exception as e:

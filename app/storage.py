@@ -129,6 +129,8 @@ def _create_schema(conn):
             alert       INTEGER NOT NULL DEFAULT 1,   -- 새 글 텔레그램 알림
             video_alert INTEGER NOT NULL DEFAULT 1,   -- 동영상 글 알림 (alert가 꺼져 있어도 동영상 글은 알림)
             digest      INTEGER NOT NULL DEFAULT 0,   -- 하루 요약 알림 (매일 DIGEST_HOUR에 전날 인기 글)
+            popular_min   INTEGER NOT NULL DEFAULT 0, -- 인기 글 알림: 추천+댓글이 이 수 이상이 되면 한 번 알림 (0이면 끔)
+            popular_since TEXT,                       -- 인기 글 알림 기준을 정한 시각 (그 뒤에 수집한 글만 알림)
             UNIQUE (site, name)
         );
         -- 텔레그램에 연결하지 못해 보내지 못한 알림. 수집기가 다음 주기부터 다시 보냄 (notifier.retry_pending_alerts)
@@ -193,6 +195,12 @@ def _create_schema(conn):
         CREATE TABLE IF NOT EXISTS unalerted_posts (
             post_id      TEXT PRIMARY KEY REFERENCES posts(id) ON DELETE CASCADE,
             collected_at TEXT NOT NULL
+        );
+
+        -- 인기 글 알림을 이미 보낸 글 (같은 글을 다시 알리지 않게)
+        CREATE TABLE IF NOT EXISTS popular_alerted (
+            post_id     TEXT PRIMARY KEY REFERENCES posts(id) ON DELETE CASCADE,
+            alerted_at  TEXT NOT NULL
         );
 
         -- 카드 혜택 한도 페이지에 직접 등록한 혜택 (used_on: 'YYYY-MM-DD', amount: 혜택 받은 금액(원))
@@ -361,6 +369,10 @@ def _add_missing_columns(conn):
     if 'digest' not in {row['name'] for row in conn.execute("PRAGMA table_info(keyword_groups)")}:
         conn.execute("ALTER TABLE keyword_groups ADD COLUMN digest INTEGER NOT NULL DEFAULT 0")
         log_msg("[DB] keyword_groups.digest 컬럼 추가")
+    if 'popular_min' not in {row['name'] for row in conn.execute("PRAGMA table_info(keyword_groups)")}:
+        conn.execute("ALTER TABLE keyword_groups ADD COLUMN popular_min INTEGER NOT NULL DEFAULT 0")
+        conn.execute("ALTER TABLE keyword_groups ADD COLUMN popular_since TEXT")
+        log_msg("[DB] keyword_groups.popular_min·popular_since 컬럼 추가")
 
 def _add_group_site(conn):
     """게시판에 사이트 칸을 넣고 이름 중복 규칙을 '사이트 안에서만'으로 바꿈. SQLite는 기존 UNIQUE를 고칠 수 없어
@@ -784,7 +796,7 @@ def list_groups(id_limit=500):
     groups = []
     with _db() as conn:
         for g in conn.execute("""
-            SELECT id, site, name, alert, video_alert, digest, folder_id, position FROM keyword_groups ORDER BY position, id
+            SELECT id, site, name, alert, video_alert, digest, popular_min, folder_id, position FROM keyword_groups ORDER BY position, id
         """).fetchall():
             members = [dict(board=r['board'], keyword=r['keyword'], paused=bool(r['paused']),
                             ignores=_keyword_ignores(conn, r['board'], r['keyword']))
@@ -796,6 +808,7 @@ def list_groups(id_limit=500):
             # 게시판은 한 사이트의 키워드만 담음 (save_group에서 검사). 사이드바에서 사이트별로 묶어 보여줌
             groups.append({'id': g['id'], 'name': g['name'], 'site': g['site'], 'members': members,
                            'alert': bool(g['alert']), 'video_alert': bool(g['video_alert']), 'digest': bool(g['digest']),
+                           'popular_min': g['popular_min'],
                            'folder_id': g['folder_id'], 'position': g['position'],
                            **_feed_summary(conn, id_limit, g['id'])})
     return groups
@@ -1036,6 +1049,46 @@ def set_group_alert(group_id, alert_type, enabled):
             return None
         conn.execute(f"UPDATE keyword_groups SET {alert_type} = ? WHERE id = ?", (int(bool(enabled)), group_id))
         return row['name']
+
+def set_group_popular(group_id, minimum):
+    """인기 글 알림 기준(추천+댓글 수, 0이면 끔) 정하기. 게시판 이름 반환, 없는 게시판이면 None.
+    기준을 정한 시각을 남겨, 그 전에 모은 글이 한꺼번에 알림으로 쏟아지지 않게 함"""
+    with _db() as conn, conn:
+        row = conn.execute("SELECT name FROM keyword_groups WHERE id = ?", (group_id,)).fetchone()
+        if not row:
+            return None
+        conn.execute("UPDATE keyword_groups SET popular_min = ?, popular_since = ? WHERE id = ?",
+                     (int(minimum), _now() if minimum else None, group_id))
+        return row['name']
+
+def popular_posts_to_alert(limit=5):
+    """인기 글 알림을 켠 게시판의 글 중, 기준을 정한 뒤에 수집했고 추천+댓글이 기준 이상이 된 글 (아직 알리지 않은 것,
+    원문이 삭제된 글 제외). 점수가 높은 글부터 limit개 [{글 정보(본문 포함), 'boards': [게시판 이름], 'score'}].
+    같은 글이 여러 게시판에 걸리면 한 번만 (기준을 넘긴 게시판 이름을 모두 담음)"""
+    with _db() as conn:
+        rows = conn.execute(f"""
+            SELECT p.id, {_POPULAR_SQL} AS score, g.name
+            FROM keyword_groups g
+            JOIN keyword_group_members gm ON gm.group_id = g.id
+            JOIN keyword_posts kp ON kp.board = gm.board AND kp.keyword = gm.keyword
+            JOIN posts p ON p.id = kp.post_id
+            WHERE g.popular_min > 0 AND p.is_deleted = 0 AND p.created_at >= g.popular_since
+              AND {_POPULAR_SQL} >= g.popular_min
+              AND p.id NOT IN (SELECT post_id FROM popular_alerted)
+            GROUP BY p.id, g.id
+            ORDER BY score DESC, p.rowid
+        """).fetchall()
+    found = {}
+    for r in rows:
+        entry = found.setdefault(r['id'], {'score': r['score'], 'boards': []})
+        entry['boards'].append(r['name'])
+    ids = list(found)[:limit]
+    posts = {p['id']: p for p in query_posts_by_ids(ids)}
+    return [{**posts[i], **found[i]} for i in ids if i in posts]
+
+def mark_popular_alerted(post_id):
+    with _db() as conn, conn:
+        conn.execute("INSERT OR IGNORE INTO popular_alerted(post_id, alerted_at) VALUES(?, ?)", (str(post_id), _now()))
 
 SAVED_COMMENT_ALERT_META = 'saved_comment_alert'
 

@@ -2076,9 +2076,11 @@ function renderSettings() {
                 ${alertSwitch(g.id, 'alert', g.alert, g.name + ' 전체 알림')}
                 ${alertSwitch(g.id, 'video_alert', g.video_alert, g.name + ' 동영상 알림')}
                 ${alertSwitch(g.id, 'digest', g.digest, g.name + ' 하루 요약')}
+                <input class="popular-min" type="number" inputmode="numeric" min="0" max="100000" step="1" placeholder="끔"
+                    data-action="set-popular-min" data-group-id="${g.id}" value="${g.popular_min || ''}" aria-label="${esc(g.name)} 인기 글 알림 기준 (추천+댓글 수)">
             </span>
         </div>`).join('') : '<span class="settings-hint">게시판을 만들면 게시판별로 알림을 설정할 수 있습니다.</span>') + `
-        <span class="settings-hint alert-hint">하루 요약: 매일 ${app.state.digest_hour}시에 최근 24시간 새 글 중 추천·댓글이 많은 글 5개를 한 번에 보냅니다. 글이 많아 전체 알림을 꺼 둔 게시판에 알맞습니다.</span>
+        <span class="settings-hint alert-hint">하루 요약: 매일 ${app.state.digest_hour}시에 최근 24시간 새 글 중 추천·댓글이 많은 글 5개를 한 번에 보냅니다. 글이 많아 전체 알림을 꺼 둔 게시판에 알맞습니다.<br>인기: 적어 둔 숫자만큼 추천+댓글이 쌓인 글을 한 번 알립니다 (기준을 정한 뒤에 모은 글만). 비워 두면 끕니다.</span>
         <div class="alert-row alert-row-saved">
             <span class="alert-row-name">⭐ 보관한 글에 새 댓글</span>
             <span class="alert-switches">${alertSwitch('', 'saved_comment', app.state.saved_comment_alert, '보관한 글 새 댓글 알림')}</span>
@@ -2741,6 +2743,32 @@ async function toggleGroupAlert(checkbox) {
     }
 }
 
+// 인기 글 알림 기준 (추천+댓글 수, 비우거나 0이면 끔)
+async function setPopularMin(input) {
+    const groupId = Number(input.dataset.groupId);
+    const group = (app.state.groups || []).find(g => g.id === groupId);
+    const restore = () => { input.value = group && group.popular_min ? group.popular_min : ''; };
+    const pwd = adminPassword();
+    if (!pwd) { restore(); needPassword(); return; }
+    const min = input.value.trim() === '' ? 0 : Number(input.value);
+    if (!Number.isInteger(min) || min < 0 || min > 100000) {
+        alert('인기 글 기준은 0~100,000 사이 숫자로 입력해 주세요.');
+        restore();
+        return;
+    }
+    try {
+        const data = await postJSON('/api/toggle-alert', { group: groupId, type: 'popular', min, password: pwd });
+        if (data.relogin) { restore(); return; }
+        if (!data.success) throw new Error(data.message);
+        if (group) group.popular_min = min;
+        if (!min) input.value = '';
+        showToast(min ? `추천+댓글 ${min.toLocaleString()} 이상이면 알립니다` : '인기 글 알림을 껐습니다');
+    } catch (e) {
+        alert(e.message || '알림 상태 요청 중 오류가 발생했습니다.');
+        restore();
+    }
+}
+
 // ==========================================
 // 전체 상태 로드 / 새로고침 / 텔레그램 링크
 // ==========================================
@@ -3081,6 +3109,7 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('change', (e) => {
     if (e.target.dataset.action === 'toggle-alert') toggleGroupAlert(e.target);
+    else if (e.target.dataset.action === 'set-popular-min') setPopularMin(e.target);
     else if (e.target.dataset.action === 'set-group-folder') {
         const value = e.target.value;
         arrangeGroup({ id: Number(e.target.dataset.groupId), folder_id: value ? Number(value) : null }, e.target);

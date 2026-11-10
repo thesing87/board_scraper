@@ -613,7 +613,12 @@ body.font-l .comment-body { font-size: 16px; }
 .alert-cols span { width: 44px; text-align: center; white-space: nowrap; }
 .alert-row { height: 52px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--divider); }
 .alert-row-name { font-size: 14px; font-weight: 500; }
-.alert-switches { display: flex; gap: 12px; }
+.alert-switches { display: flex; gap: 12px; align-items: center; }
+.alert-cols .alert-col-popular { width: 56px; }
+.popular-min { width: 56px; height: 30px; padding: 0 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+    color: var(--text); font: inherit; font-size: 13px; text-align: center; font-variant-numeric: tabular-nums; }
+.popular-min::placeholder { color: var(--muted); }
+.alert-row-saved .alert-switches { padding-right: 68px; }
 .alert-hint { display: block; padding: 10px 0 2px; border-top: 1px solid var(--divider); }
 .merge-box { display: flex; flex-direction: column; gap: 8px; }
 .merge-box[hidden] { display: none; }

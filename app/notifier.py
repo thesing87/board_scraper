@@ -272,6 +272,22 @@ def send_digest(group_name, total, posts, post_url):
         return False
     return _send_html(_html_base(), build_digest(group_name, total, posts, post_url), "하루 요약")
 
+def build_popular_alert(post, boards, score):
+    """인기 글 알림 본문(HTML): 사이트·게시판·시각 머리글 / 굵은 제목 / 추천·댓글·조회 수"""
+    esc = html.escape
+    site = site_labels()[post_site(post.get('id', ''))]['short']
+    return (f"🔥 [{site}] <b>{esc(', '.join(boards))}</b> · 인기 글 · {datetime.now().strftime('%H:%M')}\n\n"
+            f"<b>{esc(post.get('title', ''))}</b>\n\n"
+            f"👍 {_count(post.get('votes'))}   💬 {_count(post.get('comment_count'))}   👁 {_count(post.get('views'))}\n"
+            f"추천+댓글 {score:,} (기준을 넘음)")
+
+def send_popular_alert(post, boards, score, dashboard_url='', original_url=''):
+    """인기 글 알림 발송. 보냈거나 대기열에 넣었으면 True"""
+    if not _configured():
+        return False
+    _send_html(_html_base(dashboard_url, original_url), build_popular_alert(post, boards, score), "인기 글 알림")
+    return True
+
 def send_post_alert(post, boards, keyword, board_name, dashboard_url='', original_url=''):
     """새 글 알림 발송. 썸네일이 있으면 사진+설명으로, 사진 발송이 안 되면 글로 대신 보냄"""
     if not _configured():
