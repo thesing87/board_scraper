@@ -1,7 +1,9 @@
 import os
 import re
 import json
+import gzip
 import hmac
+import hashlib
 import time
 import threading
 import ipaddress
@@ -121,6 +123,44 @@ CONTENT_SECURITY_POLICY = (
     "img-src * data: blob:; media-src * data: blob:; frame-src https: http:; "
     "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 )
+
+# 전송 줄이기: 글자로 된 응답(화면 파일·JSON)은 브라우저가 받을 수 있으면 gzip으로 줄여 보내고,
+# GET 응답에는 내용 지문(ETag)을 붙여 브라우저가 가진 것과 같으면 본문 없이 304로 답함
+COMPRESS_MIN_BYTES = 1024
+# 브라우저가 보관하되 쓸 때마다 서버에 확인 (배포 직후에도 옛 파일을 쓰지 않음). 공용 캐시에는 두지 않음
+REVALIDATE = 'private, no-cache'
+COMPRESS_LEVEL = 5
+COMPRESS_TYPES = ('text/', 'application/json', 'application/javascript', 'application/manifest+json')
+# 화면 파일은 압축한 결과를 기억 {파일 경로: (수정 시각, 크기, 원본, 지문, 압축본)}
+_static_cache = {}
+_static_cache_lock = threading.Lock()
+
+def _etag(body):
+    return '"' + hashlib.sha1(body).hexdigest()[:20] + '"'
+
+def _accepts_gzip(headers):
+    return any(part.split(';')[0].strip().lower() == 'gzip' and not part.replace(' ', '').lower().endswith(';q=0')
+               for part in (headers.get('Accept-Encoding') or '').split(','))
+
+def _etag_matches(headers, etag):
+    given = headers.get('If-None-Match') or ''
+    # 프록시가 압축하며 약한 지문(W/)으로 바꿔 돌려보내도 같은 것으로 봄
+    return etag in [tag.strip().removeprefix('W/') for tag in given.split(',')]
+
+def load_static(path):
+    """화면 파일의 (원본, 지문, 압축본). 파일이 바뀌지 않았으면 기억해 둔 것을 씀"""
+    stat = os.stat(path)
+    key = (stat.st_mtime_ns, stat.st_size)
+    with _static_cache_lock:
+        cached = _static_cache.get(path)
+        if cached and cached[0] == key:
+            return cached[1:]
+    with open(path, 'rb') as f:
+        content = f.read()
+    entry = (content, _etag(content), gzip.compress(content, COMPRESS_LEVEL, mtime=0))
+    with _static_cache_lock:
+        _static_cache[path] = (key,) + entry
+    return entry
 
 # 비밀번호 무차별 대입 방지: IP별로 일정 시간 내 실패 횟수를 넘기면 잠금
 AUTH_MAX_FAILURES = 5
@@ -275,7 +315,19 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
     def log_message(self, format, *args): return
 
     def _send_body(self, status, body, content_type, extra_headers=None,
-                   cache_control='no-store, no-cache, must-revalidate, max-age=0'):
+                   cache_control='no-store, no-cache, must-revalidate, max-age=0', etag=None, gzipped=None):
+        """etag가 있으면 브라우저가 가진 것과 비교해 같을 때 본문 없이 304. gzipped는 미리 압축해 둔 본문(화면 파일)"""
+        extra_headers = dict(extra_headers or {})
+        if etag:
+            extra_headers['ETag'] = etag
+            if _etag_matches(self.headers, etag):
+                status, body, gzipped = 304, b'', None
+        compressible = content_type.startswith(COMPRESS_TYPES) and len(body) >= COMPRESS_MIN_BYTES
+        if compressible:
+            extra_headers['Vary'] = 'Accept-Encoding'
+            if _accepts_gzip(self.headers):
+                body = gzipped if gzipped is not None else gzip.compress(body, COMPRESS_LEVEL, mtime=0)
+                extra_headers['Content-Encoding'] = 'gzip'
         self.send_response(status)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))
@@ -283,13 +335,17 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('X-Frame-Options', 'DENY')
         self.send_header('Referrer-Policy', 'no-referrer')
-        for name, value in (extra_headers or {}).items():
+        for name, value in extra_headers.items():
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
     def _send_data(self, status, data):
         body = json.dumps(data, ensure_ascii=False).encode('utf-8')
+        if self.command == 'GET' and status == 200:
+            # 조회 응답: 브라우저가 보관하되 쓸 때마다 서버에 물어봄 (내용이 그대로면 304라 다시 받지 않음)
+            self._send_body(status, body, 'application/json; charset=utf-8', cache_control=REVALIDATE, etag=_etag(body))
+            return
         self._send_body(status, body, 'application/json; charset=utf-8')
 
     def _send_json(self, status, success, message):
@@ -417,10 +473,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 pass
 
     def _serve_static(self, filename, content_type):
-        with open(os.path.join(STATIC_DIR, filename), 'rb') as f:
-            content = f.read()
+        content, etag, gzipped = load_static(os.path.join(STATIC_DIR, filename))
         extra = {'Content-Security-Policy': CONTENT_SECURITY_POLICY} if filename.endswith('.html') else None
-        self._send_body(200, content, content_type, extra)
+        self._send_body(200, content, content_type, extra, cache_control=REVALIDATE, etag=etag, gzipped=gzipped)
 
     def _serve_image(self, rel):
         """수집할 때 저장한 글 이미지 (images.py). 같은 주소의 파일은 바뀌지 않으므로 브라우저가 오래 보관하게 함"""
