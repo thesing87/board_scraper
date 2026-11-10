@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>수집 통계</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563EB'/%3E%3Cpath d='M9 23V14M16 23V9M23 23v-6' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <meta name="theme-color" content="#F4F5F7">
+    <link rel="stylesheet" href="/stats.css">
+    <script src="/stats.js" defer></script>
+</head>
+<body>
+    <main class="stats">
+        <header class="stats-top">
+            <a class="back-link" href="/" aria-label="대시보드로">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+            </a>
+            <h1>수집 통계</h1>
+            <a class="board-link" href="/board/">키워드 게시판</a>
+        </header>
+
+        <!-- 조건: 기간과 게시판 (아래 모든 그림에 함께 적용, stats.js) -->
+        <div class="filters">
+            <div class="seg" role="group" aria-label="기간">
+                <button type="button" class="seg-btn" data-days="7" aria-pressed="false">7일</button>
+                <button type="button" class="seg-btn" data-days="30" aria-pressed="true">30일</button>
+                <button type="button" class="seg-btn" data-days="90" aria-pressed="false">90일</button>
+            </div>
+            <select id="group-select" class="group-select" aria-label="게시판">
+                <option value="">모든 게시판</option>
+            </select>
+        </div>
+
+        <section class="tiles" id="tiles" aria-label="요약"></section>
+
+        <section class="panel" aria-labelledby="daily-title">
+            <div class="panel-head">
+                <h2 id="daily-title">날짜별 수집한 글</h2>
+                <button type="button" class="text-btn" id="table-toggle" aria-expanded="false">표로 보기</button>
+            </div>
+            <div class="chart" id="daily-chart"></div>
+            <div class="table-wrap" id="daily-table" hidden></div>
+        </section>
+
+        <div class="two-col">
+            <section class="panel" aria-labelledby="groups-title">
+                <div class="panel-head">
+                    <h2 id="groups-title">게시판별</h2>
+                    <span class="panel-note">누르면 그 게시판만 봅니다</span>
+                </div>
+                <div class="rank" id="groups-rank"></div>
+            </section>
+            <section class="panel" aria-labelledby="keywords-title">
+                <div class="panel-head"><h2 id="keywords-title">키워드별 (많은 순 10개)</h2></div>
+                <div class="rank" id="keywords-rank"></div>
+            </section>
+        </div>
+
+        <section class="panel" aria-labelledby="hours-title">
+            <div class="panel-head">
+                <h2 id="hours-title">시간대별 수집한 글</h2>
+                <span class="panel-note" id="hours-note"></span>
+            </div>
+            <div class="chart is-hours" id="hours-chart"></div>
+        </section>
+
+        <p class="foot-note">글을 처음 수집한 시각 기준이며, 같은 글이 여러 키워드에 걸려도 한 번만 셉니다. 오래된 글은 정리되므로 최근 기간만 볼 수 있습니다.</p>
+    </main>
+    <div class="tip" id="tip" role="status" hidden></div>
+</body>
+</html>

@@ -3138,6 +3138,8 @@ document.addEventListener('click', (e) => {
         if (topbar.classList.contains('search-open')) document.getElementById('search-input').focus();
     } else if (action === 'clear-search') {
         clearSearch();
+    } else if (action === 'search-scope') {
+        setSearchScope(el.dataset.here === '1');
     } else if (action === 'open-settings') {
         setSettingsOpen(true);
     } else if (action === 'refresh-status') {

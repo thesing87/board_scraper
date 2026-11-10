@@ -1687,6 +1687,48 @@ def dashboard_summary(recent_limit=3):
                         'collected_at': r['created_at'], 'is_read': bool(r['is_read']), 'group': r['group_name'] or ''}
                        for r in rows]}
 
+def stats_summary(days, group_id=None, top_keywords=10):
+    """통계 화면: 오늘까지 최근 days일 동안 처음 수집한 글 수 (같은 글은 한 번만). group_id가 있으면 그 게시판만.
+    날짜별(빈 날은 0), 시간대별(0~23시), 키워드별 상위, 게시판별(늘 모든 게시판), 바로 앞 같은 기간의 글 수"""
+    today = datetime.now().date()
+    start = today - timedelta(days=days - 1)
+    since = start.strftime('%Y-%m-%d 00:00:00')
+    prev_since = (start - timedelta(days=days)).strftime('%Y-%m-%d 00:00:00')
+    base, params = _feed_from(group_id)
+    base += " JOIN posts p ON p.id = kp.post_id"
+    with _db() as conn:
+        by_day = dict(conn.execute(f"""
+            SELECT substr(p.created_at, 1, 10), COUNT(DISTINCT p.id) {base}
+            WHERE p.created_at >= ? GROUP BY 1
+        """, params + (since,)).fetchall())
+        by_hour = dict(conn.execute(f"""
+            SELECT CAST(substr(p.created_at, 12, 2) AS INTEGER), COUNT(DISTINCT p.id) {base}
+            WHERE p.created_at >= ? GROUP BY 1
+        """, params + (since,)).fetchall())
+        total, previous = conn.execute(f"""
+            SELECT COUNT(DISTINCT CASE WHEN p.created_at >= ? THEN p.id END),
+                   COUNT(DISTINCT CASE WHEN p.created_at < ? THEN p.id END) {base}
+            WHERE p.created_at >= ?
+        """, (since, since) + params + (prev_since,)).fetchone()
+        keywords = conn.execute(f"""
+            SELECT kp.board, kp.keyword, COUNT(DISTINCT p.id) AS count {base}
+            WHERE p.created_at >= ? GROUP BY kp.board, kp.keyword ORDER BY count DESC, kp.keyword LIMIT ?
+        """, params + (since, top_keywords)).fetchall()
+        groups = conn.execute("""
+            SELECT g.id, g.name, g.site, COUNT(DISTINCT p.id) AS count
+            FROM keyword_groups g
+            LEFT JOIN keyword_group_members gm ON gm.group_id = g.id
+            LEFT JOIN keyword_posts kp ON kp.board = gm.board AND kp.keyword = gm.keyword
+            LEFT JOIN posts p ON p.id = kp.post_id AND p.created_at >= ?
+            GROUP BY g.id ORDER BY count DESC, g.position, g.id
+        """, (since,)).fetchall()
+    dates = [(start + timedelta(days=i)).isoformat() for i in range(days)]
+    return {'days': days, 'total': total, 'previous': previous,
+            'daily': [{'date': d, 'count': by_day.get(d, 0)} for d in dates],
+            'hours': [by_hour.get(h, 0) for h in range(24)],
+            'keywords': [dict(r) for r in keywords],
+            'groups': [dict(r) for r in groups]}
+
 def recent_post_ids(limit_per_keyword):
     """키워드별 최근 글 ID 집합 (메인 루프가 목록의 댓글 수로 매 주기 변화를 감시하는 범위, 일시정지한 키워드는 감시 안 함)"""
     ids = set()

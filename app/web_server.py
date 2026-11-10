@@ -44,6 +44,7 @@ from storage import (
     feed_summary,
     query_posts_by_ids,
     dashboard_summary,
+    stats_summary,
     save_group,
     delete_group,
     category_names,
@@ -91,6 +92,8 @@ POSTS_PER_PAGE = 10
 POPULAR_DAYS = ('1', '7', '30')
 # 검색에서 고를 수 있는 기간(일): 최근 그 기간에 수집한 글만. 없으면 전체 기간
 SEARCH_DAYS = ('1', '7', '30', '90')
+# 통계 화면에서 고를 수 있는 기간(일)
+STATS_DAYS = ('7', '30', '90')
 # 첫 화면 조회를 미리 돌려 두는 간격 (_keep_warm)
 WARMUP_INTERVAL_SECONDS = 30
 # 수집기 멈춤을 확인하는 간격 (_watch_collector)
@@ -111,6 +114,10 @@ STATIC_FILES = {
     # 전기차 vs 내연기관 유지비 계산기
     '/ev/': ('ev.html', 'text/html; charset=utf-8'),
     '/ev.js': ('ev.js', 'application/javascript; charset=utf-8'),
+    # 수집 통계
+    '/stats/': ('stats.html', 'text/html; charset=utf-8'),
+    '/stats.js': ('stats.js', 'application/javascript; charset=utf-8'),
+    '/stats.css': ('stats.css', 'text/css; charset=utf-8'),
     # 카드 혜택 한도
     '/card/': ('card.html', 'text/html; charset=utf-8'),
     '/card.js': ('card.js', 'application/javascript; charset=utf-8'),
@@ -395,7 +402,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         try:
             if pure_path in STATIC_FILES:
                 self._serve_static(*STATIC_FILES[pure_path])
-            elif pure_path in ('/board', '/ev', '/card'):
+            elif pure_path in ('/board', '/ev', '/card', '/stats'):
                 # 끝 슬래시 없이 들어오면 붙여서 (페이지 안의 상대 주소가 맞도록)
                 self._send_body(301, b'', 'text/plain; charset=utf-8', {'Location': pure_path + '/'})
             elif pure_path in ('/index.html/board', '/index.html/board/'):
@@ -405,6 +412,15 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._send_data(200, {**dashboard_summary(), 'check_interval': CHECK_INTERVAL,
                                       'collector': runtime_status.snapshot().get('last_cycle'),
                                       'now': datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
+            elif pure_path == '/api/stats':
+                # 통계 화면: 최근 7·30·90일 동안 수집한 글 수 (날짜·시간대·게시판·키워드별). group이 있으면 그 게시판만
+                days = query.get('days', [''])[0]
+                group_param = query.get('group', [''])[0]
+                stats = stats_summary(int(days) if days in STATS_DAYS else 30, int(group_param) if group_param.isdigit() else None)
+                names = category_names()
+                for kw in stats['keywords']:
+                    kw['board_name'] = names.get(kw['board'], kw['board'])
+                self._send_data(200, stats)
             elif pure_path.startswith(IMAGE_URL_PREFIX):
                 self._serve_image(pure_path[len(IMAGE_URL_PREFIX):])
             elif pure_path == '/api/state':

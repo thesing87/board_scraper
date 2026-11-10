@@ -105,6 +105,31 @@ async function loadBoard() {
 }
 
 // ==========================================
+// 수집 통계 카드: 최근 7일 동안 수집한 글 수 (자세한 통계는 /stats/)
+// ==========================================
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+async function loadStats() {
+    try {
+        const stats = await getJSON('/api/stats?days=7');
+        const max = Math.max(1, ...stats.daily.map(d => d.count));
+        const last = stats.daily.length - 1;
+        const diff = stats.total - stats.previous;
+        $('stats-sub').textContent = `최근 7일 ${stats.total.toLocaleString('ko-KR')}개`
+            + (stats.previous ? ` · 지난주보다 ${Math.abs(diff).toLocaleString('ko-KR')}개 ${diff >= 0 ? '많음' : '적음'}` : '');
+        $('stats-body').innerHTML = `<div>
+            <div class="week-bars" role="img" aria-label="최근 7일 날짜별 수집 글 수: ${stats.daily.map(d => `${d.date.slice(5)} ${d.count}개`).join(', ')}">
+                ${stats.daily.map((d, i) => `<span class="week-bar${i === last ? ' is-today' : ''}"><b>${d.count}</b><i style="height:${Math.round(d.count / max * 72)}px"></i></span>`).join('')}
+            </div>
+            <div class="week-days" aria-hidden="true">
+                ${stats.daily.map((d, i) => `<span class="${i === last ? 'is-today' : ''}">${i === last ? '오늘' : WEEKDAYS[new Date(d.date + 'T00:00:00').getDay()]}</span>`).join('')}
+            </div>
+        </div>`;
+    } catch (e) {
+        $('stats-body').innerHTML = '<span class="empty">통계를 불러오지 못했습니다</span>';
+    }
+}
+
+// ==========================================
 // 전기차 vs 내연기관 카드 (계산식은 ev.js와 같음)
 // ==========================================
 const EV_DEFAULTS = { dist: 1500, evEffIn: 5.0, evPrice: 347, evLoss: 10, iceEff: 12, icePrice: 1700 };
@@ -200,7 +225,8 @@ async function loadBenefit() {
 const LAYOUT_KEY = 'dashboard_layout_v1';
 const COLUMNS = 12;
 const MIN_COLUMNS = 3;
-const DEFAULT_LAYOUT = [{ id: 'card-board', w: 7, h: null }, { id: 'card-ev', w: 5, h: null }, { id: 'card-benefit', w: 5, h: null }];
+const DEFAULT_LAYOUT = [{ id: 'card-board', w: 7, h: null }, { id: 'card-ev', w: 5, h: null }, { id: 'card-benefit', w: 5, h: null },
+                        { id: 'card-stats', w: 7, h: null }];
 const MIN_HEIGHT = 120, MAX_HEIGHT = 1200, HEIGHT_STEP = 10;
 const narrowScreen = window.matchMedia('(max-width: 820px)');
 const grid = $('dash-grid');
@@ -403,6 +429,7 @@ renderClock();
 renderEv();
 loadBoard();
 loadBenefit();
+loadStats();
 applyLayout();
 setInterval(() => { renderClock(); loadBoard(); loadBenefit(); }, REFRESH_MS);
 // 계산기에서 값을 바꾸고 돌아오면(다른 탭 포함) 다시 계산
