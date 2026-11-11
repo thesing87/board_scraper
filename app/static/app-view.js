@@ -781,15 +781,35 @@ function changePage(target) {
     loadPosts();
 }
 
-function markAllRead() {
+// '모두 읽음'·'모두 확인': 화면이 받은 ID는 최신 500개까지라, 서버가 그 게시판·묶음·전체를 개수 제한 없이 한 번에 처리.
+// 화면이 받은 상태의 시각까지 알던 글·댓글만 (그 뒤에 들어온 것은 그대로 새 글·새 댓글로)
+async function markAllRead() {
     const summary = viewSummary(app.activeKey);
-    if (!summary || pendingIds(summary).length === 0) return;
-    const ids = pendingIds(summary).slice();
-    markRead(ids);
-    flushReads();
-    // 화면의 NEW 표시와 구분선도 바로 정리
+    if (!summary || pendingCount(summary) === 0) return;
+    const kind = app.filter === 'comments' ? 'comments' : 'unread';
+    const body = { kind, until: app.state.generated_at };
+    const group = findGroup(app.activeKey);
+    const folder = findFolder(app.activeKey);
+    if (group) body.group = group.id;
+    else if (folder) body.folder = folder.id;
+    const button = document.querySelector('[data-action="mark-all-read"]');
+    if (button) button.disabled = true;
+    // 화면의 수·NEW 표시는 바로 정리 (받은 ID만큼은 바로 줄이고, 나머지는 서버 처리 뒤 상태를 다시 받아 맞춤)
+    forgetUnread(pendingIds(summary).slice());
+    renderNavigation();
+    renderFeedSub();
     document.querySelectorAll('.badge-new').forEach(el => el.remove());
     document.querySelectorAll('.new-divider').forEach(el => el.remove());
+    try {
+        await flushReads();
+        const data = await postJSON('/api/read-all', body);
+        if (!data.success) throw new Error(data.message);
+    } catch (e) {
+        showToast('모두 읽음 처리를 하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    } finally {
+        if (button) button.disabled = false;
+        await pollState();
+    }
 }
 
 // ==========================================

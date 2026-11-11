@@ -1926,6 +1926,37 @@ def mark_posts_read(post_ids):
         )
     return len(ids)
 
+def mark_feed_read(kind, until, group_id=None, folder_id=None):
+    """'모두 읽음'·'모두 확인': 게시판(group_id)·묶음(folder_id)·전체 피드의 글을 개수 제한 없이 한 번에 읽음 처리.
+    화면이 보던 상태의 시각(until)까지 알던 것만 처리해, 그 뒤에 모인 글·달린 댓글은 그대로 새 글·새 댓글로 남김.
+    kind='unread': until까지 모인 안 읽은 새 글을 읽음으로 (읽은 시각 until, 처음 읽은 시각은 지금)
+    kind='comments': 읽은 뒤 새 댓글이 달린 글의 읽은 시각을 until로 (until 뒤에 달린 댓글은 계속 새 댓글).
+    처리한 글 수 반환"""
+    base, params = _feed_from(group_id, folder_id)
+    now = _now()
+    with _db() as conn, conn:
+        if kind == 'unread':
+            ids = [r['post_id'] for r in conn.execute(f"""
+                SELECT DISTINCT kp.post_id {base}
+                LEFT JOIN read_posts rp ON rp.post_id = kp.post_id
+                WHERE {_UNREAD_SQL} AND kp.matched_at <= ?
+            """, params + (until,))]
+            conn.executemany("""
+                INSERT INTO read_posts(post_id, read_at, first_read_at) VALUES(?, ?, ?)
+                ON CONFLICT(post_id) DO UPDATE SET read_at = MAX(read_posts.read_at, excluded.read_at)
+            """, [(i, until, now) for i in ids])
+            return len(ids)
+        if kind == 'comments':
+            ids = [r['id'] for r in conn.execute(f"""
+                SELECT p.id FROM (SELECT DISTINCT kp.post_id {base}) f
+                JOIN posts p ON p.id = f.post_id
+                JOIN read_posts rp ON rp.post_id = p.id
+                WHERE p.last_comment_at > rp.read_at AND rp.read_at < ?
+            """, params + (until,))]
+            conn.executemany("UPDATE read_posts SET read_at = ? WHERE post_id = ?", [(until, i) for i in ids])
+            return len(ids)
+    raise ValueError(f"지원하지 않는 종류: {kind}")
+
 def set_post_saved(post_id, saved):
     """보관함에 담기·빼기. 모은 글이 아니면 False"""
     post_id = str(post_id)

@@ -38,6 +38,7 @@ from storage import (
     query_media,
     recent_post_ids,
     mark_posts_read,
+    mark_feed_read,
     set_post_saved,
     locate_post,
     list_groups,
@@ -544,6 +545,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
     POST_HANDLERS = {
         '/api/toggle-alert': ('_handle_toggle_alert', '알림 설정 처리'),
         '/api/read': ('_handle_read', '읽음 기록'),
+        '/api/read-all': ('_handle_read_all', '모두 읽음'),
         '/api/saved': ('_handle_saved', '보관함 처리'),
         '/api/group': ('_handle_group', '게시판 처리'),
         '/api/folder': ('_handle_folder', '묶음 처리'),
@@ -872,6 +874,23 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             return
         count = mark_posts_read(ids)
         log_msg(f"[API] 읽음 기록 {count}건", "DEBUG")
+        self._send_data(200, {'success': True, 'count': count})
+
+    def _handle_read_all(self):
+        """'모두 읽음'(안 읽은 새 글)·'모두 확인'(새 댓글): 화면에 내려 준 ID 수(최대 500)와 상관없이 그 게시판·묶음·전체를 한 번에.
+        until(화면이 받은 상태의 시각)까지 알던 것만 처리. 읽음 기록처럼 관리자 암호 없이 허용"""
+        params = self._body
+        kind = params.get('kind')
+        group_id, folder_id = params.get('group'), params.get('folder')
+        until = params.get('until')
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        if (kind not in ('unread', 'comments') or not (group_id is None or type(group_id) is int)
+                or not (folder_id is None or type(folder_id) is int)
+                or not (until is None or (isinstance(until, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', until)))):
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        count = mark_feed_read(kind, min(until or now, now), group_id, None if group_id is not None else folder_id)
+        log_msg(f"[API] 모두 {'읽음' if kind == 'unread' else '확인'} {count}건", "DEBUG")
         self._send_data(200, {'success': True, 'count': count})
 
     def _handle_saved(self):
