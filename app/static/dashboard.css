@@ -9,6 +9,8 @@
     --text-2: #374151;
     --muted: #5F6673;
     --faint: #8B919C;
+    /* 읽은 글 줄: 안 읽은 글(굵은 검정)과 한눈에 갈리도록 연한 회색 */
+    --read-text: #A0A6B1;
     --accent: #2563EB;
     --accent-weak: #EEF3FE;
     --orange: #C2410C;
@@ -57,7 +59,8 @@ a { color: inherit; text-decoration: none; }
 .popular-post { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--divider); min-width: 0; }
 .popular-rank { font-size: 12px; font-weight: 800; color: var(--orange); text-align: center; font-variant-numeric: tabular-nums; }
 .popular-post .post-title { font-size: 13px; }
-.popular-post.is-read .post-title { color: var(--muted); font-weight: 400; }
+.popular-post.is-read .post-title { color: var(--read-text); font-weight: 400; }
+.popular-post.is-read .popular-rank, .popular-post.is-read .post-meta { color: var(--read-text); }
 .popular-post:hover .post-title { color: var(--accent); }
 .popular-post .post-meta { font-size: 11px; }
 /* 수집 통계 카드: 최근 7일 글 수를 작은 막대로 (값은 막대 위, 요일은 아래) */
@@ -115,8 +118,11 @@ a { color: inherit; text-decoration: none; }
 .post { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-top: 1px solid var(--divider); min-width: 0; }
 .post:first-child { border-top: none; padding-top: 2px; }
 .post-board { flex: 0 0 auto; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; background: var(--accent-weak); color: var(--accent); }
-.post-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
-.post.is-read .post-title { color: var(--muted); font-weight: 400; }
+/* 안 읽은 글은 굵게(700, 휴대폰 글꼴은 600·500이 보통 글씨처럼 보임), 읽은 글은 제목·게시판·숫자까지 연한 회색 */
+.post-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 700; color: var(--text); }
+.post.is-read .post-title { color: var(--read-text); font-weight: 400; }
+.post.is-read .post-meta { color: var(--read-text); }
+.post.is-read .post-board { background: var(--surface-muted); color: var(--read-text); }
 .post:hover .post-title { color: var(--accent); }
 .post-meta { flex: 0 0 auto; font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
 
