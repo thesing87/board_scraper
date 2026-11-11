@@ -327,6 +327,34 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .new-divider::before, .new-divider::after { content: ""; flex: 1 1 auto; height: 1px; background: #D9DCE1; }
 
 .empty-card { padding: 40px 16px; border-radius: var(--radius); background: var(--surface); text-align: center; color: var(--muted); }
+/* 인기글 보기: 게시판마다 카드 하나, 순위·제목·추천·댓글 한 줄씩 (읽은 글은 제목을 흐리게) */
+.popular-tools { align-items: center; }
+.popular-periods { display: flex; }
+.popular-period { height: 34px; min-width: 60px; padding: 0 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+.popular-period + .popular-period { margin-left: -1px; }
+.popular-period:first-child { border-radius: 9px 0 0 9px; }
+.popular-period:last-child { border-radius: 0 9px 9px 0; }
+.popular-period[aria-pressed="true"] { position: relative; border-color: var(--accent); background: var(--accent-weak); color: var(--accent); font-weight: 700; }
+.popular-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; align-items: start; }
+.popular-grid.is-single { grid-template-columns: minmax(0, 1fr); }
+.popular-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px 8px; min-width: 0; }
+.popular-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 6px; }
+.popular-board { margin: 0; font-size: 15px; font-weight: 800; display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.popular-more { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; font-weight: 700; white-space: nowrap; flex: 0 0 auto; }
+.popular-row { width: 100%; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 40px; padding: 6px 4px;
+    border: 0; border-top: 1px solid var(--divider); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.popular-row:hover .popular-title { color: var(--accent); text-decoration: underline; }
+.popular-rank { font-size: 13px; font-weight: 800; color: var(--accent); text-align: center; font-variant-numeric: tabular-nums; }
+.popular-title { font-size: 14px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.popular-row.is-read .popular-title { color: var(--muted); font-weight: 400; }
+.popular-stats { display: flex; gap: 10px; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.popular-stat { display: inline-flex; align-items: center; gap: 3px; }
+.popular-stat svg { width: 12px; height: 12px; }
+@media (max-width: 899px) {
+    .popular-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    .popular-card { padding: 12px 14px 6px; }
+    .popular-tools { width: 100%; }
+}
 
 /* 글 카드 */
 .post-card { background: var(--surface); border: 1px solid #E8EAEE; border-radius: var(--radius); padding: 22px 24px; display: flex; flex-direction: column; gap: 16px; word-break: break-word; transition: background-color 1s ease; }

@@ -105,6 +105,30 @@ async function loadBoard() {
 }
 
 // ==========================================
+// 게시판별 인기글 카드: 최근 24시간 동안 게시판마다 추천+댓글이 많은 글 3개 (전체 보기는 키워드 게시판의 '인기글')
+// ==========================================
+const countText = v => num(String(v || 0).replace(/[^\d]/g, '') || 0);
+async function loadPopular() {
+    try {
+        const data = await getJSON('/api/popular?days=1&limit=3');
+        $('popular-body').innerHTML = data.groups.length
+            ? `<div class="popular-boards">${data.groups.map(g => `
+                <div class="popular-board">
+                    <a class="popular-board-name" href="/board/#board-${g.id}">${esc(g.name)}</a>
+                    ${g.posts.map((p, i) => `
+                    <a class="popular-post${p.is_read ? ' is-read' : ''}" href="/board/#post-${encodeURIComponent(p.id)}">
+                        <span class="popular-rank">${i + 1}</span>
+                        <span class="post-title">${esc(p.title)}</span>
+                        <span class="post-meta" title="추천 · 댓글">추천 ${countText(p.votes)} · 댓글 ${countText(p.comment_count)}</span>
+                    </a>`).join('')}
+                </div>`).join('')}</div>`
+            : '<span class="empty">최근 24시간 동안 모은 글이 없습니다</span>';
+    } catch (e) {
+        $('popular-body').innerHTML = '<span class="empty">인기글을 불러오지 못했습니다</span>';
+    }
+}
+
+// ==========================================
 // 수집 통계 카드: 최근 7일 동안 수집한 글 수 (자세한 통계는 /stats/)
 // ==========================================
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -226,7 +250,7 @@ const LAYOUT_KEY = 'dashboard_layout_v1';
 const COLUMNS = 12;
 const MIN_COLUMNS = 3;
 const DEFAULT_LAYOUT = [{ id: 'card-board', w: 7, h: null }, { id: 'card-ev', w: 5, h: null }, { id: 'card-benefit', w: 5, h: null },
-                        { id: 'card-stats', w: 7, h: null }];
+                        { id: 'card-stats', w: 7, h: null }, { id: 'card-popular', w: 12, h: null }];
 const MIN_HEIGHT = 120, MAX_HEIGHT = 1200, HEIGHT_STEP = 10;
 const narrowScreen = window.matchMedia('(max-width: 820px)');
 const grid = $('dash-grid');
@@ -430,9 +454,10 @@ renderEv();
 loadBoard();
 loadBenefit();
 loadStats();
+loadPopular();
 applyLayout();
-setInterval(() => { renderClock(); loadBoard(); loadBenefit(); }, REFRESH_MS);
+setInterval(() => { renderClock(); loadBoard(); loadBenefit(); loadPopular(); }, REFRESH_MS);
 // 계산기에서 값을 바꾸고 돌아오면(다른 탭 포함) 다시 계산
 window.addEventListener('storage', e => { if (e.key === 'evice') renderEv(); });
 window.addEventListener('pageshow', renderEv);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderClock(); renderEv(); loadBoard(); loadBenefit(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderClock(); renderEv(); loadBoard(); loadBenefit(); loadPopular(); } });

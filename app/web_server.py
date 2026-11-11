@@ -45,6 +45,7 @@ from storage import (
     query_posts_by_ids,
     dashboard_summary,
     stats_summary,
+    popular_by_group,
     save_group,
     delete_group,
     category_names,
@@ -96,6 +97,9 @@ POPULAR_DAYS = ('1', '7', '30')
 SEARCH_DAYS = ('1', '7', '30', '90')
 # 통계 화면에서 고를 수 있는 기간(일)
 STATS_DAYS = ('7', '30', '90')
+# 게시판별 인기글: 고를 수 있는 기간(일)과 게시판마다 보여 줄 글 수의 상한
+POPULAR_BOARD_DAYS = ('1', '7', '30')
+MAX_POPULAR_PER_BOARD = 10
 # 첫 화면 조회를 미리 돌려 두는 간격 (_keep_warm)
 WARMUP_INTERVAL_SECONDS = 30
 # 수집기 멈춤을 확인하는 간격 (_watch_collector)
@@ -419,6 +423,19 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._send_data(200, {**dashboard_summary(), 'check_interval': CHECK_INTERVAL,
                                       'collector': runtime_status.snapshot().get('last_cycle'),
                                       'now': datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
+            elif pure_path == '/api/popular':
+                # 게시판별 인기글: 최근 하루·일주일·한 달 동안 수집한 글 중 게시판마다 추천+댓글이 많은 글
+                # (키워드 게시판의 '인기글' 보기는 5개, 메인 대시보드 카드는 3개). group·folder가 있으면 그 게시판·묶음만
+                days = query.get('days', [''])[0]
+                days = int(days) if days in POPULAR_BOARD_DAYS else 1
+                limit = query.get('limit', [''])[0]
+                limit = min(int(limit), MAX_POPULAR_PER_BOARD) if limit.isdigit() and int(limit) > 0 else 5
+                group_param = query.get('group', [''])[0]
+                folder_param = query.get('folder', [''])[0]
+                since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+                self._send_data(200, {'days': days, 'groups': popular_by_group(
+                    since, limit, int(group_param) if group_param.isdigit() else None,
+                    int(folder_param) if folder_param.isdigit() and not group_param.isdigit() else None)})
             elif pure_path == '/api/stats':
                 # 통계 화면: 최근 7·30·90일 동안 수집한 글 수 (날짜·시간대·게시판·키워드별). group이 있으면 그 게시판만
                 days = query.get('days', [''])[0]

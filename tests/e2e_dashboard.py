@@ -59,7 +59,7 @@ try:
     assert js("return [...document.querySelectorAll('#card-board .met-value')].map(e => e.textContent)") == ['2', '0', '3']
     assert js("return document.getElementById('board-sub').textContent") == '게시판 2개 · 키워드 2개'
     assert js("return [...document.querySelectorAll('#card-board .chip')].map(c => c.textContent.replace(/\\s+/g, ' ').trim())") == ['싼타페 2']
-    titles = js("return [...document.querySelectorAll('.post-title')].map(e => e.textContent)")
+    titles = js("return [...document.querySelectorAll('#board-body .post-title')].map(e => e.textContent)")
     assert titles == ['셋째 글', '둘째 <글>', '첫 글'], titles   # 제목은 글자 그대로 (HTML로 해석하지 않음)
     assert js("return document.querySelector('.post').classList.contains('is-read')")
     assert '추천 12' in js("return document.querySelectorAll('.post-meta')[1].textContent")

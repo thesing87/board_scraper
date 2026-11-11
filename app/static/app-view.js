@@ -236,7 +236,7 @@ function currentViewKey() {
 }
 
 // 지금 화면에 쓰는 정렬: 안 읽은 글(읽는 중 순서가 밀리지 않게)·새 댓글(최근 댓글 순) 보기는 항상 그 보기의 순서
-function sortable() { return !!app.searchQuery || !['unread', 'comments'].includes(app.filter); }
+function sortable() { return !!app.searchQuery || !['unread', 'comments', 'popular'].includes(app.filter); }
 function currentSort() {
     return (sortable() && SORTS.find(s => s.key === app.sort)) || SORTS[0];
 }
@@ -254,6 +254,7 @@ async function loadPosts() {
     const feed = document.getElementById('feed');
     hideNewBanner();
     const searching = !!app.searchQuery;
+    if (!searching && app.filter === 'popular') return loadPopularBoards();
     const group = findGroup(app.activeKey);
     const viewKey = currentViewKey();
     const params = new URLSearchParams({ page: app.page, video_only: !searching && app.filter === 'video' ? '1' : '0' });
@@ -294,6 +295,111 @@ async function loadPosts() {
     if (viewKey !== currentViewKey()) return false;  // 응답 도착 전에 다른 보기로 이동한 경우
     if (data.unread_since) app.unreadSince = data.unread_since;  // 다음 페이지도 같은 기준으로
     return renderFeed(data);
+}
+
+// ==========================================
+// 인기글 보기: 게시판마다 최근 하루·일주일·한 달 동안 추천+댓글이 많은 글 몇 개씩 (사이드바 순서, 글 없는 게시판은 뺌).
+// 전체·묶음은 게시판마다 5개, 게시판 하나를 고르면 10개. 제목을 누르면 그 글로 가고 '인기글 모아보기로'로 돌아옴
+// ==========================================
+const POPULAR_PERIODS = [{ days: 1, label: '오늘' }, { days: 7, label: '일주일' }, { days: 30, label: '한 달' }];
+const POPULAR_DAYS_KEY = 'popular_days';
+function popularDays() {
+    const days = Number(storageGet(localStorage, POPULAR_DAYS_KEY, '1'));
+    return POPULAR_PERIODS.some(p => p.days === days) ? days : 1;
+}
+function setPopularDays(days) {
+    if (!POPULAR_PERIODS.some(p => p.days === days)) return;
+    storageSet(localStorage, POPULAR_DAYS_KEY, String(days));
+    loadPosts();
+}
+
+async function loadPopularBoards() {
+    const feed = document.getElementById('feed');
+    const group = findGroup(app.activeKey);
+    const folder = findFolder(app.activeKey);
+    const viewKey = currentViewKey();
+    const days = popularDays();
+    const params = new URLSearchParams({ days, limit: group ? 10 : 5 });
+    if (group) params.set('group', group.id);
+    else if (folder) params.set('folder', folder.id);
+    let data;
+    try {
+        await flushReads();
+        data = await withProgress(getJSON('/api/popular?' + params.toString()));
+    } catch (e) {
+        feed.innerHTML = '<div class="empty-card">인기글을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</div>';
+        return;
+    }
+    if (viewKey !== currentViewKey() || days !== popularDays()) return false;
+    renderPopularBoards(data, group, folder);
+    return false;
+}
+
+function renderPopularBoards(data, group, folder) {
+    const feed = document.getElementById('feed');
+    feed.removeAttribute('aria-busy');
+    // 글 목록 화면의 상태(페이지·새 글 배너·모아보기)는 쓰지 않음
+    app.page = 1;
+    app.totalPages = 1;
+    app.renderedTotal = null;
+    app.renderedPostTotal = 0;
+    app.renderedUnreadIds = null;
+    app.galleryRange = null;
+    app.openPostIds = new Set();
+    document.body.classList.remove('gallery-mode');
+    storageSet(sessionStorage, 'last_active_tab', app.activeKey);
+    storageSet(sessionStorage, 'last_active_filter', app.filter);
+
+    const days = popularDays();
+    const period = POPULAR_PERIODS.find(p => p.days === days);
+    const scope = group ? (multiSite() ? groupTag(group) : '') + esc(group.name) : folder ? esc(folder.name) : '전체';
+    const periodButtons = POPULAR_PERIODS.map(p => `
+        <button class="popular-period" data-action="popular-days" data-days="${p.days}" aria-pressed="${p.days === days}">${p.label}</button>`).join('');
+    const row = (post, i) => `
+        <button class="popular-row${post.is_read ? ' is-read' : ''}" data-action="goto-post" data-post-id="${esc(post.id)}">
+            <span class="popular-rank">${i + 1}</span>
+            <span class="popular-title">${esc(post.title)}</span>
+            <span class="popular-stats">
+                <span class="popular-stat" title="추천">${ICONS.thumb}<span class="sr-only">추천</span>${statNumber(post.votes).toLocaleString('ko-KR')}</span>
+                <span class="popular-stat" title="댓글">${ICONS.comment}<span class="sr-only">댓글</span>${statNumber(post.comment_count).toLocaleString('ko-KR')}</span>
+            </span>
+        </button>`;
+    const card = g => `
+        <section class="popular-card" aria-label="${esc(g.name)} 인기글">
+            <div class="popular-card-head">
+                <h2 class="popular-board">${multiSite() ? groupTag(g) : ''}${esc(g.name)}</h2>
+                <button class="link-btn popular-more" data-action="open-board-popular" data-group-id="${g.id}">게시판 인기순${ICONS.next}</button>
+            </div>
+            ${g.posts.map(row).join('')}
+        </section>`;
+    const body = data.groups.length
+        ? `<div class="popular-grid${group ? ' is-single' : ''}">${data.groups.map(card).join('')}</div>`
+        : `<div class="empty-card">최근 ${period.label === '오늘' ? '하루' : period.label} 동안 모은 글이 없습니다.</div>`;
+    feed.innerHTML = `
+        <div class="feed-head">
+            <div class="feed-head-text">
+                <div class="feed-title-row"><h1 class="feed-title">${scope} · 인기글</h1></div>
+                <span class="feed-sub">최근 ${period.label === '오늘' ? '24시간' : period.label} 동안 모은 글 · 추천+댓글이 많은 순${group ? '' : ` · 게시판 ${data.groups.length}개`}</span>
+            </div>
+            <div class="feed-tools popular-tools">
+                <div class="popular-periods" role="group" aria-label="기간">${periodButtons}</div>
+                ${renderFontSizeControl()}
+            </div>
+        </div>
+        ${body}`;
+    window.scrollTo({ top: 0 });
+    document.querySelector('.fab-next').hidden = true;
+    updateShortcutGuide();
+}
+
+// 인기글 카드의 '게시판 인기순': 그 게시판을 같은 기간의 인기순으로 엶
+function openBoardPopular(groupId) {
+    const sort = { 1: 'popular-1', 7: 'popular-7', 30: 'popular-30' }[popularDays()];
+    app.sort = sort;
+    storageSet(localStorage, SORT_STORAGE_KEY, sort);
+    app.filter = 'all';
+    app.galleryReturn = null;
+    openView('group:' + groupId, 1);
 }
 
 // 새 댓글 보기: 연 때의 글 목록(최근 댓글 순)을 고정해 두고 한 페이지 분량씩 받아 옴

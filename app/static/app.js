@@ -12,6 +12,8 @@ const FILTERS = [
     { key: 'all', label: '모든 글' },
     { key: 'unread', label: '안 읽은 글', short: '안 읽음' },   // short: 칸이 좁은 모바일 보기 탭용
     { key: 'comments', label: '새 댓글' },
+    // 게시판별 인기글 (글 목록이 아니라 게시판마다 추천+댓글이 많은 글 몇 개씩). 칸이 좁은 모바일은 '더보기' 목록에
+    { key: 'popular', label: '인기글', mobileMore: true },
     { key: 'video', label: '동영상' },
     { key: 'image', label: '이미지' },
     { key: 'saved', label: '보관함', more: true },
@@ -414,9 +416,10 @@ function renderNavigation() {
     const tabBadge = f => ['unread', 'comments'].includes(f.key) && filterCount(current, f.key) > 0
         ? countBadge(f.key, filterCount(current, f.key)) : '';
     const viewTabs = (cls, mobile) => {
-        const more = FILTERS.filter(f => f.more);
+        const inMore = f => f.more || (mobile && f.mobileMore);
+        const more = FILTERS.filter(inMore);
         const picked = more.find(f => filterActive(f.key));
-        return FILTERS.filter(f => !f.more).map(f => `
+        return FILTERS.filter(f => !inMore(f)).map(f => `
             <button class="${cls}" ${filterAttrs(f.key)} aria-pressed="${filterActive(f.key)}">
                 <span>${mobile ? f.short || f.label : f.label}</span>${tabBadge(f)}
             </button>`).join('') + `
@@ -426,7 +429,7 @@ function renderNavigation() {
                 </button>
                 <span class="view-more-list" hidden>${more.map(f => `
                     <button class="view-more-option" ${filterAttrs(f.key)} aria-pressed="${filterActive(f.key)}">
-                        <span>${f.label}</span>${countBadge(f.key, filterCount(current, f.key))}
+                        <span>${f.label}</span>${f.key === 'popular' ? '' : countBadge(f.key, filterCount(current, f.key))}
                     </button>`).join('')}
                 </span>
             </span>`;

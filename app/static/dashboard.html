@@ -73,6 +73,21 @@
                 <div class="card-body" id="benefit-body"></div>
             </section>
 
+            <!-- 게시판별 인기글: 최근 24시간 동안 게시판마다 추천+댓글이 많은 글 3개 (dashboard.js loadPopular) -->
+            <section class="card" id="card-popular" aria-labelledby="popular-title">
+                <a class="card-head" href="/board/#popular">
+                    <span class="card-icon is-popular" aria-hidden="true">
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21c-4 0-7-2.7-7-6.5 0-3 2-5 3.5-6.5.3 1.6 1.2 2.7 2.5 3.2C11 8 12 5 14.5 3c.2 2.6 1.6 4.3 3 6 1 1.3 1.5 2.7 1.5 4.5 0 4.2-3 7.5-7 7.5z"></path></svg>
+                    </span>
+                    <span class="card-name">
+                        <span class="card-title" id="popular-title">게시판별 인기글</span>
+                        <span class="card-sub">최근 24시간 · 추천+댓글 순</span>
+                    </span>
+                    <span class="card-open">열기<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg></span>
+                </a>
+                <div class="card-body" id="popular-body"><div class="skeleton"></div></div>
+            </section>
+
             <!-- 수집 통계: 최근 7일 동안 수집한 글 수 (dashboard.js loadStats) -->
             <section class="card" id="card-stats" aria-labelledby="stats-title">
                 <a class="card-head" href="/stats/">

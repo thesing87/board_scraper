@@ -1585,6 +1585,55 @@ def dashboard_summary(recent_limit=3):
                         'collected_at': r['created_at'], 'is_read': bool(r['is_read']), 'group': r['group_name'] or ''}
                        for r in rows]}
 
+def popular_by_group(since, limit=5, group_id=None, folder_id=None):
+    """게시판별 인기글: since 이후 처음 수집한 글 중 게시판마다 추천+댓글이 많은 글 limit개 (원문이 삭제된 글 제외).
+    게시판 순서는 사이드바와 같게 (묶음 없는 게시판과 묶음을 position 순으로 섞고, 묶음 안은 그 안의 순서).
+    그 기간에 글이 없는 게시판은 뺌. group_id·folder_id가 있으면 그 게시판·묶음만.
+    [{'id', 'name', 'site', 'posts': [{'id', 'title', 'author', 'votes', 'comment_count', 'views', 'created_at', 'is_read', 'score'}]}]"""
+    where, params = '', ()
+    if group_id is not None:
+        where, params = 'AND g.id = ?', (group_id,)
+    elif folder_id is not None:
+        where, params = 'AND g.folder_id = ?', (folder_id,)
+    with _db() as conn:
+        groups = conn.execute(f"""
+            SELECT g.id, g.name, g.site, g.position, g.folder_id, f.position AS folder_position
+            FROM keyword_groups g LEFT JOIN group_folders f ON f.id = g.folder_id
+            WHERE 1 = 1 {where}
+        """, params).fetchall()
+        rows = conn.execute(f"""
+            WITH scored AS (
+                SELECT g.id AS group_id, p.id AS post_id, {_POPULAR_SQL} AS score, p.created_at
+                FROM keyword_groups g
+                JOIN keyword_group_members gm ON gm.group_id = g.id
+                JOIN keyword_posts kp ON kp.board = gm.board AND kp.keyword = gm.keyword
+                JOIN posts p ON p.id = kp.post_id
+                WHERE p.is_deleted = 0 AND p.created_at >= ? {where}
+                GROUP BY g.id, p.id
+            ), ranked AS (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY group_id ORDER BY score DESC, created_at DESC, post_id) AS rank
+                FROM scored
+            )
+            SELECT r.group_id, r.score, p.id, p.title, p.author, p.votes, p.comment_count, p.views, p.created_at,
+                   rp.post_id IS NOT NULL AS is_read
+            FROM ranked r JOIN posts p ON p.id = r.post_id
+            LEFT JOIN read_posts rp ON rp.post_id = p.id
+            WHERE r.rank <= ?
+            ORDER BY r.group_id, r.rank
+        """, (since,) + params + (limit,)).fetchall()
+    posts = {}
+    for r in rows:
+        posts.setdefault(r['group_id'], []).append(
+            {'id': r['id'], 'title': r['title'], 'author': r['author'], 'votes': r['votes'], 'comment_count': r['comment_count'],
+             'views': r['views'], 'created_at': r['created_at'], 'is_read': bool(r['is_read']), 'score': r['score']})
+    # 사이드바 순서: 맨 위 단계(묶음 없는 게시판·묶음)를 position 순, 같으면 게시판 먼저, 묶음 안은 게시판 position 순
+    def order(g):
+        if g['folder_id'] is None or g['folder_position'] is None:
+            return (g['position'], 0, g['id'], 0, 0)
+        return (g['folder_position'], 1, g['folder_id'], g['position'], g['id'])
+    return [{'id': g['id'], 'name': g['name'], 'site': g['site'], 'posts': posts[g['id']]}
+            for g in sorted(groups, key=order) if g['id'] in posts]
+
 def stats_summary(days, group_id=None, top_keywords=10):
     """통계 화면: 오늘까지 최근 days일 동안 처음 수집한 글 수 (같은 글은 한 번만). group_id가 있으면 그 게시판만.
     날짜별(빈 날은 0), 시간대별(0~23시), 키워드별 상위, 게시판별(늘 모든 게시판), 바로 앞 같은 기간의 글 수"""

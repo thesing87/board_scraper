@@ -57,8 +57,8 @@ try:
     heads = js("return [...document.querySelectorAll('.kw-group-name')].map(e => e.textContent)")
     in_topbar = js("return !!document.querySelector('.topbar #view-bar-tabs')")
     print('sidebar', side, views, in_topbar, heads)
-    # 사이드바는 게시판(전체 + 사용자 게시판)만, 보기 탭 5개(모든 글·안 읽은 글·새 댓글·동영상·이미지)와 더보기(보관함·삭제됨)는 상단 바 가운데
-    assert len(side) == len(kws) + 1 and side[0].startswith('전체') and len(views) == 6 and views[-1] == '더보기' and heads == []
+    # 사이드바는 게시판(전체 + 사용자 게시판)만, 보기 탭 6개(모든 글·안 읽은 글·새 댓글·인기글·동영상·이미지)와 더보기(보관함·삭제됨)는 상단 바 가운데
+    assert len(side) == len(kws) + 1 and side[0].startswith('전체') and len(views) == 7 and views[3] == '인기글' and views[-1] == '더보기' and heads == []
     assert in_topbar and js("return document.querySelectorAll('#keyword-groups [data-action=\"set-view\"]').length") == 0
     d.save_screenshot(os.path.join(SHOTS, '1_sidebar.png'))
 
@@ -125,7 +125,7 @@ try:
     chips = js("return [...document.querySelectorAll('#chip-row .chip')].map(c => c.textContent.replace(/\\s+/g, ' ').trim())")
     tabs = js("return document.querySelectorAll('#view-tabs .view-tab').length")
     print('chips', chips, 'tabs', tabs)
-    assert len(chips) == len(storage.list_groups()) + 1 and tabs == 6
+    assert len(chips) == len(storage.list_groups()) + 1 and tabs == 6   # 모바일은 인기글이 더보기 목록에
     d.save_screenshot(os.path.join(SHOTS, '4_mobile.png'))
     errs = [l for l in d.get_log('browser') if l['level'] == 'SEVERE']
     assert not errs, errs

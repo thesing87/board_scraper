@@ -31,6 +31,15 @@ async function refreshCurrent() {
 }
 
 async function handlePostAnchor() {
+    // 대시보드의 게시판별 인기글 카드(#popular)로 들어오면 전체 게시판의 인기글 보기 (기간은 오늘)
+    if (window.location.hash === '#popular') {
+        history.replaceState(null, '', window.location.pathname);
+        storageSet(localStorage, POPULAR_DAYS_KEY, '1');
+        app.filter = 'popular';
+        app.galleryReturn = null;
+        openView(ALL_KEY, 1);
+        return true;
+    }
     const match = /^#post-(\d+|dc-[a-z0-9_]+-\d+)$/.exec(window.location.hash);
     if (!match) {
         // 모아보기에서 글로 이동한 뒤 브라우저 '뒤로'를 누르면 모아보기로
@@ -199,6 +208,10 @@ document.addEventListener('click', (e) => {
         openBoard(ALL_KEY);
     } else if (action === 'set-view') {
         setFilter(el.dataset.filter);
+    } else if (action === 'popular-days') {
+        setPopularDays(Number(el.dataset.days));
+    } else if (action === 'open-board-popular') {
+        openBoardPopular(Number(el.dataset.groupId));
     } else if (action === 'open-group') {
         openBoard('group:' + el.dataset.groupId);
     } else if (action === 'save-group') {

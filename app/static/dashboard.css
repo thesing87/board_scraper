@@ -48,6 +48,18 @@ a { color: inherit; text-decoration: none; }
 .card-icon.is-ev { background: var(--ev-weak); color: var(--ev); }
 .card-icon.is-benefit { background: #EEEDFE; color: #534AB7; }
 .card-icon.is-stats { background: var(--accent-weak); color: var(--accent); }
+.card-icon.is-popular { background: var(--orange-weak); color: var(--orange); }
+/* 게시판별 인기글 카드: 게시판마다 이름과 글 3개를 칸으로 나눠 (넓으면 여러 칸, 좁으면 한 칸) */
+.popular-boards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px 22px; }
+.popular-board { min-width: 0; }
+.popular-board-name { display: block; margin: 0 0 2px; font-size: 13px; font-weight: 800; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.popular-board-name:hover { color: var(--accent); }
+.popular-post { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--divider); min-width: 0; }
+.popular-rank { font-size: 12px; font-weight: 800; color: var(--orange); text-align: center; font-variant-numeric: tabular-nums; }
+.popular-post .post-title { font-size: 13px; }
+.popular-post.is-read .post-title { color: var(--muted); font-weight: 400; }
+.popular-post:hover .post-title { color: var(--accent); }
+.popular-post .post-meta { font-size: 11px; }
 /* 수집 통계 카드: 최근 7일 글 수를 작은 막대로 (값은 막대 위, 요일은 아래) */
 .week-bars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; align-items: end; height: 96px; }
 .week-bar { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; min-width: 0; }
