@@ -82,6 +82,21 @@ function renderBoard(state, dash) {
             ${finished ? `<span>마지막 수집 ${ago(cycle.finished_at, now)}</span>` : ''}
             <span class="${errors ? 'foot-bad' : ''}">오류 ${num(errors)}</span>
         </div>`;
+    fitBoardPosts();
+}
+
+// 최근 수집한 글: 카드 높이를 정하지 않았으면 3개(모바일 2개), 편집에서 카드를 키웠으면 남는 자리만큼 더 보여 줌
+function fitBoardPosts() {
+    const card = $('card-board'), body = $('board-body');
+    const posts = [...body.querySelectorAll('.posts .post')];
+    if (!posts.length) return;
+    const base = narrowScreen.matches ? 2 : 3;
+    posts.forEach((p, i) => { p.hidden = i >= base; });
+    if (!card.style.height) return;
+    for (let i = base; i < posts.length; i++) {
+        posts[i].hidden = false;
+        if (body.scrollHeight > body.clientHeight) { posts[i].hidden = true; break; }
+    }
 }
 
 function renderBoardError() {
@@ -364,6 +379,7 @@ function applyLayout() {
         card.style.gridColumn = `span ${narrowScreen.matches ? COLUMNS : c.w}`;
         card.style.height = c.h ? `${c.h}px` : '';
     });
+    fitBoardPosts();
     syncRowSpans();
     grid.classList.add('is-ready');
 }
@@ -513,6 +529,8 @@ grid.addEventListener('click', e => {
 // 내용이 새로 그려지거나 글자 줄이 바뀌어 카드 높이가 달라지면 쌓인 위치를 다시 맞춤
 new ResizeObserver(syncRowSpans).observe(grid);
 DEFAULT_LAYOUT.forEach(({ id }) => new ResizeObserver(syncRowSpans).observe(cardOf(id)));
+// 키워드 게시판 카드 크기가 바뀌면(편집에서 늘리고 줄임, 화면 너비) 최근 수집한 글 수를 다시 맞춤
+new ResizeObserver(() => fitBoardPosts()).observe(cardOf('card-board'));
 narrowScreen.addEventListener('change', applyLayout);
 
 renderClock();

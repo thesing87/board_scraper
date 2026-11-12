@@ -105,6 +105,8 @@ POPULAR_DAYS = ('1', '7', '30')
 SEARCH_DAYS = ('1', '7', '30', '90')
 # 통계 화면에서 고를 수 있는 기간(일)
 STATS_DAYS = ('7', '30', '90')
+# 메인 대시보드 키워드 게시판 카드의 '최근 수집한 글'로 보내는 최대 개수 (카드를 키우면 그만큼 더 보임)
+DASHBOARD_RECENT_MAX = 30
 # 게시판별 인기글: 고를 수 있는 기간(일)과 게시판마다 보여 줄 글 수의 상한
 POPULAR_BOARD_DAYS = ('1', '7', '30')
 MAX_POPULAR_PER_BOARD = 10
@@ -433,7 +435,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 # DDNS_URL에 index.html이 붙어 있을 때 보낸 예전 알림 링크 (#post-ID는 브라우저가 그대로 넘겨 줌)
                 self._send_body(301, b'', 'text/plain; charset=utf-8', {'Location': '/board/'})
             elif pure_path == '/api/dashboard':
-                self._send_data(200, {**dashboard_summary(), 'check_interval': CHECK_INTERVAL,
+                # 최근 수집한 글은 넉넉히 보내고, 화면이 카드 높이에 맞춰 보이는 만큼만 (기본 3개)
+                self._send_data(200, {**dashboard_summary(DASHBOARD_RECENT_MAX), 'check_interval': CHECK_INTERVAL,
                                       'collector': runtime_status.snapshot().get('last_cycle'),
                                       'now': datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
             elif pure_path == '/api/apt':
