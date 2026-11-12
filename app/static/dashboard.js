@@ -147,8 +147,26 @@ function aptRange(w) {
         + (w.avg != null ? `, 최근 1년 평균 ${aptMoney(w.avg)}` : '');
     return `<span class="range" role="img" aria-label="${label}">
         ${span ? `<span class="range-bar">${w.avg != null ? `<i class="mark is-avg" style="left:${pos(w.avg)}%"></i>` : ''}<i class="mark is-latest" style="left:${pos(w.latest.amount)}%"></i></span>` : ''}
-        <span class="range-scale"><span>최저 ${aptMoney(w.low)}</span><span class="is-avg">${w.avg != null ? `평균 ${aptMoney(w.avg)}` : '1년 거래 없음'}</span><span>최고 ${aptMoney(w.peak)}</span></span>
+        <span class="range-scale"><span class="is-end">최저 ${aptMoney(w.low)}</span><span class="is-avg"${span && w.avg != null ? ` data-pos="${pos(w.avg)}"` : ''}>${w.avg != null ? `평균 ${aptMoney(w.avg)}` : '1년 거래 없음'}</span><span class="is-end">최고 ${aptMoney(w.peak)}</span></span>
     </span>`;
+}
+// 평균 글자를 막대의 평균 표시 바로 밑에 둠 (칸 밖으로 나가지 않게 양 끝에서 멈춤).
+// 최저·최고 글자와 겹치면 한 줄 아래로 내림
+function placeRangeLabels(root) {
+    root.querySelectorAll('.range-scale').forEach(scale => {
+        const avg = scale.querySelector('.is-avg[data-pos]');
+        if (!avg) return;
+        scale.classList.remove('is-stacked');
+        const width = scale.clientWidth, labelWidth = avg.offsetWidth;
+        const left = Math.min(Math.max(width * Number(avg.dataset.pos) / 100 - labelWidth / 2, 0), Math.max(0, width - labelWidth));
+        avg.style.left = left + 'px';
+        const r = avg.getBoundingClientRect();
+        const overlaps = [...scale.querySelectorAll('.is-end')].some(end => {
+            const e = end.getBoundingClientRect();
+            return r.left < e.right + 6 && r.right > e.left - 6;
+        });
+        scale.classList.toggle('is-stacked', overlaps);
+    });
 }
 async function loadApt() {
     try {
@@ -179,6 +197,7 @@ async function loadApt() {
                 ${aptRange(w)}
             </a>`;
         }).join('')}</div>`;
+        placeRangeLabels($('apt-body'));
     } catch (e) {
         $('apt-sub').textContent = '불러오지 못했습니다';
         $('apt-body').innerHTML = '<span class="empty">잠시 후 자동으로 다시 시도합니다</span>';
@@ -579,6 +598,8 @@ new ResizeObserver(syncRowSpans).observe(grid);
 DEFAULT_LAYOUT.forEach(({ id }) => new ResizeObserver(syncRowSpans).observe(cardOf(id)));
 // 키워드 게시판 카드 크기가 바뀌면(편집에서 늘리고 줄임, 화면 너비) 최근 수집한 글 수를 다시 맞춤
 new ResizeObserver(() => fitBoardPosts()).observe(cardOf('card-board'));
+// 실거래가 카드 너비가 바뀌면 평균 글자 위치를 다시 맞춤
+new ResizeObserver(() => placeRangeLabels($('apt-body'))).observe(cardOf('card-apt'));
 narrowScreen.addEventListener('change', applyLayout);
 
 // 카드 내용을 새로 그린 뒤에는 최소 높이(내용 높이)가 달라질 수 있어 높이를 다시 맞춤

@@ -78,7 +78,7 @@ function rangeHtml(w) {
         + (w.avg != null ? `, 최근 1년 평균 ${money(w.avg)}` : '');
     return `<span class="range" role="img" aria-label="${label}">
         ${span ? `<span class="range-bar">${w.avg != null ? `<i class="mark is-avg" style="left:${pos(w.avg)}%"></i>` : ''}<i class="mark is-latest" style="left:${pos(w.latest.amount)}%"></i></span>` : ''}
-        <span class="range-scale"><span>최저 ${money(w.low)}</span><span class="is-avg">${avgText}</span><span>최고 ${money(w.peak)}</span></span>
+        <span class="range-scale"><span class="is-end">최저 ${money(w.low)}</span><span class="is-avg"${span && w.avg != null ? ` data-pos="${pos(w.avg)}"` : ''}>${avgText}</span><span class="is-end">최고 ${money(w.peak)}</span></span>
     </span>`;
 }
 
@@ -102,6 +102,25 @@ function renderList() {
             </span>
             ${rangeHtml(w)}
         </button>`).join('');
+    placeRangeLabels($('list-view'));
+}
+// 평균 글자를 막대의 평균 표시 바로 밑에 둠 (칸 밖으로 나가지 않게 양 끝에서 멈춤).
+// 최저·최고 글자와 겹치면 한 줄 아래로 내림
+function placeRangeLabels(root) {
+    root.querySelectorAll('.range-scale').forEach(scale => {
+        const avg = scale.querySelector('.is-avg[data-pos]');
+        if (!avg) return;
+        scale.classList.remove('is-stacked');
+        const width = scale.clientWidth, labelWidth = avg.offsetWidth;
+        const left = Math.min(Math.max(width * Number(avg.dataset.pos) / 100 - labelWidth / 2, 0), Math.max(0, width - labelWidth));
+        avg.style.left = left + 'px';
+        const r = avg.getBoundingClientRect();
+        const overlaps = [...scale.querySelectorAll('.is-end')].some(end => {
+            const e = end.getBoundingClientRect();
+            return r.left < e.right + 6 && r.right > e.left - 6;
+        });
+        scale.classList.toggle('is-stacked', overlaps);
+    });
 }
 
 // ---------- 상세 ----------
@@ -488,6 +507,7 @@ $('manage-view').addEventListener('change', async e => {
     if (!data.success) e.target.checked = !e.target.checked;
 });
 window.addEventListener('hashchange', route);
+window.addEventListener('resize', () => placeRangeLabels($('list-view')));
 let resizeTimer = null;
 window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);

@@ -51,8 +51,12 @@ button, select, input { font: inherit; }
 .range-bar .mark { position: absolute; top: -3px; width: 3px; height: 12px; margin-left: -1.5px; border-radius: 2px; }
 .range-bar .mark.is-avg { background: #8B919C; }
 .range-bar .mark.is-latest { background: #C81E1E; box-shadow: 0 0 0 2px #FFFFFF; }
-.range-scale { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; font-size: 11px; color: #8B919C; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.range-scale { position: relative; display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; font-size: 11px; color: #8B919C; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .range-scale .is-avg { color: #5F6673; }
+/* 평균 글자는 막대의 평균 표시 밑 (위치는 placeRangeLabels). 최저·최고 글자와 겹치면 한 줄 아래로 */
+.range-scale .is-avg[data-pos] { position: absolute; top: 0; left: 0; font-weight: 700; }
+.range-scale.is-stacked { padding-bottom: 17px; }
+.range-scale.is-stacked .is-avg[data-pos] { top: 17px; }
 .watch-row:first-child { border-top: 0; }
 .watch-row:hover .watch-name { color: var(--accent); }
 .watch-name { font-size: 15px; font-weight: 700; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
