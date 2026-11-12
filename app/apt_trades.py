@@ -110,8 +110,25 @@ def fetch_month(lawd_cd, deal_ym, get=requests.get):
         time.sleep(REQUEST_GAP)
     return trades
 
-def search_complexes(lawd_cd, name, fetch=None):
-    """관리 화면의 단지 찾기: 그 시군구에서 이름에 name이 들어간 단지 (최근 SEARCH_MONTHS개월 거래 기준).
+# 지역의 단지 목록은 한 번 만들면 이 시간 동안 다시 받지 않음 (지역을 고를 때마다 12개월을 다시 받지 않게)
+COMPLEX_CACHE_SECONDS = 6 * 3600
+_complex_cache = {}
+_complex_lock = threading.Lock()
+
+def region_complexes(lawd_cd, fetch=None):
+    """관리 화면의 단지 고르기: 그 시군구에서 최근 SEARCH_MONTHS개월 동안 거래된 모든 단지 (이름 순).
+    받아 둔 목록은 COMPLEX_CACHE_SECONDS 동안 다시 씀"""
+    with _complex_lock:
+        cached = _complex_cache.get(lawd_cd)
+        if cached and time.time() - cached[0] < COMPLEX_CACHE_SECONDS:
+            return cached[1]
+    results = sorted(search_complexes(lawd_cd, '', fetch, limit=None), key=lambda e: (e['name'], e['umd']))
+    with _complex_lock:
+        _complex_cache[lawd_cd] = (time.time(), results)
+    return results
+
+def search_complexes(lawd_cd, name, fetch=None, limit=SEARCH_LIMIT):
+    """그 시군구에서 이름에 name이 들어간 단지 (최근 SEARCH_MONTHS개월 거래 기준, 거래가 많은 순 limit개. name이 비면 모든 단지).
     [{'apt_seq', 'name', 'umd', 'build_year', 'areas': [전용면적 ㎡ 반올림], 'count', 'last_amount', 'last_date'}]"""
     fetch = fetch or fetch_month
     needle = ''.join(name.split()).casefold()
@@ -128,7 +145,7 @@ def search_complexes(lawd_cd, name, fetch=None):
             if t['deal_date'] > entry['last_date']:
                 entry['last_amount'], entry['last_date'] = t['amount'], t['deal_date']
         time.sleep(REQUEST_GAP)
-    results = sorted(found.values(), key=lambda e: (-e['count'], e['name']))[:SEARCH_LIMIT]
+    results = sorted(found.values(), key=lambda e: (-e['count'], e['name']))[:limit]
     return [{**e, 'areas': sorted(e['areas'])} for e in results]
 
 def format_amount(manwon):

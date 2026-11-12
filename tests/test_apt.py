@@ -154,6 +154,19 @@ found = apt_trades.search_complexes('11680', '예시 아파트', fetch=fake_fetc
 assert len(found) == 1 and found[0]['apt_seq'] == '11680-1' and found[0]['areas'] == [60, 85] and found[0]['count'] == 5, found
 code, body = post({'action': 'search', 'lawd_cd': '11680', 'name': '다른', **P})
 assert code == 200 and [r['name'] for r in body['results']] == ['다른단지'], body
+# 지역의 모든 단지 (단지 고르기 목록): 이름 순, 한 번 받으면 다시 받지 않음
+calls.clear()
+code, body = post({'action': 'complexes', 'lawd_cd': '11680', **P})
+assert code == 200 and [r['name'] for r in body['results']] == ['다른단지', '예시아파트'] and len(calls) == 12, (body, len(calls))
+assert post({'action': 'complexes', 'lawd_cd': '11680', **P})[0] == 200 and len(calls) == 12   # 받아 둔 목록을 다시 씀
+assert post({'action': 'complexes', 'lawd_cd': '116', **P})[0] == 400
+# 화면의 지역 목록: 코드 5자리, 바뀐 지역 코드 반영
+regions = open(os.path.join(ROOT, 'app', 'static', 'apt-regions.js'), encoding='utf-8').read()
+import re
+codes = re.findall(r"\['(\d{5})', '([^']+)', '([^']*)'\]", regions)
+assert len(codes) > 240 and len({c for c, _, _ in codes}) == len(codes)
+assert ('11680', '서울특별시', '강남구') in codes and ('51110', '강원특별자치도', '춘천시') in codes and ('41597', '경기도', '화성시 동탄구') in codes
+assert not any(c.startswith(('42', '45')) or c in ('41590', '28110', '41130') or '출장' in n for c, _, n in codes)
 woke = []
 apt_trades.request_sync = lambda: woke.append(1)
 code, body = post({'action': 'add', 'lawd_cd': '11680', 'apt_seq': '11680-9', 'name': '다른단지', 'umd': '역삼동', 'area': None, **P})

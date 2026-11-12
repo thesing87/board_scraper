@@ -9,6 +9,7 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <meta name="theme-color" content="#F4F5F7">
     <link rel="stylesheet" href="/apt.css">
+    <script src="/apt-regions.js" defer></script>
     <script src="/apt.js" defer></script>
 </head>
 <body>
@@ -40,13 +41,21 @@
             </div>
             <div id="manage-box" hidden>
                 <h2>단지 찾아서 등록</h2>
-                <form class="row-form" id="search-form">
-                    <input type="text" id="search-code" inputmode="numeric" maxlength="5" placeholder="지역 코드 5자리" aria-label="지역 코드 (시군구, 숫자 5자리)">
-                    <input type="text" id="search-name" maxlength="40" placeholder="단지 이름 일부" aria-label="단지 이름">
-                    <button type="submit" class="btn-primary" id="search-btn">찾기</button>
-                </form>
-                <p class="hint">지역 코드는 시·군·구의 법정동 코드 앞 5자리입니다 (예: 서울 강남구 11680, 종로구 11110).
-                    <a href="https://www.code.go.kr/stdcode/regCodeL.do" target="_blank" rel="noopener noreferrer">법정동 코드 찾기</a></p>
+                <!-- 1) 지역: 시·군·구 이름을 입력해 목록에서 고름 (코드 5자리를 넣어도 됨) -->
+                <label class="field-label" for="region-input">지역 (시·군·구)</label>
+                <div class="combo">
+                    <input type="text" id="region-input" autocomplete="off" maxlength="30" placeholder="예: 강남구, 분당, 수원 영통"
+                        role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="region-list">
+                    <div class="combo-list" id="region-list" role="listbox" hidden></div>
+                </div>
+                <!-- 2) 단지: 그 지역에서 최근 1년 거래된 단지를 목록으로 고르거나, 이름으로 거름 -->
+                <div id="complex-box" hidden>
+                    <label class="field-label" for="complex-select">단지</label>
+                    <div class="row-form">
+                        <input type="text" id="complex-filter" maxlength="40" placeholder="이름으로 거르기" aria-label="단지 이름으로 거르기">
+                        <select id="complex-select" aria-label="단지 고르기"></select>
+                    </div>
+                </div>
                 <p class="form-msg" id="search-msg" role="alert"></p>
                 <div id="search-results"></div>
                 <h2>등록한 단지</h2>

@@ -140,6 +140,7 @@ STATIC_FILES = {
     # 아파트 실거래가
     '/apt/': ('apt.html', 'text/html; charset=utf-8'),
     '/apt.js': ('apt.js', 'application/javascript; charset=utf-8'),
+    '/apt-regions.js': ('apt-regions.js', 'application/javascript; charset=utf-8'),
     '/apt.css': ('apt.css', 'text/css; charset=utf-8'),
     # 카드 혜택 한도
     '/card/': ('card.html', 'text/html; charset=utf-8'),
@@ -824,17 +825,19 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         if not self._authorize(params.get('password', ''), '실거래가 관리'):
             return
         action = params.get('action')
-        if action == 'search':
+        if action in ('search', 'complexes'):
+            # complexes: 지역의 모든 단지 (단지 고르기 목록), search: 이름이 들어간 단지
             lawd_cd = str(params.get('lawd_cd') or '').strip()
             name = str(params.get('name') or '').strip()
-            if not re.fullmatch(r'\d{5}', lawd_cd) or not name or len(name) > MAX_APT_NAME_LENGTH:
+            if not re.fullmatch(r'\d{5}', lawd_cd) or (action == 'search' and not name) or len(name) > MAX_APT_NAME_LENGTH:
                 self._send_json(400, False, f'❌ 지역 코드는 숫자 5자리, 단지 이름은 {MAX_APT_NAME_LENGTH}자 이하로 입력해 주세요.')
                 return
             if not apt_trades.configured():
                 self._send_json(400, False, '❌ 서버에 실거래가 인증키(APT_API_KEY)가 설정되지 않았습니다.')
                 return
             try:
-                results = apt_trades.search_complexes(lawd_cd, name)
+                results = (apt_trades.region_complexes(lawd_cd) if action == 'complexes'
+                           else apt_trades.search_complexes(lawd_cd, name))
             except (apt_trades.AptApiError, requests.RequestException) as e:
                 log_msg(f"[실거래] 단지 찾기 실패: {short_err(e)}", "WARN")
                 self._send_json(502, False, f'❌ 실거래가 서버에서 받아오지 못했습니다: {short_err(e, 80)}')

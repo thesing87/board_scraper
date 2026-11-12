@@ -7,7 +7,9 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&a
 const ADMIN_TOKEN_KEY = 'admin_token';   // 키워드 게시판과 같은 로그인 키를 함께 씀
 const PERIODS = [{ months: 12, label: '1년' }, { months: 24, label: '2년' }, { months: 0, label: '전체' }];
 
-const view = { data: null, detail: null, area: null, months: 24, managing: false, results: [] };
+// results: 단지 고르기 목록에서 고른 단지(하나, 등록할 면적 칩을 보여 줌)
+// region: 고른 지역 {code, label}, complexes: 그 지역의 단지 목록 (최근 1년 거래)
+const view = { data: null, detail: null, area: null, months: 24, managing: false, results: [], region: null, complexes: [] };
 
 function token() { try { return localStorage.getItem(ADMIN_TOKEN_KEY) || ''; } catch (e) { return ''; } }
 function setToken(value) { try { value ? localStorage.setItem(ADMIN_TOKEN_KEY, value) : localStorage.removeItem(ADMIN_TOKEN_KEY); } catch (e) { /* 저장 불가 */ } }
@@ -302,26 +304,120 @@ $('login-form').addEventListener('submit', async e => {
         $('login-msg').textContent = err.message || '로그인하지 못했습니다.';
     }
 });
-$('search-form').addEventListener('submit', async e => {
-    e.preventDefault();
-    const code = $('search-code').value.trim(), name = $('search-name').value.trim();
+// ---------- 지역 고르기: 시·군·구 이름(띄어쓰기·'시도' 이름도 함께 찾음) 또는 코드 5자리 ----------
+const REGION_LIMIT = 30;
+const squash = s => String(s || '').replace(/\s+/g, '').toLowerCase();
+const regionLabel = r => [r[1], r[2]].filter(Boolean).join(' ');
+function matchRegions(text) {
+    const q = squash(text);
+    if (!q) return [];
+    if (/^\d{5}$/.test(q)) {
+        const known = APT_REGIONS.find(r => r[0] === q);
+        return [known || [q, '지역 코드', q]];
+    }
+    // 낱말마다 들어 있어야 함 (예: '수원 영통' → 수원시 영통구). 시·군·구 이름이 낱말로 시작하면 앞에
+    const words = text.trim().split(/\s+/).map(squash);
+    return APT_REGIONS
+        .filter(r => words.every(w => squash(r[1] + r[2]).includes(w)))
+        .sort((a, b) => Number(!squash(a[2]).startsWith(words[0])) - Number(!squash(b[2]).startsWith(words[0])))
+        .slice(0, REGION_LIMIT);
+}
+let regionMatches = [], regionActive = -1;
+function renderRegionList() {
+    const list = $('region-list'), input = $('region-input');
+    const open = regionMatches.length > 0 || squash(input.value).length > 0;
+    list.hidden = !open || input.classList.contains('is-picked');
+    input.setAttribute('aria-expanded', String(!list.hidden));
+    list.innerHTML = regionMatches.length ? regionMatches.map((r, i) => `
+        <button type="button" class="combo-option${i === regionActive ? ' is-active' : ''}" role="option" data-region="${i}" aria-selected="${i === regionActive}">
+            <span>${esc(regionLabel(r))}</span><small>${r[0]}</small></button>`).join('')
+        : '<div class="combo-empty">맞는 지역이 없습니다. 시·군·구 이름이나 코드 5자리를 넣어 주세요.</div>';
+}
+async function pickRegion(region) {
+    const input = $('region-input');
+    view.region = { code: region[0], label: regionLabel(region) };
+    input.value = view.region.label;
+    input.classList.add('is-picked');
+    regionMatches = [];
+    renderRegionList();
+    view.results = [];
+    view.complexes = [];
+    $('complex-filter').value = '';
+    $('complex-box').hidden = false;
+    $('complex-select').innerHTML = '<option>단지 목록을 불러오는 중… (처음엔 10초쯤 걸려요)</option>';
+    $('complex-select').disabled = true;
     $('search-msg').textContent = '';
-    if (!/^\d{5}$/.test(code) || !name) { $('search-msg').textContent = '지역 코드 숫자 5자리와 단지 이름을 입력해 주세요.'; return; }
-    $('search-btn').disabled = true;
-    $('search-btn').textContent = '찾는 중…';
+    renderManage();
+    const code = view.region.code;
     try {
-        const data = await postApt({ action: 'search', lawd_cd: code, name });
+        const data = await postApt({ action: 'complexes', lawd_cd: code });
+        if (!view.region || view.region.code !== code) return;   // 그 사이 다른 지역을 고름
         if (!data.success) throw new Error(data.message);
-        view.results = data.results.map(r => ({ ...r, lawd_cd: code }));
-        if (!view.results.length) $('search-msg').textContent = '최근 1년 동안 거래된 단지 중에 찾지 못했습니다. 지역 코드와 이름을 확인해 주세요.';
-        renderManage();
+        view.complexes = data.results.map(r => ({ ...r, lawd_cd: code }));
+        if (!view.complexes.length) $('search-msg').textContent = '이 지역에서 최근 1년 동안 거래된 아파트가 없습니다.';
     } catch (err) {
-        $('search-msg').textContent = err.message || '찾지 못했습니다. 잠시 후 다시 시도해 주세요.';
-    } finally {
-        $('search-btn').disabled = false;
-        $('search-btn').textContent = '찾기';
+        $('search-msg').textContent = err.message || '단지 목록을 받아 오지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    }
+    renderComplexSelect();
+}
+function renderComplexSelect() {
+    const q = squash($('complex-filter').value);
+    const shown = view.complexes.filter(c => !q || squash(c.name + c.umd).includes(q));
+    const select = $('complex-select');
+    select.disabled = !view.complexes.length;
+    const picked = view.results[0];
+    select.innerHTML = `<option value="">${view.complexes.length ? `단지 고르기 (${shown.length}곳)` : '단지 없음'}</option>`
+        + shown.map(c => `<option value="${esc(c.apt_seq)}" ${picked && picked.apt_seq === c.apt_seq ? 'selected' : ''}>${esc(c.name)} · ${esc(c.umd)} (1년 ${c.count}건)</option>`).join('');
+    // 거른 결과가 하나뿐이면 바로 고름
+    if (q && shown.length === 1 && (!picked || picked.apt_seq !== shown[0].apt_seq)) {
+        select.value = shown[0].apt_seq;
+        pickComplex(shown[0].apt_seq);
+    }
+}
+function pickComplex(seq) {
+    const c = view.complexes.find(x => x.apt_seq === seq);
+    view.results = c ? [c] : [];
+    renderManage();
+}
+$('region-input').addEventListener('input', e => {
+    e.target.classList.remove('is-picked');
+    view.region = null;
+    $('complex-box').hidden = true;
+    view.results = [];
+    regionMatches = matchRegions(e.target.value);
+    regionActive = regionMatches.length ? 0 : -1;
+    renderRegionList();
+    renderManage();
+});
+$('region-input').addEventListener('focus', e => {
+    if (!e.target.classList.contains('is-picked')) { regionMatches = matchRegions(e.target.value); renderRegionList(); }
+    else e.target.select();
+});
+$('region-input').addEventListener('keydown', e => {
+    if (!regionMatches.length) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        regionActive = (regionActive + (e.key === 'ArrowDown' ? 1 : -1) + regionMatches.length) % regionMatches.length;
+        renderRegionList();
+        $('region-list').querySelector('.is-active')?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        pickRegion(regionMatches[Math.max(0, regionActive)]);
+    } else if (e.key === 'Escape') {
+        regionMatches = [];
+        renderRegionList();
     }
 });
+// 목록을 누르는 동안 입력칸이 포커스를 잃어 목록이 먼저 닫히지 않게 mousedown에서 고름
+$('region-list').addEventListener('mousedown', e => {
+    const opt = e.target.closest('[data-region]');
+    if (!opt) return;
+    e.preventDefault();
+    pickRegion(regionMatches[Number(opt.dataset.region)]);
+});
+$('region-input').addEventListener('blur', () => setTimeout(() => { $('region-list').hidden = true; }, 150));
+$('complex-filter').addEventListener('input', renderComplexSelect);
+$('complex-select').addEventListener('change', e => pickComplex(e.target.value));
 $('manage-view').addEventListener('click', async e => {
     const add = e.target.closest('[data-add]');
     const del = e.target.closest('[data-delete]');
@@ -330,7 +426,12 @@ $('manage-view').addEventListener('click', async e => {
         const data = await postApt({ action: 'add', lawd_cd: r.lawd_cd, apt_seq: r.apt_seq, name: r.name, umd: r.umd,
                                      area: add.dataset.area === '' ? null : Number(add.dataset.area) });
         $('search-msg').textContent = data.success ? '' : data.message || '등록하지 못했습니다.';
-        if (data.success) { view.results = []; await load(); setTimeout(load, 8000); }
+        if (data.success) {
+            view.results = [];
+            $('complex-select').value = '';
+            await load();
+            setTimeout(load, 8000);
+        }
     } else if (del) {
         if (!window.confirm(`'${del.dataset.name}'을(를) 삭제할까요? 모아 둔 거래도 함께 지워집니다.`)) return;
         const data = await postApt({ action: 'delete', id: Number(del.dataset.delete) });
