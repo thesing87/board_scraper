@@ -328,11 +328,33 @@ function renderRegionList() {
     const open = regionMatches.length > 0 || squash(input.value).length > 0;
     list.hidden = !open || input.classList.contains('is-picked');
     input.setAttribute('aria-expanded', String(!list.hidden));
+    document.querySelector('.apt').classList.toggle('is-picking', !list.hidden);
     list.innerHTML = regionMatches.length ? regionMatches.map((r, i) => `
         <button type="button" class="combo-option${i === regionActive ? ' is-active' : ''}" role="option" data-region="${i}" aria-selected="${i === regionActive}">
             <span>${esc(regionLabel(r))}</span><small>${r[0]}</small></button>`).join('')
         : '<div class="combo-empty">맞는 지역이 없습니다. 시·군·구 이름이나 코드 5자리를 넣어 주세요.</div>';
+    placeRegionList();
 }
+// 목록이 화면 아래로 잘리지 않게: 지역 칸이 화면 아래쪽에 있으면 칸을 화면 위쪽으로 올리고,
+// 목록 높이는 실제로 보이는 높이(휴대폰은 키보드를 뺀 높이)에 맞춤. 아래 자리가 너무 좁으면 위로 펼침
+const LIST_GAP = 8, LIST_MIN = 160, LIST_MAX = 320;
+function visibleHeight() { return window.visualViewport ? window.visualViewport.height : window.innerHeight; }
+function placeRegionList() {
+    const list = $('region-list'), input = $('region-input');
+    if (list.hidden) return;
+    let rect = input.getBoundingClientRect();
+    if (visibleHeight() - rect.bottom - LIST_GAP < LIST_MIN + 40) {
+        window.scrollBy({ top: rect.top - 72 });
+        rect = input.getBoundingClientRect();
+    }
+    const below = visibleHeight() - rect.bottom - LIST_GAP * 2;
+    const above = rect.top - LIST_GAP * 2;
+    const up = below < LIST_MIN && above > below;
+    list.classList.toggle('is-up', up);
+    list.style.maxHeight = Math.max(120, Math.min(LIST_MAX, up ? above : below)) + 'px';
+}
+if (window.visualViewport) window.visualViewport.addEventListener('resize', () => placeRegionList());
+window.addEventListener('resize', () => placeRegionList());
 async function pickRegion(region) {
     const input = $('region-input');
     view.region = { code: region[0], label: regionLabel(region) };
@@ -394,6 +416,7 @@ $('region-input').addEventListener('focus', e => {
     else e.target.select();
 });
 $('region-input').addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeRegionList(); return; }
     if (!regionMatches.length) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -404,8 +427,7 @@ $('region-input').addEventListener('keydown', e => {
         e.preventDefault();
         pickRegion(regionMatches[Math.max(0, regionActive)]);
     } else if (e.key === 'Escape') {
-        regionMatches = [];
-        renderRegionList();
+        closeRegionList();
     }
 });
 // 목록을 누르는 동안 입력칸이 포커스를 잃어 목록이 먼저 닫히지 않게 mousedown에서 고름
@@ -415,7 +437,12 @@ $('region-list').addEventListener('mousedown', e => {
     e.preventDefault();
     pickRegion(regionMatches[Number(opt.dataset.region)]);
 });
-$('region-input').addEventListener('blur', () => setTimeout(() => { $('region-list').hidden = true; }, 150));
+function closeRegionList() {
+    $('region-list').hidden = true;
+    $('region-input').setAttribute('aria-expanded', 'false');
+    document.querySelector('.apt').classList.remove('is-picking');
+}
+$('region-input').addEventListener('blur', () => setTimeout(closeRegionList, 150));
 $('complex-filter').addEventListener('input', renderComplexSelect);
 $('complex-select').addEventListener('change', e => pickComplex(e.target.value));
 $('manage-view').addEventListener('click', async e => {
