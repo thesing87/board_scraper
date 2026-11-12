@@ -77,15 +77,18 @@ svg text{font-family:inherit}
 footer{color:var(--sub);font-size:11px;text-align:center;margin-top:18px;line-height:1.6}
 .reset{display:block;margin:14px auto 0;border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 16px;font-size:13px;color:var(--sub)}
 /* 대시보드로 돌아가기 */
+.site-nav.is-compact{margin:0 0 12px}
 .back{display:inline-flex;align-items:center;gap:4px;margin:0 0 10px;padding:6px 10px 6px 6px;border-radius:999px;background:#fff;color:var(--sub);font-size:13px;text-decoration:none;border:1px solid var(--line)}
 .back:hover{color:var(--ink)}
 </style>
+<link rel="stylesheet" href="/nav.css">
+<script src="/nav.js" defer></script>
 <script src="/ev.js" defer></script>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <a class="back" href="/" aria-label="대시보드로"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>대시보드</a>
+    <nav class="site-nav" data-current="ev" data-mode="compact"></nav>
     <h1>⚡ 전기차 vs ⛽ 내연기관</h1>
     <p>전비·충전비·연비·유류비를 바꿔가며 유지비를 비교해보세요.</p>
   </header>

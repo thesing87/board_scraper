@@ -14,6 +14,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="theme-color" content="#FFFFFF" id="theme-color">
     <link rel="stylesheet" href="/app.css">
+    <link rel="stylesheet" href="/nav.css">
+    <script src="/nav.js" defer></script>
     <script src="/app.js" defer></script>
     <script src="/app-feed.js" defer></script>
     <script src="/app-view.js" defer></script>
@@ -26,10 +28,8 @@
             <!-- 로고·이름은 홈, 상태 표시는 누르면 새로고침 (따로 홈·새로고침 버튼을 두지 않음) -->
             <div class="brand">
                 <div class="brand-main">
-                <!-- 메인 대시보드로 (로고·이름은 이 게시판의 홈) -->
-                <a class="dash-link" href="/" title="대시보드" aria-label="대시보드로">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"></rect><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"></rect><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"></rect><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"></rect></svg>
-                </a>
+                <!-- 다른 페이지 바로가기 (로고·이름은 이 게시판의 홈) -->
+                <nav class="site-nav" data-current="board" data-mode="menu"></nav>
                 <a class="brand-link" href="/board/" data-action="go-home" title="홈으로" aria-label="키워드 모니터 홈">
                     <span class="brand-mark" aria-hidden="true">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>

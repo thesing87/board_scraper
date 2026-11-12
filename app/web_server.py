@@ -144,6 +144,9 @@ STATIC_FILES = {
     '/apt.js': ('apt.js', 'application/javascript; charset=utf-8'),
     '/apt-regions.js': ('apt-regions.js', 'application/javascript; charset=utf-8'),
     '/apt.css': ('apt.css', 'text/css; charset=utf-8'),
+    # 모든 페이지 공통 바로가기 메뉴
+    '/nav.js': ('nav.js', 'application/javascript; charset=utf-8'),
+    '/nav.css': ('nav.css', 'text/css; charset=utf-8'),
     # 카드 혜택 한도
     '/card/': ('card.html', 'text/html; charset=utf-8'),
     '/card.js': ('card.js', 'application/javascript; charset=utf-8'),

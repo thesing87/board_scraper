@@ -73,7 +73,7 @@ try:
     # 칩 → 그 게시판, 최근 글 → 게시판의 그 글
     js("document.querySelector('#card-board .chip').click()"); time.sleep(2.5)
     assert d.current_url == BASE + '/board/' and js("return app.activeKey") == f'group:{gid}'
-    assert js("return !!document.querySelector('.dash-link[href=\"/\"]')")
+    assert js("return !!document.querySelector('.site-nav.is-menu [data-nav=\"home\"][href=\"/\"]')")
     d.get(BASE + '/'); time.sleep(1.5)
     js("document.querySelectorAll('.post')[1].click()"); time.sleep(3)
     assert js("return !!document.getElementById('post-602')") and js("return app.activeKey") == f'group:{gid}'
@@ -84,7 +84,7 @@ try:
 
     # 계산기에서 값을 바꾸면 대시보드 카드에 반영 (월 3,000km → 절약액 2배)
     d.get(BASE + '/ev/'); time.sleep(1.5)
-    assert js("return document.querySelector('.back').getAttribute('href')") == '/'
+    assert js("return document.querySelector('.site-nav [data-nav=\"home\"]').getAttribute('href')") == '/'
     assert js("return document.getElementById('sumBig').textContent") == '전기차가 9.7만원 절약'
     js("const i = document.getElementById('dist'); i.value = 3000; i.dispatchEvent(new Event('input'))")
     d.get(BASE + '/'); time.sleep(1.5)

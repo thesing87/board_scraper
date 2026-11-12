@@ -114,6 +114,7 @@ async function loadBoard() {
     try {
         const [state, dash] = await Promise.all([getJSON('/api/state'), getJSON('/api/dashboard')]);
         renderBoard(state, dash);
+        if (window.siteNav) window.siteNav.setBadge('board', state.all.unread_count);
     } catch (e) {
         renderBoardError();
     }

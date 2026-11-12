@@ -9,16 +9,17 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <meta name="theme-color" content="#F4F5F7">
     <link rel="stylesheet" href="/stats.css">
+    <link rel="stylesheet" href="/nav.css">
+    <script src="/nav.js" defer></script>
+    <link rel="stylesheet" href="/nav.css">
+    <script src="/nav.js" defer></script>
     <script src="/stats.js" defer></script>
 </head>
 <body>
     <main class="stats">
         <header class="stats-top">
-            <a class="back-link" href="/" aria-label="대시보드로">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
-            </a>
             <h1>수집 통계</h1>
-            <a class="board-link" href="/board/">키워드 게시판</a>
+            <nav class="site-nav" data-current="stats"></nav>
         </header>
 
         <!-- 조건: 기간과 게시판 (아래 모든 그림에 함께 적용, stats.js) -->
