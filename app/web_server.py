@@ -74,6 +74,7 @@ from card_store import (
     add_card_keyword,
     delete_card_keyword
 )
+from ev_store import ev_presets, add_ev_preset, delete_ev_preset
 
 MAX_BODY_BYTES = 10 * 1024
 MAX_READ_IDS = 500
@@ -583,6 +584,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/site': ('_handle_site', '사이트 이름 처리'),
         '/api/login': ('_handle_login', '로그인 처리'),
         '/api/card': ('_handle_card', '카드 혜택 처리'),
+        '/api/ev': ('_handle_ev', '유지비 저장 처리'),
         '/api/apt': ('_handle_apt', '실거래가 처리'),
     }
 
@@ -770,6 +772,46 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
     @staticmethod
     def _card_amount(value):
         return value if type(value) is int and 0 < value <= MAX_CARD_AMOUNT else None
+
+    # 유지비 계산기 입력값: 이름 → 허용 범위 (화면의 입력 칸과 같은 이름)
+    EV_PRESET_FIELDS = {'dist': (0, 100000), 'evEffIn': (0, 50), 'evPrice': (0, 5000), 'evLoss': (0, 95),
+                        'iceEff': (0, 100), 'icePrice': (0, 10000)}
+    MAX_EV_PRESETS = 50
+    MAX_EV_PRESET_NAME = 20
+
+    def _handle_ev(self):
+        """유지비 계산기의 저장한 조건 보기·저장·삭제. 폰과 PC가 함께 쓰도록 서버에 두고, 관리자 로그인한 기기만"""
+        params = self._body
+        if not self._authorize(params.get('password', ''), '유지비 저장'):
+            return
+        action = params.get('action')
+        if action == 'list':
+            self._send_data(200, {'success': True, 'presets': ev_presets()})
+            return
+        if action == 'delete':
+            ok = isinstance(params.get('id'), int) and delete_ev_preset(params['id'])
+            self._send_json(200 if ok else 400, bool(ok), '삭제했습니다.' if ok else '❌ 존재하지 않는 조건입니다.')
+            return
+        if action != 'add':
+            self._send_json(400, False, '❌ 지원하지 않는 작업입니다.')
+            return
+        name = str(params.get('name') or '').strip()
+        if not name or len(name) > self.MAX_EV_PRESET_NAME or any(ch in name for ch in '\r\n\t'):
+            self._send_json(400, False, f'❌ 이름은 줄바꿈 없이 {self.MAX_EV_PRESET_NAME}자 이하로 입력해 주세요.')
+            return
+        raw = params.get('values')
+        values = {}
+        for key, (low, high) in self.EV_PRESET_FIELDS.items():
+            value = raw.get(key) if isinstance(raw, dict) else None
+            if type(value) not in (int, float) or not (low <= value <= high):
+                self._send_json(400, False, '❌ 입력값이 올바르지 않습니다.')
+                return
+            values[key] = value
+        preset_id = add_ev_preset(name, values, self.MAX_EV_PRESETS)
+        if preset_id is None:
+            self._send_json(400, False, f'❌ 조건은 {self.MAX_EV_PRESETS}개까지 저장할 수 있습니다. 쓰지 않는 조건을 지워 주세요.')
+            return
+        self._send_data(200, {'success': True, 'id': preset_id})
 
     def _handle_card(self):
         """카드 혜택 조회·등록·수정·삭제. 소비 내역이라 조회까지 모두 로그인 필요"""

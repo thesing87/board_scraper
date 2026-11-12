@@ -218,6 +218,14 @@ def _create_schema(conn):
             keyword TEXT PRIMARY KEY
         );
 
+        -- 유지비 계산기에 이름 붙여 저장한 입력값 (values_json: 주행거리·전비·충전 단가·충전 손실·연비·유류비)
+        CREATE TABLE IF NOT EXISTS ev_presets (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            values_json TEXT NOT NULL,
+            created_at  TEXT NOT NULL
+        );
+
         -- 결제 안내 메일에서 읽은 결제. benefit_id가 비어 있으면 한도에서 차감하지 않은 결제
         CREATE TABLE IF NOT EXISTS card_mail_payments (
             approval_no TEXT PRIMARY KEY,

@@ -148,3 +148,99 @@ let saved={};try{saved=JSON.parse(localStorage.getItem('evice')||'{}')}catch(e){
 ids.forEach(id=>set(id,saved[id]??DEF[id]));
 const _calc=calc;calc=function(){_calc();try{const o={};ids.forEach(id=>o[id]=get(id));localStorage.setItem('evice',JSON.stringify(o))}catch(e){}};
 calc();
+
+// ==========================================
+// 저장한 조건: 지금 입력값을 이름 붙여 서버에 저장하고, 눌러서 불러옴 (관리자 로그인 키는 다른 페이지와 같은 admin_token)
+// ==========================================
+const TOKEN_KEY='admin_token';
+let presets=[];
+const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+const token=()=>{try{return localStorage.getItem(TOKEN_KEY)||''}catch(e){return ''}};
+function setToken(v){try{if(v)localStorage.setItem(TOKEN_KEY,v);else localStorage.removeItem(TOKEN_KEY)}catch(e){}}
+function presetMsg(text,isError){const m=$('preset-msg');m.textContent=text||'';m.classList.toggle('is-error',!!isError)}
+function showPresetLogin(){setToken('');presets=[];$('preset-login').hidden=false;$('preset-open').hidden=true;$('preset-form').hidden=true;renderPresets()}
+
+// 로그인이 풀렸으면 null (로그인 칸이 보임), 실패하면 Error
+async function evApi(body){
+  const res=await fetch('/api/ev',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},
+    body:JSON.stringify({...body,password:token()})});
+  if(res.status===401){showPresetLogin();return null}
+  const data=await res.json();
+  if(!data.success)throw new Error(String(data.message||'').replace(/^❌\s*/,'')||'처리하지 못했습니다.');
+  return data;
+}
+async function loadPresets(){
+  if(!token()){showPresetLogin();return}
+  try{
+    const data=await evApi({action:'list'});
+    if(!data)return;
+    presets=data.presets;$('preset-login').hidden=true;$('preset-open').hidden=false;renderPresets();
+  }catch(e){presetMsg('저장한 조건을 불러오지 못했습니다.',true)}
+}
+function presetDiff(v){
+  const effEff=v.evEffIn*(1-Math.min(v.evLoss,95)/100);
+  const evKm=effEff>0?v.evPrice/effEff:0,iceKm=v.iceEff>0?v.icePrice/v.iceEff:0;
+  return (iceKm-evKm)*v.dist;
+}
+function renderPresets(){
+  const now={};ids.forEach(id=>now[id]=get(id));
+  $('preset-list').innerHTML=presets.map(p=>{
+    const v=p.values,diff=presetDiff(v),same=ids.every(id=>Math.abs((v[id]??NaN)-now[id])<1e-9);
+    const result=Math.abs(diff)<1?'두 차량 비용이 같아요':diff>0?`월 ${short(diff)} 절약`:`월 ${short(-diff)} 손해`;
+    return `<div class="preset${same?' is-on':''}">
+      <button type="button" class="preset-load" data-load="${p.id}"${same?' aria-current="true"':''}>
+        <span class="preset-name">${esc(p.name)}</span>
+        <span class="preset-vals">${v.dist.toLocaleString('ko-KR')}km · 전비 ${v.evEffIn} · 충전 ${v.evPrice.toLocaleString('ko-KR')}원 · 연비 ${v.iceEff} · 유가 ${v.icePrice.toLocaleString('ko-KR')}원</span>
+        <span class="preset-result${diff<0?' is-ice':''}">${result}</span>
+        <span class="preset-date">${esc(p.created_at.slice(5,10).replace('-','/'))} 저장</span>
+      </button>
+      <button type="button" class="preset-del" data-del="${p.id}" aria-label="${esc(p.name)} 삭제">×</button>
+    </div>`}).join('');
+}
+// 입력값이 바뀔 때마다 지금 값과 같은 조건을 표시
+const _calcPresets=calc;calc=function(){_calcPresets();renderPresets()};
+
+$('preset-open').addEventListener('click',()=>{$('preset-form').hidden=false;presetMsg('');$('preset-name').focus()});
+$('preset-cancel').addEventListener('click',()=>{$('preset-form').hidden=true;$('preset-name').value='';presetMsg('')});
+$('preset-name').addEventListener('input',()=>presetMsg(''));
+$('preset-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const name=$('preset-name').value.trim();
+  if(!name){presetMsg('이름을 입력하세요.',true);$('preset-name').focus();return}
+  const values={};ids.forEach(id=>values[id]=get(id));
+  try{
+    const data=await evApi({action:'add',name,values});
+    if(!data)return;
+    $('preset-name').value='';$('preset-form').hidden=true;
+    await loadPresets();presetMsg(`'${name}' 저장했습니다`);
+  }catch(err){presetMsg(err.message,true)}
+});
+$('preset-list').addEventListener('click',async e=>{
+  const del=e.target.closest('[data-del]');
+  if(del){
+    const p=presets.find(x=>x.id===+del.dataset.del);
+    try{const data=await evApi({action:'delete',id:+del.dataset.del});if(!data)return;await loadPresets();presetMsg(`'${p?p.name:''}' 삭제했습니다`)}
+    catch(err){presetMsg(err.message,true)}
+    return;
+  }
+  const load=e.target.closest('[data-load]');
+  if(!load)return;
+  const p=presets.find(x=>x.id===+load.dataset.load);
+  if(!p)return;
+  ids.forEach(id=>{if(p.values[id]!=null)set(id,p.values[id])});
+  calc();
+  presetMsg(`'${p.name}' 값을 불러왔습니다`);
+});
+$('preset-login').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const input=$('preset-password');
+  if(!input.value.trim()){input.focus();return}
+  try{
+    const res=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({password:input.value})});
+    const data=await res.json();
+    if(!data.success){presetMsg(String(data.message||'').replace(/^❌\s*/,''),true);input.select();return}
+    setToken(data.token);input.value='';presetMsg('');await loadPresets();
+  }catch(err){presetMsg('서버에 연결하지 못했습니다.',true)}
+});
+loadPresets();
+
