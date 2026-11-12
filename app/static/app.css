@@ -83,6 +83,8 @@ body:not(.is-admin) .admin-only, body.is-admin .guest-only { display: none !impo
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok-dot); }
 .status-pill.is-error { background: var(--danger-bg); color: var(--danger-text); }
 .status-pill.is-error .status-dot { background: var(--danger-text); }
+.topbar > .site-nav { margin: -4px 0 0; padding: 0 20px 8px; }
+.topbar > .site-nav.is-compact { margin: 0 12px 8px; }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
 
 /* 검색창: 데스크톱은 상단 바 가운데, 모바일은 돋보기 버튼으로 펼침 */

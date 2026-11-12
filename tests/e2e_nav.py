@@ -29,24 +29,25 @@ for a in ['--headless=new', '--window-size=1280,900']:
 d = Chrome(options=o)
 js = d.execute_script
 try:
+    # 모든 페이지가 같은 모양: 넓은 화면은 버튼 줄, 휴대폰은 아이콘 줄. 어느 페이지든 제목 줄 바로 아래 한 줄
     for width in (1280, 390):
         d.set_window_size(width, 900); time.sleep(.3)
+        shapes = set()
         for path, key in PAGES.items():
             d.get(BASE + path); time.sleep(1.2)
             assert js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)") == KEYS, path
             assert js("return document.querySelector('.site-nav [aria-current=page]').dataset.nav") == key, path
             assert js("return document.documentElement.scrollWidth <= innerWidth"), (path, width)
-            if key == 'board':
-                assert js("return document.querySelector('.site-nav').classList.contains('is-menu')")
-                continue
             compact = js("return document.querySelector('.site-nav').classList.contains('is-compact')")
-            assert compact == (width < 820 or key == 'ev'), (path, width)
-            # 일곱 칸이 모두 보이고 한 줄
+            assert compact == (width < 820), (path, width)
             tops = js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => Math.round(a.getBoundingClientRect().top))")
             assert len(set(tops)) == 1, (path, width, tops)
-            if compact:
-                names = js("return [...document.querySelectorAll('.site-nav-short')].filter(e => e.offsetWidth > 0).length")
-                assert names == 7, (path, names)
+            # 버튼 크기·글자도 페이지마다 같아야 함
+            shapes.add(js("const a=document.querySelector('.site-nav [data-nav=card]'), r=a.getBoundingClientRect(), s=getComputedStyle(a);"
+                          " return [Math.round(r.height), s.fontSize, s.borderRadius, a.closest('.is-compact') ? 0 : Math.round(r.width)].join('|')"))
+            names = js("return [...document.querySelectorAll('.site-nav-short')].filter(e => e.offsetWidth > 0).length")
+            assert names == (7 if compact else 0), (path, names)
+        assert len(shapes) == 1, (width, shapes)
     print('PAGES OK')
 
     # 대시보드: 게시판 칸에 안 읽은 새 글 수 (위에서 게시판을 열어 읽은 글은 빠지므로 새 글을 하나 더 넣음)
@@ -62,17 +63,15 @@ try:
     js("document.querySelector('.site-nav [data-nav=apt]').click()"); time.sleep(1)
     assert d.current_url == BASE + '/apt/'
 
-    # 게시판: 메뉴 버튼으로 펼치고, 바깥을 누르면 닫힘. 인기글은 같은 페이지라도 인기글 보기로 다시 엶
+    # 게시판: 인기글은 같은 페이지라도 인기글 보기로 다시 엶
     d.get(BASE + '/board/'); time.sleep(2)
-    panel = "document.querySelector('.site-nav-panel')"
-    assert js(f"return {panel}.hidden")
-    js("document.querySelector('.site-nav-toggle').click()")
-    assert not js(f"return {panel}.hidden") and js("return document.querySelector('.site-nav-toggle').getAttribute('aria-expanded')") == 'true'
-    js("document.body.click()")
-    assert js(f"return {panel}.hidden")
-    js("document.querySelector('.site-nav-toggle').click()")
-    js("document.querySelector('.site-nav-panel [data-nav=popular]').click()"); time.sleep(2.5)
+    js("document.querySelector('.site-nav [data-nav=popular]').click()"); time.sleep(2.5)
     assert js("return app.filter") == 'popular', js("return app.filter")
+    # 휴대폰 게시판: 아래로 내리면 메뉴 줄도 상단 바와 함께 숨고, 올리면 다시 보임
+    d.set_window_size(390, 844)
+    d.get(BASE + '/board/'); time.sleep(2)
+    bar = "document.querySelector('.topbar')"
+    assert js(f"return {bar}.contains(document.querySelector('.site-nav'))")
     print('LINKS OK')
 finally:
     d.quit()

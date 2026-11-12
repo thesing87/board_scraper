@@ -1,7 +1,7 @@
-// 모든 페이지 공통 바로가기 메뉴. 페이지의 <nav class="site-nav" data-current="키"> 자리에 그림.
-//  - 넓은 화면: 작은 버튼 줄 (지금 페이지는 파랑)
-//  - 휴대폰(또는 data-mode="compact"): 제목 아래 아이콘 + 짧은 이름 한 줄
-//  - data-mode="menu": 메뉴 버튼 하나, 누르면 아이콘 판 (키워드 게시판처럼 위·아래 줄이 이미 많은 페이지)
+// 모든 페이지 공통 바로가기 메뉴. 페이지의 <nav class="site-nav" data-current="키"> 자리(제목 줄 바로 아래)에 그림.
+// 페이지마다 모양이 다르지 않도록 화면 폭으로만 정함
+//  - 넓은 화면: 작은 버튼 한 줄 (지금 페이지는 파랑)
+//  - 휴대폰: 아이콘 + 짧은 이름 일곱 칸 한 줄
 'use strict';
 
 (function () {
@@ -31,21 +31,10 @@
         const current = nav.dataset.current || '';
         const items = ITEMS.map(item => itemHtml(item, current)).join('');
         nav.setAttribute('aria-label', '바로가기');
-        if (nav.dataset.mode === 'menu') {
-            nav.classList.add('is-menu');
-            nav.innerHTML = `<button type="button" class="site-nav-toggle" aria-expanded="false" aria-label="바로가기 메뉴" title="바로가기 메뉴">${svg(GRID)}</button>`
-                + `<div class="site-nav-panel" hidden>${items}</div>`;
-            const toggle = nav.querySelector('.site-nav-toggle'), panel = nav.querySelector('.site-nav-panel');
-            const setOpen = open => { panel.hidden = !open; toggle.setAttribute('aria-expanded', String(open)); };
-            toggle.addEventListener('click', () => setOpen(panel.hidden));
-            document.addEventListener('click', e => { if (!nav.contains(e.target)) setOpen(false); });
-            document.addEventListener('keydown', e => { if (e.key === 'Escape' && !panel.hidden) { setOpen(false); toggle.focus(); } });
-        } else {
-            nav.innerHTML = items;
-            const compact = () => nav.classList.toggle('is-compact', nav.dataset.mode === 'compact' || narrow.matches);
-            compact();
-            narrow.addEventListener('change', compact);
-        }
+        nav.innerHTML = items;
+        const compact = () => nav.classList.toggle('is-compact', narrow.matches);
+        compact();
+        narrow.addEventListener('change', compact);
         // 같은 페이지 안의 다른 보기(게시판 → 인기글)는 주소의 # 부분만 바뀌어 페이지가 다시 읽히지 않으므로 새로 엶
         nav.addEventListener('click', e => {
             const link = e.target.closest('a[href*="#"]');

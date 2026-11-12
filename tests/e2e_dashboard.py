@@ -73,7 +73,7 @@ try:
     # 칩 → 그 게시판, 최근 글 → 게시판의 그 글
     js("document.querySelector('#card-board .chip').click()"); time.sleep(2.5)
     assert d.current_url == BASE + '/board/' and js("return app.activeKey") == f'group:{gid}'
-    assert js("return !!document.querySelector('.site-nav.is-menu [data-nav=\"home\"][href=\"/\"]')")
+    assert js("return !!document.querySelector('.site-nav [data-nav=\"home\"][href=\"/\"]')")
     d.get(BASE + '/'); time.sleep(1.5)
     js("document.querySelectorAll('.post')[1].click()"); time.sleep(3)
     assert js("return !!document.getElementById('post-602')") and js("return app.activeKey") == f'group:{gid}'

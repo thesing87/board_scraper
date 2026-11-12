@@ -1,6 +1,9 @@
-/* 모든 페이지 공통 바로가기 메뉴 (nav.js). 색은 각 페이지의 변수를 쓰고, 없으면 기본값 */
-.site-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; font-family: inherit; }
-header:has(> .site-nav), .topbar-row:has(.site-nav) { flex-wrap: wrap; }
+/* 모든 페이지 공통 바로가기 메뉴 (nav.js). 어느 페이지든 제목 줄 바로 아래 한 줄.
+   색은 각 페이지의 변수를 쓰고, 없으면 기본값 */
+header:has(> .site-nav) { flex-wrap: wrap; }
+.site-nav { order: 99; flex: 1 0 100%; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; margin-top: 10px; min-width: 0; font-family: inherit; }
+
+/* 넓은 화면: 작은 버튼 한 줄 */
 .site-nav-item { position: relative; display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px;
     border: 1px solid var(--border, #E5E7EB); border-radius: 999px; background: var(--surface, #FFFFFF); color: var(--muted, #5F6673);
     font-size: 12.5px; font-weight: 600; line-height: 1; text-decoration: none; white-space: nowrap; }
@@ -12,29 +15,15 @@ header:has(> .site-nav), .topbar-row:has(.site-nav) { flex-wrap: wrap; }
 .site-nav-badge { font-size: 10.5px; font-weight: 800; color: #DC2626; font-variant-numeric: tabular-nums; }
 .is-current .site-nav-badge { color: #FFFFFF; }
 
-/* 휴대폰: 제목 아래 아이콘 + 짧은 이름 한 줄 (일곱 칸이 화면 폭에 맞게 나뉨) */
-.site-nav.is-compact { order: 99; flex: 1 0 100%; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; margin-top: 8px; padding: 3px;
+/* 휴대폰: 아이콘 + 짧은 이름 일곱 칸 (화면 폭에 맞게 나뉨) */
+.site-nav.is-compact { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; margin-top: 8px; padding: 3px;
     border: 1px solid var(--border, #E5E7EB); border-radius: 12px; background: var(--surface, #FFFFFF); }
-.is-compact .site-nav-item, .site-nav-panel .site-nav-item { flex-direction: column; justify-content: center; gap: 2px; height: auto; padding: 5px 0 4px;
+.is-compact .site-nav-item { flex-direction: column; justify-content: center; gap: 2px; height: auto; padding: 5px 0 4px;
     border: 0; border-radius: 9px; background: none; font-size: 10.5px; }
-.is-compact .site-nav-item svg, .site-nav-panel .site-nav-item svg { width: 18px; height: 18px; }
-.is-compact .site-nav-item.is-current, .site-nav-panel .site-nav-item.is-current { background: #E6F1FB; color: #0C447C; }
-.is-compact .site-nav-item.is-current svg, .site-nav-panel .site-nav-item.is-current svg { color: #0C447C; }
-.is-compact .site-nav-long, .site-nav-panel .site-nav-long { display: none; }
-.is-compact .site-nav-short, .site-nav-panel .site-nav-short { display: inline; }
-.is-compact .site-nav-badge, .site-nav-panel .site-nav-badge { position: absolute; top: 0; left: calc(50% + 6px); min-width: 14px; height: 14px; padding: 0 3px;
+.is-compact .site-nav-item svg { width: 18px; height: 18px; }
+.is-compact .site-nav-item.is-current { background: #E6F1FB; color: #0C447C; }
+.is-compact .site-nav-item.is-current svg { color: #0C447C; }
+.is-compact .site-nav-long { display: none; }
+.is-compact .site-nav-short { display: inline; }
+.is-compact .site-nav-badge { position: absolute; top: 0; left: calc(50% + 6px); min-width: 14px; height: 14px; padding: 0 3px;
     border-radius: 7px; background: #E24B4A; color: #FFFFFF; font-size: 9px; line-height: 14px; text-align: center; }
-
-/* 메뉴 버튼 하나 + 누르면 펼치는 아이콘 판 */
-.site-nav.is-menu { position: relative; flex: 0 0 auto; }
-.site-nav-toggle { width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 8px;
-    background: none; color: var(--muted, #5F6673); cursor: pointer; }
-.site-nav-toggle svg { width: 16px; height: 16px; }
-.site-nav-toggle:hover, .site-nav-toggle[aria-expanded="true"] { background: var(--divider, #F1F2F4); color: var(--accent, #2563EB); }
-.site-nav-panel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 1000; width: 264px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 4px; padding: 8px; border: 1px solid var(--border, #E5E7EB); border-radius: 12px; background: var(--surface, #FFFFFF);
-    box-shadow: 0 10px 28px rgba(17, 24, 39, .16); }
-.site-nav-panel[hidden] { display: none; }
-.site-nav-panel .site-nav-item { padding: 8px 0 6px; font-size: 11px; }
-.site-nav-panel .site-nav-item svg { width: 20px; height: 20px; }
-.site-nav-panel .site-nav-item:hover { background: var(--divider, #F1F2F4); }

@@ -28,8 +28,6 @@
             <!-- 로고·이름은 홈, 상태 표시는 누르면 새로고침 (따로 홈·새로고침 버튼을 두지 않음) -->
             <div class="brand">
                 <div class="brand-main">
-                <!-- 다른 페이지 바로가기 (로고·이름은 이 게시판의 홈) -->
-                <nav class="site-nav" data-current="board" data-mode="menu"></nav>
                 <a class="brand-link" href="/board/" data-action="go-home" title="홈으로" aria-label="키워드 모니터 홈">
                     <span class="brand-mark" aria-hidden="true">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
@@ -66,6 +64,8 @@
                 </button>
             </div>
         </div>
+        <!-- 다른 페이지 바로가기 (모든 페이지 공통, nav.js) -->
+        <nav class="site-nav" data-current="board"></nav>
         <!-- 화면을 그리는 요청 동안 표시하는 진행 막대 (app.js withProgress) -->
         <div class="top-progress" id="top-progress" role="progressbar" aria-label="불러오는 중" hidden><i></i></div>
     </header>
