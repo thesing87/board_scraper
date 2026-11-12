@@ -372,12 +372,30 @@ function syncRowSpans() {
     });
 }
 
+// 카드의 최소 높이: 높이를 정하지 않았을 때(내용에 맞춤)의 높이. 이보다 작으면 내용이 카드 안에서 스크롤되므로 더 줄이지 않음
+// (키워드 게시판은 최근 수집한 글 기본 개수일 때의 높이)
+function contentHeight(card) {
+    const fixed = card.style.height;
+    card.style.height = '';
+    if (card.id === 'card-board') fitBoardPosts();
+    const height = Math.ceil(card.getBoundingClientRect().height);
+    card.style.height = fixed;
+    if (card.id === 'card-board') fitBoardPosts();
+    return height;
+}
+
 function applyLayout() {
     layout.forEach((c, i) => {
         const card = cardOf(c.id);
         card.style.order = i;
         card.style.gridColumn = `span ${narrowScreen.matches ? COLUMNS : c.w}`;
-        card.style.height = c.h ? `${c.h}px` : '';
+        card.style.height = '';
+    });
+    // 너비가 정해진 뒤에 내용 높이를 재고, 정한 높이가 그보다 작으면 내용 높이로
+    layout.forEach(c => {
+        if (!c.h) return;
+        const card = cardOf(c.id);
+        card.style.height = `${Math.max(c.h, contentHeight(card))}px`;
     });
     fitBoardPosts();
     syncRowSpans();
@@ -437,6 +455,26 @@ function columnWidth() {
     return { size: (grid.clientWidth - gap * (COLUMNS - 1)) / COLUMNS, gap };
 }
 
+// 크기 조절 중 아래 끝이 옆 카드(같은 줄에 나란히 있는 카드)의 아래 끝에 이만큼 가까워지면 그 높이에 붙임
+const SNAP_PX = 24;
+function snapToNeighbors(item, top, height) {
+    const card = cardOf(item.id);
+    const rect = card.getBoundingClientRect();
+    let best = null;
+    layout.forEach(c => {
+        if (c === item) return;
+        const r = cardOf(c.id).getBoundingClientRect();
+        const sideBySide = r.right <= rect.left + 1 || r.left >= rect.right - 1;
+        const sameRow = r.top < top + height + SNAP_PX && r.bottom > top;
+        if (!sideBySide || !sameRow) return;
+        const target = Math.round(r.bottom - top);
+        if (Math.abs(target - height) <= SNAP_PX && (!best || Math.abs(target - height) < Math.abs(best.height - height))) {
+            best = { height: target, id: c.id };
+        }
+    });
+    return best;
+}
+
 function startResize(item, e) {
     const card = cardOf(item.id), handle = e.currentTarget;
     const rect = card.getBoundingClientRect();
@@ -451,16 +489,25 @@ function startResize(item, e) {
         }
         // 가로로만 끌었을 때 높이가 '내용에 맞춤'에서 고정으로 바뀌지 않도록, 세로로 움직였을 때만 높이를 정함
         if (Math.abs(ev.clientY - startY) > HEIGHT_STEP) heightChanged = true;
+        let snapped = null;
         if (heightChanged) {
-            const height = ev.clientY + offsetBottom - rect.top;
-            item.h = clamp(Math.round(height / HEIGHT_STEP) * HEIGHT_STEP, MIN_HEIGHT, MAX_HEIGHT);
+            const top = card.getBoundingClientRect().top;
+            const wanted = ev.clientY + offsetBottom - top;
+            snapped = snapToNeighbors(item, top, wanted);
+            item.h = snapped ? clamp(snapped.height, MIN_HEIGHT, MAX_HEIGHT)
+                : clamp(Math.round(wanted / HEIGHT_STEP) * HEIGHT_STEP, MIN_HEIGHT, MAX_HEIGHT);
         }
         applyLayout();
+        // 내용보다 작게는 줄지 않으므로(applyLayout), 저장하는 높이도 실제 높이로
+        if (item.h) item.h = Math.round(card.getBoundingClientRect().height);
+        layout.forEach(c => cardOf(c.id).classList.toggle('is-snap-target', !!snapped && c.id === snapped.id));
+        card.classList.toggle('is-snapped', !!snapped);
     };
     const onEnd = () => {
         handle.removeEventListener('pointermove', onMove);
         handle.removeEventListener('pointerup', onEnd);
         handle.removeEventListener('pointercancel', onEnd);
+        layout.forEach(c => cardOf(c.id).classList.remove('is-snap-target', 'is-snapped'));
         saveLayout();
     };
     handle.addEventListener('pointermove', onMove);
@@ -485,6 +532,7 @@ function onResizeKey(item, e) {
     } else return;
     e.preventDefault();
     applyLayout();
+    if (item.h) item.h = Math.round(card.getBoundingClientRect().height);
     saveLayout();
 }
 
@@ -533,16 +581,18 @@ DEFAULT_LAYOUT.forEach(({ id }) => new ResizeObserver(syncRowSpans).observe(card
 new ResizeObserver(() => fitBoardPosts()).observe(cardOf('card-board'));
 narrowScreen.addEventListener('change', applyLayout);
 
+// 카드 내용을 새로 그린 뒤에는 최소 높이(내용 높이)가 달라질 수 있어 높이를 다시 맞춤
+function loadAll() {
+    return Promise.all([loadBoard(), loadBenefit(), loadPopular(), loadApt()]).then(applyLayout);
+}
+
 renderClock();
 renderEv();
-loadBoard();
-loadBenefit();
-loadStats();
-loadPopular();
-loadApt();
+loadStats().then(applyLayout);
+loadAll();
 applyLayout();
-setInterval(() => { renderClock(); loadBoard(); loadBenefit(); loadPopular(); loadApt(); }, REFRESH_MS);
+setInterval(() => { renderClock(); loadAll(); }, REFRESH_MS);
 // 계산기에서 값을 바꾸고 돌아오면(다른 탭 포함) 다시 계산
 window.addEventListener('storage', e => { if (e.key === 'evice') renderEv(); });
 window.addEventListener('pageshow', renderEv);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderClock(); renderEv(); loadBoard(); loadBenefit(); loadPopular(); loadApt(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderClock(); renderEv(); loadAll(); } });
