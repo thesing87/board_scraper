@@ -41,6 +41,9 @@ function calc(){
   $('evKm').textContent=evKm.toFixed(1)+'원';
   $('evEff').textContent=effEff.toFixed(2)+' km/kWh';
   $('iceKm').textContent=iceKm.toFixed(1)+'원';
+  // 데스크탑 요약의 km당 비용·손익 분기 충전 단가 (휴대폰은 숨김)
+  $('sumEvKm').textContent=evKm.toFixed(1)+'원';$('sumIceKm').textContent=iceKm.toFixed(1)+'원';
+  $('sumBe').textContent=Math.round(iceKm*effEff).toLocaleString('ko-KR')+'원';
   $('lossNote').innerHTML=loss>0
     ?`충전 손실로 월 약 <b>${won(lossCost)}</b> 더 듭니다 (실제 결제 전력 ${(d/effEff).toFixed(0)}kWh)`
     :'충전 손실 없이 계산 중';
