@@ -175,7 +175,7 @@ async function loadApt() {
             return `<a class="apt-row" href="/apt/#w-${w.id}">
                 <span class="apt-top">
                     <span>
-                        <span class="apt-name">${esc(w.name)}${t && t.is_new ? '<span class="apt-new">새 거래</span>' : ''}</span>
+                        <span class="apt-name">${esc(w.name)}${w.record ? '<span class="apt-new is-record">신고가</span>' : t && t.is_new ? '<span class="apt-new">새 거래</span>' : ''}</span>
                         <span class="apt-meta">${t ? `${w.area || Math.round(t.area)}㎡ · ${Number(t.date.slice(5, 7))}/${Number(t.date.slice(8, 10))} 계약 · ${t.floor}층`
                             : w.synced ? '거래 없음' : '지난 거래를 받아 오는 중'}</span>
                     </span>

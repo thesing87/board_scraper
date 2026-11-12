@@ -103,6 +103,9 @@ assert apt_trades.send_alerts(watches, alerts) == 1                    # 관심 
 base, text, what = sent_texts[0]
 assert what == '실거래 알림' and '예시아파트' in text and '85㎡' in text and '12억 3,000' in text and '15층' in text, text
 assert '직전 12억' in text and '▲ 3,000만' in text, text             # 취소된 거래(11억 8,000)는 건너뛰고 그 다음 거래와 비교
+assert text.startswith('🔥') and '신고가' in text and '이전 최고 12억' in text, text   # 이전 최고 12억보다 비싸면 신고가
+plain = apt_trades.build_alert({'apt_name': '예시아파트'}, T('11680-1', 84.97, 3, 115000, day(0, 2)), None, {'amount': 123000, 'deal_date': day(0, 1), 'floor': 15})
+assert plain.startswith('🏠') and '신고가' not in plain, plain
 apt_store.set_watch_alert(w1, False)
 assert apt_trades.send_alerts(apt_store.list_watches(), alerts) == 0   # 알림을 끄면 안 보냄
 apt_store.set_watch_alert(w1, True)
@@ -112,6 +115,7 @@ print('APT ALERT OK')
 s = apt_store.watch_summaries()[0]
 assert s['latest']['amount'] == 123000 and s['latest']['is_new'] and s['diff'] == 3000 and s['peak'] == 123000 and s['peak_ratio'] == 0
 assert s['low'] == 110000 and s['avg'] == 117667 and s['avg_count'] == 3, s   # 최저·1년 평균 (취소된 거래 제외)
+assert s['record'] and s['record_gain'] == 3000, s   # 신고가: 같은 면적의 이전 최고 12억보다 3,000만 높음
 assert s['trade_count'] == 3 and [p['amount'] for p in s['spark']] == [110000, 120000, 123000], s   # 취소 거래·다른 면적 제외
 d = apt_store.watch_detail(w1)
 assert d['areas'] == [{'area': 60, 'count': 2}, {'area': 85, 'count': 4}] and len(d['trades']) == 6 and d['build_year'] == 2005

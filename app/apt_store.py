@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from storage import _db, _now, _get_meta, _set_meta
 
 SYNC_STATUS_META = 'apt_sync_status'
+# 최근 거래가 신고가(같은 면적에서 모아 둔 다른 거래보다 비쌈)이면 대시보드·목록에 '신고가'로 표시하는 기간(계약일 기준, 일)
+RECORD_SHOW_DAYS = 90
 # 새로 올라온 거래로 표시하는 기간(일)
 NEW_TRADE_DAYS = 3
 
@@ -103,11 +105,23 @@ def previous_trade(lawd_cd, apt_seq, area, before_date, exclude_amount_floor=Non
         """, (lawd_cd, apt_seq, int(round(area)), before_date)).fetchone()
     return dict(row) if row else None
 
+def previous_peak(lawd_cd, apt_seq, area, trade):
+    """같은 단지·같은 면적(㎡ 반올림)에서 이 거래를 뺀 다른 거래(취소 제외)의 최고가 거래. 다른 거래가 없으면 None.
+    새 거래 알림이 신고가인지 볼 때 씀 (모아 둔 기간, 최대 3년 안에서)"""
+    with _db() as conn:
+        row = conn.execute("""
+            SELECT * FROM apt_trades WHERE lawd_cd = ? AND apt_seq = ? AND CAST(ROUND(area) AS INTEGER) = ? AND canceled = 0
+              AND NOT (deal_date = ? AND floor = ? AND amount = ? AND area = ?)
+            ORDER BY amount DESC, deal_date DESC LIMIT 1
+        """, (lawd_cd, apt_seq, int(round(area)), trade['deal_date'], trade['floor'], trade['amount'], trade['area'])).fetchone()
+    return dict(row) if row else None
+
 def watch_summaries(spark_months=12):
     """대시보드 카드·목록 화면: 관심 단지마다 최근 거래, 직전 거래 대비 차이, 최고가·최저가(모아 둔 전체 기간)와 최고가 대비 비율,
     최근 1년 평균가와 그 거래 수, 최근 spark_months개월의 월 평균가 추이, 새 거래 여부"""
     since = (datetime.now() - timedelta(days=31 * spark_months)).strftime('%Y-%m-01')
     year_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+    record_since = (datetime.now() - timedelta(days=RECORD_SHOW_DAYS)).strftime('%Y-%m-%d')
     result = []
     with _db() as conn:
         for w in conn.execute("SELECT * FROM apt_watches ORDER BY position, id").fetchall():
@@ -118,6 +132,9 @@ def watch_summaries(spark_months=12):
             peak = max((t['amount'] for t in trades), default=None)
             low = min((t['amount'] for t in trades), default=None)
             last_year = [t['amount'] for t in trades if t['deal_date'] >= year_ago]
+            # 신고가: 최근 거래가 같은 면적의 다른 모든 거래보다 비싸고, 계약한 지 RECORD_SHOW_DAYS일 안
+            same_area = [t['amount'] for t in trades[1:] if latest and round(t['area']) == round(latest['area'])]
+            record = bool(latest and same_area and latest['amount'] > max(same_area) and latest['deal_date'] >= record_since)
             months = {}
             for t in trades:
                 if t['deal_date'] >= since:
@@ -132,6 +149,8 @@ def watch_summaries(spark_months=12):
                 'avg': round(sum(last_year) / len(last_year)) if last_year else None,
                 'avg_count': len(last_year),
                 'peak_ratio': round((latest['amount'] - peak) / peak * 100, 1) if latest and peak else None,
+                'record': record,
+                'record_gain': latest['amount'] - max(same_area) if record else None,
                 'spark': [{'month': m, 'amount': round(sum(v) / len(v))} for m, v in sorted(months.items())],
             })
     return result

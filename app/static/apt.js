@@ -97,7 +97,8 @@ function renderList() {
         <button type="button" class="watch-row" data-watch="${w.id}">
             <span class="watch-top">
                 <span>
-                    <span class="watch-name">${esc(w.name)}${w.latest && w.latest.is_new ? '<span class="new-tag">새 거래</span>' : ''}</span>
+                    <span class="watch-name">${esc(w.name)}${w.record ? `<span class="new-tag is-record" title="이전 최고가보다 ${money(w.record_gain)} 높음 (최근 3년 기준)">신고가</span>`
+                        : w.latest && w.latest.is_new ? '<span class="new-tag">새 거래</span>' : ''}</span>
                     <span class="watch-meta">${w.latest
                         ? `${areaLabel(w.area || Math.round(w.latest.area))} · ${shortDate(w.latest.date)} 계약 · ${w.latest.floor}층`
                         : `${areaLabel(w.area)} · ${w.synced ? '거래 없음' : '지난 거래를 받아 오는 중'}`}</span>
@@ -179,6 +180,12 @@ function drawChart(trades) {
 }
 window.addEventListener('scroll', () => { $('tip').hidden = true; }, { passive: true });
 
+// 최근 거래가 같은 면적(㎡ 반올림)의 다른 거래보다 비싸면 이전 최고가와의 차이 (아니면 0)
+function recordGain(latest, valid) {
+    const others = valid.filter(t => t !== latest && Math.round(t.area) === Math.round(latest.area)).map(t => t.amount);
+    return others.length && latest.amount > Math.max(...others) ? latest.amount - Math.max(...others) : 0;
+}
+
 function renderDetail() {
     const d = view.detail;
     const trades = detailTrades();
@@ -198,6 +205,7 @@ function renderDetail() {
             <div class="headline" style="margin-top:14px">
                 <span class="big">${money(latest.amount)}</span>
                 ${prev ? deltaHtml(latest.amount - prev.amount, ' (직전 거래 대비)') : ''}
+                ${recordGain(latest, valid) ? `<span class="new-tag is-record" title="같은 면적의 이전 최고가보다 ${money(recordGain(latest, valid))} 높음 (최근 3년 기준)">신고가</span>` : ''}
             </div>
             <div class="headline-sub">${Math.round(latest.area)}㎡ · ${latest.floor}층 · ${latest.date} 계약${latest.dealing ? ' · ' + esc(latest.dealing) : ''}${d.umd ? ' · ' + esc(d.umd) : ''}${d.build_year ? ` · ${d.build_year}년 준공` : ''}</div>
             <div class="tiles">

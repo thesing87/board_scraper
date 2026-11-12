@@ -160,14 +160,21 @@ def format_amount(manwon):
         return f'{rest:,}만'
     return f'{eok}억 {rest:,}' if rest else f'{eok}억'
 
-def build_alert(watch, trade, previous):
-    """새 거래 알림 본문(HTML): 단지·면적 / 금액·층·계약일 / 직전 거래 대비"""
+def build_alert(watch, trade, previous, peak=None):
+    """새 거래 알림 본문(HTML): 단지·면적 / 금액·층·계약일 / (신고가면 이전 최고가 대비) / 직전 거래 대비.
+    peak는 같은 면적의 이전 최고가 거래 (이 거래가 그보다 비싸면 신고가)"""
     import html
     area = int(round(trade['area']))
-    lines = [f"🏠 <b>{html.escape(watch['apt_name'])}</b> {area}㎡ 새 실거래",
+    record = bool(peak) and trade['amount'] > peak['amount']
+    title = f"🔥 <b>{html.escape(watch['apt_name'])}</b> {area}㎡ 신고가" if record \
+        else f"🏠 <b>{html.escape(watch['apt_name'])}</b> {area}㎡ 새 실거래"
+    lines = [title,
              "",
              f"<b>{format_amount(trade['amount'])}</b> · {trade['floor']}층 · {trade['deal_date'][5:7]}/{trade['deal_date'][8:10]} 계약"
              + (f" · {html.escape(trade['dealing'])}" if trade.get('dealing') else '')]
+    if record:
+        lines.append(f"이전 최고 {format_amount(peak['amount'])} ({peak['deal_date'][2:4]}.{peak['deal_date'][5:7]}, {peak['floor']}층) 대비 "
+                     f"▲ {format_amount(trade['amount'] - peak['amount'])} (최근 3년 기준)")
     if previous:
         diff = trade['amount'] - previous['amount']
         change = '변동 없음' if not diff else f"{'▲' if diff > 0 else '▼'} {format_amount(abs(diff))}"
@@ -196,11 +203,12 @@ def send_alerts(watches, added):
         if not watch:
             continue
         previous = apt_store.previous_trade(trade['lawd_cd'], trade['apt_seq'], trade['area'], trade['deal_date'])
+        peak = apt_store.previous_peak(trade['lawd_cd'], trade['apt_seq'], trade['area'], trade)
         url = _watch_url(watch['id'])
         base = {"parse_mode": "HTML"}
         if url:
             base["reply_markup"] = {"inline_keyboard": [[{"text": "📈 실거래가 보기", "url": url}]]}
-        _send_html(base, build_alert(watch, trade, previous), "실거래 알림")
+        _send_html(base, build_alert(watch, trade, previous, peak), "실거래 알림")
         sent += 1
     return sent
 

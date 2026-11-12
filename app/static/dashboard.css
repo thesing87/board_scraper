@@ -74,6 +74,8 @@ a { color: inherit; text-decoration: none; }
 .apt-row:hover .apt-name { color: var(--accent); }
 .apt-name { display: block; font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .apt-meta { display: block; font-size: 12px; color: var(--faint); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 최근 거래가 신고가일 때 ('새 거래' 대신) */
+.new-tag.is-record, .apt-new.is-record { background: #C81E1E; color: #FFFFFF; }
 .apt-new { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 5px; background: #FDECEC; color: #C81E1E; margin-left: 5px; vertical-align: 1px; }
 .apt-spark { display: block; width: 72px; height: 26px; }
 .apt-price { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }

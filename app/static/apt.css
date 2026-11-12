@@ -63,6 +63,8 @@ button, select, input { font: inherit; }
 .watch-row:hover .watch-name { color: var(--accent); }
 .watch-name { font-size: 15px; font-weight: 700; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .watch-meta { display: block; font-size: 12px; color: var(--faint); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 최근 거래가 신고가일 때 ('새 거래' 대신) */
+.new-tag.is-record, .apt-new.is-record { background: #C81E1E; color: #FFFFFF; }
 .new-tag { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 5px; background: var(--up-weak); color: var(--up); margin-left: 6px; vertical-align: 1px; }
 .spark { display: block; width: 84px; height: 28px; }
 .watch-price { text-align: right; white-space: nowrap; }
