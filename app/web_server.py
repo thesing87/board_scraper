@@ -7,6 +7,7 @@ import hashlib
 import time
 import threading
 import ipaddress
+import requests
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
@@ -63,6 +64,8 @@ from storage import (
     move_folder,
     arrange_group
 )
+import apt_store
+import apt_trades
 from card_store import (
     card_benefits,
     add_card_benefit,
@@ -89,6 +92,10 @@ MAX_POPULAR_MIN = 100000
 CARD_BENEFIT_LIMIT = 30000
 MAX_CARD_PLACE_LENGTH = 30
 MAX_CARD_AMOUNT = 10000000
+# 아파트 실거래가: 관심 단지 수 상한, 단지 이름 길이, 볼 수 있는 전용면적 범위(㎡)
+MAX_APT_WATCHES = 30
+MAX_APT_NAME_LENGTH = 40
+APT_AREA_RANGE = (10, 400)
 # 에펨코리아 게시판 mid (글 주소 'fmkorea.com/12345'와 헷갈리지 않게 숫자만인 값은 제외)
 BOARD_KEY_RE = re.compile(r'(?![0-9]+$)[a-z0-9_]{1,40}')
 POSTS_PER_PAGE = 10
@@ -130,6 +137,10 @@ STATIC_FILES = {
     '/stats/': ('stats.html', 'text/html; charset=utf-8'),
     '/stats.js': ('stats.js', 'application/javascript; charset=utf-8'),
     '/stats.css': ('stats.css', 'text/css; charset=utf-8'),
+    # 아파트 실거래가
+    '/apt/': ('apt.html', 'text/html; charset=utf-8'),
+    '/apt.js': ('apt.js', 'application/javascript; charset=utf-8'),
+    '/apt.css': ('apt.css', 'text/css; charset=utf-8'),
     # 카드 혜택 한도
     '/card/': ('card.html', 'text/html; charset=utf-8'),
     '/card.js': ('card.js', 'application/javascript; charset=utf-8'),
@@ -414,7 +425,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         try:
             if pure_path in STATIC_FILES:
                 self._serve_static(*STATIC_FILES[pure_path])
-            elif pure_path in ('/board', '/ev', '/card', '/stats'):
+            elif pure_path in ('/board', '/ev', '/card', '/stats', '/apt'):
                 # 끝 슬래시 없이 들어오면 붙여서 (페이지 안의 상대 주소가 맞도록)
                 self._send_body(301, b'', 'text/plain; charset=utf-8', {'Location': pure_path + '/'})
             elif pure_path in ('/index.html/board', '/index.html/board/'):
@@ -424,6 +435,18 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._send_data(200, {**dashboard_summary(), 'check_interval': CHECK_INTERVAL,
                                       'collector': runtime_status.snapshot().get('last_cycle'),
                                       'now': datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
+            elif pure_path == '/api/apt':
+                # 아파트 실거래가: 관심 단지마다 최근 거래·직전 대비·최고가 대비·추이 (대시보드 카드와 /apt/ 목록)
+                self._send_data(200, {'configured': apt_trades.configured(), 'status': apt_store.sync_status(),
+                                      'watches': apt_store.watch_summaries()})
+            elif pure_path == '/api/apt/detail':
+                # 관심 단지 하나의 모든 거래 (모든 면적)
+                watch_param = query.get('id', [''])[0]
+                detail = apt_store.watch_detail(int(watch_param)) if watch_param.isdigit() else None
+                if detail is None:
+                    self._send_data(404, {'found': False})
+                else:
+                    self._send_data(200, detail)
             elif pure_path == '/api/popular':
                 # 게시판별 인기글: 최근 하루·일주일·한 달 동안 수집한 글 중 게시판마다 추천+댓글이 많은 글
                 # (키워드 게시판의 '인기글' 보기는 5개, 메인 대시보드 카드는 3개). group·folder가 있으면 그 게시판·묶음만
@@ -553,6 +576,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/site': ('_handle_site', '사이트 이름 처리'),
         '/api/login': ('_handle_login', '로그인 처리'),
         '/api/card': ('_handle_card', '카드 혜택 처리'),
+        '/api/apt': ('_handle_apt', '실거래가 처리'),
     }
 
     def do_POST(self):
@@ -794,6 +818,69 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         else:
             self._send_json(400, False, '❌ 존재하지 않는 항목입니다.')
 
+    def _handle_apt(self):
+        """아파트 실거래가 관심 단지 관리 (관리자 암호 필요): 단지 찾기·등록·삭제·알림 켜기끄기"""
+        params = self._body
+        if not self._authorize(params.get('password', ''), '실거래가 관리'):
+            return
+        action = params.get('action')
+        if action == 'search':
+            lawd_cd = str(params.get('lawd_cd') or '').strip()
+            name = str(params.get('name') or '').strip()
+            if not re.fullmatch(r'\d{5}', lawd_cd) or not name or len(name) > MAX_APT_NAME_LENGTH:
+                self._send_json(400, False, f'❌ 지역 코드는 숫자 5자리, 단지 이름은 {MAX_APT_NAME_LENGTH}자 이하로 입력해 주세요.')
+                return
+            if not apt_trades.configured():
+                self._send_json(400, False, '❌ 서버에 실거래가 인증키(APT_API_KEY)가 설정되지 않았습니다.')
+                return
+            try:
+                results = apt_trades.search_complexes(lawd_cd, name)
+            except (apt_trades.AptApiError, requests.RequestException) as e:
+                log_msg(f"[실거래] 단지 찾기 실패: {short_err(e)}", "WARN")
+                self._send_json(502, False, f'❌ 실거래가 서버에서 받아오지 못했습니다: {short_err(e, 80)}')
+                return
+            self._send_data(200, {'success': True, 'results': results})
+            return
+        if action == 'add':
+            lawd_cd, apt_seq = params.get('lawd_cd'), params.get('apt_seq')
+            name, umd, area = params.get('name'), params.get('umd', ''), params.get('area')
+            if (not isinstance(lawd_cd, str) or not re.fullmatch(r'\d{5}', lawd_cd)
+                    or not isinstance(apt_seq, str) or not 0 < len(apt_seq) <= 80
+                    or not isinstance(name, str) or not 0 < len(name.strip()) <= MAX_APT_NAME_LENGTH
+                    or not isinstance(umd, str) or len(umd) > MAX_APT_NAME_LENGTH
+                    or any(ch in name + umd + apt_seq for ch in '\r\n\t')
+                    or not (area is None or (type(area) is int and APT_AREA_RANGE[0] <= area <= APT_AREA_RANGE[1]))):
+                self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                return
+            if len(apt_store.list_watches()) >= MAX_APT_WATCHES:
+                self._send_json(400, False, f'❌ 관심 단지는 {MAX_APT_WATCHES}개까지 등록할 수 있습니다.')
+                return
+            try:
+                watch_id = apt_store.add_watch(lawd_cd, apt_seq, name.strip(), umd.strip(), area)
+            except ValueError as ve:
+                self._send_json(400, False, f'❌ {ve}')
+                return
+            apt_trades.request_sync()
+            log_msg(f"[API] 실거래가 관심 단지 추가: {name.strip()} {f'{area}㎡' if area else '모든 면적'} ({lawd_cd})")
+            self._send_data(200, {'success': True, 'id': watch_id,
+                                  'message': f"🏠 '{name.strip()}'을(를) 등록했습니다. 지난 거래를 받아 오는 중입니다."})
+            return
+        watch_id = params.get('id')
+        if type(watch_id) is not int:
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        if action == 'delete':
+            ok = apt_store.delete_watch(watch_id)
+        elif action == 'alert' and isinstance(params.get('enabled'), bool):
+            ok = apt_store.set_watch_alert(watch_id, params['enabled'])
+        else:
+            self._send_json(400, False, '❌ 지원하지 않는 작업입니다.')
+            return
+        if ok:
+            self._send_json(200, True, '저장했습니다.')
+        else:
+            self._send_json(400, False, '❌ 존재하지 않는 단지입니다.')
+
     def _handle_site(self):
         """사이트 이름·짧은 표시 바꾸기 (관리자 암호 필요). 화면의 사이트 제목·FM·DC 표시와 텔레그램 알림에 쓰임"""
         params = self._body
@@ -994,6 +1081,7 @@ def run_api_server():
     server_address = ('', WEB_PORT)
     httpd = ThreadedHTTPServer(server_address, KeywordAPIServer)
     threading.Thread(target=_keep_warm, daemon=True).start()
+    apt_trades.start()
     if COLLECTOR_STALL_MINUTES:
         threading.Thread(target=_watch_collector, daemon=True).start()
     log_msg(f"[API] 웹서버 시작 (포트 {WEB_PORT})")

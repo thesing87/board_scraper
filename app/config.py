@@ -92,6 +92,11 @@ DDNS_URL = os.environ.get('DDNS_URL')
 NAVER_MAIL_USER = (os.environ.get('NAVER_MAIL_USER') or '').strip()
 NAVER_MAIL_APP_PASSWORD = (os.environ.get('NAVER_MAIL_APP_PASSWORD') or '').strip()
 CARD_MAIL_FOLDER = (os.environ.get('CARD_MAIL_FOLDER') or 'INBOX').strip()
+# 아파트 실거래가 (app/apt_trades.py): 공공데이터포털에서 받은 '국토교통부 아파트 매매 실거래가 상세 자료' 인증키.
+# 없으면 수집하지 않음. 수집 간격(시간)과 처음 등록한 단지의 지난 거래를 채우는 개월 수
+APT_API_KEY = (os.environ.get('APT_API_KEY') or '').strip()
+APT_SYNC_HOURS = max(1, int(os.environ.get('APT_SYNC_HOURS', 6)))
+APT_BACKFILL_MONTHS = max(3, int(os.environ.get('APT_BACKFILL_MONTHS', 36)))
 
 MAX_DATA_PER_KEYWORD = 100
 # 수집한 지 이 일수가 지난 글은 하루 한 번 정리 (각 키워드의 최근 MAX_DATA_PER_KEYWORD개는 새 글 판별 기준이라 유지). 0이면 정리 안 함

@@ -228,6 +228,41 @@ def _create_schema(conn):
         );
         CREATE INDEX IF NOT EXISTS idx_card_mail_payments_paid_at ON card_mail_payments(paid_at);
         CREATE INDEX IF NOT EXISTS idx_card_mail_payments_benefit ON card_mail_payments(benefit_id);
+
+        -- 아파트 실거래가: 관심 단지 (apt_store.py). lawd_cd는 시군구 코드(법정동 코드 앞 5자리), apt_seq는 단지 일련번호,
+        -- area는 볼 전용면적(㎡ 반올림, 비어 있으면 모든 면적), synced_at이 비어 있으면 아직 지난 거래를 채우지 않은 단지
+        CREATE TABLE IF NOT EXISTS apt_watches (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            lawd_cd    TEXT NOT NULL,
+            apt_seq    TEXT NOT NULL,
+            apt_name   TEXT NOT NULL,
+            umd_name   TEXT NOT NULL DEFAULT '',
+            area       INTEGER,
+            alert      INTEGER NOT NULL DEFAULT 1,   -- 새 거래 텔레그램 알림
+            position   INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            synced_at  TEXT
+        );
+        -- 관심 단지의 매매 거래 (모든 면적). amount는 만원, backfill은 처음 채운 지난 거래(새 거래 표시·알림 없음)
+        CREATE TABLE IF NOT EXISTS apt_trades (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            lawd_cd       TEXT NOT NULL,
+            apt_seq       TEXT NOT NULL,
+            apt_name      TEXT NOT NULL,
+            umd_name      TEXT NOT NULL DEFAULT '',
+            area          REAL NOT NULL,
+            floor         INTEGER NOT NULL DEFAULT 0,
+            amount        INTEGER NOT NULL,
+            deal_date     TEXT NOT NULL,              -- 계약일 'YYYY-MM-DD'
+            build_year    INTEGER,
+            canceled      INTEGER NOT NULL DEFAULT 0, -- 계약 해제(취소)된 거래
+            cancel_date   TEXT,
+            dealing       TEXT NOT NULL DEFAULT '',   -- 거래 유형 (중개거래·직거래)
+            backfill      INTEGER NOT NULL DEFAULT 0,
+            first_seen_at TEXT NOT NULL,
+            UNIQUE (lawd_cd, apt_seq, area, floor, deal_date, amount)
+        );
+        CREATE INDEX IF NOT EXISTS idx_apt_trades_complex ON apt_trades(lawd_cd, apt_seq, deal_date);
     """)
 
 def _now():

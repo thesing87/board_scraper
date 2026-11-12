@@ -105,6 +105,58 @@ async function loadBoard() {
 }
 
 // ==========================================
+// 아파트 실거래가 카드: 관심 단지마다 최근 거래가·직전 거래 대비·최근 1년 추이 (자세한 내용은 /apt/, 금액은 만원 단위로 옴)
+// ==========================================
+function aptMoney(manwon) {
+    const eok = Math.floor(manwon / 10000), rest = manwon % 10000;
+    if (!eok) return num(rest) + '만';
+    return rest ? `${eok}억 ${num(rest)}` : `${eok}억`;
+}
+function aptSpark(points) {
+    if (points.length < 2) return '<svg class="apt-spark" viewBox="0 0 72 26" aria-hidden="true"></svg>';
+    const values = points.map(p => p.amount);
+    const min = Math.min(...values), span = (Math.max(...values) - min) || 1;
+    const coords = points.map((p, i) => `${(i / (points.length - 1) * 68 + 2).toFixed(1)},${(22 - (p.amount - min) / span * 18).toFixed(1)}`);
+    const first = values[0], last = values[values.length - 1];
+    const color = last > first ? '#C81E1E' : last < first ? '#1D4ED8' : '#8B919C';
+    return `<svg class="apt-spark" viewBox="0 0 72 26" role="img" aria-label="최근 1년 추이: ${last > first ? '상승' : last < first ? '하락' : '보합'}">
+        <polyline points="${coords.join(' ')}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+async function loadApt() {
+    try {
+        const data = await getJSON('/api/apt');
+        const watches = data.watches || [];
+        $('apt-sub').textContent = !data.configured ? '인증키가 설정되지 않았습니다'
+            : data.status && !data.status.ok ? '마지막 수집 실패'
+            : `관심 단지 ${watches.length}곳${data.status ? ` · ${data.status.at.slice(5, 16)} 확인` : ''}`;
+        if (!watches.length) {
+            $('apt-body').innerHTML = '<span class="empty">열어서 관심 단지를 등록해 주세요</span>';
+            return;
+        }
+        const peaks = watches.filter(w => w.latest && w.peak_ratio != null)
+            .map(w => `${esc(w.name)} ${w.peak_ratio === 0 ? '최고가' : w.peak_ratio + '%'}`).join(' · ');
+        $('apt-body').innerHTML = `<div class="apt-rows">${watches.map(w => {
+            const t = w.latest;
+            const delta = !t ? '' : w.diff == null ? '<span class="apt-delta">직전 거래 없음</span>'
+                : !w.diff ? '<span class="apt-delta">변동 없음</span>'
+                : `<span class="apt-delta ${w.diff > 0 ? 'is-up' : 'is-down'}">${w.diff > 0 ? '▲' : '▼'} ${aptMoney(Math.abs(w.diff))}</span>`;
+            return `<a class="apt-row" href="/apt/#w-${w.id}">
+                <span>
+                    <span class="apt-name">${esc(w.name)}${t && t.is_new ? '<span class="apt-new">새 거래</span>' : ''}</span>
+                    <span class="apt-meta">${t ? `${w.area || Math.round(t.area)}㎡ · ${Number(t.date.slice(5, 7))}/${Number(t.date.slice(8, 10))} 계약 · ${t.floor}층`
+                        : w.synced ? '거래 없음' : '지난 거래를 받아 오는 중'}</span>
+                </span>
+                ${aptSpark(w.spark)}
+                <span class="apt-price">${t ? `<b>${aptMoney(t.amount)}</b>${delta}` : '<span class="apt-delta">–</span>'}</span>
+            </a>`;
+        }).join('')}</div>${peaks ? `<p class="apt-foot">최고가 대비: ${peaks}</p>` : ''}`;
+    } catch (e) {
+        $('apt-sub').textContent = '불러오지 못했습니다';
+        $('apt-body').innerHTML = '<span class="empty">잠시 후 자동으로 다시 시도합니다</span>';
+    }
+}
+
+// ==========================================
 // 게시판별 인기글 카드: 최근 24시간 동안 게시판마다 추천+댓글이 많은 글 3개 (전체 보기는 키워드 게시판의 '인기글')
 // ==========================================
 const countText = v => num(String(v || 0).replace(/[^\d]/g, '') || 0);
@@ -250,7 +302,7 @@ const LAYOUT_KEY = 'dashboard_layout_v1';
 const COLUMNS = 12;
 const MIN_COLUMNS = 3;
 const DEFAULT_LAYOUT = [{ id: 'card-board', w: 7, h: null }, { id: 'card-ev', w: 5, h: null }, { id: 'card-benefit', w: 5, h: null },
-                        { id: 'card-stats', w: 7, h: null }, { id: 'card-popular', w: 12, h: null }];
+                        { id: 'card-stats', w: 7, h: null }, { id: 'card-apt', w: 5, h: null }, { id: 'card-popular', w: 12, h: null }];
 const MIN_HEIGHT = 120, MAX_HEIGHT = 1200, HEIGHT_STEP = 10;
 const narrowScreen = window.matchMedia('(max-width: 820px)');
 const grid = $('dash-grid');
@@ -455,9 +507,10 @@ loadBoard();
 loadBenefit();
 loadStats();
 loadPopular();
+loadApt();
 applyLayout();
-setInterval(() => { renderClock(); loadBoard(); loadBenefit(); loadPopular(); }, REFRESH_MS);
+setInterval(() => { renderClock(); loadBoard(); loadBenefit(); loadPopular(); loadApt(); }, REFRESH_MS);
 // 계산기에서 값을 바꾸고 돌아오면(다른 탭 포함) 다시 계산
 window.addEventListener('storage', e => { if (e.key === 'evice') renderEv(); });
 window.addEventListener('pageshow', renderEv);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderClock(); renderEv(); loadBoard(); loadBenefit(); loadPopular(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderClock(); renderEv(); loadBoard(); loadBenefit(); loadPopular(); loadApt(); } });
