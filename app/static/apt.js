@@ -67,25 +67,41 @@ function renderStatus() {
     }
 }
 
+// 최저~최고 막대: 최근 거래(빨강)와 최근 1년 평균(회색)이 그 사이 어디인지. 최고·최저는 모아 둔 전체 기간(최대 3년)
+// 거래가 하나뿐(최고 = 최저)이면 막대 없이 숫자만
+function rangeHtml(w) {
+    if (!w.latest || w.peak == null || w.low == null) return '';
+    const span = w.peak - w.low;
+    const pos = v => (span ? (v - w.low) / span * 100 : 50).toFixed(1);
+    const avgText = w.avg != null ? `평균 ${money(w.avg)}` : '1년 거래 없음';
+    const label = `최저 ${money(w.low)}, 최고 ${money(w.peak)} 사이에서 최근 거래 ${money(w.latest.amount)}`
+        + (w.avg != null ? `, 최근 1년 평균 ${money(w.avg)}` : '');
+    return `<span class="range" role="img" aria-label="${label}">
+        ${span ? `<span class="range-bar">${w.avg != null ? `<i class="mark is-avg" style="left:${pos(w.avg)}%"></i>` : ''}<i class="mark is-latest" style="left:${pos(w.latest.amount)}%"></i></span>` : ''}
+        <span class="range-scale"><span>최저 ${money(w.low)}</span><span class="is-avg">${avgText}</span><span>최고 ${money(w.peak)}</span></span>
+    </span>`;
+}
+
 function renderList() {
     const watches = view.data.watches;
     if (!watches.length) {
         $('list-view').innerHTML = '<div class="empty">등록한 단지가 없습니다.<br>오른쪽 위 \'관리\'에서 단지를 찾아 등록해 주세요.</div>';
         return;
     }
-    const peaks = watches.filter(w => w.latest && w.peak_ratio != null)
-        .map(w => `${esc(w.name)} ${w.peak_ratio === 0 ? '최고가' : w.peak_ratio + '%'}`).join(' · ');
     $('list-view').innerHTML = watches.map(w => `
         <button type="button" class="watch-row" data-watch="${w.id}">
-            <span>
-                <span class="watch-name">${esc(w.name)}${w.latest && w.latest.is_new ? '<span class="new-tag">새 거래</span>' : ''}</span>
-                <span class="watch-meta">${w.latest
-                    ? `${areaLabel(w.area || Math.round(w.latest.area))} · ${shortDate(w.latest.date)} 계약 · ${w.latest.floor}층`
-                    : `${areaLabel(w.area)} · ${w.synced ? '거래 없음' : '지난 거래를 받아 오는 중'}`}</span>
+            <span class="watch-top">
+                <span>
+                    <span class="watch-name">${esc(w.name)}${w.latest && w.latest.is_new ? '<span class="new-tag">새 거래</span>' : ''}</span>
+                    <span class="watch-meta">${w.latest
+                        ? `${areaLabel(w.area || Math.round(w.latest.area))} · ${shortDate(w.latest.date)} 계약 · ${w.latest.floor}층`
+                        : `${areaLabel(w.area)} · ${w.synced ? '거래 없음' : '지난 거래를 받아 오는 중'}`}</span>
+                </span>
+                ${sparkline(w.spark)}
+                <span class="watch-price">${w.latest ? `<span class="price">${money(w.latest.amount)}</span>${deltaHtml(w.diff)}` : '<span class="delta">–</span>'}</span>
             </span>
-            ${sparkline(w.spark)}
-            <span class="watch-price">${w.latest ? `<span class="price">${money(w.latest.amount)}</span>${deltaHtml(w.diff)}` : '<span class="delta">–</span>'}</span>
-        </button>`).join('') + (peaks ? `<p class="list-foot">최고가 대비: ${peaks}</p>` : '');
+            ${rangeHtml(w)}
+        </button>`).join('');
 }
 
 // ---------- 상세 ----------

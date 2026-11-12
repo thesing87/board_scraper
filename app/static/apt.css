@@ -42,9 +42,17 @@ button, select, input { font: inherit; }
 .skeleton { height: 160px; border-radius: 10px; background: var(--surface-muted); }
 .empty { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; line-height: 1.7; }
 
-/* 목록 줄: 단지·면적·최근 계약 / 추이선 / 금액·직전 대비 */
-.watch-row { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 84px auto; align-items: center; gap: 12px; padding: 12px 4px;
-    border: 0; border-top: 1px solid var(--divider); background: none; color: inherit; text-align: left; cursor: pointer; }
+/* 목록 줄: (단지·면적·최근 계약 / 추이선 / 금액·직전 대비) + 최저~최고 막대 */
+.watch-row { width: 100%; display: block; padding: 12px 4px; border: 0; border-top: 1px solid var(--divider); background: none; color: inherit; text-align: left; cursor: pointer; }
+.watch-top { display: grid; grid-template-columns: minmax(0, 1fr) 84px auto; align-items: center; gap: 12px; }
+/* 최저~최고 막대: 최근 거래(빨강)·최근 1년 평균(회색) 위치 */
+.range { display: block; margin-top: 8px; }
+.range-bar { position: relative; display: block; height: 6px; margin: 0 1px; border-radius: 3px; background: #EEF0F3; }
+.range-bar .mark { position: absolute; top: -3px; width: 3px; height: 12px; margin-left: -1.5px; border-radius: 2px; }
+.range-bar .mark.is-avg { background: #8B919C; }
+.range-bar .mark.is-latest { background: #C81E1E; box-shadow: 0 0 0 2px #FFFFFF; }
+.range-scale { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; font-size: 11px; color: #8B919C; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.range-scale .is-avg { color: #5F6673; }
 .watch-row:first-child { border-top: 0; }
 .watch-row:hover .watch-name { color: var(--accent); }
 .watch-name { font-size: 15px; font-weight: 700; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -150,7 +158,7 @@ td.note { color: var(--faint); font-size: 12px; }
 
 @media (max-width: 720px) {
     .apt { padding: calc(env(safe-area-inset-top) + 16px) 14px calc(env(safe-area-inset-bottom) + 28px); gap: 12px; }
-    .watch-row { grid-template-columns: minmax(0, 1fr) 60px auto; gap: 8px; }
+    .watch-top { grid-template-columns: minmax(0, 1fr) 60px auto; gap: 8px; }
     .spark { width: 60px; }
     .headline .big { font-size: 24px; }
     .tile-value { font-size: 14px; }

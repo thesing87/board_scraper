@@ -122,6 +122,19 @@ function aptSpark(points) {
     return `<svg class="apt-spark" viewBox="0 0 72 26" role="img" aria-label="최근 1년 추이: ${last > first ? '상승' : last < first ? '하락' : '보합'}">
         <polyline points="${coords.join(' ')}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
+// 최저~최고 막대: 최근 거래(빨강)와 최근 1년 평균(회색)이 그 사이 어디인지. 최고·최저는 모아 둔 전체 기간(최대 3년)
+// 거래가 하나뿐(최고 = 최저)이면 막대 없이 숫자만
+function aptRange(w) {
+    if (!w.latest || w.peak == null || w.low == null) return '';
+    const span = w.peak - w.low;
+    const pos = v => (span ? (v - w.low) / span * 100 : 50).toFixed(1);
+    const label = `최저 ${aptMoney(w.low)}, 최고 ${aptMoney(w.peak)} 사이에서 최근 거래 ${aptMoney(w.latest.amount)}`
+        + (w.avg != null ? `, 최근 1년 평균 ${aptMoney(w.avg)}` : '');
+    return `<span class="range" role="img" aria-label="${label}">
+        ${span ? `<span class="range-bar">${w.avg != null ? `<i class="mark is-avg" style="left:${pos(w.avg)}%"></i>` : ''}<i class="mark is-latest" style="left:${pos(w.latest.amount)}%"></i></span>` : ''}
+        <span class="range-scale"><span>최저 ${aptMoney(w.low)}</span><span class="is-avg">${w.avg != null ? `평균 ${aptMoney(w.avg)}` : '1년 거래 없음'}</span><span>최고 ${aptMoney(w.peak)}</span></span>
+    </span>`;
+}
 async function loadApt() {
     try {
         const data = await getJSON('/api/apt');
@@ -133,23 +146,24 @@ async function loadApt() {
             $('apt-body').innerHTML = '<span class="empty">열어서 관심 단지를 등록해 주세요</span>';
             return;
         }
-        const peaks = watches.filter(w => w.latest && w.peak_ratio != null)
-            .map(w => `${esc(w.name)} ${w.peak_ratio === 0 ? '최고가' : w.peak_ratio + '%'}`).join(' · ');
         $('apt-body').innerHTML = `<div class="apt-rows">${watches.map(w => {
             const t = w.latest;
             const delta = !t ? '' : w.diff == null ? '<span class="apt-delta">직전 거래 없음</span>'
                 : !w.diff ? '<span class="apt-delta">변동 없음</span>'
                 : `<span class="apt-delta ${w.diff > 0 ? 'is-up' : 'is-down'}">${w.diff > 0 ? '▲' : '▼'} ${aptMoney(Math.abs(w.diff))}</span>`;
             return `<a class="apt-row" href="/apt/#w-${w.id}">
-                <span>
-                    <span class="apt-name">${esc(w.name)}${t && t.is_new ? '<span class="apt-new">새 거래</span>' : ''}</span>
-                    <span class="apt-meta">${t ? `${w.area || Math.round(t.area)}㎡ · ${Number(t.date.slice(5, 7))}/${Number(t.date.slice(8, 10))} 계약 · ${t.floor}층`
-                        : w.synced ? '거래 없음' : '지난 거래를 받아 오는 중'}</span>
+                <span class="apt-top">
+                    <span>
+                        <span class="apt-name">${esc(w.name)}${t && t.is_new ? '<span class="apt-new">새 거래</span>' : ''}</span>
+                        <span class="apt-meta">${t ? `${w.area || Math.round(t.area)}㎡ · ${Number(t.date.slice(5, 7))}/${Number(t.date.slice(8, 10))} 계약 · ${t.floor}층`
+                            : w.synced ? '거래 없음' : '지난 거래를 받아 오는 중'}</span>
+                    </span>
+                    ${aptSpark(w.spark)}
+                    <span class="apt-price">${t ? `<b>${aptMoney(t.amount)}</b>${delta}` : '<span class="apt-delta">–</span>'}</span>
                 </span>
-                ${aptSpark(w.spark)}
-                <span class="apt-price">${t ? `<b>${aptMoney(t.amount)}</b>${delta}` : '<span class="apt-delta">–</span>'}</span>
+                ${aptRange(w)}
             </a>`;
-        }).join('')}</div>${peaks ? `<p class="apt-foot">최고가 대비: ${peaks}</p>` : ''}`;
+        }).join('')}</div>`;
     } catch (e) {
         $('apt-sub').textContent = '불러오지 못했습니다';
         $('apt-body').innerHTML = '<span class="empty">잠시 후 자동으로 다시 시도합니다</span>';

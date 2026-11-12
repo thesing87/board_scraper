@@ -111,6 +111,7 @@ print('APT ALERT OK')
 # --- 4) 요약·상세
 s = apt_store.watch_summaries()[0]
 assert s['latest']['amount'] == 123000 and s['latest']['is_new'] and s['diff'] == 3000 and s['peak'] == 123000 and s['peak_ratio'] == 0
+assert s['low'] == 110000 and s['avg'] == 117667 and s['avg_count'] == 3, s   # 최저·1년 평균 (취소된 거래 제외)
 assert s['trade_count'] == 3 and [p['amount'] for p in s['spark']] == [110000, 120000, 123000], s   # 취소 거래·다른 면적 제외
 d = apt_store.watch_detail(w1)
 assert d['areas'] == [{'area': 60, 'count': 2}, {'area': 85, 'count': 4}] and len(d['trades']) == 6 and d['build_year'] == 2005

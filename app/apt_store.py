@@ -104,9 +104,10 @@ def previous_trade(lawd_cd, apt_seq, area, before_date, exclude_amount_floor=Non
     return dict(row) if row else None
 
 def watch_summaries(spark_months=12):
-    """대시보드 카드·목록 화면: 관심 단지마다 최근 거래, 직전 거래 대비 차이, 최고가와 그 대비 비율,
-    최근 spark_months개월의 월 평균가 추이, 새 거래 여부"""
+    """대시보드 카드·목록 화면: 관심 단지마다 최근 거래, 직전 거래 대비 차이, 최고가·최저가(모아 둔 전체 기간)와 최고가 대비 비율,
+    최근 1년 평균가와 그 거래 수, 최근 spark_months개월의 월 평균가 추이, 새 거래 여부"""
     since = (datetime.now() - timedelta(days=31 * spark_months)).strftime('%Y-%m-01')
+    year_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
     result = []
     with _db() as conn:
         for w in conn.execute("SELECT * FROM apt_watches ORDER BY position, id").fetchall():
@@ -115,6 +116,8 @@ def watch_summaries(spark_months=12):
             latest = trades[0] if trades else None
             prev = trades[1] if len(trades) > 1 else None
             peak = max((t['amount'] for t in trades), default=None)
+            low = min((t['amount'] for t in trades), default=None)
+            last_year = [t['amount'] for t in trades if t['deal_date'] >= year_ago]
             months = {}
             for t in trades:
                 if t['deal_date'] >= since:
@@ -125,6 +128,9 @@ def watch_summaries(spark_months=12):
                 'latest': _public_trade(latest) if latest else None,
                 'diff': latest['amount'] - prev['amount'] if latest and prev else None,
                 'peak': peak,
+                'low': low,
+                'avg': round(sum(last_year) / len(last_year)) if last_year else None,
+                'avg_count': len(last_year),
                 'peak_ratio': round((latest['amount'] - peak) / peak * 100, 1) if latest and peak else None,
                 'spark': [{'month': m, 'amount': round(sum(v) / len(v))} for m, v in sorted(months.items())],
             })
