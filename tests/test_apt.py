@@ -155,10 +155,12 @@ assert len(found) == 1 and found[0]['apt_seq'] == '11680-1' and found[0]['areas'
 code, body = post({'action': 'search', 'lawd_cd': '11680', 'name': '다른', **P})
 assert code == 200 and [r['name'] for r in body['results']] == ['다른단지'], body
 # 지역의 모든 단지 (단지 고르기 목록): 이름 순, 한 번 받으면 다시 받지 않음
+# 1년 넘게 거래가 없던 단지(새로 지어 매매가 드문 단지 등)도 목록에 나와야 함 (3년)
+book[ym(20)] = [T('11680-7', 84.9, 3, 70000, day(20), '드문단지')]
 calls.clear()
 code, body = post({'action': 'complexes', 'lawd_cd': '11680', **P})
-assert code == 200 and [r['name'] for r in body['results']] == ['다른단지', '예시아파트'] and len(calls) == 12, (body, len(calls))
-assert post({'action': 'complexes', 'lawd_cd': '11680', **P})[0] == 200 and len(calls) == 12   # 받아 둔 목록을 다시 씀
+assert code == 200 and [r['name'] for r in body['results']] == ['다른단지', '드문단지', '예시아파트'] and len(calls) == apt_trades.SEARCH_MONTHS == 36, (body, len(calls))
+assert post({'action': 'complexes', 'lawd_cd': '11680', **P})[0] == 200 and len(calls) == 36   # 받아 둔 목록을 다시 씀
 assert post({'action': 'complexes', 'lawd_cd': '116', **P})[0] == 400
 # 화면의 지역 목록: 코드 5자리, 바뀐 지역 코드 반영
 regions = open(os.path.join(ROOT, 'app', 'static', 'apt-regions.js'), encoding='utf-8').read()

@@ -8,7 +8,7 @@ const ADMIN_TOKEN_KEY = 'admin_token';   // 키워드 게시판과 같은 로그
 const PERIODS = [{ months: 12, label: '1년' }, { months: 24, label: '2년' }, { months: 0, label: '전체' }];
 
 // results: 단지 고르기 목록에서 고른 단지(하나, 등록할 면적 칩을 보여 줌)
-// region: 고른 지역 {code, label}, complexes: 그 지역의 단지 목록 (최근 1년 거래)
+// region: 고른 지역 {code, label}, complexes: 그 지역의 단지 목록 (최근 3년 거래)
 const view = { data: null, detail: null, area: null, months: 24, managing: false, results: [], region: null, complexes: [] };
 
 function token() { try { return localStorage.getItem(ADMIN_TOKEN_KEY) || ''; } catch (e) { return ''; } }
@@ -255,7 +255,7 @@ function renderManage() {
     $('search-results').innerHTML = view.results.map((r, i) => `
         <div class="result">
             <div class="result-name">${esc(r.name)}</div>
-            <div class="result-meta">${esc(r.umd)}${r.build_year ? ` · ${r.build_year}년 준공` : ''} · 최근 1년 거래 ${r.count}건 · 최근 ${money(r.last_amount)} (${r.last_date})</div>
+            <div class="result-meta">${esc(r.umd)}${r.build_year ? ` · ${r.build_year}년 준공` : ''} · 최근 3년 거래 ${r.count}건 · 최근 ${money(r.last_amount)} (${r.last_date})</div>
             <div class="chips">${r.areas.map(a => `<button type="button" class="chip" data-add="${i}" data-area="${a}">${a}㎡ 등록</button>`).join('')}
                 <button type="button" class="chip" data-add="${i}" data-area="">모든 면적 등록</button></div>
         </div>`).join('');
@@ -366,7 +366,7 @@ async function pickRegion(region) {
     view.complexes = [];
     $('complex-filter').value = '';
     $('complex-box').hidden = false;
-    $('complex-select').innerHTML = '<option>단지 목록을 불러오는 중… (처음엔 10초쯤 걸려요)</option>';
+    $('complex-select').innerHTML = '<option>단지 목록을 불러오는 중… (처음엔 10~20초 걸려요)</option>';
     $('complex-select').disabled = true;
     $('search-msg').textContent = '';
     renderManage();
@@ -376,7 +376,7 @@ async function pickRegion(region) {
         if (!view.region || view.region.code !== code) return;   // 그 사이 다른 지역을 고름
         if (!data.success) throw new Error(data.message);
         view.complexes = data.results.map(r => ({ ...r, lawd_cd: code }));
-        if (!view.complexes.length) $('search-msg').textContent = '이 지역에서 최근 1년 동안 거래된 아파트가 없습니다.';
+        if (!view.complexes.length) $('search-msg').textContent = '이 지역에서 최근 3년 동안 거래된 아파트가 없습니다.';
     } catch (err) {
         $('search-msg').textContent = err.message || '단지 목록을 받아 오지 못했습니다. 잠시 후 다시 시도해 주세요.';
     }
@@ -389,7 +389,7 @@ function renderComplexSelect() {
     select.disabled = !view.complexes.length;
     const picked = view.results[0];
     select.innerHTML = `<option value="">${view.complexes.length ? `단지 고르기 (${shown.length}곳)` : '단지 없음'}</option>`
-        + shown.map(c => `<option value="${esc(c.apt_seq)}" ${picked && picked.apt_seq === c.apt_seq ? 'selected' : ''}>${esc(c.name)} · ${esc(c.umd)} (1년 ${c.count}건)</option>`).join('');
+        + shown.map(c => `<option value="${esc(c.apt_seq)}" ${picked && picked.apt_seq === c.apt_seq ? 'selected' : ''}>${esc(c.name)} · ${esc(c.umd)} (3년 ${c.count}건)</option>`).join('');
     // 거른 결과가 하나뿐이면 바로 고름
     if (q && shown.length === 1 && (!picked || picked.apt_seq !== shown[0].apt_seq)) {
         select.value = shown[0].apt_seq;

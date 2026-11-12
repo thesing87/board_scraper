@@ -9,6 +9,7 @@
 import time
 import threading
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from urllib.parse import unquote
 
@@ -27,7 +28,10 @@ RECENT_MONTHS = 3
 # 이보다 오래된 계약이 뒤늦게 올라오면 저장만 하고 알리지는 않음 (일)
 ALERT_MAX_AGE_DAYS = 120
 # 단지 찾기에서 훑어보는 최근 개월 수 (거래가 드문 단지도 잡히도록 넉넉히)
-SEARCH_MONTHS = 12
+# 단지 고르기 목록을 만드는 기간(개월). 새로 지은 단지는 매매가 드물어(분양권 전매는 다른 자료) 1년으로는 빠지는 단지가 있었음
+SEARCH_MONTHS = 36
+# 단지 목록을 만들 때 여러 달을 동시에 받는 수 (36개월을 하나씩 받으면 20초 넘게 걸림)
+SEARCH_WORKERS = 4
 SEARCH_LIMIT = 30
 
 class AptApiError(Exception):
@@ -111,7 +115,7 @@ def fetch_month(lawd_cd, deal_ym, get=requests.get):
     return trades
 
 # 지역의 단지 목록은 한 번 만들면 이 시간 동안 다시 받지 않음 (지역을 고를 때마다 12개월을 다시 받지 않게)
-COMPLEX_CACHE_SECONDS = 6 * 3600
+COMPLEX_CACHE_SECONDS = 24 * 3600
 _complex_cache = {}
 _complex_lock = threading.Lock()
 
@@ -133,8 +137,10 @@ def search_complexes(lawd_cd, name, fetch=None, limit=SEARCH_LIMIT):
     fetch = fetch or fetch_month
     needle = ''.join(name.split()).casefold()
     found = {}
-    for ym in month_list(SEARCH_MONTHS):
-        for t in fetch(lawd_cd, ym):
+    with ThreadPoolExecutor(max_workers=SEARCH_WORKERS) as pool:
+        months = list(pool.map(lambda ym: fetch(lawd_cd, ym), month_list(SEARCH_MONTHS)))
+    for trades in months:
+        for t in trades:
             if needle not in ''.join(t['apt_name'].split()).casefold() or t['canceled']:
                 continue
             entry = found.setdefault(t['apt_seq'], {'apt_seq': t['apt_seq'], 'name': t['apt_name'], 'umd': t['umd_name'],
@@ -144,7 +150,6 @@ def search_complexes(lawd_cd, name, fetch=None, limit=SEARCH_LIMIT):
             entry['count'] += 1
             if t['deal_date'] > entry['last_date']:
                 entry['last_amount'], entry['last_date'] = t['amount'], t['deal_date']
-        time.sleep(REQUEST_GAP)
     results = sorted(found.values(), key=lambda e: (-e['count'], e['name']))[:limit]
     return [{**e, 'areas': sorted(e['areas'])} for e in results]
 
