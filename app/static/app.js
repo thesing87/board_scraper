@@ -262,28 +262,47 @@ function markRead(ids) {
     app.readFlushTimer = setTimeout(flushReads, 1500);
 }
 
+// 보내지 못한 읽음 기록은 다시 보낼 때까지 남겨 둠: 연결이 끊긴 경우뿐 아니라 서버가 처리하지 못한 경우(5xx 등)도.
+// (서버가 DB에 쓰지 못한 동안 읽은 기록이 그냥 사라졌던 적이 있음.) 이 기기에도 저장해 두어, 새로고침·앱을 닫아도
+// 다음에 열 때 다시 보냄 (migrateLegacyReads). 형식이 잘못된 요청(400)은 다시 보내도 같으므로 버림
+const READ_RETRY_MS = 30 * 1000;
+const PENDING_READS_MAX = 2000;
+function savePendingReads() {
+    if (app.readQueue.size === 0) { storageRemove(localStorage, LEGACY_READ_IDS_KEY); return; }
+    storageSet(localStorage, LEGACY_READ_IDS_KEY, JSON.stringify(Array.from(app.readQueue).slice(-PENDING_READS_MAX)));
+}
+
 async function flushReads(useBeacon) {
     clearTimeout(app.readFlushTimer);
     if (app.readQueue.size === 0) return;
     const ids = Array.from(app.readQueue);
     app.readQueue.clear();
+    let failed = false;
     for (let i = 0; i < ids.length; i += 400) {
         const chunk = ids.slice(i, i + 400);
         const body = JSON.stringify({ ids: chunk });
         if (useBeacon && navigator.sendBeacon) {
-            navigator.sendBeacon('/api/read', new Blob([body], { type: 'application/json' }));
+            // 페이지를 떠나는 중: 결과를 기다릴 수 없으므로 보내기 대기열에 넣지 못했을 때만 남겨 둠
+            if (!navigator.sendBeacon('/api/read', new Blob([body], { type: 'application/json' }))) {
+                chunk.forEach(id => app.readQueue.add(id));
+                failed = true;
+            }
             continue;
         }
         try {
-            await fetch('/api/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true });
+            const res = await fetch('/api/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true });
+            if (!res.ok && res.status !== 400) throw new Error('읽음 기록 실패 ' + res.status);
         } catch (e) {
             chunk.forEach(id => app.readQueue.add(id));  // 실패하면 다음에 다시 전송
+            failed = true;
         }
     }
+    savePendingReads();
+    if (failed && !useBeacon) app.readFlushTimer = setTimeout(flushReads, READ_RETRY_MS);
 }
 
 async function migrateLegacyReads() {
-    // 예전 버전이 브라우저에 저장해 둔 읽음 기록을 서버로 한 번 옮김
+    // 보내지 못하고 이 기기에 남겨 둔 읽음 기록(예전 버전이 저장해 둔 기록 포함)을 서버로 보냄
     let ids = [];
     try { ids = JSON.parse(storageGet(localStorage, LEGACY_READ_IDS_KEY, '[]')); } catch (e) {}
     if (!Array.isArray(ids) || ids.length === 0) return;
