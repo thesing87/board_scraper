@@ -441,6 +441,8 @@ function renderFeed(data) {
     }
 
     const empty = data.total === 0;
+    // 안 읽은 글 보기가 비었는데 화면의 안 읽은 수가 남아 있으면, 가진 상태가 오래된 것이므로 바로 다시 받아 맞춤
+    if (empty && filter === 'unread' && summary && summary.unread_count > 0) setTimeout(pollState, 0);
     let body = '';
     if (empty) {
         body = !searching && !(app.state.groups || []).length

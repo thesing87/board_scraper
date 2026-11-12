@@ -53,6 +53,7 @@ const app = {
     highlightPostId: null,
     renderedTotal: null,  // 현재 화면을 그릴 때의 글 수 (새 글 배너 계산용)
     readQueue: new Set(), // 서버에 보낼 읽음 기록
+    recentReads: new Map(), // 최근에 읽은 글 {글 ID: 읽은 시각(ms)} (받아 온 상태가 그보다 먼저 만들어졌을 때 다시 빼려고)
     readFlushTimer: null,
     mergeDraft: [],       // 게시판 수정 중 합치려고 고른 다른 게시판 ID (저장하면 지워짐)
     loadingCount: 0       // 진행 중인 화면 요청 수 (상단 진행 막대 표시용)
@@ -87,11 +88,17 @@ const SITES = {
     fmkorea: { name: '에펨코리아', short: 'FM' },
     dcinside: { name: '디시인사이드', short: 'DC' }
 };
+// 상태를 받아 오는 동안 읽은 글이 있으면, 받아 온 상태는 읽기 전에 만들어졌으므로 그 글이 안 읽은 글로 다시 들어와 있음
+// (화면은 '안 읽은 글 1'인데 눌러 보면 아무 글도 없고, 다음 상태 확인 때까지 남았음). 최근에 읽은 글은 다시 빼 줌
+const RECENT_READ_MS = 3 * 60 * 1000;
 function setState(state) {
     app.state = state;
     Object.entries(state.sites || {}).forEach(([site, label]) => {
         if (SITES[site]) Object.assign(SITES[site], label);
     });
+    const cutoff = Date.now() - RECENT_READ_MS;
+    app.recentReads.forEach((at, id) => { if (at < cutoff) app.recentReads.delete(id); });
+    if (app.recentReads.size) forgetUnread([...app.recentReads.keys()], ['unread']);
 }
 function siteLabel(site) { return SITES[site] || SITES.fmkorea; }
 function siteTag(site) {
@@ -223,13 +230,15 @@ async function withProgress(promise) {
 // ==========================================
 // 읽음 기록 (서버에 저장하여 PC·휴대폰 간 공유)
 // ==========================================
-function forgetUnread(ids) {
+function forgetUnread(ids, kinds = ['unread', 'comment']) {
     // 서버 응답을 기다리지 않고 화면의 안 읽은 수부터 줄임
     if (!app.state) return;
     const set = new Set(ids);
-    // 안 읽은 새 글 수와 새 댓글이 달린 글 수를 함께 줄임 (읽으면 그 글의 새 댓글도 확인한 것)
+    // 안 읽은 새 글 수와 새 댓글이 달린 글 수를 함께 줄임 (읽으면 그 글의 새 댓글도 확인한 것).
+    // 받아 온 상태에 최근 읽은 글을 다시 뺄 때는 안 읽은 글만 (읽은 뒤에 달린 댓글은 새 댓글이 맞으므로)
+    const fields = [['unread_ids', 'unread_count'], ['comment_ids', 'comment_count']].filter((_, i) => kinds.includes(['unread', 'comment'][i]));
     [...(app.state.groups || []), app.state.all, ...(app.state.folders || [])].forEach(summary => {
-        [['unread_ids', 'unread_count'], ['comment_ids', 'comment_count']].forEach(([idsField, countField]) => {
+        fields.forEach(([idsField, countField]) => {
             if (!summary[idsField]) return;
             const before = summary[idsField].length;
             summary[idsField] = summary[idsField].filter(id => !set.has(id));
@@ -240,7 +249,11 @@ function forgetUnread(ids) {
 
 function markRead(ids) {
     let added = false;
-    ids.forEach(id => { if (!app.readQueue.has(id)) { app.readQueue.add(id); added = true; } });
+    const now = Date.now();
+    ids.forEach(id => {
+        app.recentReads.set(id, now);
+        if (!app.readQueue.has(id)) { app.readQueue.add(id); added = true; }
+    });
     if (!added) return;
     forgetUnread(ids);
     renderNavigation();
