@@ -65,7 +65,31 @@ async function handlePostAnchor() {
     return true;
 }
 
+// 상단 바 높이(메뉴 줄 포함)를 CSS 변수로: 왼쪽 게시판 목록·댓글 칸·모아보기 높이가 이 아래에 맞춰짐
+function trackTopbarHeight() {
+    const topbar = document.querySelector('.topbar');
+    const update = () => document.documentElement.style.setProperty('--topbar-h', topbar.offsetHeight + 'px');
+    update();
+    new ResizeObserver(update).observe(topbar);
+}
+
 async function init() {
+    trackTopbarHeight();
+    // 위쪽 바로가기 메뉴의 게시판·인기글은 페이지를 다시 읽지 않고 이 화면에서 보기만 바꿈
+    // (다시 읽으면 마지막에 보던 보기로 열려, 인기글 보기에서 '게시판'을 눌러도 인기글이 다시 열렸음)
+    if (window.siteNav) {
+        window.siteNav.onSamePage = key => {
+            if (!document.getElementById('settings').hidden) setSettingsOpen(false);
+            app.searchQuery = '';
+            if (key === 'popular') {
+                app.filter = 'popular';
+                app.galleryReturn = null;
+                openView(ALL_KEY, 1);
+            } else {
+                goHome();
+            }
+        };
+    }
     updateAdminUI();
     applyFontSize();
     applyTheme();
@@ -108,6 +132,12 @@ async function init() {
             savedTab = 'group:' + boardAnchor[1];
             savedFilter = defaultFilter(savedTab);
         }
+    }
+    // 위쪽 바로가기 메뉴의 '게시판'(#home)은 마지막에 보던 보기(인기글 등)가 아니라 전체 게시판의 기본 보기
+    if (window.location.hash === '#home') {
+        history.replaceState(null, '', window.location.pathname);
+        savedTab = ALL_KEY;
+        savedFilter = defaultFilter(ALL_KEY);
     }
     // 같은 탭에서 새로고침하면 보던 게시판·보기의 첫 페이지,
     // 새로 들어오면 첫 화면(전체 게시판의 기본 보기: 안 읽은 글 → 새 댓글 → 모든 글)

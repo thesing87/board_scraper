@@ -43,10 +43,10 @@ try:
     js(f"window.scrollBy(0, {box}.getBoundingClientRect().top - 400)"); time.sleep(0.4)
     r = js(f"const r = {box}.getBoundingClientRect(); return [r.top, r.bottom]")
     assert r[1] > vh - 30 and js(f"return {box}.clientHeight") > h0, r
-    # 위 메뉴 아래에 붙을 때까지 올리면 CSS 높이(창 높이 − 96)로
+    # 위 메뉴 아래에 붙을 때까지 올리면 CSS 높이(창 높이 − 상단 바 높이 − 39)로
     js(f"window.scrollBy(0, {box}.getBoundingClientRect().top - 72 + 50)"); time.sleep(0.4)
     assert js(f"return {box}.style.maxHeight") == ''
-    assert js(f"return {box}.clientHeight") >= vh - 96 - 4, js(f"return {box}.clientHeight")
+    assert js(f"return {box}.clientHeight") >= vh - js("return document.querySelector('.topbar').offsetHeight") - 39 - 4, js(f"return {box}.clientHeight")
     print('COMMENT BOX GROW OK')
 finally:
     d.quit()

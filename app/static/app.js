@@ -554,6 +554,8 @@ function openView(key, page) {
     document.getElementById('search-input').value = '';
     app.page = page || 1;
     renderNavigation();
+    // 위쪽 바로가기 메뉴(nav.js)에서 지금 위치: 인기글 보기면 '인기글', 그 밖에는 '게시판'
+    if (window.siteNav) window.siteNav.setCurrent(app.filter === 'popular' ? 'popular' : 'board');
     scrollActiveChipIntoView();
     return loadPosts().then(jumped => { if (!jumped) window.scrollTo({ top: 0 }); });
 }

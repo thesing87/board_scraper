@@ -10,7 +10,7 @@
         + '<rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"></rect><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"></rect>';
     const ITEMS = [
         { key: 'home', href: '/', label: '대시보드', short: '홈', color: '#374151', icon: GRID },
-        { key: 'board', href: '/board/', label: '게시판', short: '게시판', color: '#185FA5', icon: '<circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path>' },
+        { key: 'board', href: '/board/#home', label: '게시판', short: '게시판', color: '#185FA5', icon: '<circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path>' },
         { key: 'popular', href: '/board/#popular', label: '인기글', short: '인기글', color: '#C2410C', icon: '<path d="M12 3c.5 3 4 5.2 4 9.5a4 4 0 0 1-8 0c0-1.8.8-3 2-4 .2 1.7 1 2.6 2 2.8-.3-3 .2-5.6 0-8.3z"></path>' },
         { key: 'apt', href: '/apt/', label: '실거래가', short: '실거래', color: '#993556', icon: '<rect x="5" y="3" width="14" height="18" rx="1.5"></rect><path d="M9 7h1.5M13.5 7H15M9 11h1.5M13.5 11H15M9 15h1.5M13.5 15H15"></path>' },
         { key: 'card', href: '/card/', label: '카드', short: '카드', color: '#534AB7', icon: '<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 10h18"></path>' },
@@ -35,22 +35,36 @@
         const compact = () => nav.classList.toggle('is-compact', narrow.matches);
         compact();
         narrow.addEventListener('change', compact);
-        // 같은 페이지 안의 다른 보기(게시판 → 인기글)는 주소의 # 부분만 바뀌어 페이지가 다시 읽히지 않으므로 새로 엶
+        // 같은 페이지 안의 다른 보기(게시판 ↔ 인기글): 페이지가 정한 처리(onSamePage)가 있으면 그것으로 보기만 바꾸고,
+        // 없으면 # 부분만 바뀌어서는 페이지가 다시 읽히지 않으므로 새로 엶
         nav.addEventListener('click', e => {
-            const link = e.target.closest('a[href*="#"]');
+            const link = e.target.closest('a[data-nav]');
             if (!link) return;
             const url = new URL(link.href);
             if (url.pathname !== window.location.pathname) return;
-            e.preventDefault();
-            window.location.hash = url.hash;
-            window.location.reload();
+            if (typeof window.siteNav.onSamePage === 'function') {
+                e.preventDefault();
+                window.siteNav.onSamePage(link.dataset.nav);
+            } else if (url.hash) {
+                e.preventDefault();
+                window.location.hash = url.hash;
+                window.location.reload();
+            }
         });
     }
 
-    document.querySelectorAll('.site-nav[data-current]').forEach(render);
-
-    // 메뉴 숫자 표시 (예: 대시보드가 받아 온 안 읽은 새 글 수)
     window.siteNav = {
+        // 같은 페이지 안의 메뉴를 눌렀을 때 페이지가 직접 처리 (키워드 게시판: 게시판·인기글 보기 바꾸기)
+        onSamePage: null,
+        // 지금 위치 표시 바꾸기 (키워드 게시판에서 인기글 보기면 '인기글')
+        setCurrent(key) {
+            document.querySelectorAll('.site-nav [data-nav]').forEach(a => {
+                const on = a.dataset.nav === key;
+                a.classList.toggle('is-current', on);
+                if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+            });
+        },
+        // 메뉴 숫자 표시 (예: 대시보드가 받아 온 안 읽은 새 글 수)
         setBadge(key, count) {
             document.querySelectorAll(`.site-nav [data-badge="${key}"]`).forEach(el => {
                 el.hidden = !count;
@@ -58,4 +72,6 @@
             });
         }
     };
+
+    document.querySelectorAll('.site-nav[data-current]').forEach(render);
 })();

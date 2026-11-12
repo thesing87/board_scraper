@@ -63,15 +63,29 @@ try:
     js("document.querySelector('.site-nav [data-nav=apt]').click()"); time.sleep(1)
     assert d.current_url == BASE + '/apt/'
 
-    # 게시판: 인기글은 같은 페이지라도 인기글 보기로 다시 엶
-    d.get(BASE + '/board/'); time.sleep(2)
-    js("document.querySelector('.site-nav [data-nav=popular]').click()"); time.sleep(2.5)
-    assert js("return app.filter") == 'popular', js("return app.filter")
-    # 휴대폰 게시판: 아래로 내리면 메뉴 줄도 상단 바와 함께 숨고, 올리면 다시 보임
-    d.set_window_size(390, 844)
-    d.get(BASE + '/board/'); time.sleep(2)
-    bar = "document.querySelector('.topbar')"
-    assert js(f"return {bar}.contains(document.querySelector('.site-nav'))")
+    # 인기글·게시판: 넓은 화면·휴대폰 모두, 다른 페이지에서 와도 게시판 안에서 눌러도 그 보기로 열리고 메뉴 표시도 맞음
+    current = lambda: js("return document.querySelector('.site-nav [aria-current=page]').dataset.nav")
+    for width in (1280, 390):
+        d.set_window_size(width, 900)
+        d.get(BASE + '/stats/'); time.sleep(1.2)
+        js("document.querySelector('.site-nav [data-nav=popular]').click()"); time.sleep(2.5)
+        assert d.current_url == BASE + '/board/'
+        assert js("return app.filter") == 'popular' and current() == 'popular', (width, js("return app.filter"), current())
+        assert js("return !!document.querySelector('.popular-grid, .popular-tools')")
+        # 게시판 안에서 '게시판': 페이지를 다시 읽지 않고 게시판 첫 보기로 (마지막 보기였던 인기글로 돌아가지 않음)
+        js("window.__noReload = 1")
+        js("document.querySelector('.site-nav [data-nav=board]').click()"); time.sleep(1.5)
+        assert js("return window.__noReload") == 1
+        assert js("return app.filter") != 'popular' and current() == 'board', (width, js("return app.filter"))
+        # 다시 '인기글'
+        js("document.querySelector('.site-nav [data-nav=popular]').click()"); time.sleep(1.5)
+        assert js("return window.__noReload") == 1 and js("return app.filter") == 'popular' and current() == 'popular'
+        # 다른 페이지에서 '게시판'으로 오면 인기글이 아닌 게시판 첫 보기
+        d.get(BASE + '/'); time.sleep(1.2)
+        js("document.querySelector('.site-nav [data-nav=board]').click()"); time.sleep(2.5)
+        assert js("return app.filter") != 'popular' and current() == 'board', (width, js("return app.filter"))
+    # 휴대폰 게시판: 메뉴 줄은 상단 바 안에 있어 스크롤하면 함께 숨고 다시 보임
+    assert js("return document.querySelector('.topbar').contains(document.querySelector('.site-nav'))")
     print('LINKS OK')
 finally:
     d.quit()
