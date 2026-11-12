@@ -51,12 +51,14 @@ button, select, input { font: inherit; }
 .range-bar .mark { position: absolute; top: -3px; width: 3px; height: 12px; margin-left: -1.5px; border-radius: 2px; }
 .range-bar .mark.is-avg { background: #8B919C; }
 .range-bar .mark.is-latest { background: #C81E1E; box-shadow: 0 0 0 2px #FFFFFF; }
-.range-scale { position: relative; display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; font-size: 11px; color: #8B919C; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.range-scale .is-avg { color: #5F6673; }
-/* 평균 글자는 막대의 평균 표시 밑 (위치는 placeRangeLabels). 최저·최고 글자와 겹치면 한 줄 아래로 */
-.range-scale .is-avg[data-pos] { position: absolute; top: 0; left: 0; font-weight: 700; }
-.range-scale.is-stacked { padding-bottom: 17px; }
-.range-scale.is-stacked .is-avg[data-pos] { top: 17px; }
+/* 막대 아래 네 칸: 최저 · 평균 · 최근 · 최고 (칸이 고정이라 가격 위치와 상관없이 겹치지 않음) */
+.range-cells { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.range-cells .cell { min-width: 0; font-size: 11px; color: #8B919C; white-space: nowrap; }
+.range-cells .cell b { display: block; margin-top: 1px; font-size: 12px; font-weight: 700; color: #111827; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+.range-cells .cell.is-end { text-align: right; }
+.range-cells .dot { display: inline-block; width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; vertical-align: 0; }
+.range-cells .dot.is-avg { background: #8B919C; }
+.range-cells .dot.is-latest { background: #C81E1E; }
 .watch-row:first-child { border-top: 0; }
 .watch-row:hover .watch-name { color: var(--accent); }
 .watch-name { font-size: 15px; font-weight: 700; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
