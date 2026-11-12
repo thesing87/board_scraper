@@ -27,3 +27,29 @@ header:has(> .site-nav) { flex-wrap: wrap; }
 .is-compact .site-nav-short { display: inline; }
 .is-compact .site-nav-badge { position: absolute; top: 0; left: calc(50% + 6px); min-width: 14px; height: 14px; padding: 0 3px;
     border-radius: 7px; background: #E24B4A; color: #FFFFFF; font-size: 9px; line-height: 14px; text-align: center; }
+
+/* 모든 페이지 공통 상단 바 (키워드 게시판의 상단 바와 같은 구성): 화면 위에 고정, 제목 줄 + 바로가기 줄.
+   휴대폰에서는 아래로 내리면 위로 숨고 위로 올리면 다시 보임 (nav.js) */
+.site-top { position: sticky; top: 0; z-index: 50; padding-top: env(safe-area-inset-top); background: var(--surface, #FFFFFF);
+    border-bottom: 1px solid var(--border, #E5E7EB); transition: transform 0.2s ease; }
+.site-top.is-hidden { transform: translateY(-100%); }
+.site-top-row { height: 56px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.site-top-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.site-top-mark { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 8px; color: #FFFFFF; display: flex; align-items: center; justify-content: center; }
+.site-top-mark svg { width: 16px; height: 16px; }
+.site-top h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text, #111827); }
+.site-top-tools { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.site-top > .site-nav { margin: -4px 0 0; padding: 0 20px 8px; }
+.site-top > .site-nav.is-compact { margin: 0 12px 8px; padding: 3px; }
+@media (max-width: 899px) {
+    .site-top-row { height: 60px; padding: 0 8px 0 16px; }
+    .site-top-mark { display: none; }
+    .site-top h1 { font-size: 18px; }
+}
+@media (prefers-reduced-motion: reduce) { .site-top { transition: none; } }
+
+/* 휴대폰에서 뒤로 가기 한 번 눌렀을 때 안내 (한 번 더 누르면 종료) */
+.nav-exit-toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 96px); z-index: 2000; max-width: calc(100vw - 32px);
+    padding: 10px 16px; border-radius: 999px; background: rgba(17, 24, 39, .88); color: #FFFFFF; font-size: 13px; font-weight: 600;
+    white-space: nowrap; pointer-events: none; opacity: 0; transform: translate(-50%, 8px); transition: opacity .2s, transform .2s; }
+.nav-exit-toast.is-shown { opacity: 1; transform: translate(-50%, 0); }

@@ -23,7 +23,7 @@ button { height: 36px; padding: 0 12px; border: 1px solid var(--border); border-
 button.primary { background: var(--accent-dark); border-color: var(--accent-dark); color: #fff; font-weight: 700; }
 button:disabled { opacity: .6; cursor: default; }
 
-.page { max-width: 720px; margin: 0 auto; padding: calc(env(safe-area-inset-top) + 20px) 18px calc(env(safe-area-inset-bottom) + 40px); }
+.page { max-width: 720px; margin: 0 auto; padding: 18px 18px calc(env(safe-area-inset-bottom) + 40px); }
 .top { display: flex; align-items: center; gap: 6px; margin-bottom: 14px; }
 .top h1 { flex: 1 1 auto; margin: 0; font-size: 19px; font-weight: 800; letter-spacing: -0.3px; }
 .back { display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 8px; color: var(--muted); }

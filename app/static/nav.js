@@ -74,4 +74,102 @@
     };
 
     document.querySelectorAll('.site-nav[data-current]').forEach(render);
+
+    // 공통 상단 바(.site-top): 휴대폰에서 아래로 내리면 숨기고 위로 올리면 다시 보임 (키워드 게시판 상단 바와 같은 동작).
+    // 보이는 높이를 --site-top-offset으로 알려, 그 아래에 붙는 요소(유지비 요약 등)가 가려지지 않게 함
+    const top = document.querySelector('.site-top');
+    if (top) {
+        const mobile = window.matchMedia('(max-width: 899px)');
+        let lastY = window.scrollY;
+        const update = () => {
+            const y = window.scrollY;
+            const hide = mobile.matches && y > top.offsetHeight && y > lastY;
+            const show = !mobile.matches || y <= top.offsetHeight || y < lastY - 4;
+            if (hide) top.classList.add('is-hidden');
+            else if (show) top.classList.remove('is-hidden');
+            if (Math.abs(y - lastY) > 4 || hide || show) lastY = y;
+            document.documentElement.style.setProperty('--site-top-offset', (top.classList.contains('is-hidden') ? 0 : top.offsetHeight) + 'px');
+        };
+        window.addEventListener('scroll', update, { passive: true });
+        mobile.addEventListener('change', update);
+        new ResizeObserver(update).observe(top);
+        update();
+    }
+
+    // ==========================================
+    // 휴대폰: 페이지(탭)를 옮겨도 뒤로 가기 기록이 쌓이지 않게 하고, 뒤로 가기를 두 번 연달아 누르면 앱 종료
+    // ==========================================
+    // 방문 기록을 [이 페이지(기준) → 지키는 칸] 두 칸으로 유지함
+    //  - 다른 페이지로 갈 때: 기준 칸까지 돌아간 뒤 그 칸을 새 페이지로 바꿔 씀 (기록이 늘지 않음)
+    //  - 뒤로 가기 1번: 지키는 칸이 빠지며 기준 칸에 닿으면 안내를 띄우고 지키는 칸을 다시 넣음
+    //  - 2초 안에 한 번 더: 기준 칸에서 한 칸 더 뒤로 → 앱의 첫 기록이므로 앱이 닫힘 (브라우저에서는 이전 사이트로)
+    // 게시판의 글 링크(#post-)·실거래가 단지(#w-)처럼 페이지 안에서 쌓는 기록은 지키는 칸 뒤에 쌓여 지금처럼 동작함
+    const EXIT_WINDOW_MS = 2000;
+    const PENDING_KEY = 'nav_pending_url';
+    const appLike = window.matchMedia('(max-width: 899px)').matches || window.matchMedia('(display-mode: standalone)').matches;
+    if (!appLike) return;
+
+    const isBase = state => !!(state && state.navBase);
+    const pending = () => { try { return sessionStorage.getItem(PENDING_KEY); } catch (e) { return null; } };
+    const setPending = url => { try { if (url) sessionStorage.setItem(PENDING_KEY, url); else sessionStorage.removeItem(PENDING_KEY); } catch (e) { /* 저장 불가: 바로 이동 */ } };
+
+    // 새로 연 페이지면 두 칸을 만듦. 새로고침·앞뒤 이동으로 다시 열린 페이지는 이미 칸이 있음
+    const navType = (performance.getEntriesByType('navigation')[0] || {}).type;
+    if (isBase(history.state)) {
+        history.pushState({ navGuard: 1 }, '', window.location.href);
+    } else if (navType !== 'reload' && navType !== 'back_forward') {
+        history.replaceState({ navBase: 1 }, '', window.location.href);
+        history.pushState({ navGuard: 1 }, '', window.location.href);
+    }
+    setPending(null);
+
+    function goTo(url) {
+        if (isBase(history.state)) { window.location.replace(url); return; }
+        setPending(url);
+        history.back();
+    }
+
+    let toast = null, toastTimer = 0, lastBackAt = 0, hops = 0;
+    function showExitHint() {
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.className = 'nav-exit-toast';
+            toast.setAttribute('role', 'status');
+            toast.textContent = '뒤로 버튼을 한 번 더 누르면 종료됩니다';
+            document.body.appendChild(toast);
+        }
+        toast.classList.add('is-shown');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('is-shown'), EXIT_WINDOW_MS);
+    }
+
+    window.addEventListener('popstate', e => {
+        const url = pending();
+        if (url) {
+            // 다른 페이지로 가는 중: 기준 칸까지 계속 뒤로 간 뒤 그 칸을 새 페이지로 바꿈 (칸을 못 찾으면 그냥 이동)
+            if (isBase(e.state) || ++hops > 20) { setPending(null); window.location.replace(url); }
+            else history.back();
+            return;
+        }
+        if (!isBase(e.state)) return;
+        const now = Date.now();
+        if (now - lastBackAt < EXIT_WINDOW_MS) {
+            history.back();
+            return;
+        }
+        lastBackAt = now;
+        history.pushState({ navGuard: 1 }, '', window.location.href);
+        showExitHint();
+    });
+
+    // 다른 페이지로 가는 링크(바로가기 메뉴·대시보드 카드 등)는 기록을 쌓지 않고 이동
+    document.addEventListener('click', e => {
+        if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+        const link = e.target.closest('a[href]');
+        if (!link || (link.target && link.target !== '_self') || link.hasAttribute('download')) return;
+        const url = new URL(link.href, window.location.href);
+        if (url.origin !== window.location.origin || url.pathname === window.location.pathname) return;
+        e.preventDefault();
+        goTo(url.href);
+    });
 })();

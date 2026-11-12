@@ -13,12 +13,11 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--ink);
   font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;}
-.wrap{max-width:480px;margin:0 auto;padding:calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 32px)}
-header h1{font-size:20px;margin:4px 2px 2px;letter-spacing:-.3px}
-header p{margin:0 2px 14px;color:var(--sub);font-size:13px}
+.wrap{max-width:480px;margin:0 auto;padding:14px 16px calc(env(safe-area-inset-bottom) + 32px)}
+.intro{margin:0 2px 12px;color:var(--sub);font-size:13px}
 
 /* summary */
-.summary{background:var(--ink);color:#fff;border-radius:var(--radius);padding:18px;position:sticky;top:8px;z-index:5;box-shadow:0 8px 24px rgba(0,0,0,.12)}
+.summary{background:var(--ink);color:#fff;border-radius:var(--radius);padding:18px;position:sticky;top:calc(var(--site-top-offset, 0px) + 8px);transition:top .2s ease;z-index:5;box-shadow:0 8px 24px rgba(0,0,0,.12)}
 .summary .label{font-size:12px;opacity:.7}
 .summary .big{font-size:26px;font-weight:800;letter-spacing:-.5px;margin:2px 0 12px}
 .summary .big b{color:#5ee0b8}
@@ -77,23 +76,17 @@ svg text{font-family:inherit}
 footer{color:var(--sub);font-size:11px;text-align:center;margin-top:18px;line-height:1.6}
 .reset{display:block;margin:14px auto 0;border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 16px;font-size:13px;color:var(--sub)}
 /* 대시보드로 돌아가기 */
-header>.site-nav.site-nav{margin:6px 0 10px;width:max-content}header>.site-nav.is-compact{width:auto}
 .back{display:inline-flex;align-items:center;gap:4px;margin:0 0 10px;padding:6px 10px 6px 6px;border-radius:999px;background:#fff;color:var(--sub);font-size:13px;text-decoration:none;border:1px solid var(--line)}
 .back:hover{color:var(--ink)}
 /* 휴대폰: 요약은 지금처럼 기준 → 절약액 → 막대 → 기간 순 (km당 비용 칸은 아래 카드에 있어 숨김) */
 .summary{display:flex;flex-direction:column}
 .sum-main,.sum-side{display:contents}
 .summary .label{order:1}.summary .big{order:2}.summary .bars{order:3}.summary .period{order:4}
-.sum-mets,header .mark{display:none}
+.sum-mets{display:none}
 /* 데스크탑: 다른 페이지처럼 넓게. 위 요약, 가운데 입력 카드 세 칸, 아래 차트 두 칸 */
 @media (min-width:821px){
-  .wrap{max-width:1120px;padding:24px 24px 40px}
-  header{display:flex;flex-direction:column}
-  header h1{display:flex;align-items:center;gap:10px;margin:0;font-size:20px;font-weight:800}
-  header .mark{display:flex;width:32px;height:32px;border-radius:9px;background:var(--ev);color:#fff;align-items:center;justify-content:center}
-  header .emo{display:none}
-  header p{margin:6px 0 0}
-  header>.site-nav.site-nav{margin:12px 0 16px;width:auto}
+  .wrap{max-width:1120px;padding:20px 24px 40px}
+  .intro{margin:0 0 14px}
   .summary{position:static;display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:28px;align-items:center;
     padding:20px 24px;background:var(--ev-soft);color:#0b3d31;box-shadow:none}
   .sum-main,.sum-side{display:block}
@@ -121,12 +114,18 @@ header>.site-nav.site-nav{margin:6px 0 10px;width:max-content}header>.site-nav.i
 <script src="/ev.js" defer></script>
 </head>
 <body>
+    <!-- 공통 상단 바: 키워드 게시판과 같은 구성 (제목 줄 + 바로가기 줄, 화면 위에 고정. nav.css·nav.js) -->
+    <header class="site-top">
+        <div class="site-top-row">
+            <div class="site-top-brand">
+                <span class="site-top-mark" style="background:#0F9D7A" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"></path></svg></span>
+                <h1>전기차 vs 내연기관</h1>
+            </div>
+        </div>
+        <nav class="site-nav" data-current="ev"></nav>
+    </header>
 <div class="wrap">
-  <header>
-    <h1><span class="mark" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"></path></svg></span><span class="emo">⚡ </span>전기차 vs <span class="emo">⛽ </span>내연기관</h1>
-    <nav class="site-nav" data-current="ev"></nav>
-    <p>전비·충전비·연비·유류비를 바꿔가며 유지비를 비교해보세요.</p>
-  </header>
+  <p class="intro">전비·충전비·연비·유류비를 바꿔가며 유지비를 비교해보세요.</p>
 
   <section class="summary" aria-live="polite">
     <div class="sum-main">

@@ -14,21 +14,22 @@
     <script src="/dashboard.js" defer></script>
 </head>
 <body>
-    <main class="dash">
-        <header class="dash-top">
-            <div class="dash-logo">
-                <span class="dash-mark" aria-hidden="true">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="#FFFFFF"><rect x="4" y="4" width="7" height="7" rx="1.5"></rect><rect x="13" y="4" width="7" height="7" rx="1.5"></rect><rect x="4" y="13" width="7" height="7" rx="1.5"></rect><rect x="13" y="13" width="7" height="7" rx="1.5"></rect></svg>
-                </span>
+    <!-- 공통 상단 바: 키워드 게시판과 같은 구성 (제목 줄 + 바로가기 줄, 화면 위에 고정. nav.css·nav.js) -->
+    <header class="site-top">
+        <div class="site-top-row">
+            <div class="site-top-brand">
+                <span class="site-top-mark" style="background:#2563EB" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"></rect><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"></rect><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"></rect><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"></rect></svg></span>
                 <h1>대시보드</h1>
             </div>
-            <nav class="site-nav" data-current="home"></nav>
-            <div class="dash-tools">
+            <div class="site-top-tools">
                 <span class="dash-clock" id="dash-clock"></span>
                 <button type="button" class="tool-btn" id="layout-reset" hidden>기본값</button>
                 <button type="button" class="tool-btn" id="layout-edit" aria-pressed="false">편집</button>
             </div>
-        </header>
+        </div>
+        <nav class="site-nav" data-current="home"></nav>
+    </header>
+    <main class="dash">
 
         <div class="dash-grid" id="dash-grid">
             <!-- 키워드 게시판: 안 읽은 새 글·새 댓글·오늘 수집, 새 글 있는 게시판, 최근 수집 글, 수집 상태 (dashboard.js renderBoard) -->
