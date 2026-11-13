@@ -52,6 +52,19 @@ a { color: inherit; text-decoration: none; }
 .card-icon.is-stats { background: var(--accent-weak); color: var(--accent); }
 .card-icon.is-popular { background: var(--orange-weak); color: var(--orange); }
 .card-icon.is-apt { background: var(--ev-weak); color: var(--ev); }
+.card-icon.is-games { background: #FDF0E1; color: #B45309; }
+/* 게임 카드: 스도쿠 한 줄 (누르면 바로 스도쿠) */
+.game-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-muted); }
+.game-row:hover .game-name { color: var(--accent); }
+.game-mini { flex: 0 0 auto; width: 40px; height: 40px; border-radius: 8px; background: #FBF8F1; border: 1.5px solid #2B2B2B;
+    background-image: linear-gradient(#2B2B2B, #2B2B2B), linear-gradient(#2B2B2B, #2B2B2B), linear-gradient(90deg, #2B2B2B, #2B2B2B), linear-gradient(90deg, #2B2B2B, #2B2B2B);
+    background-size: 100% 1px, 100% 1px, 1px 100%, 1px 100%; background-position: 0 33.3%, 0 66.6%, 33.3% 0, 66.6% 0; background-repeat: no-repeat; }
+.game-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.game-name { font-size: 14px; font-weight: 700; }
+.game-line { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.game-bar { height: 6px; border-radius: 4px; background: var(--border); overflow: hidden; margin-top: 4px; }
+.game-bar i { display: block; height: 100%; background: #1F4E9C; border-radius: 4px; }
+.game-go { flex: 0 0 auto; height: 30px; padding: 0 12px; border-radius: 999px; background: #2B2B2B; color: #FBF8F1; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; }
 /* 아파트 실거래가 카드: 단지·면적·계약일 / 추이선 / 금액·직전 대비 (오르면 빨강, 내리면 파랑) */
 .apt-rows { display: flex; flex-direction: column; }
 .apt-row { display: block; padding: 10px 0; border-top: 1px solid var(--divider); min-width: 0; }

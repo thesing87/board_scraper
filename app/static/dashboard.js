@@ -338,7 +338,8 @@ const LAYOUT_KEY = 'dashboard_layout_v1';
 const COLUMNS = 12;
 const MIN_COLUMNS = 3;
 const DEFAULT_LAYOUT = [{ id: 'card-board', w: 7, h: null }, { id: 'card-ev', w: 5, h: null }, { id: 'card-benefit', w: 5, h: null },
-                        { id: 'card-stats', w: 7, h: null }, { id: 'card-apt', w: 5, h: null }, { id: 'card-popular', w: 12, h: null }];
+                        { id: 'card-stats', w: 7, h: null }, { id: 'card-apt', w: 5, h: null }, { id: 'card-popular', w: 12, h: null },
+                        { id: 'card-games', w: 5, h: null }];
 const MIN_HEIGHT = 120, MAX_HEIGHT = 1200, HEIGHT_STEP = 10;
 const narrowScreen = window.matchMedia('(max-width: 820px)');
 const grid = $('dash-grid');
@@ -588,8 +589,28 @@ DEFAULT_LAYOUT.forEach(({ id }) => new ResizeObserver(syncRowSpans).observe(card
 new ResizeObserver(() => fitBoardPosts()).observe(cardOf('card-board'));
 narrowScreen.addEventListener('change', applyLayout);
 
+// ==========================================
+// 게임 카드: 스도쿠 진행 상태·기록 (스도쿠가 이 기기에 저장한 값, 요약은 games.js sudokuSummary)
+// ==========================================
+function renderGames() {
+    if (!window.sudokuSummary) return;
+    const s = window.sudokuSummary();
+    $('games-body').innerHTML = `
+        <a class="game-row" href="/games/sudoku/">
+            <span class="game-mini" aria-hidden="true"></span>
+            <span class="game-text">
+                <span class="game-name">스도쿠</span>
+                <span class="game-line">${esc(s.status)}${s.mistakes ? ` · 실수 ${s.mistakes}` : ''}</span>
+                ${s.playing ? `<span class="game-bar"><i style="width:${Math.round(s.progress * 100)}%"></i></span>` : ''}
+                ${s.records ? `<span class="game-line">${esc(s.records)}</span>` : ''}
+            </span>
+            <span class="game-go">${s.playing ? '이어서' : '시작'}</span>
+        </a>`;
+}
+
 // 카드 내용을 새로 그린 뒤에는 최소 높이(내용 높이)가 달라질 수 있어 높이를 다시 맞춤
 function loadAll() {
+    renderGames();
     return Promise.all([loadBoard(), loadBenefit(), loadPopular(), loadApt()]).then(applyLayout);
 }
 
@@ -601,5 +622,5 @@ applyLayout();
 setInterval(() => { renderClock(); loadAll(); }, REFRESH_MS);
 // 계산기에서 값을 바꾸고 돌아오면(다른 탭 포함) 다시 계산
 window.addEventListener('storage', e => { if (e.key === 'evice') renderEv(); });
-window.addEventListener('pageshow', renderEv);
+window.addEventListener('pageshow', () => { renderEv(); renderGames(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderClock(); renderEv(); loadAll(); } });

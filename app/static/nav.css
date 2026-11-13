@@ -16,7 +16,7 @@ header:has(> .site-nav) { flex-wrap: wrap; }
 .is-current .site-nav-badge { color: #FFFFFF; }
 
 /* 휴대폰: 아이콘 + 짧은 이름 일곱 칸 (화면 폭에 맞게 나뉨) */
-.site-nav.is-compact { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; margin-top: 8px; padding: 3px;
+.site-nav.is-compact { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 2px; margin-top: 8px; padding: 3px;
     border: 1px solid var(--border, #E5E7EB); border-radius: 12px; background: var(--surface, #FFFFFF); }
 .is-compact .site-nav-item { flex-direction: column; justify-content: center; gap: 2px; height: auto; padding: 5px 0 4px;
     border: 0; border-radius: 9px; background: none; font-size: 10.5px; }

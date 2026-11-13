@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/dashboard.css">
     <link rel="stylesheet" href="/nav.css">
     <script src="/nav.js" defer></script>
+    <script src="/games.js" defer></script>
     <script src="/dashboard.js" defer></script>
 </head>
 <body>
@@ -120,6 +121,21 @@
                     <span class="card-open">열기<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg></span>
                 </a>
                 <div class="card-body" id="stats-body"><div class="skeleton"></div></div>
+            </section>
+
+            <!-- 게임: 스도쿠 진행 상태·기록 (이 기기에 저장된 값, dashboard.js renderGames) -->
+            <section class="card" id="card-games" aria-labelledby="games-title">
+                <a class="card-head" href="/games/">
+                    <span class="card-icon is-games" aria-hidden="true">
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="7" width="19" height="11" rx="5.5"></rect><path d="M7 11v3M5.5 12.5h3M15.5 11.5h.01M17.5 13.8h.01"></path></svg>
+                    </span>
+                    <span class="card-name">
+                        <span class="card-title" id="games-title">게임</span>
+                        <span class="card-sub">스도쿠</span>
+                    </span>
+                    <span class="card-open">열기<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg></span>
+                </a>
+                <div class="card-body" id="games-body"></div>
             </section>
         </div>
     </main>

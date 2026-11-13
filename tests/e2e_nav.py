@@ -21,8 +21,8 @@ BASE = f'http://127.0.0.1:{port}'
 srv = web_server.ThreadedHTTPServer(('127.0.0.1', port), web_server.KeywordAPIServer)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 
-PAGES = {'/': 'home', '/card/': 'card', '/apt/': 'apt', '/stats/': 'stats', '/ev/': 'ev', '/board/': 'board'}
-KEYS = ['home', 'board', 'popular', 'apt', 'card', 'ev', 'stats']
+PAGES = {'/': 'home', '/card/': 'card', '/apt/': 'apt', '/stats/': 'stats', '/ev/': 'ev', '/board/': 'board', '/games/': 'games', '/games/sudoku/': 'games'}
+KEYS = ['home', 'board', 'popular', 'apt', 'card', 'ev', 'games', 'stats']
 o = Options()
 for a in ['--headless=new', '--window-size=1280,900']:
     o.add_argument(a)
@@ -46,7 +46,7 @@ try:
             shapes.add(js("const a=document.querySelector('.site-nav [data-nav=card]'), r=a.getBoundingClientRect(), s=getComputedStyle(a);"
                           " return [Math.round(r.height), s.fontSize, s.borderRadius, a.closest('.is-compact') ? 0 : Math.round(r.width)].join('|')"))
             names = js("return [...document.querySelectorAll('.site-nav-short')].filter(e => e.offsetWidth > 0).length")
-            assert names == (7 if compact else 0), (path, names)
+            assert names == (len(KEYS) if compact else 0), (path, names)
         assert len(shapes) == 1, (width, shapes)
     print('PAGES OK')
 

@@ -145,6 +145,14 @@ STATIC_FILES = {
     '/apt.js': ('apt.js', 'application/javascript; charset=utf-8'),
     '/apt-regions.js': ('apt-regions.js', 'application/javascript; charset=utf-8'),
     '/apt.css': ('apt.css', 'text/css; charset=utf-8'),
+    # 게임 (목록 /games/, 스도쿠 /games/sudoku/)
+    '/games/': ('games.html', 'text/html; charset=utf-8'),
+    '/games.js': ('games.js', 'application/javascript; charset=utf-8'),
+    '/games.css': ('games.css', 'text/css; charset=utf-8'),
+    '/games/sudoku/': ('sudoku.html', 'text/html; charset=utf-8'),
+    '/sudoku.js': ('sudoku.js', 'application/javascript; charset=utf-8'),
+    '/sudoku-engine.js': ('sudoku-engine.js', 'application/javascript; charset=utf-8'),
+    '/sudoku.css': ('sudoku.css', 'text/css; charset=utf-8'),
     # 모든 페이지 공통 바로가기 메뉴
     '/nav.js': ('nav.js', 'application/javascript; charset=utf-8'),
     '/nav.css': ('nav.css', 'text/css; charset=utf-8'),
@@ -432,7 +440,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         try:
             if pure_path in STATIC_FILES:
                 self._serve_static(*STATIC_FILES[pure_path])
-            elif pure_path in ('/board', '/ev', '/card', '/stats', '/apt'):
+            elif pure_path in ('/board', '/ev', '/card', '/stats', '/apt', '/games', '/games/sudoku'):
                 # 끝 슬래시 없이 들어오면 붙여서 (페이지 안의 상대 주소가 맞도록)
                 self._send_body(301, b'', 'text/plain; charset=utf-8', {'Location': pure_path + '/'})
             elif pure_path in ('/index.html/board', '/index.html/board/'):
