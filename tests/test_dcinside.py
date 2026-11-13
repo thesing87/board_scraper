@@ -246,3 +246,19 @@ storage.mark_blocked_imagecons_refetched()
 assert storage.posts_with_blocked_imagecons() == []
 print('IMAGECON REFETCH OK')
 print('DCINSIDE OK')
+
+# 디시 지연 로딩: '불러오는 중' 그림으로 저장된 글 찾기 (기동 시 1회 다시 수집)
+import json as _json
+storage.init_db()
+_rows = [('dc-car_new1-901', ['<img src="/images/dc-car_new1-901/2-78827add6c.gif">']),
+         ('dc-car_new1-902', ['<img src="/images/dc-car_new1-902/0-1234567890.jpg">']),
+         ('10900000001', ['<img src="/images/x/2-78827add6c.gif">'])]
+with storage._db() as _conn, _conn:
+    for _pid, _content in _rows:
+        _conn.execute("INSERT INTO posts(id, title, link, created_at, updated_at) VALUES(?, 't', ?, '2026-11-13 00:00:00', '2026-11-13 00:00:00')", (_pid, '/' + _pid))
+        _conn.execute("INSERT INTO post_bodies(post_id, content_json) VALUES(?, ?)", (_pid, _json.dumps(_content)))
+assert [p['id'] for p in storage.posts_with_dc_loading_images()] == ['dc-car_new1-901']
+storage.mark_dc_loading_images_refetched()
+assert storage.posts_with_dc_loading_images() == []
+assert 'gallview_loading' in dcinside.LOAD_LAZY_IMAGES_JS and 'data-original' in dcinside.LOAD_LAZY_IMAGES_JS
+print('DC LAZY IMAGES OK')

@@ -1815,6 +1815,28 @@ def mark_blocked_imagecons_refetched():
     with _db() as conn, conn:
         _set_meta(conn, BLOCKED_IMAGECONS_META, '1')
 
+# 디시 지연 로딩 때문에 3번째 이미지부터 '불러오는 중' 그림(gallview_loading_ori.gif, 저장 파일 이름의 내용 해시가 아래 값)으로
+# 저장된 디시 글. 고친 수집기로 한 번 다시 수집함 (기동 시 1회, fmkorea-scraper.py)
+DC_LOADING_IMAGE_HASH = '78827add6c'
+DC_LOADING_IMAGES_META = 'dc_loading_images_refetched'
+
+def posts_with_dc_loading_images():
+    """'불러오는 중' 그림이 본문 이미지로 저장된 디시 글 [{id, link, title, author, date, list_comment_count}].
+    이미 한 번 처리했으면 빈 목록"""
+    with _db() as conn:
+        if _get_meta(conn, DC_LOADING_IMAGES_META):
+            return []
+        rows = conn.execute("""
+            SELECT p.id, p.link, p.title, p.author, p.date, p.list_comment_count FROM posts p
+            JOIN post_bodies b ON b.post_id = p.id
+            WHERE p.id LIKE 'dc-%' AND p.is_deleted = 0 AND b.content_json LIKE ?
+        """, (f'%-{DC_LOADING_IMAGE_HASH}.%',)).fetchall()
+    return [dict(r) for r in rows]
+
+def mark_dc_loading_images_refetched():
+    with _db() as conn, conn:
+        _set_meta(conn, DC_LOADING_IMAGES_META, '1')
+
 def remove_stored_duplicate_instagram_placeholders():
     """이미 저장된 글 중 인스타그램 게시물 화면(iframe)과 같은 게시물의 임시 상자가 함께 남은 글에서 상자를 1회 정리"""
     from bs4 import BeautifulSoup

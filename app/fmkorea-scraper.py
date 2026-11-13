@@ -57,6 +57,8 @@ from storage import (
     prune_old_posts,
     existing_post_ids,
     posts_with_blocked_imagecons,
+    posts_with_dc_loading_images,
+    mark_dc_loading_images_refetched,
     first_page_filled_keys,
     mark_first_page_filled,
     fill_keyword_posts,
@@ -373,6 +375,26 @@ def refetch_blocked_imagecon_posts(driver):
     if posts:
         log_msg(f"[DB] '삭제된 이미지콘'으로 저장된 글 다시 수집: {fixed}/{len(posts)}건")
 
+def refetch_dc_loading_image_posts(driver):
+    """디시 지연 로딩 때문에 '불러오는 중' 그림이 이미지로 저장된 디시 글을 한 번 다시 수집 (기동 시 1회).
+    글마다 진행 시각을 남겨 수집기 멈춤 감시가 오해하지 않게 함"""
+    posts = posts_with_dc_loading_images()
+    fixed = 0
+    for old in posts:
+        runtime_status.update(progress_at=runtime_status.now())
+        try:
+            updated = scrape_post_detail(driver, old)
+            if updated is None:
+                continue
+            updated['list_comment_count'] = old['list_comment_count']
+            update_post(updated)
+            fixed += 1
+        except Exception as e:
+            log_msg(f"[DB] #{old['id']} 디시 이미지 다시 수집 실패: {short_err(e)}", "WARN")
+    mark_dc_loading_images_refetched()
+    if posts:
+        log_msg(f"[DB] '불러오는 중' 그림으로 저장된 디시 글 다시 수집: {fixed}/{len(posts)}건")
+
 def run_daily_maintenance():
     """하루 한 번 DB 백업과 오래된 글 정리. 실패해도 수집은 계속 (단계마다 진행 시각을 남겨 멈춤 감시가 오해하지 않게)"""
     runtime_status.update(progress_at=runtime_status.now())
@@ -518,6 +540,10 @@ def main():
         refetch_blocked_imagecon_posts(driver)
     except Exception as fix_err:
         log_msg(f"[DB] 이미지콘 복구 실패: {short_err(fix_err)}", "WARN")
+    try:
+        refetch_dc_loading_image_posts(driver)
+    except Exception as fix_err:
+        log_msg(f"[DB] 디시 이미지 다시 수집 실패: {short_err(fix_err)}", "WARN")
 
     log_msg(f"[시스템] 모니터링 시작 (주기 {CHECK_INTERVAL}초)")
 

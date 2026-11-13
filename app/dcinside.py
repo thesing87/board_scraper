@@ -27,8 +27,25 @@ DELETED_PAGE_PHRASES = ('삭제했거나 존재하지 않는', '삭제된 게시
 LINK_STYLE = "color: #1877f2; text-decoration: underline; font-weight: bold;"
 # 저장한 본문 이미지 모양 (에펨코리아 본문 이미지와 같게)
 IMAGE_STYLE = "width: 100%; height: auto; border-radius: 6px; margin-top: 8px; display: block;"
-# 본문 이미지가 다 받아질 때까지 기다리는 최대 시간
+# 본문 이미지가 다 받아질 때까지 기다리는 최대 시간 (이미지가 많으면 장당 조금씩 더, 최대 IMAGE_WAIT_MAX초)
 IMAGE_WAIT_SECONDS = 6
+IMAGE_WAIT_PER_IMAGE = 0.4
+IMAGE_WAIT_MAX = 20
+# 디시는 3번째 이미지부터 화면을 내려야 불러옴(지연 로딩): 처음에는 '불러오는 중' 그림을 보여 주고 진짜 주소는 data-original에 둠.
+# 수집용 크롬은 화면을 내리지 않으므로 진짜 주소로 바꿔 바로 불러오게 함. 그래도 이 그림이면 저장하지 않음 (원문 링크로)
+LAZY_PLACEHOLDER = 'gallview_loading'
+LOAD_LAZY_IMAGES_JS = """
+    let n = 0;
+    document.querySelectorAll('.write_div img[data-original]').forEach(img => {
+        const real = img.getAttribute('data-original');
+        if (real && (img.classList.contains('lazy') || (img.getAttribute('src') || '').includes('%s'))) {
+            img.classList.remove('lazy');
+            img.src = real;
+            n++;
+        }
+    });
+    return n;
+""" % LAZY_PLACEHOLDER
 
 def list_url(gallery, keyword=None, page=1):
     url = f"{BASE_URL}/board/lists/?id={quote(gallery)}"
@@ -205,15 +222,22 @@ def _save_body_images(driver, post_id):
     """본문 이미지를 크롬이 받은 파일 그대로 꺼내(CDP Page.getResourceContent) 저장. {본문 img 순번: 대시보드 주소}.
     디시 페이지가 정상적으로 받은 파일만 쓰며 따로 요청하지 않음. 실패한 이미지는 빠짐 (원문 링크로 대체됨)"""
     saved = {}
+    lazy = 0
+    try:
+        lazy = driver.execute_script(LOAD_LAZY_IMAGES_JS) or 0
+    except Exception as e:
+        log_msg(f"[수집] #{post_id} 지연 로딩 이미지 불러오기 실패: {short_err(e)}", "DEBUG")
     try:
         # 열린 직후에는 아직 받는 중일 수 있어 본문 이미지가 다 받아질 때까지 잠시 기다림
-        WebDriverWait(driver, IMAGE_WAIT_SECONDS).until(lambda d: d.execute_script(
+        wait = min(IMAGE_WAIT_MAX, IMAGE_WAIT_SECONDS + IMAGE_WAIT_PER_IMAGE * lazy)
+        WebDriverWait(driver, wait).until(lambda d: d.execute_script(
             "return [...document.querySelectorAll('.write_div img')].every(i => i.complete)"))
     except Exception:
         pass
     try:
         urls = driver.execute_script(
             "return [...document.querySelectorAll('.write_div img')].map(i => i.complete && i.naturalWidth ? (i.currentSrc || i.src) : '')")
+        urls = ['' if LAZY_PLACEHOLDER in (url or '') else url for url in urls]
         frame_id = driver.execute_cdp_cmd('Page.getFrameTree', {})['frameTree']['frame']['id']
     except Exception as e:
         log_msg(f"[수집] #{post_id} 이미지 목록 확인 실패: {short_err(e)}", "DEBUG")
