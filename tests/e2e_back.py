@@ -8,6 +8,7 @@ for name in [k for k in os.environ if k.startswith('KEYWORDS_')]:
 import storage, web_server
 from selenium.webdriver import Chrome
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 
 # 뒤로 가기: 페이지는 보통 브라우저처럼 이전 화면으로. 휴대폰의 대시보드(홈)에서는 두 번 연달아 누르면 종료(사이트에서 나감)
 storage.init_db()
@@ -27,6 +28,9 @@ o.add_argument('--headless=new')
 o.add_experimental_option('mobileEmulation', {'deviceMetrics': {'width': 390, 'height': 844, 'pixelRatio': 2}})
 d = Chrome(options=o)
 js = d.execute_script
+def touch():
+    # 실제로 화면을 누름 (스크립트로 누르면 사용자 입력으로 치지 않음)
+    d.find_element(By.CSS_SELECTOR, '.site-top h1').click(); time.sleep(.3)
 def menu(key):
     js(f"document.querySelector('.site-nav [data-nav={key}]').click()"); time.sleep(2)
 try:
@@ -48,6 +52,8 @@ try:
     print('BACK TO PREVIOUS OK')
 
     # 홈에서 뒤로 1번: 나가지 않고 안내, 2초 지나면 다시 처음부터
+    # (지키는 칸은 화면을 한 번 누른 뒤에 들어감: 크롬은 누르지 않은 페이지가 넣은 칸을 뒤로 가기에서 건너뜀)
+    touch()
     d.back(); time.sleep(.8)
     assert d.current_url == BASE + '/' and toast()
     time.sleep(2.5)
@@ -66,6 +72,7 @@ try:
     js("location.href = '/board/#post-901'"); time.sleep(2.5)
     menu('home')
     assert d.current_url == BASE + '/', d.current_url
+    touch()
     d.back(); time.sleep(.8)
     assert d.current_url == BASE + '/' and toast()
     d.back(); time.sleep(3)

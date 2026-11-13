@@ -203,10 +203,17 @@
         clearTimeout(toastTimer);
         toastTimer = setTimeout(() => toast.classList.remove('is-shown'), EXIT_WINDOW_MS);
     }
+    // 지키는 칸은 화면을 처음 누른 뒤에 넣음: 크롬은 사용자가 아무것도 누르지 않은 페이지가 넣은 기록 칸을 뒤로 가기에서
+    // 건너뛰어서, 열자마자 넣으면 뒤로 한 번에 바로 종료됐음 (앱을 열고 화면을 전혀 누르지 않은 채 뒤로 가면 여전히 한 번에 종료)
+    let armed = !!state().navGuard;
+    const arm = () => {
+        if (armed || !state().navHome) return;
+        armed = true;
+        history.pushState({ navGuard: 1, navDepth: state().navDepth + 1 }, '', window.location.href);
+    };
     if (isHome && !state().navGuard) {
-        const depth = state().navDepth;
         history.replaceState({ ...state(), navHome: 1 }, '', window.location.href);
-        history.pushState({ navGuard: 1, navDepth: depth + 1 }, '', window.location.href);
+        ['pointerup', 'touchend', 'click', 'keydown'].forEach(type => document.addEventListener(type, arm, { capture: true, passive: true }));
     }
     window.addEventListener('popstate', e => {
         const s = e.state || {};
@@ -219,6 +226,8 @@
             return;
         }
         lastBackAt = now;
+        // 이미 화면을 누른 적이 있는 페이지라 바로 다시 넣어도 건너뛰지 않음
+        armed = true;
         history.pushState({ navGuard: 1, navDepth: (s.navDepth || 0) + 1 }, '', window.location.href);
         showExitHint();
     });
