@@ -51,14 +51,24 @@ try:
     assert d.current_url == BASE + '/', d.current_url
     print('BACK TO PREVIOUS OK')
 
-    # 홈에서 뒤로 1번: 나가지 않고 안내, 2초 지나면 다시 처음부터
-    # (지키는 칸은 화면을 한 번 누른 뒤에 들어감: 크롬은 누르지 않은 페이지가 넣은 칸을 뒤로 가기에서 건너뜀)
+    # 홈에서 뒤로 1번: 나가지 않고 안내, 2초 지나고 화면을 누르면 다시 처음부터
+    # (지키는 칸은 화면을 누른 뒤에만 들어감: 크롬은 누르지 않은 채 넣은 칸 앞의 칸을 뒤로 가기에서 건너뜀)
     touch()
     d.back(); time.sleep(.8)
     assert d.current_url == BASE + '/' and toast()
+    assert js("return history.state && !history.state.navGuard"), '뒤로 1번 뒤에 화면을 누르지 않고 칸을 다시 넣음'
     time.sleep(2.5)
     assert not toast()
+    touch()
     d.back(); time.sleep(.8)
+    assert d.current_url == BASE + '/' and toast()
+    # 안내 뒤 화면을 누르고 다른 페이지에 갔다가 뒤로 돌아와도, 홈에서 뒤로 1번은 안내만
+    touch()
+    menu('card')
+    d.back(); time.sleep(1.5)
+    assert d.current_url == BASE + '/' and not toast(), d.current_url
+    d.back(); time.sleep(.8)
+    assert d.current_url == BASE + '/' and toast(), d.current_url
     assert d.current_url == BASE + '/' and toast()
     # 2초 안에 한 번 더: 사이트에서 나감 (앱이면 종료)
     d.back(); time.sleep(2)

@@ -161,7 +161,7 @@
     // ==========================================
     // 휴대폰·홈 화면 앱: 대시보드(홈)에서 뒤로 가기를 두 번 연달아 누르면 종료. 다른 페이지는 보통처럼 이전 화면으로.
     // ==========================================
-    //  - 홈을 열면 [홈 → 지키는 칸] 두 칸을 둠. 뒤로 1번: 지키는 칸이 빠지면 안내를 띄우고 다시 넣음
+    //  - 홈에서 화면을 누르면 [홈 → 지키는 칸] 두 칸을 둠. 뒤로 1번: 지키는 칸이 빠지면 안내 (칸은 화면을 다시 누르면 넣음)
     //  - 2초 안에 한 번 더: 이 탭의 첫 기록까지 한 번에 돌아간 뒤 한 칸 더 뒤로 → 앱의 첫 기록이므로 앱이 닫힘
     //    (홈에 오기 전에 다른 페이지를 거쳤어도 종료되게, 기록마다 몇 번째인지(navDepth)를 적어 둠)
     const EXIT_WINDOW_MS = 2000;
@@ -175,7 +175,8 @@
         set: on => { try { if (on) sessionStorage.setItem(EXIT_KEY, String(Date.now())); else sessionStorage.removeItem(EXIT_KEY); } catch (e) { /* 저장 불가 */ } },
     };
     // 새로 연 페이지(링크·주소 입력)면 종료 중이 아님
-    if ((performance.getEntriesByType('navigation')[0] || {}).type === 'navigate') session.set(false);
+    const navType = (performance.getEntriesByType('navigation')[0] || {}).type;
+    if (navType === 'navigate') session.set(false);
     const state = () => history.state || {};
     if (state().navDepth == null) history.replaceState({ ...state(), navDepth: history.length - 1 }, '', window.location.href);
 
@@ -190,7 +191,7 @@
     if (continueExit(state().navDepth)) return;
 
     const isHome = !!document.querySelector('.site-nav[data-current="home"]');
-    let toast = null, toastTimer = 0, lastBackAt = 0;
+    let toast = null, toastTimer = 0;
     function showExitHint() {
         if (!toast) {
             toast = document.createElement('div');
@@ -203,32 +204,52 @@
         clearTimeout(toastTimer);
         toastTimer = setTimeout(() => toast.classList.remove('is-shown'), EXIT_WINDOW_MS);
     }
-    // 지키는 칸은 화면을 처음 누른 뒤에 넣음: 크롬은 사용자가 아무것도 누르지 않은 페이지가 넣은 기록 칸을 뒤로 가기에서
-    // 건너뛰어서, 열자마자 넣으면 뒤로 한 번에 바로 종료됐음 (앱을 열고 화면을 전혀 누르지 않은 채 뒤로 가면 여전히 한 번에 종료)
+    // 지키는 칸은 화면을 누른 뒤에만 넣음: 크롬은 화면을 누르지 않은 채 pushState로 칸을 넣으면 그 앞 칸(홈)을 뒤로 가기에서
+    // 건너뛰어, 뒤로 한 번에 바로 종료됐음. 그래서 뒤로 1번(안내) 뒤에는 칸을 다시 넣지 않고, 화면을 다시 누르면 넣음
+    //  - 뒤로 1번: 안내를 띄우고 그 시각을 기억 (지키는 칸은 없어짐)
+    //  - 2초 안에 한 번 더: 홈 앞의 기록(다른 사이트면 그대로 종료, 이 사이트의 다른 페이지면 그 페이지가 이어서 종료 처리)
+    //  - 그 사이 화면을 누르면 지키는 칸을 다시 넣어 처음부터
+    // (앱을 열고 화면을 전혀 누르지 않은 채 뒤로 가면 한 번에 종료, 안내 뒤 2초가 지나 화면을 누르지 않고 뒤로 가면 이전 페이지로)
+    const HOME_BACK_KEY = 'nav_home_back_at';
+    const homeBack = {
+        fresh: () => { try { return Date.now() - Number(sessionStorage.getItem(HOME_BACK_KEY) || 0) < EXIT_WINDOW_MS; } catch (e) { return false; } },
+        set: on => { try { if (on) sessionStorage.setItem(HOME_BACK_KEY, String(Date.now())); else sessionStorage.removeItem(HOME_BACK_KEY); } catch (e) { /* 저장 불가 */ } },
+    };
+    // 홈에서 안내를 본 뒤 2초 안에 뒤로 가서 이 페이지로 왔으면 이어서 종료
+    const exitAfterHomeBack = depth => {
+        if (!homeBack.fresh()) return false;
+        homeBack.set(false);
+        session.set(true);
+        continueExit(depth);
+        return true;
+    };
+    if (!isHome && navType === 'back_forward' && exitAfterHomeBack(state().navDepth)) return;
+    // 뒤로 가기로 이 페이지가 저장본(bfcache)에서 되살아난 경우도 같게
+    window.addEventListener('pageshow', e => {
+        if (!e.persisted) return;
+        if (session.get()) { continueExit(state().navDepth || 0); return; }
+        if (!isHome) exitAfterHomeBack(state().navDepth || 0);
+    });
+
     let armed = !!state().navGuard;
     const arm = () => {
         if (armed || !state().navHome) return;
         armed = true;
+        homeBack.set(false);
         history.pushState({ navGuard: 1, navDepth: state().navDepth + 1 }, '', window.location.href);
     };
-    if (isHome && !state().navGuard) {
-        history.replaceState({ ...state(), navHome: 1 }, '', window.location.href);
+    if (isHome) {
+        if (!state().navGuard) history.replaceState({ ...state(), navHome: 1 }, '', window.location.href);
         ['pointerup', 'touchend', 'click', 'keydown'].forEach(type => document.addEventListener(type, arm, { capture: true, passive: true }));
     }
     window.addEventListener('popstate', e => {
         const s = e.state || {};
         if (session.get()) { continueExit(s.navDepth || 0); return; }
-        if (!isHome || !s.navHome) return;
-        const now = Date.now();
-        if (now - lastBackAt < EXIT_WINDOW_MS) {
-            session.set(true);
-            continueExit(s.navDepth || 0);
-            return;
-        }
-        lastBackAt = now;
-        // 이미 화면을 누른 적이 있는 페이지라 바로 다시 넣어도 건너뛰지 않음
-        armed = true;
-        history.pushState({ navGuard: 1, navDepth: (s.navDepth || 0) + 1 }, '', window.location.href);
+        if (!isHome) { exitAfterHomeBack(s.navDepth || 0); return; }
+        if (!s.navHome) return;
+        // 지키는 칸이 빠짐: 안내만 (칸은 화면을 다시 누르면 넣음)
+        armed = false;
+        homeBack.set(true);
         showExitHint();
     });
 })();
