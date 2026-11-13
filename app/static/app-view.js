@@ -131,6 +131,27 @@ function closeShareMenus(except) {
     });
 }
 
+// ---------- 게시판 공유 ----------
+// 지금 보는 게시판·묶음·전체를 여는 주소 (/board/#board-게시판ID, #folder-묶음ID, 전체는 /board/).
+// 받은 사람이 열면 그 게시판의 기본 보기(안 읽은 글 → 새 댓글 → 모든 글)로 열림 (handlePostAnchor)
+function boardShareInfo() {
+    const group = findGroup(app.activeKey), folder = findFolder(app.activeKey);
+    const base = `${location.origin}${location.pathname}`;
+    const name = group ? group.name : folder ? folder.name : '전체 게시판';
+    const url = group ? `${base}#board-${group.id}` : folder ? `${base}#folder-${folder.id}` : base;
+    return { url, title: `${name} · 키워드 모니터` };
+}
+
+async function shareBoard() {
+    const { url, title } = boardShareInfo();
+    if (navigator.share) {
+        try { await navigator.share({ title, url }); } catch (e) { /* 공유 창을 닫음 */ }
+        return;
+    }
+    showToast(await copyText(url) ? '게시판 주소를 복사했습니다' : '복사하지 못했습니다');
+}
+const BOARD_SHARE_BUTTON = `<button class="btn btn-outline btn-small board-share-btn" data-action="share-board" title="이 게시판 주소 공유" aria-label="이 게시판 주소 공유">${ICONS.share}<span>공유</span></button>`;
+
 // 클립보드 API도 https에서만 되므로, 안 되면 숨긴 입력칸을 골라 복사하는 예전 방식으로
 async function copyText(text) {
     try {
@@ -378,7 +399,7 @@ function renderPopularBoards(data, group, folder) {
     feed.innerHTML = `
         <div class="feed-head">
             <div class="feed-head-text">
-                <div class="feed-title-row"><h1 class="feed-title">${scope} · 인기글</h1></div>
+                <div class="feed-title-row"><h1 class="feed-title">${scope} · 인기글</h1>${BOARD_SHARE_BUTTON}</div>
                 <span class="feed-sub">최근 ${period.label === '오늘' ? '24시간' : period.label} 동안 모은 글 · 추천+댓글이 많은 순${group ? '' : ` · 게시판 ${data.groups.length}개`}</span>
             </div>
             <div class="feed-tools popular-tools">
@@ -484,7 +505,8 @@ function renderFeed(data) {
         : app.galleryReturn
         ? `<button class="btn btn-outline btn-small" data-action="return-gallery">${ICONS.prev} ${filterLabel(app.galleryReturn.filter)} 모아보기로</button>`
         : (empty || isGalleryView() ? '' : `<button class="btn btn-outline btn-small fold-btn" data-action="toggle-fold" aria-pressed="${app.folded}" title="본문·댓글 전부 접기/펼치기 (G)">${foldLabel()}</button>`)
-        + `<button class="btn btn-outline btn-small" data-action="mark-all-read" ${summary && pendingCount(summary) ? '' : 'hidden'}>${filter === 'comments' ? '모두 확인' : '모두 읽음'}</button>`;
+        + `<button class="btn btn-outline btn-small" data-action="mark-all-read" ${summary && pendingCount(summary) ? '' : 'hidden'}>${filter === 'comments' ? '모두 확인' : '모두 읽음'}</button>`
+        + BOARD_SHARE_BUTTON;
     // 모바일은 정렬·페이지 이동 줄을 접어 두고, 제목 줄 오른쪽의 작은 버튼(예: '최신순 · 1/10')으로 펼침
     const toolsLabel = [sortable() ? currentSort().label : '', empty ? '' : `${data.page}/${data.total_pages}`].filter(Boolean).join(' · ');
     // (글자 크기도 이 목록에 있어 늘 보임. 정렬·페이지가 없는 화면은 '보기 설정')

@@ -331,6 +331,10 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 .new-divider { display: flex; align-items: center; gap: 12px; padding: 4px 0; color: var(--muted); font-size: 12px; font-weight: 500; }
 .new-divider::before, .new-divider::after { content: ""; flex: 1 1 auto; height: 1px; background: #D9DCE1; }
 
+/* 게시판 공유 버튼 (제목 줄): 휴대폰은 아이콘만 */
+.board-share-btn { display: inline-flex; align-items: center; gap: 4px; }
+.board-share-btn svg { width: 14px; height: 14px; }
+@media (max-width: 899px) { .board-share-btn span { display: none; } .board-share-btn { padding: 0 8px; } }
 .empty-card { padding: 40px 16px; border-radius: var(--radius); background: var(--surface); text-align: center; color: var(--muted); }
 /* 인기글 보기: 게시판마다 카드 하나, 순위·제목·추천·댓글 한 줄씩 (읽은 글은 제목을 흐리게) */
 .popular-tools { align-items: center; }

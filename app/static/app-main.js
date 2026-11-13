@@ -31,6 +31,16 @@ async function refreshCurrent() {
 }
 
 async function handlePostAnchor() {
+    // 공유받은 게시판·묶음 주소(#board-게시판ID, #folder-묶음ID): 그 게시판의 기본 보기로 엶. 없는 게시판이면 전체로
+    const boardLink = /^#(board|folder)-(\d+)$/.exec(window.location.hash);
+    if (boardLink && app.state) {
+        history.replaceState(null, '', window.location.pathname);
+        const key = (boardLink[1] === 'board' ? 'group:' : 'folder:') + boardLink[2];
+        app.galleryReturn = null;
+        if (isKnownView(key)) openBoard(key);
+        else openBoard(ALL_KEY);
+        return true;
+    }
     // 대시보드의 게시판별 인기글 카드(#popular)로 들어오면 전체 게시판의 인기글 보기 (기간은 오늘)
     if (window.location.hash === '#popular') {
         history.replaceState(null, '', window.location.pathname);
@@ -269,6 +279,8 @@ document.addEventListener('click', (e) => {
         renderGroupSettings();
     } else if (action === 'toggle-draft-board') {
         toggleDraftBoard(el.dataset.board);
+    } else if (action === 'share-board') {
+        shareBoard();
     } else if (action === 'share-post') {
         sharePost(el);
     } else if (action === 'share-link') {
