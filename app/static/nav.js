@@ -75,6 +75,69 @@
 
     document.querySelectorAll('.site-nav[data-current]').forEach(render);
 
+    // ==========================================
+    // 공유 버튼 (공통 상단 바의 오른쪽): 지금 페이지 주소를 휴대폰 공유 창으로, 공유 창이 없으면 주소 복사.
+    // 페이지 안의 위치(실거래가 단지 상세 #w-… 등)도 주소에 그대로 들어감. 키워드 게시판은 제목 줄에 따로 있음
+    // ==========================================
+    const SHARE_ICON = svg('<circle cx="18" cy="5" r="2.5"></circle><circle cx="6" cy="12" r="2.5"></circle><circle cx="18" cy="19" r="2.5"></circle>'
+        + '<path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"></path>');
+    function navToast(message) {
+        let toast = document.querySelector('.nav-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.className = 'nav-exit-toast nav-toast';
+            toast.setAttribute('role', 'status');
+            document.body.appendChild(toast);
+        }
+        toast.textContent = message;
+        toast.classList.add('is-shown');
+        clearTimeout(toast.hideTimer);
+        toast.hideTimer = setTimeout(() => toast.classList.remove('is-shown'), 1800);
+    }
+    async function copyText(text) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (e) {
+            const area = document.createElement('textarea');
+            area.value = text;
+            area.setAttribute('readonly', '');
+            area.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+            document.body.appendChild(area);
+            area.select();
+            let ok = false;
+            try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+            area.remove();
+            return ok;
+        }
+    }
+    async function sharePage() {
+        const heading = document.querySelector('.site-top h1');
+        const title = `${heading ? heading.textContent.trim() : document.title} · 키워드 모니터`;
+        const url = window.location.href;
+        if (navigator.share) {
+            try { await navigator.share({ title, url }); } catch (e) { /* 공유 창을 닫음 */ }
+            return;
+        }
+        navToast(await copyText(url) ? '주소를 복사했습니다' : '복사하지 못했습니다');
+    }
+    document.querySelectorAll('.site-top .site-top-row').forEach(row => {
+        let tools = row.querySelector('.site-top-tools');
+        if (!tools) {
+            tools = document.createElement('div');
+            tools.className = 'site-top-tools';
+            row.appendChild(tools);
+        }
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'site-share-btn';
+        button.title = '이 페이지 주소 공유';
+        button.setAttribute('aria-label', '이 페이지 주소 공유');
+        button.innerHTML = SHARE_ICON + '<span>공유</span>';
+        button.addEventListener('click', sharePage);
+        tools.appendChild(button);
+    });
+
     // 공통 상단 바(.site-top): 휴대폰에서 아래로 내리면 숨기고 위로 올리면 다시 보임 (키워드 게시판 상단 바와 같은 동작).
     // 보이는 높이를 --site-top-offset으로 알려, 그 아래에 붙는 요소(유지비 요약 등)가 가려지지 않게 함
     const top = document.querySelector('.site-top');

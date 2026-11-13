@@ -39,12 +39,19 @@ header:has(> .site-nav) { flex-wrap: wrap; }
 .site-top-mark svg { width: 16px; height: 16px; }
 .site-top h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text, #111827); }
 .site-top-tools { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+/* 공유 버튼 (nav.js): 휴대폰은 아이콘만 */
+.site-share-btn { height: 32px; padding: 0 11px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border, #E5E7EB); border-radius: 8px;
+    background: var(--surface, #FFFFFF); color: var(--text-2, #374151); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.site-share-btn svg { width: 15px; height: 15px; }
+.site-share-btn:hover { border-color: var(--accent, #2563EB); color: var(--accent, #2563EB); }
 .site-top > .site-nav { margin: -4px 0 0; padding: 0 20px 8px; }
 .site-top > .site-nav.is-compact { margin: 0 12px 8px; padding: 3px; }
 @media (max-width: 899px) {
     .site-top-row { height: 60px; padding: 0 8px 0 16px; }
     .site-top-mark { display: none; }
     .site-top h1 { font-size: 18px; }
+    .site-share-btn { width: 36px; height: 36px; padding: 0; justify-content: center; }
+    .site-share-btn span { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .site-top { transition: none; } }
 
