@@ -55,8 +55,8 @@ header:has(> .site-nav) { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { .site-top { transition: none; } }
 
-/* 휴대폰에서 뒤로 가기 한 번 눌렀을 때 안내 (한 번 더 누르면 종료) */
-.nav-exit-toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 96px); z-index: 2000; max-width: calc(100vw - 32px);
+/* 짧은 안내 (공유 주소 복사 등, nav.js navToast) */
+.nav-toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 96px); z-index: 2000; max-width: calc(100vw - 32px);
     padding: 10px 16px; border-radius: 999px; background: rgba(17, 24, 39, .88); color: #FFFFFF; font-size: 13px; font-weight: 600;
     white-space: nowrap; pointer-events: none; opacity: 0; transform: translate(-50%, 8px); transition: opacity .2s, transform .2s; }
-.nav-exit-toast.is-shown { opacity: 1; transform: translate(-50%, 0); }
+.nav-toast.is-shown { opacity: 1; transform: translate(-50%, 0); }
