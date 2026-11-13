@@ -9,7 +9,7 @@ import storage, web_server
 from selenium.webdriver import Chrome
 from selenium.webdriver.chrome.options import Options
 
-# 뒤로 가기: 휴대폰·넓은 화면 모두 보통 브라우저처럼 이전 화면으로 (두 번 누르면 종료하던 방식은 없앰)
+# 뒤로 가기: 페이지는 보통 브라우저처럼 이전 화면으로. 휴대폰의 대시보드(홈)에서는 두 번 연달아 누르면 종료(사이트에서 나감)
 storage.init_db()
 storage.save_group(None, '싼타페', [{'board': 'car', 'keyword': '싼타페'}])
 for i in range(3):
@@ -30,31 +30,60 @@ js = d.execute_script
 def menu(key):
     js(f"document.querySelector('.site-nav [data-nav={key}]').click()"); time.sleep(2)
 try:
+    toast = lambda: js("const t = document.querySelector('.nav-toast'); return !!t && t.classList.contains('is-shown')")
+    d.get('data:,')
     d.get(BASE + '/'); time.sleep(1.5)
-    # 메뉴로 옮긴 순서대로 뒤로 가면 하나씩 이전 화면
-    visited = ['/']
+    # 홈이 아닌 페이지는 옮긴 순서대로 뒤로 가면 하나씩 이전 화면 (안내 없음)
+    visited = []
     for key, path in [('card', '/card/'), ('ev', '/ev/'), ('apt', '/apt/'), ('stats', '/stats/')]:
         menu(key)
         assert d.current_url.startswith(BASE + path), (key, d.current_url)
         visited.append(path)
     for path in reversed(visited[:-1]):
         d.back(); time.sleep(1.5)
-        assert d.current_url.startswith(BASE + path), (path, d.current_url)
-        assert not js("return !!document.querySelector('.nav-exit-toast')")
+        assert d.current_url.startswith(BASE + path) and not toast(), (path, d.current_url)
+    # 그다음 뒤로: 홈으로
+    d.back(); time.sleep(1.5)
+    assert d.current_url == BASE + '/', d.current_url
     print('BACK TO PREVIOUS OK')
 
-    # 대시보드 카드로 연 페이지에서 뒤로 → 대시보드
+    # 홈에서 뒤로 1번: 나가지 않고 안내, 2초 지나면 다시 처음부터
+    d.back(); time.sleep(.8)
+    assert d.current_url == BASE + '/' and toast()
+    time.sleep(2.5)
+    assert not toast()
+    d.back(); time.sleep(.8)
+    assert d.current_url == BASE + '/' and toast()
+    # 2초 안에 한 번 더: 사이트에서 나감 (앱이면 종료)
+    d.back(); time.sleep(2)
+    assert not d.current_url.startswith(BASE), d.current_url
+    print('HOME DOUBLE BACK EXIT OK')
+
+    # 다른 페이지를 거쳐 메뉴로 홈에 와도, 홈에서 두 번이면 나감 (그 전 페이지로 가지 않고)
+    d.get('data:,')
+    d.get(BASE + '/card/'); time.sleep(1.5)
+    menu('ev')
+    js("location.href = '/board/#post-901'"); time.sleep(2.5)
+    menu('home')
+    assert d.current_url == BASE + '/', d.current_url
+    d.back(); time.sleep(.8)
+    assert d.current_url == BASE + '/' and toast()
+    d.back(); time.sleep(3)
+    assert not d.current_url.startswith(BASE), d.current_url
+    print('HOME EXIT FROM DEEP OK')
+
+    # 대시보드 카드로 연 페이지에서 뒤로 → 대시보드, 게시판 글 링크(#post-)도 뒤로 가면 돌아옴
+    d.get(BASE + '/'); time.sleep(1.5)
     js("document.querySelector('#card-ev .card-head').click()"); time.sleep(2)
     assert d.current_url == BASE + '/ev/'
     d.back(); time.sleep(1.5)
     assert d.current_url == BASE + '/', d.current_url
-    # 게시판 안의 글 링크(#post-)도 뒤로 가면 돌아옴, 한 번 더 뒤로 가면 이전 페이지
     menu('board')
     js("location.hash = 'post-901'"); time.sleep(2)
     d.back(); time.sleep(1.2)
     assert d.current_url.startswith(BASE + '/board/'), d.current_url
     d.back(); time.sleep(1.5)
-    assert d.current_url == BASE + '/', d.current_url
+    assert d.current_url == BASE + '/' and not toast(), d.current_url
     print('BACK OK')
 finally:
     d.quit()

@@ -403,7 +403,7 @@ function returnToGallery() {
     const back = app.galleryReturn;
     if (!back) return;
     app.galleryReturn = null;
-    if (window.location.hash) history.replaceState(null, '', window.location.pathname);
+    if (window.location.hash) history.replaceState(history.state, '', window.location.pathname);
     app.filter = back.filter;
     app.sort = back.sort;
     app.activeKey = back.key;

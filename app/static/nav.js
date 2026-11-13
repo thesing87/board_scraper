@@ -158,4 +158,68 @@
         new ResizeObserver(update).observe(top);
         update();
     }
+    // ==========================================
+    // 휴대폰·홈 화면 앱: 대시보드(홈)에서 뒤로 가기를 두 번 연달아 누르면 종료. 다른 페이지는 보통처럼 이전 화면으로.
+    // ==========================================
+    //  - 홈을 열면 [홈 → 지키는 칸] 두 칸을 둠. 뒤로 1번: 지키는 칸이 빠지면 안내를 띄우고 다시 넣음
+    //  - 2초 안에 한 번 더: 이 탭의 첫 기록까지 한 번에 돌아간 뒤 한 칸 더 뒤로 → 앱의 첫 기록이므로 앱이 닫힘
+    //    (홈에 오기 전에 다른 페이지를 거쳤어도 종료되게, 기록마다 몇 번째인지(navDepth)를 적어 둠)
+    const EXIT_WINDOW_MS = 2000;
+    const EXIT_KEY = 'nav_exiting';
+    const appLike = window.matchMedia('(max-width: 899px)').matches || window.matchMedia('(display-mode: standalone)').matches;
+    if (!appLike) return;
+    // 종료하는 중 표시: 첫 기록이 다른 사이트면 그쪽으로 나가 버려 지울 기회가 없으므로, 몇 초 지나면 무효로 봄
+    const EXIT_VALID_MS = 5000;
+    const session = {
+        get: () => { try { return Date.now() - Number(sessionStorage.getItem(EXIT_KEY) || 0) < EXIT_VALID_MS; } catch (e) { return false; } },
+        set: on => { try { if (on) sessionStorage.setItem(EXIT_KEY, String(Date.now())); else sessionStorage.removeItem(EXIT_KEY); } catch (e) { /* 저장 불가 */ } },
+    };
+    // 새로 연 페이지(링크·주소 입력)면 종료 중이 아님
+    if ((performance.getEntriesByType('navigation')[0] || {}).type === 'navigate') session.set(false);
+    const state = () => history.state || {};
+    if (state().navDepth == null) history.replaceState({ ...state(), navDepth: history.length - 1 }, '', window.location.href);
+
+    // 종료하려고 첫 기록까지 돌아온 경우: 한 칸 더 뒤로 (다른 페이지가 첫 기록이면 그 페이지를 열면서 여기로 옴)
+    const continueExit = depth => {
+        if (!session.get()) return false;
+        if (depth > 0) { history.go(-depth); return true; }
+        session.set(false);
+        history.back();
+        return true;
+    };
+    if (continueExit(state().navDepth)) return;
+
+    const isHome = !!document.querySelector('.site-nav[data-current="home"]');
+    let toast = null, toastTimer = 0, lastBackAt = 0;
+    function showExitHint() {
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.className = 'nav-toast';
+            toast.setAttribute('role', 'status');
+            toast.textContent = '뒤로 버튼을 한 번 더 누르면 종료됩니다';
+            document.body.appendChild(toast);
+        }
+        toast.classList.add('is-shown');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('is-shown'), EXIT_WINDOW_MS);
+    }
+    if (isHome && !state().navGuard) {
+        const depth = state().navDepth;
+        history.replaceState({ ...state(), navHome: 1 }, '', window.location.href);
+        history.pushState({ navGuard: 1, navDepth: depth + 1 }, '', window.location.href);
+    }
+    window.addEventListener('popstate', e => {
+        const s = e.state || {};
+        if (session.get()) { continueExit(s.navDepth || 0); return; }
+        if (!isHome || !s.navHome) return;
+        const now = Date.now();
+        if (now - lastBackAt < EXIT_WINDOW_MS) {
+            session.set(true);
+            continueExit(s.navDepth || 0);
+            return;
+        }
+        lastBackAt = now;
+        history.pushState({ navGuard: 1, navDepth: (s.navDepth || 0) + 1 }, '', window.location.href);
+        showExitHint();
+    });
 })();

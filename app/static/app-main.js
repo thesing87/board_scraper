@@ -34,7 +34,7 @@ async function handlePostAnchor() {
     // 공유받은 게시판·묶음 주소(#board-게시판ID, #folder-묶음ID): 그 게시판의 기본 보기로 엶. 없는 게시판이면 전체로
     const boardLink = /^#(board|folder)-(\d+)$/.exec(window.location.hash);
     if (boardLink && app.state) {
-        history.replaceState(null, '', window.location.pathname);
+        history.replaceState(history.state, '', window.location.pathname);
         const key = (boardLink[1] === 'board' ? 'group:' : 'folder:') + boardLink[2];
         app.galleryReturn = null;
         if (isKnownView(key)) openBoard(key);
@@ -43,7 +43,7 @@ async function handlePostAnchor() {
     }
     // 대시보드의 게시판별 인기글 카드(#popular)로 들어오면 전체 게시판의 인기글 보기 (기간은 오늘)
     if (window.location.hash === '#popular') {
-        history.replaceState(null, '', window.location.pathname);
+        history.replaceState(history.state, '', window.location.pathname);
         storageSet(localStorage, POPULAR_DAYS_KEY, '1');
         app.filter = 'popular';
         app.galleryReturn = null;
@@ -137,7 +137,7 @@ async function init() {
     // 대시보드의 게시판 칩(#board-게시판ID)으로 들어오면 그 게시판의 기본 보기
     const boardAnchor = /^#board-(\d+)$/.exec(window.location.hash);
     if (boardAnchor) {
-        history.replaceState(null, '', window.location.pathname);
+        history.replaceState(history.state, '', window.location.pathname);
         if (isKnownView('group:' + boardAnchor[1])) {
             savedTab = 'group:' + boardAnchor[1];
             savedFilter = defaultFilter(savedTab);
@@ -145,7 +145,7 @@ async function init() {
     }
     // 위쪽 바로가기 메뉴의 '게시판'(#home)은 마지막에 보던 보기(인기글 등)가 아니라 전체 게시판의 기본 보기
     if (window.location.hash === '#home') {
-        history.replaceState(null, '', window.location.pathname);
+        history.replaceState(history.state, '', window.location.pathname);
         savedTab = ALL_KEY;
         savedFilter = defaultFilter(ALL_KEY);
     }

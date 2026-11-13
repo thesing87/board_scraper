@@ -578,6 +578,6 @@ function openBoard(key) {
 function goHome() {
     if (!document.getElementById('settings').hidden) setSettingsOpen(false);
     document.querySelector('.topbar').classList.remove('search-open');
-    if (window.location.hash) history.replaceState(null, '', window.location.pathname);
+    if (window.location.hash) history.replaceState(history.state, '', window.location.pathname);
     openBoard(ALL_KEY);
 }
