@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from config import log_msg, short_err, COMMENT_PAGE_LIMIT
+from config import log_msg, short_err, COMMENT_PAGE_LIMIT, FM_REQUEST_GAP_MIN, FM_REQUEST_GAP_MAX
 from sanitize import sanitize_tree
 from embeds import convert_x_embeds, remove_duplicate_instagram_placeholders, is_sns_embed
 
@@ -37,6 +37,20 @@ def log_unexpected_page(driver, target):
         log_msg(f"[차단 의심] {target} 목록이 아닌 페이지의 내용을 읽지 못함: {short_err(e)}", "DEBUG")
 
 DELETED_PAGE_PHRASES =("삭제된 글입니다", "삭제된 문서입니다", "존재하지 않습니다", "존재하지 않는", "권한이 없습니다")
+
+# 에펨코리아 페이지 요청 간격: 앞 요청이 끝난 뒤 FM_REQUEST_GAP_MIN~MAX초(무작위)가 지나야 다음 페이지를 엶.
+# 목록·글·댓글 페이지 요청이 모두 여기를 거침 (짧은 시간에 몰아서 요청하면 '에펨코리아 보안 시스템' 페이지로 막힘)
+_last_request_end = 0.0
+
+def open_page(driver, url):
+    global _last_request_end
+    wait = random.uniform(FM_REQUEST_GAP_MIN, FM_REQUEST_GAP_MAX) - (time.monotonic() - _last_request_end)
+    if wait > 0:
+        time.sleep(wait)
+    try:
+        driver.get(url)
+    finally:
+        _last_request_end = time.monotonic()
 
 def parse_count(text):
     """'1,234'처럼 표시된 숫자 문자열을 정수로 변환 (숫자가 없으면 0)"""
@@ -136,7 +150,7 @@ def get_list_page_posts(driver, board, keyword, page=1):
     encoded_keyword = quote(keyword)
     list_url = f"https://www.fmkorea.com/index.php?mid={board}&search_target=title_content&search_keyword={encoded_keyword}&page={page}"
     # 페이지 로드 실패는 호출한 쪽(메인 루프)에서 키워드 정보와 함께 한 번만 기록
-    driver.get(list_url)
+    open_page(driver, list_url)
     WebDriverWait(driver, 5).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, 'table.bd_lst, body'))
     )
@@ -167,7 +181,7 @@ def check_board(driver, board):
     """새로 추가한 카테고리 확인: 게시판 첫 목록이 수집기가 읽는 표(table.bd_lst) 형태로 글을 보여주는지.
     검색 결과가 없을 때의 빈 목록으로는 표 형태인지 알 수 없어 검색 없는 첫 목록으로 확인함.
     (True, 게시판 이름) 또는 (False, 사유). 페이지를 못 열면 예외 그대로 (호출한 쪽에서 다음 주기에 재시도)"""
-    driver.get(f"https://www.fmkorea.com/index.php?mid={quote(board)}")
+    open_page(driver, f"https://www.fmkorea.com/index.php?mid={quote(board)}")
     WebDriverWait(driver, 5).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, 'table.bd_lst, body'))
     )
@@ -189,7 +203,7 @@ def scrape_post_detail(driver, post_info, all_comment_pages=True):
     
 
     # 페이지 로드 실패는 호출한 쪽(메인 루프)에서 키워드 정보와 함께 한 번만 기록
-    driver.get(link)
+    open_page(driver, link)
     WebDriverWait(driver, 5).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, '.xe_content, .top_area, body'))
     )
@@ -362,7 +376,7 @@ def _read_earlier_comment_pages(driver, detail_soup, post_id):
         url = _comment_page_url(pager, page)
         if not url:
             raise Exception("댓글 페이지 주소를 만들 수 없음")
-        driver.get(url)
+        open_page(driver, url)
         WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, '.fdb_lst_ul, body')))
         time.sleep(random.uniform(0.5, 1.2))
         page_soup = BeautifulSoup(driver.page_source, 'html.parser')

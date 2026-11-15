@@ -74,6 +74,9 @@ BOARD_MAP = {
 }
 
 CHECK_INTERVAL = int(os.environ.get('CHECK_INTERVAL', 90))
+# 에펨코리아 페이지 요청 사이에 쉬는 시간(초, 이 범위에서 무작위). 연달아 몰아서 요청하면 '보안 시스템' 페이지로 막힘
+FM_REQUEST_GAP_MIN = max(0.0, float(os.environ.get('FM_REQUEST_GAP_MIN', 3)))
+FM_REQUEST_GAP_MAX = max(FM_REQUEST_GAP_MIN, float(os.environ.get('FM_REQUEST_GAP_MAX', 6)))
 # 댓글이 여러 페이지인 글은 이 페이지 수까지 모두 열어 읽음 (넘으면 최신 쪽 페이지만). 페이지마다 요청이 하나씩 늘어남
 COMMENT_PAGE_LIMIT = max(1, int(os.environ.get('COMMENT_PAGE_LIMIT', 10)))
 # 검색 목록 1페이지의 글 수. 이 범위의 글은 매 주기 목록의 댓글 수로 변화를 감시함 (대시보드 '동기화중' 배지 기준)

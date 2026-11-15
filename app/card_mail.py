@@ -24,6 +24,8 @@ IMAP_PORT = 993
 SOCKET_TIMEOUT_SECONDS = 60
 IDLE_SECONDS = 5 * 60
 POLL_SECONDS = 90
+# 네이버는 30~90초 동안 요청이 없는 연결을 'Imap timeout'으로 끊으므로, 기다리는 동안 이 간격으로 NOOP을 보내 연결을 유지
+KEEPALIVE_SECONDS = 25
 # 끊겼을 때 다시 접속하는 간격 (점점 늘림). 로그인 실패는 계정이 잠기지 않도록 훨씬 길게 쉼
 RETRY_MIN_SECONDS = 30
 RETRY_MAX_SECONDS = 10 * 60
@@ -172,6 +174,18 @@ def wait_for_mail(conn):
         return False
 
 
+def keep_alive_sleep(conn, seconds):
+    """seconds 동안 기다리되 KEEPALIVE_SECONDS마다 NOOP으로 연결 유지 (끊기면 예외)"""
+    end = time.monotonic() + seconds
+    while True:
+        left = end - time.monotonic()
+        if left <= 0:
+            return
+        time.sleep(min(KEEPALIVE_SECONDS, left))
+        if end - time.monotonic() > 0:
+            conn.noop()
+
+
 def watch(on_checked):
     """접속해 끊길 때까지 기다리기·확인을 반복. 끊기면 예외"""
     conn = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT, timeout=SOCKET_TIMEOUT_SECONDS)
@@ -190,7 +204,7 @@ def watch(on_checked):
             if use_idle:
                 use_idle = wait_for_mail(conn)
             else:
-                time.sleep(POLL_SECONDS)
+                keep_alive_sleep(conn, POLL_SECONDS)
     finally:
         try:
             conn.logout()
