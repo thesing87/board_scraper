@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from config import log_msg, short_err, COMMENT_PAGE_LIMIT, FM_REQUEST_GAP_MIN, FM_REQUEST_GAP_MAX
+from config import log_msg, short_err, COMMENT_PAGE_LIMIT, FM_REQUEST_GAP_MIN, FM_REQUEST_GAP_MAX, FM_CHALLENGE_WAIT
 from sanitize import sanitize_tree
 from embeds import convert_x_embeds, remove_duplicate_instagram_placeholders, is_sns_embed
 
@@ -49,8 +49,33 @@ def open_page(driver, url):
         time.sleep(wait)
     try:
         driver.get(url)
+        wait_challenge(driver)
     finally:
         _last_request_end = time.monotonic()
+
+# 요청이 많으면 에펨코리아가 429와 함께 '접속 확인 중입니다 … 사람인지 확인이 완료되면 사이트에 자동으로 접속됩니다' 화면을 보냄.
+# 브라우저가 확인을 마치면 원래 페이지로 넘어가므로, 바로 차단으로 보지 않고 FM_CHALLENGE_WAIT초까지 넘어가기를 기다림
+CHALLENGE_PHRASES = ('접속 확인 중', '사람인지 확인')
+
+def _page_text(driver):
+    try:
+        return driver.execute_script("return document.body ? document.body.innerText.slice(0, 300) : ''") or ''
+    except Exception:
+        return ''
+
+def wait_challenge(driver):
+    """사람 확인 화면이면 넘어갈 때까지 기다림. 넘어가면 True, 확인 화면이 아니었으면 None, 끝내 그대로면 False"""
+    if not any(p in _page_text(driver) for p in CHALLENGE_PHRASES):
+        return None
+    started = time.monotonic()
+    while time.monotonic() - started < FM_CHALLENGE_WAIT:
+        time.sleep(1)
+        if not any(p in _page_text(driver) for p in CHALLENGE_PHRASES):
+            time.sleep(random.uniform(0.5, 1.0))
+            log_msg(f"[수집] 에펨코리아 사람 확인 화면 → {time.monotonic() - started:.0f}초 만에 통과")
+            return True
+    log_msg(f"[수집] 에펨코리아 사람 확인 화면 → {FM_CHALLENGE_WAIT}초 기다려도 넘어가지 않음", "DEBUG")
+    return False
 
 def parse_count(text):
     """'1,234'처럼 표시된 숫자 문자열을 정수로 변환 (숫자가 없으면 0)"""

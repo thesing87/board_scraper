@@ -77,6 +77,11 @@ CHECK_INTERVAL = int(os.environ.get('CHECK_INTERVAL', 90))
 # 에펨코리아 페이지 요청 사이에 쉬는 시간(초, 이 범위에서 무작위). 연달아 몰아서 요청하면 '보안 시스템' 페이지로 막힘
 FM_REQUEST_GAP_MIN = max(0.0, float(os.environ.get('FM_REQUEST_GAP_MIN', 3)))
 FM_REQUEST_GAP_MAX = max(FM_REQUEST_GAP_MIN, float(os.environ.get('FM_REQUEST_GAP_MAX', 6)))
+# 에펨코리아 키워드 검색 주기(초). 검색(search.php)을 시간당 약 300번 넘게 하면 429 '사람 확인' 화면으로 막혀서,
+# 디시인사이드(CHECK_INTERVAL)와 따로 이 간격마다만 에펨코리아 키워드를 확인함
+FM_CHECK_INTERVAL = max(60, int(os.environ.get('FM_CHECK_INTERVAL', 600)))
+# 에펨코리아 '접속 확인 중입니다(사람 확인)' 화면이 나오면 자동으로 넘어가기를 기다리는 최대 시간(초)
+FM_CHALLENGE_WAIT = max(0, int(os.environ.get('FM_CHALLENGE_WAIT', 15)))
 # 댓글이 여러 페이지인 글은 이 페이지 수까지 모두 열어 읽음 (넘으면 최신 쪽 페이지만). 페이지마다 요청이 하나씩 늘어남
 COMMENT_PAGE_LIMIT = max(1, int(os.environ.get('COMMENT_PAGE_LIMIT', 10)))
 # 검색 목록 1페이지의 글 수. 이 범위의 글은 매 주기 목록의 댓글 수로 변화를 감시함 (대시보드 '동기화중' 배지 기준)

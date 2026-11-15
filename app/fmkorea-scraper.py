@@ -16,6 +16,7 @@ from config import (
     log_msg,
     short_err,
     CHECK_INTERVAL,
+    FM_CHECK_INTERVAL,
     DDNS_URL,
     MAX_DATA_PER_KEYWORD,
     RETENTION_DAYS,
@@ -558,6 +559,8 @@ def main():
         keyword_ignores = {}
         # 차단 의심이 연속된 횟수와 그에 따른 다음 주기까지의 대기 시간
         block_streak = 0
+        # 에펨코리아 키워드를 마지막으로 확인한 주기의 시작 시각 (FM_CHECK_INTERVAL마다만 확인)
+        fm_checked_at = 0.0
         next_wait = CHECK_INTERVAL
         # 차단이 의심된 사이트 이름 (알림 문구용, 예: '에펨코리아')
         blocked_label = ''
@@ -602,6 +605,10 @@ def main():
                 rejected = load_rejected_posts()
 
             cycle_started = time.time()
+            # 에펨코리아는 FM_CHECK_INTERVAL마다만 검색 (차단 의심 중에는 대기 시간이 이미 길어 매 주기 확인해 복구를 판단)
+            fm_due = block_streak > 0 or cycle_started - fm_checked_at >= FM_CHECK_INTERVAL - 5
+            if fm_due:
+                fm_checked_at = cycle_started
             stats = {'keywords': 0, 'new': 0, 'updated': 0, 'deleted': 0, 'errors': 0, 'details': 0,
                      'list_ok': 0, 'list_failed': 0}
             blocked_reason = None
@@ -611,6 +618,8 @@ def main():
             for board, keywords in config_data.items():
                 board_name = board_names.get(board, board)
                 if board_site(board) in blocked_sites:
+                    continue
+                if board_site(board) == 'fmkorea' and not fm_due:
                     continue
 
                 for keyword in keywords:

@@ -70,3 +70,30 @@ card_mail.keep_alive_sleep(c, 90)
 assert mclock[0] == 90 and c.noops == [25, 50, 75], c.noops
 assert all(b - a <= card_mail.KEEPALIVE_SECONDS for a, b in zip([0] + c.noops, c.noops + [90]))
 print('MAIL KEEPALIVE OK')
+
+# 사람 확인 화면: 넘어갈 때까지 기다림 (넘어가면 True, 확인 화면이 아니면 None, 끝내 그대로면 False)
+# (scraper.time과 card_mail.time은 같은 time 모듈이라 위 메일 시험이 바꾼 시계를 다시 맞춤)
+scraper.time.monotonic = lambda: clock[0]
+scraper.time.sleep = fake_sleep
+class ChallengeDriver:
+    def __init__(self, pass_after):
+        self.pass_after, self.start = pass_after, None
+    def get(self, url):
+        self.start = clock[0]
+    def execute_script(self, js):
+        if self.pass_after is not None and clock[0] - self.start >= self.pass_after:
+            return '자동차 게시판 목록'
+        return '접속 확인 중입니다 사람인지 확인이 완료되면 사이트에 자동으로 접속됩니다.'
+cd = ChallengeDriver(pass_after=4)
+cd.get('x')
+assert scraper.wait_challenge(cd) is True and clock[0] - cd.start < 7
+never = ChallengeDriver(pass_after=None)
+never.get('x')
+assert scraper.wait_challenge(never) is False and clock[0] - never.start >= scraper.FM_CHALLENGE_WAIT
+class Normal:
+    def execute_script(self, js): return '자동차 게시판 목록'
+assert scraper.wait_challenge(Normal()) is None
+# open_page가 확인 화면을 기다린 뒤 다음 요청 간격을 셈
+cd2 = ChallengeDriver(pass_after=3)
+scraper.open_page(cd2, 'y')
+print('CHALLENGE WAIT OK')
