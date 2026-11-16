@@ -17,7 +17,9 @@ _status = {
     'started_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     'cycles': 0,
     'last_cycle': None,          # {'finished_at', 'seconds', 'new', 'updated', 'deleted', 'errors'}
-    'block_streak': 0,           # 차단 의심 연속 횟수 (0이면 정상)
+    'block_streak': 0,           # 차단 의심 연속 횟수 (0이면 정상. 여러 사이트면 가장 큰 값)
+    'blocked_label': '',         # 차단이 의심되는 사이트 이름 (예: '에펨코리아'). 다른 사이트는 계속 수집 중
+    'block_retry_at': None,      # 차단이 의심되는 사이트를 다시 확인할 예정 시각
     'next_check_at': None,       # 다음 수집 주기 시작 예정 시각
     'progress_at': None,         # 주기 안에서 마지막으로 키워드 확인을 시작한 시각 (멈춤 감시용)
     'chrome_started_at': None,

@@ -87,8 +87,9 @@ from sites import (
     scrape_post_detail,
     check_board,
     board_site,
+    post_site,
     post_number,
-    SITE_NAMES
+    FMKOREA
 )
 from matching import keyword_in_post
 from web_server import run_api_server
@@ -111,7 +112,8 @@ SAVED_CHECKS_PER_CYCLE = 3
 POPULAR_ALERTS_PER_CYCLE = 5
 # 하루 요약을 마지막으로 보낸 날짜 (meta)
 DIGEST_DATE_META = 'digest_date'
-# 차단이 의심되면 대기 시간을 주기 x 2, x 4, x 8 ... 로 늘리되 이 값을 넘기지 않음
+# 차단이 의심된 사이트는 다시 확인하기까지의 대기 시간을 주기 x 2, x 4, x 8 ... 로 늘리되 이 값을 넘기지 않음
+# (그 사이트만 쉬고, 다른 사이트는 원래 주기로 계속 수집)
 BACKOFF_MAX_SECONDS = 3600
 # 차단 의심이 이 횟수만큼 주기를 이어서 났을 때 텔레그램으로 알림 (한 주기만 실패하고 돌아오는 일시적인 오류는 로그에만)
 BLOCK_ALERT_STREAK = 2
@@ -277,10 +279,13 @@ def notify_saved_comments(post, new_comments):
     log_msg(f"[새 댓글] 보관한 글 #{post['id']} {short_title(post.get('title'))} 새 댓글 {len(new_comments)}개 → 알림 발송")
     send_comment_alert(post, new_comments, *post_urls(post))
 
-def check_saved_posts(driver, stats):
+def check_saved_posts(driver, stats, skip_sites=()):
     """보관한 글 중 키워드 목록으로 감시하지 않는(키워드별 최근 글 범위를 벗어난) 글을 SAVED_CHECK_MINUTES마다 다시 열어
-    새 댓글을 반영. 한 주기에 SAVED_CHECKS_PER_CYCLE개까지만 (오래 확인 안 한 글부터)"""
-    for post in saved_posts_to_check(SAVED_CHECK_MINUTES, recent_post_ids(LIST_PAGE_SIZE), SAVED_CHECKS_PER_CYCLE):
+    새 댓글을 반영. 한 주기에 SAVED_CHECKS_PER_CYCLE개까지만 (오래 확인 안 한 글부터).
+    차단이 의심되는 사이트(skip_sites)의 글은 풀릴 때까지 열지 않음 (확인한 것으로 기록하지도 않음)"""
+    due = [p for p in saved_posts_to_check(SAVED_CHECK_MINUTES, recent_post_ids(LIST_PAGE_SIZE), None)
+           if post_site(p['id']) not in skip_sites]
+    for post in due[:SAVED_CHECKS_PER_CYCLE]:
         try:
             stats['details'] += 1
             updated = scrape_post_detail(driver, post)
@@ -424,9 +429,12 @@ def run_daily_maintenance():
     except Exception as e:
         log_msg(f"[DB] 이미지 정리 실패: {short_err(e)}", "ERROR")
 
-def verify_pending_categories(driver):
-    """관리 화면에서 추가한 카테고리를 열어 보고 수집 가능(ok)·불가(invalid)를 기록. 수집은 다음 주기부터"""
+def verify_pending_categories(driver, skip_sites=()):
+    """관리 화면에서 추가한 카테고리를 열어 보고 수집 가능(ok)·불가(invalid)를 기록. 수집은 다음 주기부터.
+    차단이 의심되는 사이트(skip_sites)의 카테고리는 풀린 뒤에 확인 (차단 화면을 잘못된 게시판으로 오판하지 않도록)"""
     for board in pending_categories():
+        if board_site(board) in skip_sites:
+            continue
         try:
             ok, detail = check_board(driver, board)
         except Exception as e:
@@ -557,13 +565,13 @@ def main():
         rejected = load_rejected_posts()
         # 키워드별 무시할 표현. 관리 화면에서 바뀌면 거른 글 기억을 비워 새 기준으로 다시 확인
         keyword_ignores = {}
-        # 차단 의심이 연속된 횟수와 그에 따른 다음 주기까지의 대기 시간
-        block_streak = 0
+        # 사이트별 차단 의심: 연속된 횟수 {site: 횟수}와 다시 확인하기까지 남은 대기 시간 {site: 초}.
+        # 막힌 사이트만 쉬고 다른 사이트는 원래 주기로 계속 수집 (에펨코리아가 막혀도 디시인사이드는 그대로)
+        block_streak = {}
+        block_wait = {}
         # 에펨코리아 키워드를 마지막으로 확인한 주기의 시작 시각 (FM_CHECK_INTERVAL마다만 확인)
         fm_checked_at = 0.0
         next_wait = CHECK_INTERVAL
-        # 차단이 의심된 사이트 이름 (알림 문구용, 예: '에펨코리아')
-        blocked_label = ''
         # 크롬을 마지막으로 띄운 뒤 지난 주기 수, 유지 관리(백업·정리)를 마지막으로 한 날짜
         cycles_since_chrome = 0
         maintenance_date = None
@@ -574,6 +582,8 @@ def main():
         while True:
             if not is_initial_run:
                 time.sleep(next_wait)
+                for site in block_wait:
+                    block_wait[site] -= next_wait
 
             is_initial_run = False
 
@@ -605,21 +615,25 @@ def main():
                 rejected = load_rejected_posts()
 
             cycle_started = time.time()
-            # 에펨코리아는 FM_CHECK_INTERVAL마다만 검색 (차단 의심 중에는 대기 시간이 이미 길어 매 주기 확인해 복구를 판단)
-            fm_due = block_streak > 0 or cycle_started - fm_checked_at >= FM_CHECK_INTERVAL - 5
-            if fm_due:
+            # 차단 의심으로 쉬는 중인 사이트 (남은 대기 시간이 다 지나면 다시 확인)
+            waiting_sites = {site for site, left in block_wait.items() if left > 0}
+            # 에펨코리아는 FM_CHECK_INTERVAL마다만 검색 (차단 의심 뒤 다시 확인할 때는 대기 시간이 지났으면 바로)
+            fm_due = bool(block_streak.get(FMKOREA)) or cycle_started - fm_checked_at >= FM_CHECK_INTERVAL - 5
+            if fm_due and FMKOREA not in waiting_sites:
                 fm_checked_at = cycle_started
             stats = {'keywords': 0, 'new': 0, 'updated': 0, 'deleted': 0, 'errors': 0, 'details': 0,
                      'list_ok': 0, 'list_failed': 0}
-            blocked_reason = None
-            # 차단이 의심된 사이트는 이번 주기의 남은 요청을 멈춤 (다른 사이트는 계속 수집)
-            blocked_sites = set()
+            # 이번 주기에 차단이 의심된 사이트와 사유 {site: 사유}. 그 사이트는 이번 주기의 남은 요청을 멈춤 (다른 사이트는 계속 수집)
+            blocked_reasons = {}
+            # 이번 주기에 목록을 요청한 사이트, 그중 목록이 정상으로 온 사이트
+            tried_sites, ok_sites = set(), set()
 
             for board, keywords in config_data.items():
                 board_name = board_names.get(board, board)
-                if board_site(board) in blocked_sites:
+                site = board_site(board)
+                if site in blocked_reasons or site in waiting_sites:
                     continue
-                if board_site(board) == 'fmkorea' and not fm_due:
+                if site == FMKOREA and not fm_due:
                     continue
 
                 for keyword in keywords:
@@ -634,14 +648,15 @@ def main():
                     board_data = recent_keyword_posts(board, keyword, MAX_DATA_PER_KEYWORD)
 
                     # 목록을 먼저 읽어 새 글 알림을 가장 먼저 처리하고, 기존 글 갱신은 목록 값 비교로 변화가 있을 때만 수행
+                    tried_sites.add(site)
                     try:
                         new_post_list = get_list_page_posts(driver, board, keyword, page=1)
                         stats['list_ok'] += 1
+                        ok_sites.add(site)
                     except BlockedError as block_ex:
                         # 차단이 의심되면 그 사이트의 남은 키워드까지 요청을 이어가지 않고 이번 주기에는 멈춤
                         stats['errors'] += 1
-                        blocked_sites.add(board_site(board))
-                        blocked_reason = blocked_reason or f"{site_labels()[board_site(board)]['name']} {target} {block_ex}"
+                        blocked_reasons[site] = f"{site_labels()[site]['name']} {target} {block_ex}"
                         break
                     except Exception as list_ex:
                         stats['errors'] += 1
@@ -730,34 +745,44 @@ def main():
             has_events = stats['new'] or stats['deleted'] or stats['errors']
             log_msg(f"[수집] 주기 완료: {summary}", "INFO" if has_events else "DEBUG")
 
-            # 차단 의심(정상 게시판이 아닌 응답, 또는 모든 목록 요청 실패) 시 대기 시간을 늘려 요청을 줄이고, 정상 응답이 오면 원래 주기로 복귀
-            if not blocked_reason and stats['list_failed'] and not stats['list_ok']:
-                blocked_reason = f"이번 주기의 목록 요청 {stats['list_failed']}건이 모두 실패"
-                blocked_sites = {board_site(board) for board in config_data}
-            if blocked_reason:
-                block_streak += 1
-                next_wait = min(CHECK_INTERVAL * (2 ** block_streak), BACKOFF_MAX_SECONDS)
-                log_msg(f"[차단 의심] {blocked_reason} → {next_wait // 60}분 {next_wait % 60}초 후 다시 확인 (연속 {block_streak}회)", "WARN")
-                if block_streak == BLOCK_ALERT_STREAK:
-                    labels = site_labels()
-                    blocked_label = '·'.join(labels[site]['name'] for site in SITE_NAMES if site in blocked_sites)
+            # 차단 의심(정상 게시판이 아닌 응답, 또는 모든 목록 요청 실패)인 사이트만 다시 확인하기까지의 대기 시간을 늘려
+            # 요청을 줄이고, 정상 응답이 오면 원래 주기로 복귀. 다른 사이트는 그동안에도 원래 주기로 수집
+            labels = site_labels()
+            if not blocked_reasons and stats['list_failed'] and not stats['list_ok']:
+                blocked_reasons = {site: f"{labels[site]['name']} 이번 주기의 목록 요청이 모두 실패 (전체 {stats['list_failed']}건)"
+                                   for site in tried_sites}
+            # 수집에 걸린 시간도 쉬는 사이트의 대기 시간에 포함
+            for site in block_wait:
+                block_wait[site] -= elapsed
+            for site, reason in blocked_reasons.items():
+                streak = block_streak[site] = block_streak.get(site, 0) + 1
+                wait = block_wait[site] = min(CHECK_INTERVAL * (2 ** streak), BACKOFF_MAX_SECONDS)
+                log_msg(f"[차단 의심] {reason} → {wait // 60}분 {wait % 60}초 후 다시 확인 (연속 {streak}회)", "WARN")
+                if streak == BLOCK_ALERT_STREAK:
                     send_telegram_message(
-                        f"⚠️ {blocked_label} 접속 차단 의심\n\n{blocked_reason}\n\n"
-                        f"요청을 줄이기 위해 대기 시간을 늘립니다. 정상으로 돌아오면 다시 알려드립니다."
+                        f"⚠️ {labels[site]['name']} 접속 차단 의심\n\n{reason}\n\n"
+                        f"요청을 줄이기 위해 이 사이트만 대기 시간을 늘립니다. 정상으로 돌아오면 다시 알려드립니다."
                     )
-            elif block_streak:
-                log_msg(f"[복구] 정상 응답 확인 (차단 의심 {block_streak}회 후) → 원래 주기 {CHECK_INTERVAL}초로 복귀")
-                # 차단 의심을 알렸을 때만 복구도 알림
-                if block_streak >= BLOCK_ALERT_STREAK:
-                    send_telegram_message(f"✅ {blocked_label} 접속이 정상으로 돌아왔습니다. (차단 의심 {block_streak}회 후 복구)")
-                block_streak = 0
+            for site in ok_sites - set(blocked_reasons):
+                streak = block_streak.pop(site, 0)
+                block_wait.pop(site, None)
+                if streak:
+                    log_msg(f"[복구] {labels[site]['name']} 정상 응답 확인 (차단 의심 {streak}회 후) → 원래 주기로 복귀")
+                    # 차단 의심을 알렸을 때만 복구도 알림
+                    if streak >= BLOCK_ALERT_STREAK:
+                        send_telegram_message(f"✅ {labels[site]['name']} 접속이 정상으로 돌아왔습니다. (차단 의심 {streak}회 후 복구)")
+            # 키워드가 있는 사이트가 모두 쉬는 중이면 가장 먼저 다시 확인할 때까지, 아니면 원래 주기만큼 쉼
+            active_sites = {board_site(board) for board, keywords in config_data.items() if keywords}
+            if active_sites and all(block_wait.get(site, 0) > 0 for site in active_sites):
+                next_wait = max(1, min(block_wait[site] for site in active_sites))
+            else:
                 next_wait = CHECK_INTERVAL
 
             driver = restart_if_hung(driver)
-            # 새로 추가한 카테고리는 차단 의심이 없는 주기에만 확인 (차단 화면을 잘못된 게시판으로 오판하지 않도록)
-            if not blocked_reason:
-                verify_pending_categories(driver)
-                check_saved_posts(driver, stats)
+            # 차단이 의심되는 사이트에는 풀릴 때까지 카테고리 확인·보관한 글 확인 요청도 보내지 않음
+            suspected_sites = set(block_streak)
+            verify_pending_categories(driver, suspected_sites)
+            check_saved_posts(driver, stats, suspected_sites)
             release_chrome_memory(driver)
 
             cycles_since_chrome += 1
@@ -765,7 +790,10 @@ def main():
             runtime_status.update(
                 last_cycle={'finished_at': runtime_status.now(), 'seconds': round(elapsed), 'new': stats['new'],
                             'updated': stats['updated'], 'deleted': stats['deleted'], 'errors': stats['errors']},
-                block_streak=block_streak,
+                block_streak=max(block_streak.values(), default=0),
+                blocked_label='·'.join(labels[site]['name'] for site in block_streak),
+                block_retry_at=(datetime.fromtimestamp(time.time() + max(0, min(block_wait.values()))).strftime('%Y-%m-%d %H:%M:%S')
+                                if block_wait else None),
                 next_check_at=datetime.fromtimestamp(time.time() + next_wait).strftime('%Y-%m-%d %H:%M:%S'))
             if maintenance_date != date.today():
                 maintenance_date = date.today()

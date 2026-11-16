@@ -539,7 +539,7 @@ function renderRuntimeStatus(s) {
             : s.stalled_minutes
             ? `<span class="status-warn">멈춤 의심 · ${s.stalled_minutes}분째 진행 없음</span> (텔레그램으로 알림)`
             : s.block_streak
-            ? `<span class="status-warn">차단 의심 · 연속 ${s.block_streak}회</span> (다음 확인 ${hm(s.next_check_at)})`
+            ? `<span class="status-warn">${s.blocked_label ? esc(s.blocked_label) + ' ' : ''}차단 의심 · 연속 ${s.block_streak}회</span> (다음 확인 ${hm(s.block_retry_at || s.next_check_at)})`
             : '<span class="status-ok">정상 수집 중</span>'),
         row('마지막 수집', c
             ? `${hm(c.finished_at)} (${agoText(c.finished_at, s.now)}) · ${c.seconds}초 · 새 글 ${c.new}, 갱신 ${c.updated}, 오류 ${c.errors}`

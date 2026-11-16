@@ -89,6 +89,8 @@ class FakeDriver:
     def quit(self): pass
 m.create_driver = lambda: FakeDriver()
 m.run_api_server = lambda: None
+# 시험에서는 쉬는 시간이 실제로 흐르지 않으므로 에펨코리아도 매 주기 확인하게 함
+m.FM_CHECK_INTERVAL = 0
 state = {'cycle': 0, 'list_calls': [], 'checks': [], 'sleeps': [], 'telegram': []}
 def fake_list(driver, board, keyword, page=1):
     state['list_calls'].append((state['cycle'], board))

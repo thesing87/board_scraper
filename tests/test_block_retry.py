@@ -68,6 +68,8 @@ class FakeDriver:
     def get(self, url): pass
     def quit(self): pass
 m.create_driver = lambda: FakeDriver()
+# 시험에서는 쉬는 시간이 실제로 흐르지 않으므로 에펨코리아도 매 주기 확인하게 함 (FM_CHECK_INTERVAL은 test_request_gap에서)
+m.FM_CHECK_INTERVAL = 0
 state = {'cycle': 0, 'sleeps': [], 'telegram': []}
 BLOCKED_CYCLES = {1, 3, 4}          # 1: 한 번만 실패, 3~4: 이어서 실패
 def fake_list(driver, board, keyword, page=1):
@@ -88,3 +90,50 @@ assert state['sleeps'] == [90, 180, 90, 180, 360, 90], state['sleeps']        # 
 assert state['telegram'] == [(4, '⚠️ 에펨코리아 접속 차단 의심'),
                              (5, '✅ 에펨코리아 접속이 정상으로 돌아왔습니다. (차단 의심 2회 후 복구)')], state['telegram']
 print('BLOCK ALERT OK')
+
+# --- 4) 에펨코리아만 막히면 에펨코리아만 쉬고, 디시인사이드는 원래 주기로 계속 수집
+storage.add_category('dc:car_new1')
+storage.set_category_checked('dc:car_new1', True, page_name='자동차 갤러리')
+storage.save_group(None, '디시 싼타페', [{'board': 'dc:car_new1', 'keyword': '싼타페'}])
+storage.save_keyword_post('dc:car_new1', '싼타페', {'id': 'dc-car_new1-7', 'title': 't', 'author': 'a', 'date': 'd', 'views': '1',
+                          'votes': '0', 'comment_count': '0', 'link': 'https://gall.dcinside.com/7', 'content': [], 'videos': [],
+                          'comments': []}, is_new=False)
+storage.mark_first_page_filled('dc:car_new1', '싼타페')
+# 보관한 글: 막힌 사이트의 글은 풀릴 때까지 열지 않음
+storage.save_keyword_post('car', '싼타페', {'id': '55', 'title': 'old', 'author': 'a', 'date': 'd', 'views': '1', 'votes': '0',
+                          'comment_count': '0', 'link': '/55', 'content': [], 'videos': [], 'comments': []}, is_new=False)
+m.saved_posts_to_check = lambda minutes, exclude, limit: [{'id': '55', 'title': 'old', 'author': 'a', 'date': 'd', 'link': '/55',
+                                                           'list_comment_count': 0}]
+m.mark_saved_checked = lambda post_id: None
+state = {'cycle': 0, 'sleeps': [], 'telegram': [], 'lists': [], 'details': []}
+FM_BLOCKED = {1, 3}                  # 1주기에 막힘 → 180초 뒤(3주기) 다시 확인해도 막힘 → 360초 뒤(7주기) 복구
+def mixed_list(driver, board, keyword, page=1):
+    state['lists'].append((state['cycle'], sites.board_site(board)))
+    if board == 'car':
+        if state['cycle'] in FM_BLOCKED:
+            raise m.BlockedError('게시판 목록이 아닌 페이지 응답 (제목: 에펨코리아 보안 시스템)')
+        return [{'id': '101', 'link': '/101', 'title': 't', 'author': 'a', 'date': 'd', 'list_comment_count': 0, 'list_views': None, 'list_votes': None}]
+    return [{'id': 'dc-car_new1-7', 'link': 'https://gall.dcinside.com/7', 'title': 't', 'author': 'a', 'date': 'd',
+             'list_comment_count': 0, 'list_views': None, 'list_votes': None}]
+def fake_detail(driver, info, all_comment_pages=True):
+    state['details'].append((state['cycle'], info['id']))
+    return dict(info, views='1', votes='0', comment_count='0', content=[], videos=[], comments=[])
+m.get_list_page_posts = mixed_list
+m.scrape_post_detail = fake_detail
+def mixed_sleep(s):
+    state['sleeps'].append(s)
+    state['cycle'] += 1
+    if state['cycle'] > 8:
+        raise KeyboardInterrupt
+m.time.sleep = mixed_sleep
+with contextlib.redirect_stdout(io.StringIO()):
+    m.main()
+assert state['sleeps'] == [90] * 9, state['sleeps']                                           # 전체 주기는 그대로
+assert [c for c, s in state['lists'] if s == 'dcinside'] == list(range(9)), state['lists']    # 디시는 매 주기 수집
+assert [c for c, s in state['lists'] if s == 'fmkorea'] == [0, 1, 3, 7, 8], state['lists']    # 에펨코리아만 쉼 (180초, 360초)
+assert state['telegram'] == [(3, '⚠️ 에펨코리아 접속 차단 의심'),
+                             (7, '✅ 에펨코리아 접속이 정상으로 돌아왔습니다. (차단 의심 2회 후 복구)')], state['telegram']
+assert [c for c, i in state['details'] if i == '55'] == [0, 7, 8], state['details']           # 막힌 동안 에펨코리아 글은 열지 않음
+status = m.runtime_status.snapshot()
+assert status['block_streak'] == 0 and status['blocked_label'] == '' and status['block_retry_at'] is None, status
+print('PER-SITE BACKOFF OK')
