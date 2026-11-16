@@ -22,6 +22,10 @@ def extract_post_id(link):
 class BlockedError(Exception):
     """목록 페이지가 정상 게시판 화면이 아님 (접속 차단·보안 확인·점검 페이지 등으로 추정)"""
 
+class ChallengeError(BlockedError):
+    """에펨코리아 '사람 확인' 화면 (Cloudflare Turnstile). 수집기의 크롬은 통과하지 못하고 시간이 지나야 풀리므로,
+    일시적인 오류 화면과 달리 바로 다시 열어 보지 않음 (sites.get_list_page_posts)"""
+
 def log_unexpected_page(driver, target):
     """목록이 아닌 페이지가 왔을 때 무엇이 왔는지 기록 (차단 화면인지, 서버의 일시적인 오류 화면인지 나중에 가려 보려고):
     응답 코드, 실제 주소, 화면에 보이는 글의 앞부분"""
@@ -189,7 +193,8 @@ def get_list_page_posts(driver, board, keyword, page=1):
             return []
         page_title = (driver.title or '').strip()[:60] or '제목 없음'
         log_unexpected_page(driver, f"{board}/{keyword}")
-        raise BlockedError(f"게시판 목록이 아닌 페이지 응답 (제목: {page_title})")
+        is_challenge = any(p in soup.get_text() for p in CHALLENGE_PHRASES)
+        raise (ChallengeError if is_challenge else BlockedError)(f"게시판 목록이 아닌 페이지 응답 (제목: {page_title})")
     post_list = _parse_list_rows(soup)
 
     log_msg(f"[수집] 목록 {board}/{keyword}: {len(post_list)}건", "DEBUG")

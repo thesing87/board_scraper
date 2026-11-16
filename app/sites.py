@@ -54,7 +54,8 @@ def _collector(site):
     return scraper
 
 # 목록이 아닌 페이지가 한 번 왔다고 바로 차단으로 보지 않고, 이 시간(초) 뒤에 한 번 더 열어 봄.
-# 사이트가 가끔 한 번씩 돌려주는 일시적인 오류 화면에 차단 의심 알림이 가지 않게 함 (디시 목록 200번에 한 번꼴)
+# 사이트가 가끔 한 번씩 돌려주는 일시적인 오류 화면에 차단 의심 알림이 가지 않게 함 (디시 목록 200번에 한 번꼴).
+# 에펨코리아 '사람 확인' 화면은 다시 열어도 그대로라 다시 열지 않음 (막힌 동안 요청만 두 배가 됨)
 LIST_RETRY_SECONDS = 5
 
 def get_list_page_posts(driver, board, keyword, page=1):
@@ -63,6 +64,9 @@ def get_list_page_posts(driver, board, keyword, page=1):
         return collector.get_list_page_posts(driver, board, keyword, page)
     except collector.BlockedError as first:
         from config import log_msg
+        from scraper import ChallengeError
+        if isinstance(first, ChallengeError):
+            raise
         log_msg(f"[수집] {board}/{keyword} {first} → {LIST_RETRY_SECONDS}초 뒤 한 번 더 시도", "DEBUG")
         time.sleep(LIST_RETRY_SECONDS)
         return collector.get_list_page_posts(driver, board, keyword, page)

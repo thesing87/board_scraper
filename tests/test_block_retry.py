@@ -38,6 +38,34 @@ finally:
     dcinside.get_list_page_posts = real
 print('LIST RETRY OK')
 
+# 에펨코리아 '사람 확인' 화면은 다시 열지 않음 (다시 열어도 그대로라 막힌 동안 요청만 늘어남)
+class ListPage:
+    def __init__(self, html, title): self.page_source, self.title, self.opened = html, title, 0
+    def get(self, url): self.opened += 1
+    def execute_script(self, script): return ''
+scraper.WebDriverWait = lambda d, t: type('W', (), {'until': lambda self, c: True})()
+# (scraper.time과 sites.time은 같은 time 모듈이라 요청 간격·화면 대기도 waits에 함께 쌓임)
+if True:  # 아래 두 경우를 한 묶음으로
+    waits.clear()
+    human_check = ListPage('<html><body><h1>접속 확인 중입니다</h1><div>사람인지 확인이 완료되면 사이트에 자동으로 접속됩니다.</div></body></html>',
+                           '에펨코리아 보안 시스템')
+    try:
+        sites.get_list_page_posts(human_check, 'car', '싼타페'); raise SystemExit('no block raised')
+    except scraper.ChallengeError:
+        pass
+    assert human_check.opened == 1 and sites.LIST_RETRY_SECONDS not in waits, (human_check.opened, waits)
+    waits.clear()
+    # 그 밖의 목록이 아닌 페이지(일시적인 오류 화면 등)는 전처럼 한 번 더 열어 봄
+    error_page = ListPage('<html><body>504 Gateway Time-out</body></html>', '504 Gateway Time-out')
+    try:
+        sites.get_list_page_posts(error_page, 'car', '싼타페'); raise SystemExit('no block raised')
+    except scraper.ChallengeError:
+        raise SystemExit('error page treated as human check')
+    except scraper.BlockedError:
+        pass
+    assert error_page.opened == 2 and waits.count(sites.LIST_RETRY_SECONDS) == 1, (error_page.opened, waits)
+print('NO RETRY ON HUMAN CHECK OK')
+
 # --- 2) 목록이 아닌 페이지의 내용 기록: 읽지 못해도 수집은 계속
 class Page:
     def __init__(self, result): self.result = result
