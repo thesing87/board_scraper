@@ -1064,6 +1064,21 @@ def delete_group(group_id):
             return None
         return _drop_orphan_keywords(conn)
 
+def set_group_paused(group_id, paused):
+    """게시판의 모든 키워드를 한 번에 일시정지하거나 다시 수집 (모은 글은 그대로, 수집만 멈춤).
+    일시정지는 키워드에 붙으므로 같은 키워드를 쓰는 다른 게시판에도 함께 적용됨.
+    (게시판 이름, 바꾼 키워드 수) 반환, 없는 게시판이면 None"""
+    with _db() as conn, conn:
+        group = conn.execute("SELECT name FROM keyword_groups WHERE id = ?", (group_id,)).fetchone()
+        if not group:
+            return None
+        changed = conn.execute("""
+            UPDATE keywords SET paused = ? WHERE EXISTS (
+                SELECT 1 FROM keyword_group_members m
+                WHERE m.group_id = ? AND m.board = keywords.board AND m.keyword = keywords.keyword)
+        """, (int(bool(paused)), group_id)).rowcount
+        return group['name'], changed
+
 def post_exists(post_id):
     """다른 키워드로 이미 수집된 글인지 (같은 글 중복 알림 방지용)"""
     with _db() as conn:

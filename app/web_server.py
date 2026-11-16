@@ -50,6 +50,7 @@ from storage import (
     popular_by_group,
     save_group,
     delete_group,
+    set_group_paused,
     category_names,
     list_categories,
     add_category,
@@ -657,6 +658,19 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 return
             log_msg(f"[API] 게시판 삭제: #{group_id}{self._dropped_text(dropped)}")
             self._send_json(200, True, '🗑️ 게시판을 삭제했습니다.')
+            return
+        if action == 'pause':
+            # 게시판 전체 일시정지·다시 수집: 그 게시판의 모든 키워드에 한 번에 적용
+            group_id, paused = params.get('id'), params.get('paused')
+            if not isinstance(group_id, int) or not isinstance(paused, bool):
+                self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                return
+            result = set_group_paused(group_id, paused)
+            if result is None:
+                self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
+                return
+            log_msg(f"[API] 게시판 {'일시정지' if paused else '다시 수집'}: {result[0]} (키워드 {result[1]}개)")
+            self._send_json(200, True, f"'{result[0]}' 게시판 수집을 {'일시정지했' if paused else '다시 시작했'}습니다.")
             return
         if action not in ('create', 'update'):
             self._send_json(400, False, '❌ 지원하지 않는 작업입니다.')

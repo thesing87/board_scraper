@@ -300,6 +300,8 @@ document.addEventListener('click', (e) => {
         renderGroupSettings();
     } else if (action === 'cancel-group-edit') {
         resetGroupForm();
+    } else if (action === 'toggle-group-pause') {
+        toggleGroupPause(Number(el.dataset.groupId), el);
     } else if (action === 'delete-group') {
         deleteGroup(Number(el.dataset.groupId), el);
     } else if (action === 'add-category') {

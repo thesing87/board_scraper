@@ -3,7 +3,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import ROOT
 import tempfile
 from datetime import datetime, timedelta
-os.environ.update(OUTPUT_DIR=tempfile.mkdtemp(), LOG_LEVEL='WARN', TELEGRAM_TOKEN='', COLLECTOR_STALL_MINUTES='10')
+os.environ.update(OUTPUT_DIR=tempfile.mkdtemp(), LOG_LEVEL='WARN', TELEGRAM_TOKEN='', COLLECTOR_STALL_MINUTES='10',
+                  ADMIN_PASSWORD='Secr3t!')
 import config
 # 로컬 .env의 KEYWORDS_* (config가 불러옴)가 새 DB에 같은 이름의 게시판을 미리 만들지 않게 비움
 for name in [k for k in os.environ if k.startswith('KEYWORDS_')]:
@@ -54,6 +55,42 @@ assert storage.load_keywords()['car'] == ['쏘렌토']
 storage.save_group(group_id, '싼타페', [{'board': 'car', 'keyword': '싼타페', 'paused': False}, {'board': 'car', 'keyword': '쏘렌토'}])
 assert storage.load_keywords()['car'] == ['싼타페', '쏘렌토']
 print('PAUSE OK')
+
+# --- 3-1) 게시판 전체 일시정지: 그 게시판의 모든 키워드가 수집 대상에서 빠지고, 다시 수집하면 모두 돌아옴
+other_id, _ = storage.save_group(None, '투싼', [{'board': 'car', 'keyword': '투싼'}])
+assert storage.set_group_paused(group_id, True) == ('싼타페', 2)
+assert storage.load_keywords()['car'] == ['투싼']                  # 다른 게시판의 키워드는 그대로 수집
+members = {m['keyword']: m['paused'] for m in next(g for g in storage.list_groups() if g['id'] == group_id)['members']}
+assert members == {'싼타페': True, '쏘렌토': True}, members
+assert storage.query_all_posts(0, 10, group_id=group_id)[0] == 1      # 모은 글은 그대로 보임
+assert storage.set_group_paused(group_id, False) == ('싼타페', 2)
+assert storage.load_keywords()['car'] == ['싼타페', '쏘렌토', '투싼']
+assert storage.set_group_paused(99999, True) is None                  # 없는 게시판
+# 관리 API (암호 필요, 형식 검사)
+import json, threading, urllib.request, urllib.error
+import web_server as ws
+srv = ws.ThreadedHTTPServer(('127.0.0.1', 0), ws.KeywordAPIServer)
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+def call(body, password='Secr3t!'):
+    req = urllib.request.Request(f'http://127.0.0.1:{srv.server_address[1]}/api/group',
+                                 data=json.dumps({**body, 'password': password}).encode(), headers={'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(req) as res:
+            return res.status, json.load(res)
+    except urllib.error.HTTPError as e:
+        return e.code, json.load(e)
+assert call({'action': 'pause', 'id': other_id, 'paused': True}, password='wrong')[0] == 401
+assert storage.load_keywords()['car'] == ['싼타페', '쏘렌토', '투싼']
+status, data = call({'action': 'pause', 'id': other_id, 'paused': True})
+assert status == 200 and data['success'] and '일시정지' in data['message'], data
+assert storage.load_keywords()['car'] == ['싼타페', '쏘렌토']
+assert call({'action': 'pause', 'id': other_id, 'paused': 'yes'})[0] == 400
+assert call({'action': 'pause', 'id': 99999, 'paused': True})[0] == 400
+assert call({'action': 'pause', 'id': other_id, 'paused': False})[0] == 200
+assert storage.load_keywords()['car'] == ['싼타페', '쏘렌토', '투싼']
+srv.shutdown()
+storage.delete_group(other_id)
+print('GROUP PAUSE OK')
 
 # --- 4) 수집기 멈춤 감시: 기준 시각에서 10분이 지나면 한 번만 알리고, 다시 움직이면 복구 알림
 import runtime_status, web_server

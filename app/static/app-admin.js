@@ -126,10 +126,12 @@ function renderGroupSettings() {
     const folderOptions = g => `<option value="" ${folders.some(f => f.id === g.folder_id) ? '' : 'selected'}>묶음 없음</option>`
         + folders.map(f => `<option value="${f.id}" ${f.id === g.folder_id ? 'selected' : ''}>${esc(f.name)}</option>`).join('');
     const ordered = topItems().flatMap(t => t.kind === 'group' ? [t.item] : groups.filter(g => g.folder_id === t.item.id));
+    // 게시판 전체 일시정지: 키워드가 모두 일시정지면 멈춘 게시판 (키워드별 일시정지는 '수정'에서)
+    const groupPaused = g => g.members.length > 0 && g.members.every(m => m.paused);
     document.getElementById('settings-groups').innerHTML = ordered.length ? ordered.map(g => `
         <div class="group-row">
             <div class="group-row-main">
-                <span class="group-row-name">${multiSite() ? groupTag(g) : ''}${esc(g.name)}</span>
+                <span class="group-row-name">${multiSite() ? groupTag(g) : ''}${esc(g.name)}${groupPaused(g) ? '<span class="kw-tag-paused">일시정지</span>' : ''}</span>
                 <span class="group-row-members">${g.members.map(m => memberText(m, g)).join(' · ') || '(키워드 없음)'} · ${g.total}개 글</span>
                 <span class="group-row-arrange">
                     <select class="input select select-small" data-action="set-group-folder" data-group-id="${g.id}" aria-label="${esc(g.name)} 게시판의 묶음">${folderOptions(g)}</select>
@@ -137,6 +139,8 @@ function renderGroupSettings() {
                     <button class="icon-btn small" data-action="move-group" data-group-id="${g.id}" data-direction="down" aria-label="${esc(g.name)} 아래로">${ICONS.down}</button>
                 </span>
             </div>
+            <button class="btn btn-outline btn-small" data-action="toggle-group-pause" data-group-id="${g.id}" aria-pressed="${groupPaused(g)}"
+                title="${groupPaused(g) ? '이 게시판의 모든 키워드를 다시 수집' : '이 게시판의 모든 키워드 수집을 멈춤 (모은 글은 그대로)'}" ${g.members.length ? '' : 'disabled'}>${groupPaused(g) ? '다시 수집' : '일시정지'}</button>
             <button class="btn btn-outline btn-small" data-action="edit-group" data-group-id="${g.id}">수정</button>
             <button class="btn btn-outline btn-small btn-danger" data-action="delete-group" data-group-id="${g.id}">삭제</button>
         </div>`).join('') : '<span class="settings-hint">만든 게시판이 없습니다.</span>';
@@ -326,6 +330,36 @@ async function deleteGroup(groupId, button) {
         if (!data.success) { if (data.message) alert(data.message); return; }
         if (app.activeKey === 'group:' + groupId) { app.activeKey = ALL_KEY; app.page = 1; }
         if (app.editingGroupId === groupId) resetGroupForm();
+        await loadState();
+        renderSettings();
+    } catch (e) {
+        alert('요청 중 오류가 발생했습니다.');
+    } finally {
+        button.disabled = false;
+    }
+}
+
+// 게시판 전체 일시정지·다시 수집: 그 게시판의 모든 키워드에 한 번에 적용 (모은 글은 그대로, 수집만 멈춤).
+// 일시정지는 키워드에 붙으므로 같은 키워드를 쓰는 다른 게시판도 함께 멈춤 → 누르기 전에 알려 줌
+async function toggleGroupPause(groupId, button) {
+    const group = (app.state.groups || []).find(g => g.id === groupId);
+    if (!group || !group.members.length) return;
+    const pwd = adminPassword();
+    if (!pwd) { needPassword(); return; }
+    const paused = !group.members.every(m => m.paused);
+    const mine = new Set(group.members.map(memberKey));
+    const shared = (app.state.groups || []).filter(g => g.id !== groupId && g.members.some(m => mine.has(memberKey(m))));
+    const note = shared.length ? `\n(같은 키워드를 쓰는 ${shared.map(g => `'${g.name}'`).join(', ')} 게시판에도 함께 적용됩니다)` : '';
+    const question = paused
+        ? `'${group.name}' 게시판의 키워드 ${group.members.length}개 수집을 모두 멈출까요? 모은 글은 그대로 둡니다.`
+        : `'${group.name}' 게시판의 키워드 ${group.members.length}개를 모두 다시 수집할까요? 멈춘 동안 올라온 글은 알림 없이 새 글로만 들어옵니다.`;
+    if (!confirm(question + note)) return;
+    button.disabled = true;
+    try {
+        const data = await postJSON('/api/group', { action: 'pause', id: groupId, paused: paused, password: pwd });
+        if (!data.success) { if (data.message) alert(data.message); return; }
+        // 이 게시판을 수정하던 중이면 양식의 키워드 일시정지 표시도 맞춤 (저장할 때 예전 값으로 되돌리지 않게)
+        if (app.groupDraft) app.groupDraft.forEach(m => { if (mine.has(memberKey(m))) m.paused = paused; });
         await loadState();
         renderSettings();
     } catch (e) {
