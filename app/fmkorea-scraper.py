@@ -308,6 +308,24 @@ def pick_new_posts(list_posts, board_data, site, searched):
     floor = min(listed_known) if listed_known else max(post_number(post['id']) for post in board_data)
     return [post for post in list_posts if post['id'] not in existing and post_number(post['id']) > floor]
 
+def is_paused_post(resumed, key, post_id):
+    """일시정지를 풀어 다시 수집하는 키워드(resumed)에서, 멈춘 동안 올라온 글인지 (알림 없이 대시보드의 새 글로만 남김).
+    resumed[key]가 None이면 다시 켠 뒤 아직 한 번도 확인하지 않은 것이라 모든 글, 글 번호면 그 번호까지의 글"""
+    if key not in resumed:
+        return False
+    return resumed[key] is None or post_number(post_id) <= resumed[key]
+
+def settle_resumed(resumed, key, board_rows, searched):
+    """다시 켠 키워드를 한 번 확인한 뒤: 검색 목록까지 봤으면 멈춘 동안의 글을 모두 처리한 것이라 평소대로 되돌림.
+    에펨코리아에서 게시판 목록만 본 주기라면 멈춘 동안의 글이 아직 남아 있으므로(나중에 검색 차례에 나옴), 지금 게시판의
+    가장 새 글 번호를 기억해 두고 그 번호까지의 글은 검색으로 찾았을 때도 알리지 않음 (그 뒤에 올라온 글은 평소대로 알림)"""
+    if key not in resumed:
+        return
+    if board_rows is None or searched or FM_SEARCH_INTERVAL is None:
+        del resumed[key]
+    elif resumed[key] is None and board_rows:
+        resumed[key] = max(post_number(row['id']) for row in board_rows)
+
 def sync_existing_posts(driver, target, list_posts, board_data, stats, verified_present):
     """목록 페이지 값과 저장된 값을 비교해, 댓글 수가 바뀐 글만 상세 페이지를 다시 열어 갱신하고
     목록에서 사라진 글은 삭제 여부를 확인. 상세 페이지 요청을 변화가 있을 때로만 줄이는 것이 목적"""
@@ -695,9 +713,11 @@ def main():
         # 크롬을 마지막으로 띄운 뒤 지난 주기 수, 유지 관리(백업·정리)를 마지막으로 한 날짜
         cycles_since_chrome = 0
         maintenance_date = None
-        # 지난 주기에 수집한 키워드. 일시정지를 풀어 다시 수집하는 키워드는 멈춘 동안 올라온 글을 한꺼번에 알리지 않으려고 씀
-        # (기동 후 첫 주기는 비교할 기록이 없어 None)
+        # 지난 주기의 수집 대상 키워드 (기동 후 첫 주기는 비교할 기록이 없어 None)와, 일시정지를 풀어 다시 수집하는 키워드.
+        # 다시 켠 키워드는 멈춘 동안 올라온 글을 한꺼번에 알리지 않음. 켠 주기에 바로 확인하지 못해도(에펨코리아는
+        # FM_CHECK_INTERVAL마다, 차단 의심으로 쉬는 사이트는 풀린 뒤) 실제로 확인할 때까지 기억함 (is_paused_post, settle_resumed)
         collected_keys = None
+        resumed = {}
 
         while True:
             if not is_initial_run:
@@ -723,7 +743,10 @@ def main():
 
             config_data = load_keywords()
             current_keys = {(board, keyword) for board, keywords in config_data.items() for keyword in keywords}
-            resumed = current_keys - collected_keys if collected_keys is not None else set()
+            for key in (current_keys - collected_keys if collected_keys is not None else ()):
+                resumed[key] = None
+            for key in [key for key in resumed if key not in current_keys]:
+                del resumed[key]
             collected_keys = current_keys
             filled_keys = first_page_filled_keys()
             board_names = category_names()
@@ -830,6 +853,7 @@ def main():
 
                     if not board_data:
                         save_first_page(driver, board, keyword, target, new_post_list, ignores, rejected, stats)
+                        settle_resumed(resumed, (board, keyword), board_rows, searched)
                         continue
 
                     # 예전 방식으로 등록된 디시 키워드는 첫 페이지의 지난 글을 1회 채운 뒤 평소처럼 새 글 확인
@@ -873,8 +897,8 @@ def main():
                             full_alert = [t['name'] for t in targets if t['alert']]
                             video_only = [t['name'] for t in targets if has_video and t['video_alert'] and not t['alert']]
                             alert_boards = full_alert + video_only
-                            # 일시정지를 풀고 처음 확인하는 주기: 멈춘 동안 올라온 글은 대시보드의 새 글로만 (알림 몰림 방지)
-                            quiet = (board, keyword) in resumed
+                            # 일시정지를 풀고 다시 수집하는 키워드: 멈춘 동안 올라온 글은 대시보드의 새 글로만 (알림 몰림 방지)
+                            quiet = is_paused_post(resumed, (board, keyword), post_data['id'])
                             should_send_alert = bool(alert_boards) and not quiet
 
                             if already_collected:
@@ -906,6 +930,7 @@ def main():
                         searched_ids = {p['id'] for p in new_post_list} if searched else set()
                         sync_list = (new_post_list if searched else []) + [row for row in board_rows if row['id'] not in searched_ids]
                     sync_existing_posts(driver, target, sync_list, board_data, stats, verified_present)
+                    settle_resumed(resumed, (board, keyword), board_rows, searched)
 
             # 주기 요약: 변화나 오류가 있을 때만 INFO로 남기고, 조용한 주기는 1시간마다 상태 로그로 묶어서 보고
             elapsed = time.time() - cycle_started

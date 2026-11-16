@@ -228,3 +228,50 @@ with contextlib.redirect_stdout(io.StringIO()):
 assert state['board'] == [20, 21, 22] and state['search'] == [20], (state['board'], state['search'])
 assert state['alerts'] == [(20, '320'), (21, '321'), (22, '322')], state['alerts']
 print('SEARCH REST OK')
+
+# 5-5) 일시정지를 풀어 다시 수집: 멈춘 동안 올라온 글은 알리지 않음.
+#      켠 주기가 에펨코리아를 확인할 차례가 아니어도, 그리고 멈춘 동안의 글이 한참 뒤 검색 차례에야 나와도 마찬가지
+storage.set_group_paused(gid, True)             # 이 시험은 새 키워드 하나만
+gid2, _ = storage.save_group(None, '쏘렌토', [{'board': 'car', 'keyword': '쏘렌토'}])
+storage.set_group_alert(gid2, 'alert', True)
+storage.save_keyword_post('car', '쏘렌토', {'id': '90', 'title': '쏘렌토 지난 글', 'author': 'a', 'date': 'd', 'views': '1',
+                          'votes': '0', 'comment_count': '0', 'link': 'https://www.fmkorea.com/90', 'content': [],
+                          'videos': [], 'comments': [], 'list_comment_count': 0}, is_new=False)
+BODY.update({'350': '멈춘 동안 올라온, 본문에만 쏘렌토가 있는 글', '403': '다시 켠 뒤 올라온, 본문에만 쏘렌토가 있는 글'})
+def resume_board(driver, board, page=1):
+    state['board'].append(state['cycle'])
+    c = state['cycle']
+    rows = [row(90, '쏘렌토 지난 글')]
+    if c >= 4:
+        rows = [row(401, '쏘렌토 멈춘 동안 글'), row(400, '다른 글'), row(350, '패밀리카 고민')] + rows
+    if c >= 6:
+        rows = [row(403, '차 추천 좀'), row(402, '쏘렌토 다시 켠 뒤 글')] + rows
+    return rows
+def resume_search(driver, board, keyword, page=1):
+    state['search'].append(state['cycle'])
+    if state['cycle'] == 0:
+        return [row(90, '쏘렌토 지난 글')]
+    return [row(403, '차 추천 좀'), row(402, '쏘렌토 다시 켠 뒤 글'), row(401, '쏘렌토 멈춘 동안 글'),
+            row(350, '패밀리카 고민'), row(90, '쏘렌토 지난 글')]
+def resume_sleep(s):
+    clock[0] += 60
+    state['cycle'] += 1
+    if state['cycle'] == 1:
+        storage.set_group_paused(gid2, True)     # 주기 1~2: 일시정지
+    if state['cycle'] == 3:
+        storage.set_group_paused(gid2, False)    # 주기 3에 다시 켬 (에펨코리아 확인 차례가 아닌 주기)
+    if state['cycle'] > 8:
+        raise KeyboardInterrupt
+m.get_board_page_posts = resume_board
+m.get_list_page_posts = resume_search
+m.time.sleep = resume_sleep
+m.FM_CHECK_INTERVAL, m.FM_SEARCH_INTERVAL = 100, 400     # 주기 60초: 에펨코리아는 짝수 주기마다, 검색은 주기 0과 8
+state.update(cycle=0, board=[], search=[], detail=[], alerts=[], telegram=[], sleeps=[])
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    m.main()
+assert state['board'] == [0, 4, 6, 8] and state['search'] == [0, 8], (state['board'], state['search'])
+# 401(멈춘 동안, 제목)·350(멈춘 동안, 본문: 검색 차례에야 나옴)은 알림 없음. 402·403(다시 켠 뒤)은 알림
+assert state['alerts'] == [(6, '402'), (8, '403')], state['alerts']
+assert [p['id'] for p in storage.recent_keyword_posts('car', '쏘렌토', 10)] == ['403', '350', '402', '401', '90']
+print('RESUME QUIET OK')
