@@ -60,6 +60,7 @@ def fake_detail(driver, info, all_comment_pages=True):
                 content=['싼하 본문'], videos=[], comments=[])
 
 m.get_list_page_posts = fake_list
+import common; common.search_every_cycle(m)
 m.scrape_post_detail = fake_detail
 m.CHECK_INTERVAL = 0
 def fake_sleep(s):

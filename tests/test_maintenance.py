@@ -73,6 +73,7 @@ m.create_driver = fake_create
 m.run_api_server = lambda: None
 m.CHROME_RESTART_CYCLES = 2
 m.get_list_page_posts = lambda driver, board, keyword, page=1: []
+import common; common.search_every_cycle(m)
 maint = []
 real_maint = m.run_daily_maintenance
 m.run_daily_maintenance = lambda: (maint.append(1), real_maint())

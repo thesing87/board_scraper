@@ -41,6 +41,7 @@ def fake_sleep(s):
     state['cycle'] += 1
     raise KeyboardInterrupt
 m.get_list_page_posts = fake_list
+import common; common.search_every_cycle(m)
 m.scrape_post_detail = fake_detail
 m.send_post_alert = lambda post, boards, keyword, board_name, *urls: state['alerts'].append((post['id'], boards, keyword))
 m.time.sleep = fake_sleep

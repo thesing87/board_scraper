@@ -175,30 +175,41 @@ def comment_lines(c_content_area):
     while c_paragraphs and c_paragraphs[-1] == '': c_paragraphs.pop()
     return c_paragraphs
 
-def get_list_page_posts(driver, board, keyword, page=1):
-    encoded_keyword = quote(keyword)
-    list_url = f"https://www.fmkorea.com/index.php?mid={board}&search_target=title_content&search_keyword={encoded_keyword}&page={page}"
+def _read_list(driver, list_url, target, label):
+    """목록 주소를 열어 글 행을 읽음. 게시판 목록 화면이 아니면 BlockedError"""
     # 페이지 로드 실패는 호출한 쪽(메인 루프)에서 키워드 정보와 함께 한 번만 기록
     open_page(driver, list_url)
     WebDriverWait(driver, 5).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, 'table.bd_lst, body'))
     )
     time.sleep(random.uniform(0.5, 1.2))
-    
+
     soup = BeautifulSoup(driver.page_source, 'html.parser')
     if not soup.select_one('table.bd_lst'):
-        # 검색 결과가 없을 때도 게시판 목록 틀(.bd_lst_wrp)과 안내 문구는 있음. 틀 자체가 없으면 정상 화면이 아님
+        # 글이 없을 때도 게시판 목록 틀(.bd_lst_wrp)과 안내 문구는 있음. 틀 자체가 없으면 정상 화면이 아님
         if soup.select_one('.bd_lst_wrp') and '등록된 글이 없습니다' in soup.get_text():
-            log_msg(f"[수집] 목록 {board}/{keyword}: 0건 (검색 결과 없음)", "DEBUG")
+            log_msg(f"[수집] {label} {target}: 0건 (글 없음)", "DEBUG")
             return []
         page_title = (driver.title or '').strip()[:60] or '제목 없음'
-        log_unexpected_page(driver, f"{board}/{keyword}")
+        log_unexpected_page(driver, target)
         is_challenge = any(p in soup.get_text() for p in CHALLENGE_PHRASES)
         raise (ChallengeError if is_challenge else BlockedError)(f"게시판 목록이 아닌 페이지 응답 (제목: {page_title})")
     post_list = _parse_list_rows(soup)
 
-    log_msg(f"[수집] 목록 {board}/{keyword}: {len(post_list)}건", "DEBUG")
+    log_msg(f"[수집] {label} {target}: {len(post_list)}건", "DEBUG")
     return post_list
+
+def get_list_page_posts(driver, board, keyword, page=1):
+    """키워드 검색 목록 (제목+본문 검색, search.php). 요청이 많으면 '사람 확인' 화면으로 막히므로 드물게만 씀
+    (fmkorea-scraper.py의 SearchSchedule)"""
+    list_url = (f"https://www.fmkorea.com/index.php?mid={board}&search_target=title_content"
+                f"&search_keyword={quote(keyword)}&page={page}")
+    return _read_list(driver, list_url, f"{board}/{keyword}", "목록")
+
+def get_board_page_posts(driver, board, page=1):
+    """검색 없이 게시판의 글 목록 page쪽 (최신순, 한 쪽에 20개). 새 글은 여기서 제목으로 찾음"""
+    return _read_list(driver, f"https://www.fmkorea.com/index.php?mid={quote(board)}&page={page}",
+                      f"{board} {page}쪽", "게시판")
 
 def board_title(page_title):
     """'자동차 - 에펨코리아'(검색 중이면 '검색어 - 자동차 - 에펨코리아') 형태의 창 제목에서 게시판 이름"""

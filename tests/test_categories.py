@@ -101,6 +101,7 @@ def fake_check(driver, board):
         return True, '해외축구'
     return False, '글 목록(표)이 없는 페이지 (제목: 에펨코리아)'
 m.get_list_page_posts = fake_list
+import common; common.search_every_cycle(m)
 m.check_board = fake_check
 m.send_telegram_message = lambda text: state['telegram'].append(text)
 def fake_sleep(s):
@@ -125,11 +126,11 @@ print('MAIN LOOP OK')
 # 차단 의심 주기에는 확인하지 않음 (차단 화면을 잘못된 게시판으로 오판하지 않도록)
 storage.recheck_category('wrongmid')
 state.update(cycle=0, checks=[], sleeps=[], telegram=[])
-def blocked_list(driver, board, keyword, page=1):
+def blocked_board(driver, board, page=1):
     if state['cycle'] == 0:
         raise m.BlockedError('게시판 목록이 아닌 페이지 응답 (제목: Just a moment...)')
     return []
-m.get_list_page_posts = blocked_list
+m.get_board_page_posts = blocked_board
 with contextlib.redirect_stdout(io.StringIO()):
     m.main()
 assert state['checks'] == [(1, 'wrongmid')], state['checks']

@@ -91,6 +91,7 @@ class FakeDriver:
     def execute_script(self, s): return 1
     def quit(self): pass
 m.create_driver = lambda: FakeDriver()
+import common; common.search_every_cycle(m)
 def stop(seconds):
     raise KeyboardInterrupt  # 첫 주기를 마치고 다음 주기를 기다릴 때 끝냄
 real_sleep = time.sleep

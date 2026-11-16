@@ -58,18 +58,28 @@ def _collector(site):
 # 에펨코리아 '사람 확인' 화면은 다시 열어도 그대로라 다시 열지 않음 (막힌 동안 요청만 두 배가 됨)
 LIST_RETRY_SECONDS = 5
 
-def get_list_page_posts(driver, board, keyword, page=1):
-    collector = _collector(board_site(board))
+def _read_with_retry(collector, read, target):
     try:
-        return collector.get_list_page_posts(driver, board, keyword, page)
+        return read()
     except collector.BlockedError as first:
         from config import log_msg
         from scraper import ChallengeError
         if isinstance(first, ChallengeError):
             raise
-        log_msg(f"[수집] {board}/{keyword} {first} → {LIST_RETRY_SECONDS}초 뒤 한 번 더 시도", "DEBUG")
+        log_msg(f"[수집] {target} {first} → {LIST_RETRY_SECONDS}초 뒤 한 번 더 시도", "DEBUG")
         time.sleep(LIST_RETRY_SECONDS)
-        return collector.get_list_page_posts(driver, board, keyword, page)
+        return read()
+
+def get_list_page_posts(driver, board, keyword, page=1):
+    """키워드 검색 목록"""
+    collector = _collector(board_site(board))
+    return _read_with_retry(collector, lambda: collector.get_list_page_posts(driver, board, keyword, page),
+                            f"{board}/{keyword}")
+
+def get_board_page_posts(driver, board, page=1):
+    """검색 없는 게시판 글 목록 (에펨코리아만: 새 글을 제목으로 찾는 데 씀)"""
+    collector = _collector(FMKOREA)
+    return _read_with_retry(collector, lambda: collector.get_board_page_posts(driver, board, page), board)
 
 def scrape_post_detail(driver, post_info, all_comment_pages=True):
     """all_comment_pages=False면 첫 화면의 댓글 페이지만 읽음 (삭제 여부 확인처럼 댓글이 필요 없을 때)"""

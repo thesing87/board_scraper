@@ -38,20 +38,26 @@ m.run_api_server = lambda: None
 # 시험에서는 쉬는 시간이 실제로 흐르지 않으므로 에펨코리아도 매 주기 확인하게 함
 m.FM_CHECK_INTERVAL = 0
 import storage
-state = {'cycle': 0, 'list_calls': [], 'sleeps': [], 'telegram': []}
+state = {'cycle': 0, 'board_calls': [], 'list_calls': [], 'sleeps': [], 'telegram': []}
 # 0: 정상, 1~2: 차단 페이지, 3: 모든 목록 요청 예외(접속 불가), 4: 정상(복구)
-def fake_list(driver, board, keyword, page=1):
-    state['list_calls'].append(state['cycle'])
+# 에펨코리아는 게시판 글 목록을 먼저 읽으므로 차단·접속 불가는 게시판 목록에서 드러남 (그 주기에는 키워드 검색까지 가지 않음)
+def fake_board(driver, board, page=1):
+    state['board_calls'].append(state['cycle'])
     c = state['cycle']
     if c in (1, 2):
         raise m.BlockedError('게시판 목록이 아닌 페이지 응답 (제목: Just a moment...)')
     if c == 3:
         raise TimeoutError('Message: timeout: Timed out receiving message from renderer\nStacktrace: ...')
+    return []
+def fake_list(driver, board, keyword, page=1):
+    state['list_calls'].append(state['cycle'])
     recent = storage.recent_keyword_posts(board, keyword, 20)
     return [{'id': p['id'], 'link': p['link'], 'title': p['title'], 'author': p['author'], 'date': p['date'],
              'list_comment_count': p.get('list_comment_count') if p.get('list_comment_count') is not None else m.parse_count(p['comment_count']),
              'list_views': None, 'list_votes': None} for p in recent if not p.get('is_deleted')]
 m.get_list_page_posts = fake_list
+import common; common.search_every_cycle(m)
+m.get_board_page_posts = fake_board
 m.scrape_post_detail = lambda d, info, **_: dict(info, views='1', votes='0', comment_count='0', content=[], videos=[], comments=[])
 m.send_telegram_message = lambda text, reply_markup=None: state['telegram'].append(text.splitlines()[0])
 def fake_sleep(s):
@@ -66,12 +72,16 @@ with contextlib.redirect_stdout(out):
     m.main()
 print('\n'.join(l for l in out.getvalue().splitlines() if '차단' in l or '복구' in l or '주기 완료' in l))
 calls_per_cycle = {c: state['list_calls'].count(c) for c in range(5)}
-print('list calls per cycle:', calls_per_cycle)
+boards_per_cycle = {c: state['board_calls'].count(c) for c in range(5)}
+print('list calls per cycle:', calls_per_cycle, '| board calls per cycle:', boards_per_cycle)
 print('sleeps:', state['sleeps'])
 print('telegram:', state['telegram'])
 kw_count = sum(len(v) for v in storage.load_keywords().values())
-assert calls_per_cycle[0] == kw_count and calls_per_cycle[1] == 1 and calls_per_cycle[2] == 1, calls_per_cycle
-assert calls_per_cycle[3] == kw_count and calls_per_cycle[4] == kw_count, calls_per_cycle
-assert state['sleeps'] == [90, 180, 360, 720, 90], state['sleeps']
+board_count = sum(1 for v in storage.load_keywords().values() if v)
+assert calls_per_cycle == {0: kw_count, 1: 0, 2: 0, 3: 0, 4: kw_count}, calls_per_cycle
+# 차단 페이지가 오면 남은 게시판은 열지 않고, 접속 불가(예외)는 게시판마다 시도
+assert boards_per_cycle == {0: board_count, 1: 1, 2: 1, 3: board_count, 4: board_count}, boards_per_cycle
+w = m.CHECK_INTERVAL
+assert state['sleeps'] == [w, w * 2, w * 4, w * 8, w], state['sleeps']
 assert state['telegram'] == ['⚠️ 에펨코리아 접속 차단 의심', '✅ 에펨코리아 접속이 정상으로 돌아왔습니다. (차단 의심 3회 후 복구)'], state['telegram']
 print('BACKOFF SIM OK')
