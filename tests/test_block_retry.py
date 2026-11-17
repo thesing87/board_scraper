@@ -100,15 +100,12 @@ m.create_driver = lambda: FakeDriver()
 m.FM_CHECK_INTERVAL = 0
 state = {'cycle': 0, 'sleeps': [], 'telegram': []}
 BLOCKED_CYCLES = {1, 3, 4}          # 1: 한 번만 실패, 3~4: 이어서 실패
-def fake_board(driver, board, page=1):
+def fake_list(driver, board, keyword, page=1):
     if state['cycle'] in BLOCKED_CYCLES:
         raise m.BlockedError('게시판 목록이 아닌 페이지 응답 (제목: www.fmkorea.com)')
-    return []
-def fake_list(driver, board, keyword, page=1):
     return [{'id': '101', 'link': '/101', 'title': 't', 'author': 'a', 'date': 'd', 'list_comment_count': 0, 'list_views': None, 'list_votes': None}]
 m.get_list_page_posts = fake_list
 import common; common.search_every_cycle(m)
-m.get_board_page_posts = fake_board
 m.send_telegram_message = lambda text, reply_markup=None: state['telegram'].append((state['cycle'], text.splitlines()[0]))
 def fake_sleep(s):
     state['sleeps'].append(s)
@@ -139,23 +136,19 @@ m.saved_posts_to_check = lambda minutes, exclude, limit: [{'id': '55', 'title': 
 m.mark_saved_checked = lambda post_id: None
 state = {'cycle': 0, 'sleeps': [], 'telegram': [], 'lists': [], 'details': []}
 FM_BLOCKED = {1, 3}                  # 1주기에 막힘 → 180초 뒤(3주기) 다시 확인해도 막힘 → 360초 뒤(7주기) 복구
-# 에펨코리아는 게시판 글 목록을 먼저 읽으므로 차단은 게시판 목록에서 드러남 (디시는 키워드 검색 목록)
-def mixed_board(driver, board, page=1):
-    state['lists'].append((state['cycle'], sites.board_site(board)))
-    if state['cycle'] in FM_BLOCKED:
-        raise m.BlockedError('게시판 목록이 아닌 페이지 응답 (제목: 에펨코리아 보안 시스템)')
-    return []
 def mixed_list(driver, board, keyword, page=1):
-    if board == 'car':
-        return [{'id': '101', 'link': '/101', 'title': 't', 'author': 'a', 'date': 'd', 'list_comment_count': 0, 'list_views': None, 'list_votes': None}]
     state['lists'].append((state['cycle'], sites.board_site(board)))
+    if board == 'car':
+        if state['cycle'] in FM_BLOCKED:
+            raise FM_BLOCK_ERROR('게시판 목록이 아닌 페이지 응답 (제목: 에펨코리아 보안 시스템)')
+        return [{'id': '101', 'link': '/101', 'title': 't', 'author': 'a', 'date': 'd', 'list_comment_count': 0, 'list_views': None, 'list_votes': None}]
     return [{'id': 'dc-car_new1-7', 'link': 'https://gall.dcinside.com/7', 'title': 't', 'author': 'a', 'date': 'd',
              'list_comment_count': 0, 'list_views': None, 'list_votes': None}]
 def fake_detail(driver, info, all_comment_pages=True):
     state['details'].append((state['cycle'], info['id']))
     return dict(info, views='1', votes='0', comment_count='0', content=[], videos=[], comments=[])
+FM_BLOCK_ERROR = m.BlockedError
 m.get_list_page_posts = mixed_list
-m.get_board_page_posts = mixed_board
 m.scrape_post_detail = fake_detail
 def mixed_sleep(s):
     state['sleeps'].append(s)
@@ -178,19 +171,17 @@ print('PER-SITE BACKOFF OK')
 # --- 5) 사람 확인 화면으로 막히면 잠깐씩 늘려 가며 확인하지 않고 길게 쉼 (첫 번째부터 알림), 수집기를 다시 띄워도 이어서 쉼
 m.FM_CHALLENGE_REST = 270            # 시험용: 주기 3번(90초 x 3) 동안 쉼
 assert m.wait_text(6 * 3600) == '6시간 0분' and m.wait_text(240) == '4분 0초'
+FM_BLOCK_ERROR = scraper.ChallengeError
 def run_main(challenge_cycles, last_cycle):
+    global FM_BLOCKED
+    FM_BLOCKED = challenge_cycles
     state.update(cycle=0, sleeps=[], telegram=[], lists=[], details=[])
-    def board(driver, board, page=1):
-        state['lists'].append((state['cycle'], sites.board_site(board)))
-        if state['cycle'] in challenge_cycles:
-            raise scraper.ChallengeError('게시판 목록이 아닌 페이지 응답 (제목: 에펨코리아 보안 시스템)')
-        return []
     def sleep(s):
         state['sleeps'].append(s)
         state['cycle'] += 1
         if state['cycle'] > last_cycle:
             raise KeyboardInterrupt
-    m.get_board_page_posts, m.time.sleep = board, sleep
+    m.time.sleep = sleep
     with contextlib.redirect_stdout(io.StringIO()):
         m.main()
     return [c for c, s in state['lists'] if s == 'fmkorea'], [c for c, s in state['lists'] if s == 'dcinside']

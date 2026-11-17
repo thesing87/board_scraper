@@ -77,16 +77,13 @@ CHECK_INTERVAL = int(os.environ.get('CHECK_INTERVAL', 90))
 # 에펨코리아 페이지 요청 사이에 쉬는 시간(초, 이 범위에서 무작위). 연달아 몰아서 요청하면 '보안 시스템' 페이지로 막힘
 FM_REQUEST_GAP_MIN = max(0.0, float(os.environ.get('FM_REQUEST_GAP_MIN', 3)))
 FM_REQUEST_GAP_MAX = max(FM_REQUEST_GAP_MIN, float(os.environ.get('FM_REQUEST_GAP_MAX', 6)))
-# 에펨코리아 확인 주기(초): 이 간격마다 게시판 글 목록(검색 아님)을 읽어 제목에 키워드가 있는 새 글을 찾음.
-# 게시판마다 요청 하나라 키워드 수와 상관없이 가벼움 (디시인사이드는 CHECK_INTERVAL마다 따로)
+# 에펨코리아 확인 주기(초): 이 간격마다 그 주기에 검색할 차례인 키워드 몇 개만 검색함 (디시인사이드는 CHECK_INTERVAL마다 따로)
 FM_CHECK_INTERVAL = max(60, int(os.environ.get('FM_CHECK_INTERVAL', 300)))
-# 에펨코리아 키워드 검색(search.php, 제목+본문) 간격(초): 본문에만 키워드가 있는 글과 지난 글의 댓글 변화를 찾는 데만 씀.
-# 검색은 요청이 많으면 429 '사람 확인' 화면으로 막히고 한번 막히면 몇 시간씩 풀리지 않아(키워드 29개를 주기마다 검색하다 막힘),
-# 키워드마다 이 간격에 한 번씩만, 한 주기에 몰리지 않게 나눠서 검색함. 0이면 매 주기 모든 키워드, 음수면 검색하지 않음(제목만)
-_fm_search_interval = int(os.environ.get('FM_SEARCH_INTERVAL', 3600))
-FM_SEARCH_INTERVAL = None if _fm_search_interval < 0 else _fm_search_interval
-# 게시판 글 목록을 지난 주기에 본 글이 나올 때까지 읽는 최대 쪽수 (한 쪽 20개. 글이 몰리는 게시판에서 주기 사이 새 글이 한 쪽을 넘을 때)
-FM_LIST_MAX_PAGES = max(1, int(os.environ.get('FM_LIST_MAX_PAGES', 3)))
+# 에펨코리아 키워드 검색(제목+본문) 간격(초): 키워드마다 이 간격에 한 번씩만, 한 주기에 몰리지 않게 나눠서 검색함
+# (기본 1시간: 키워드 29개면 시간당 29번, 5분 주기마다 3개씩). 새 글 알림은 최대 이 간격만큼 늦음.
+# 검색은 요청이 많으면 429 '사람 확인' 화면으로 막히고 한번 막히면 몇 시간씩 풀리지 않음 (키워드 29개를 주기마다 검색하다 막힘).
+# 0이면 FM_CHECK_INTERVAL마다 모든 키워드를 검색
+FM_SEARCH_INTERVAL = max(0, int(os.environ.get('FM_SEARCH_INTERVAL', 3600)))
 # 에펨코리아 '접속 확인 중입니다(사람 확인)' 화면이 나오면 자동으로 넘어가기를 기다리는 최대 시간(초)
 FM_CHALLENGE_WAIT = max(0, int(os.environ.get('FM_CHALLENGE_WAIT', 15)))
 # 사람 확인 화면으로 막히면 이 시간(초) 동안 에펨코리아에 요청을 아예 보내지 않고 쉰 뒤 다시 확인 (기본 6시간).

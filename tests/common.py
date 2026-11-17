@@ -23,9 +23,8 @@ def shot_dir(name):
     return path
 
 def search_every_cycle(m):
-    """수집기 모듈(fmkorea-scraper.py)을 '주기마다 모든 에펨코리아 키워드를 검색'하게 맞춤: 게시판 글 목록은 빈 목록으로,
-    에펨코리아 확인·검색 간격은 0으로. 검색 목록을 따라가는 수집 흐름(새 글·갱신·삭제 확인)을 시험하는 테스트용
-    (실제로는 게시판 목록에서 제목으로 찾고 검색은 드물게만 함, tests/test_board_list.py)"""
-    m.get_board_page_posts = lambda driver, board, page=1: []
+    """수집기 모듈(fmkorea-scraper.py)을 '주기마다 모든 에펨코리아 키워드를 검색'하게 맞춤 (에펨코리아 확인·검색 간격을 0으로).
+    검색 목록을 따라가는 수집 흐름(새 글·갱신·삭제 확인)을 시험하는 테스트용
+    (실제로는 키워드마다 한 시간에 한 번씩 나눠서 검색함, tests/test_search_schedule.py)"""
     m.FM_CHECK_INTERVAL = 0
     m.FM_SEARCH_INTERVAL = 0

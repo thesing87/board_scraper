@@ -126,11 +126,11 @@ print('MAIN LOOP OK')
 # 차단 의심 주기에는 확인하지 않음 (차단 화면을 잘못된 게시판으로 오판하지 않도록)
 storage.recheck_category('wrongmid')
 state.update(cycle=0, checks=[], sleeps=[], telegram=[])
-def blocked_board(driver, board, page=1):
+def blocked_list(driver, board, keyword, page=1):
     if state['cycle'] == 0:
         raise m.BlockedError('게시판 목록이 아닌 페이지 응답 (제목: Just a moment...)')
     return []
-m.get_board_page_posts = blocked_board
+m.get_list_page_posts = blocked_list
 with contextlib.redirect_stdout(io.StringIO()):
     m.main()
 assert state['checks'] == [(1, 'wrongmid')], state['checks']

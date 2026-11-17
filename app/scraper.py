@@ -200,16 +200,11 @@ def _read_list(driver, list_url, target, label):
     return post_list
 
 def get_list_page_posts(driver, board, keyword, page=1):
-    """키워드 검색 목록 (제목+본문 검색, search.php). 요청이 많으면 '사람 확인' 화면으로 막히므로 드물게만 씀
+    """키워드 검색 목록 (제목+본문 검색, search.php). 요청이 많으면 '사람 확인' 화면으로 막히므로 키워드마다 드물게 나눠서 씀
     (fmkorea-scraper.py의 SearchSchedule)"""
     list_url = (f"https://www.fmkorea.com/index.php?mid={board}&search_target=title_content"
                 f"&search_keyword={quote(keyword)}&page={page}")
     return _read_list(driver, list_url, f"{board}/{keyword}", "목록")
-
-def get_board_page_posts(driver, board, page=1):
-    """검색 없이 게시판의 글 목록 page쪽 (최신순, 한 쪽에 20개). 새 글은 여기서 제목으로 찾음"""
-    return _read_list(driver, f"https://www.fmkorea.com/index.php?mid={quote(board)}&page={page}",
-                      f"{board} {page}쪽", "게시판")
 
 def board_title(page_title):
     """'자동차 - 에펨코리아'(검색 중이면 '검색어 - 자동차 - 에펨코리아') 형태의 창 제목에서 게시판 이름"""

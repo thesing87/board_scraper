@@ -76,11 +76,6 @@ def get_list_page_posts(driver, board, keyword, page=1):
     return _read_with_retry(collector, lambda: collector.get_list_page_posts(driver, board, keyword, page),
                             f"{board}/{keyword}")
 
-def get_board_page_posts(driver, board, page=1):
-    """검색 없는 게시판 글 목록 (에펨코리아만: 새 글을 제목으로 찾는 데 씀)"""
-    collector = _collector(FMKOREA)
-    return _read_with_retry(collector, lambda: collector.get_board_page_posts(driver, board, page), board)
-
 def scrape_post_detail(driver, post_info, all_comment_pages=True):
     """all_comment_pages=False면 첫 화면의 댓글 페이지만 읽음 (삭제 여부 확인처럼 댓글이 필요 없을 때)"""
     return _collector(post_site(post_info['id'])).scrape_post_detail(driver, post_info, all_comment_pages)

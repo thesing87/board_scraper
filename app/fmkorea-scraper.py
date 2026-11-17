@@ -20,7 +20,6 @@ from config import (
     FM_CHECK_INTERVAL,
     FM_CHALLENGE_REST,
     FM_SEARCH_INTERVAL,
-    FM_LIST_MAX_PAGES,
     DDNS_URL,
     MAX_DATA_PER_KEYWORD,
     RETENTION_DAYS,
@@ -88,7 +87,6 @@ from scraper import parse_count, BlockedError, ChallengeError
 # 목록·상세·게시판 확인은 카테고리(글)의 사이트에 맞는 수집기(에펨코리아·디시인사이드)로
 from sites import (
     get_list_page_posts,
-    get_board_page_posts,
     scrape_post_detail,
     check_board,
     board_site,
@@ -124,10 +122,6 @@ BACKOFF_MAX_SECONDS = 3600
 BLOCK_ALERT_STREAK = 2
 # 사람 확인 화면으로 막혀 쉬는 사이트를 언제까지 쉴지 (meta, 사이트마다). 수집기를 다시 띄워도 남은 시간만큼 이어서 쉼
 BLOCK_REST_META = 'block_rest_until:'
-# 에펨코리아 검색이 막히면 검색만 이 시간(초) x 1, 2, 4 … 쉬었다가 다시 확인하되 최대값을 넘기지 않음.
-# 막힌 동안 계속 두드리면 풀리지 않아서 길게 쉼 (한 시간에 한 번씩 확인했을 때 8시간 넘게 그대로였음)
-FM_SEARCH_RETRY_SECONDS = 1800
-FM_SEARCH_RETRY_MAX_SECONDS = 6 * 3600
 
 try:
     if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
@@ -203,28 +197,22 @@ def ensure_driver_alive(driver):
     return create_driver()
 
 class SearchSchedule:
-    """에펨코리아 키워드 검색(search.php) 일정. 새 글은 게시판 목록의 제목으로 찾고, 검색은 본문에만 키워드가 있는 글과
-    지난 글의 댓글 변화를 찾는 데만 드물게 씀: 키워드마다 FM_SEARCH_INTERVAL에 한 번, 한 주기에 몰리지 않게 나눠서.
-    검색이 막히면 검색만 쉬고(제목 수집은 계속) 한참 뒤 키워드 하나로 풀렸는지 확인함"""
+    """에펨코리아 키워드 검색(search.php) 일정: 키워드마다 FM_SEARCH_INTERVAL에 한 번, 한 주기에 몰리지 않게 나눠서 검색.
+    검색이 잦으면 '사람 확인' 화면으로 막혀서(키워드 29개를 주기마다 검색하다 막힘) 요청을 드물고 고르게 보냄.
+    차례가 아닌 키워드는 그 주기에 아무 요청도 보내지 않음"""
 
     def __init__(self):
         self.searched_at = {}       # (board, keyword) → 마지막으로 검색에 성공한 시각
-        self.block_streak = 0       # 검색이 이어서 막힌 횟수
-        self.retry_at = 0.0         # 막힌 뒤 다시 확인할 시각
         self.planned = set()        # 이번 주기에 검색할 키워드
 
     def is_due(self, key, now):
-        if FM_SEARCH_INTERVAL is None or now < self.retry_at:
-            return False
         return now - self.searched_at.get(key, 0.0) >= FM_SEARCH_INTERVAL
 
     def plan(self, keys, now):
-        """이번 주기에 검색할 키워드를 고름: 검색한 지 가장 오래된 것부터 한 주기 몫만큼 (막힌 뒤 다시 확인할 때는 하나만)"""
+        """이번 주기에 검색할 키워드를 고름: 검색한 지 가장 오래된 것부터 한 주기 몫만큼"""
         due = sorted((k for k in keys if self.is_due(k, now)), key=lambda k: self.searched_at.get(k, 0.0))
         if not due:
             quota = 0
-        elif self.block_streak:
-            quota = 1
         elif FM_SEARCH_INTERVAL <= FM_CHECK_INTERVAL:
             quota = len(due)
         else:
@@ -236,18 +224,8 @@ class SearchSchedule:
         return key in self.planned or (not has_posts and self.is_due(key, now))
 
     def succeeded(self, key, now):
-        """검색 성공을 기록. 막혀 있다가 풀린 것이면 그동안 이어서 막힌 횟수를 반환 (아니면 0)"""
+        """검색 성공을 기록 (실패한 키워드는 기록하지 않아 다음 주기에 다시 차례가 됨)"""
         self.searched_at[key] = now
-        streak, self.block_streak = self.block_streak, 0
-        return streak
-
-    def blocked(self, now):
-        """검색이 막힘: 이번 주기의 남은 검색을 그만두고, 다시 확인할 때까지 쉬는 시간(초)을 반환"""
-        self.block_streak += 1
-        wait = min(FM_SEARCH_RETRY_SECONDS * 2 ** (self.block_streak - 1), FM_SEARCH_RETRY_MAX_SECONDS)
-        self.retry_at = now + wait
-        self.planned = set()
-        return wait
 
 def wait_text(seconds):
     """대기 시간을 '6시간 0분', '4분 0초'처럼"""
@@ -268,85 +246,19 @@ def load_block_rests():
             rests[site] = left
     return rests
 
-def note_search_blocked(fm_search, target, reason, now):
-    """에펨코리아 검색만 막혔을 때 (게시판 목록은 열림): 검색을 쉬게 하고, 이어서 막히면 텔레그램으로 한 번 알림"""
-    wait = fm_search.blocked(now)
-    name = site_labels()[FMKOREA]['name']
-    log_msg(f"[검색 차단] {name} {target} {reason} → 검색은 {wait // 60}분 뒤 다시 확인, 제목으로 찾는 수집은 계속 "
-            f"(연속 {fm_search.block_streak}회)", "WARN")
-    if fm_search.block_streak == BLOCK_ALERT_STREAK:
-        send_telegram_message(
-            f"⚠️ {name} 검색 차단\n\n{target} {reason}\n\n"
-            f"제목에 키워드가 있는 새 글은 게시판 목록으로 계속 수집합니다. 본문에만 키워드가 있는 글과 지난 글의 댓글 갱신은 "
-            f"검색이 풀릴 때까지 쉽니다. 풀리면 다시 알려드립니다."
-        )
-
-def note_search_recovered(streak):
-    name = site_labels()[FMKOREA]['name']
-    log_msg(f"[복구] {name} 검색 정상 응답 확인 (검색 차단 {streak}회 후)")
-    # 차단을 알렸을 때만 복구도 알림
-    if streak >= BLOCK_ALERT_STREAK:
-        send_telegram_message(f"✅ {name} 검색이 정상으로 돌아왔습니다. (검색 차단 {streak}회 후 복구)")
-
-def read_board_rows(driver, board, board_top):
-    """에펨코리아 게시판의 검색 없는 글 목록을 지난 주기에 본 글이 나올 때까지 읽음 (최대 FM_LIST_MAX_PAGES쪽, 최신순).
-    board_top: 게시판마다 지난번에 읽은 목록의 가장 큰 글 번호 (처음이면 첫 쪽만 읽음).
-    첫 쪽을 못 읽으면 예외 그대로. 다음 쪽을 못 읽으면 읽은 데까지만 쓰고, board_top을 그대로 두어 다음 주기에 다시 그 깊이까지 읽음"""
-    rows, seen, complete = [], set(), True
-    last_top = board_top.get(board)
-    for page in range(1, FM_LIST_MAX_PAGES + 1):
-        try:
-            page_rows = get_board_page_posts(driver, board, page)
-        except Exception as e:
-            if page == 1:
-                raise
-            complete = False
-            log_msg(f"[오류] {board} 게시판 목록 {page}쪽 조회 실패, 읽은 데까지만 사용: {short_err(e)}", "WARN")
-            break
-        rows += [row for row in page_rows if row['id'] not in seen]
-        seen.update(row['id'] for row in page_rows)
-        if not page_rows or last_top is None or min(post_number(row['id']) for row in page_rows) <= last_top:
-            break
-    else:
-        log_msg(f"[수집] {board} 게시판의 새 글이 {FM_LIST_MAX_PAGES}쪽을 넘김 (넘친 글은 키워드 검색 때 확인)", "DEBUG")
-    if rows and complete:
-        board_top[board] = max(post_number(row['id']) for row in rows)
-    return rows
-
-def pick_new_posts(list_posts, board_data, site, searched):
-    """목록에서 아직 모으지 않은 글 (목록 순서 그대로, 최신이 앞). board_data: 그 키워드로 모아 둔 최근 글 (비어 있지 않음)"""
+def pick_new_posts(list_posts, board_data, site):
+    """검색 목록에서 아직 모으지 않은 글 (목록 순서 그대로, 최신이 앞). board_data: 그 키워드로 모아 둔 최근 글 (비어 있지 않음)"""
     existing = {post['id'] for post in board_data}
     if site != FMKOREA:
         # 최신순 검색 목록: 이미 모은 글이 나오면 그 뒤는 모두 지난 글
         end = next((i for i, post in enumerate(list_posts) if post['id'] in existing), len(list_posts))
         return list_posts[:end]
-    if not searched:
-        # 게시판 목록에서 제목으로 찾은 글: 방금 올라온 글들이라 모으지 않은 글은 모두 새 글
-        return [post for post in list_posts if post['id'] not in existing]
-    # 에펨코리아 검색 목록: 제목으로 먼저 모은 글 사이에 본문에만 키워드가 있는 글이 끼어 있으므로 이미 모은 글에서 멈추지 않고,
-    # 목록에 있는 모은 글 중 가장 오래된 것보다 새 글을 모두 봄 (그보다 오래된 글은 키워드를 등록하기 전의 지난 글).
+    # 에펨코리아: 이미 모은 글에서 멈추지 않고, 목록에 있는 모은 글 중 가장 오래된 것보다 새 글을 모두 봄
+    # (지난번에 상세 수집에 실패했거나 예전에 제목으로만 모아 사이에 빠진 글까지. 그보다 오래된 글은 키워드를 등록하기 전의 지난 글).
     # 목록에 모은 글이 하나도 없으면 모아 둔 가장 새 글보다 새 글만
     listed_known = [post_number(post['id']) for post in list_posts if post['id'] in existing]
     floor = min(listed_known) if listed_known else max(post_number(post['id']) for post in board_data)
     return [post for post in list_posts if post['id'] not in existing and post_number(post['id']) > floor]
-
-def is_paused_post(resumed, key, post_id):
-    """일시정지를 풀어 다시 수집하는 키워드(resumed)에서, 멈춘 동안 올라온 글인지 (알림 없이 대시보드의 새 글로만 남김).
-    resumed[key]가 None이면 다시 켠 뒤 아직 한 번도 확인하지 않은 것이라 모든 글, 글 번호면 그 번호까지의 글"""
-    if key not in resumed:
-        return False
-    return resumed[key] is None or post_number(post_id) <= resumed[key]
-
-def settle_resumed(resumed, key, board_rows, searched):
-    """다시 켠 키워드를 한 번 확인한 뒤: 검색 목록까지 봤으면 멈춘 동안의 글을 모두 처리한 것이라 평소대로 되돌림.
-    에펨코리아에서 게시판 목록만 본 주기라면 멈춘 동안의 글이 아직 남아 있으므로(나중에 검색 차례에 나옴), 지금 게시판의
-    가장 새 글 번호를 기억해 두고 그 번호까지의 글은 검색으로 찾았을 때도 알리지 않음 (그 뒤에 올라온 글은 평소대로 알림)"""
-    if key not in resumed:
-        return
-    if board_rows is None or searched or FM_SEARCH_INTERVAL is None:
-        del resumed[key]
-    elif resumed[key] is None and board_rows:
-        resumed[key] = max(post_number(row['id']) for row in board_rows)
 
 def sync_existing_posts(driver, target, list_posts, board_data, stats, verified_present):
     """목록 페이지 값과 저장된 값을 비교해, 댓글 수가 바뀐 글만 상세 페이지를 다시 열어 갱신하고
@@ -735,18 +647,17 @@ def main():
             log_msg(f"[차단 의심] {site_labels()[site]['name']} 사람 확인 화면으로 쉬는 중 → {wait_text(left)} 뒤 다시 확인")
         # 에펨코리아 키워드를 마지막으로 확인한 주기의 시작 시각 (FM_CHECK_INTERVAL마다만 확인)
         fm_checked_at = 0.0
-        # 에펨코리아 키워드 검색 일정과, 게시판마다 지난번에 읽은 목록의 가장 큰 글 번호
+        # 에펨코리아 키워드 검색 일정 (키워드마다 FM_SEARCH_INTERVAL에 한 번, 주기마다 몇 개씩 나눠서)
         fm_search = SearchSchedule()
-        fm_board_top = {}
         next_wait = CHECK_INTERVAL
         # 크롬을 마지막으로 띄운 뒤 지난 주기 수, 유지 관리(백업·정리)를 마지막으로 한 날짜
         cycles_since_chrome = 0
         maintenance_date = None
         # 지난 주기의 수집 대상 키워드 (기동 후 첫 주기는 비교할 기록이 없어 None)와, 일시정지를 풀어 다시 수집하는 키워드.
-        # 다시 켠 키워드는 멈춘 동안 올라온 글을 한꺼번에 알리지 않음. 켠 주기에 바로 확인하지 못해도(에펨코리아는
-        # FM_CHECK_INTERVAL마다, 차단 의심으로 쉬는 사이트는 풀린 뒤) 실제로 확인할 때까지 기억함 (is_paused_post, settle_resumed)
+        # 다시 켠 키워드는 멈춘 동안 올라온 글을 한꺼번에 알리지 않음. 켠 주기에 바로 확인하지 못해도(에펨코리아는 검색할
+        # 차례가 올 때, 차단 의심으로 쉬는 사이트는 풀린 뒤) 실제로 한 번 확인할 때까지 기억함
         collected_keys = None
-        resumed = {}
+        resumed = set()
 
         while True:
             if not is_initial_run:
@@ -772,10 +683,12 @@ def main():
 
             config_data = load_keywords()
             current_keys = {(board, keyword) for board, keywords in config_data.items() for keyword in keywords}
-            for key in (current_keys - collected_keys if collected_keys is not None else ()):
-                resumed[key] = None
-            for key in [key for key in resumed if key not in current_keys]:
-                del resumed[key]
+            if collected_keys is not None:
+                resumed |= current_keys - collected_keys
+                # 다시 켠 에펨코리아 키워드는 검색 차례를 기다리지 않고 다음 확인 때 바로 검색 (멈춘 동안의 글을 얼른 정리)
+                for key in current_keys - collected_keys:
+                    fm_search.searched_at.pop(key, None)
+            resumed &= current_keys
             collected_keys = current_keys
             filled_keys = first_page_filled_keys()
             board_names = category_names()
@@ -789,7 +702,7 @@ def main():
             cycle_started = time.time()
             # 차단 의심으로 쉬는 중인 사이트 (남은 대기 시간이 다 지나면 다시 확인)
             waiting_sites = {site for site, left in block_wait.items() if left > 0}
-            # 에펨코리아는 FM_CHECK_INTERVAL마다만 확인 (차단 의심 뒤 다시 확인할 때는 대기 시간이 지났으면 바로)
+            # 에펨코리아는 FM_CHECK_INTERVAL마다, 그 주기에 검색할 차례인 키워드만 확인 (차단 의심 뒤 다시 확인할 때는 대기 시간이 지났으면 바로)
             fm_due = bool(block_streak.get(FMKOREA)) or cycle_started - fm_checked_at >= FM_CHECK_INTERVAL - 5
             if fm_due and FMKOREA not in waiting_sites:
                 fm_checked_at = cycle_started
@@ -810,32 +723,16 @@ def main():
                 if site in blocked_reasons or site in waiting_sites:
                     continue
 
-                # 에펨코리아는 게시판 글 목록(검색 아님)을 한 번 읽어 그 게시판의 키워드들이 함께 씀
-                board_rows = None
-                if site == FMKOREA:
-                    if not fm_due or not keywords:
-                        continue
-                    driver = restart_if_hung(driver)
-                    runtime_status.update(progress_at=runtime_status.now())
-                    tried_sites.add(site)
-                    try:
-                        board_rows = read_board_rows(driver, board, fm_board_top)
-                        stats['list_ok'] += 1
-                        ok_sites.add(site)
-                    except BlockedError as block_ex:
-                        # 차단이 의심되면 그 사이트의 남은 게시판까지 요청을 이어가지 않고 이번 주기에는 멈춤
-                        stats['errors'] += 1
-                        blocked_reasons[site] = f"{site_labels()[site]['name']} {board_name} {block_ex}"
-                        if isinstance(block_ex, ChallengeError):
-                            challenged_sites.add(site)
-                        continue
-                    except Exception as list_ex:
-                        stats['errors'] += 1
-                        stats['list_failed'] += 1
-                        log_msg(f"[오류] {board_name} 게시판 목록 조회 실패: {short_err(list_ex)}", "WARN")
-                        continue
+                if site == FMKOREA and not fm_due:
+                    continue
 
                 for keyword in keywords:
+                    # 새 글 판별 기준이 되는 최근 수집 글 (최신순)
+                    board_data = recent_keyword_posts(board, keyword, MAX_DATA_PER_KEYWORD)
+                    # 에펨코리아는 이번 주기에 검색할 차례인 키워드만 (나머지는 요청 없이 다음 차례까지 기다림)
+                    if site == FMKOREA and not fm_search.wants((board, keyword), bool(board_data), cycle_started):
+                        continue
+
                     driver = restart_if_hung(driver)
                     stats['keywords'] += 1
                     target = f"{board_name}/{keyword}"
@@ -843,52 +740,30 @@ def main():
                     log_msg(f"[수집] {target} 확인 중", "DEBUG")
                     runtime_status.update(progress_at=runtime_status.now())
 
-                    # 새 글 판별 기준이 되는 최근 수집 글 (최신순)
-                    board_data = recent_keyword_posts(board, keyword, MAX_DATA_PER_KEYWORD)
-
-                    # 목록을 먼저 읽어 새 글 알림을 가장 먼저 처리하고, 기존 글 갱신은 목록 값 비교로 변화가 있을 때만 수행.
-                    # 디시인사이드는 늘 키워드 검색 목록. 에펨코리아는 검색할 차례인 키워드만 검색하고(fm_search),
-                    # 나머지는 위에서 읽은 게시판 목록에서 제목에 키워드가 있는 글을 찾음
-                    searched = board_rows is None or fm_search.wants((board, keyword), bool(board_data), cycle_started)
-                    if searched:
-                        if board_rows is None:
-                            tried_sites.add(site)
-                        try:
-                            new_post_list = get_list_page_posts(driver, board, keyword, page=1)
-                        except BlockedError as block_ex:
-                            stats['errors'] += 1
-                            if board_rows is None:
-                                # 차단이 의심되면 그 사이트의 남은 키워드까지 요청을 이어가지 않고 이번 주기에는 멈춤
-                                blocked_reasons[site] = f"{site_labels()[site]['name']} {target} {block_ex}"
-                                if isinstance(block_ex, ChallengeError):
-                                    challenged_sites.add(site)
-                                break
-                            # 게시판 목록은 방금 열렸으므로 검색만 막힌 것: 검색을 쉬고 이 키워드는 게시판 목록으로 확인
-                            note_search_blocked(fm_search, target, block_ex, cycle_started)
-                            searched = False
-                        except Exception as list_ex:
-                            stats['errors'] += 1
-                            log_msg(f"[오류] {target} 목록 조회 실패: {short_err(list_ex)}", "WARN")
-                            if board_rows is None:
-                                stats['list_failed'] += 1
-                                continue
-                            searched = False
-                        else:
-                            if board_rows is None:
-                                stats['list_ok'] += 1
-                                ok_sites.add(site)
-                            else:
-                                recovered = fm_search.succeeded((board, keyword), cycle_started)
-                                if recovered:
-                                    note_search_recovered(recovered)
-                    # 게시판 목록에서 제목에 키워드가 있는 글. 검색한 주기에도 함께 봄 (방금 올라온 글은 검색 결과에 아직 없을 수 있음)
-                    title_rows = [row for row in board_rows or [] if keyword_in_post(keyword, row['title'], None, ignores)]
-                    if not searched:
-                        new_post_list = title_rows
+                    # 목록을 먼저 읽어 새 글 알림을 가장 먼저 처리하고, 기존 글 갱신은 목록 값 비교로 변화가 있을 때만 수행
+                    tried_sites.add(site)
+                    try:
+                        new_post_list = get_list_page_posts(driver, board, keyword, page=1)
+                        stats['list_ok'] += 1
+                        ok_sites.add(site)
+                        if site == FMKOREA:
+                            fm_search.succeeded((board, keyword), cycle_started)
+                    except BlockedError as block_ex:
+                        # 차단이 의심되면 그 사이트의 남은 키워드까지 요청을 이어가지 않고 이번 주기에는 멈춤
+                        stats['errors'] += 1
+                        blocked_reasons[site] = f"{site_labels()[site]['name']} {target} {block_ex}"
+                        if isinstance(block_ex, ChallengeError):
+                            challenged_sites.add(site)
+                        break
+                    except Exception as list_ex:
+                        stats['errors'] += 1
+                        stats['list_failed'] += 1
+                        log_msg(f"[오류] {target} 목록 조회 실패: {short_err(list_ex)}", "WARN")
+                        continue
 
                     if not board_data:
                         save_first_page(driver, board, keyword, target, new_post_list, ignores, rejected, stats)
-                        settle_resumed(resumed, (board, keyword), board_rows, searched)
+                        resumed.discard((board, keyword))
                         continue
 
                     # 예전 방식으로 등록된 디시 키워드는 첫 페이지의 지난 글을 1회 채운 뒤 평소처럼 새 글 확인
@@ -898,11 +773,7 @@ def main():
                             filled_keys.add(f"{board}|{keyword}")
                             board_data = recent_keyword_posts(board, keyword, MAX_DATA_PER_KEYWORD)
 
-                    new_posts = pick_new_posts(new_post_list, board_data, site, searched)
-                    if searched and board_rows is not None:
-                        picked = {p['id'] for p in new_posts}
-                        new_posts += [p for p in pick_new_posts(title_rows, board_data, site, False) if p['id'] not in picked]
-                        new_posts.sort(key=lambda p: post_number(p['id']), reverse=True)
+                    new_posts = pick_new_posts(new_post_list, board_data, site)
                     new_posts = [p for p in new_posts if (board, keyword, p['id']) not in rejected]
 
                     for post_info in reversed(new_posts):
@@ -933,7 +804,7 @@ def main():
                             video_only = [t['name'] for t in targets if has_video and t['video_alert'] and not t['alert']]
                             alert_boards = full_alert + video_only
                             # 일시정지를 풀고 다시 수집하는 키워드: 멈춘 동안 올라온 글은 대시보드의 새 글로만 (알림 몰림 방지)
-                            quiet = is_paused_post(resumed, (board, keyword), post_data['id'])
+                            quiet = (board, keyword) in resumed
                             should_send_alert = bool(alert_boards) and not quiet
 
                             if already_collected:
@@ -958,14 +829,8 @@ def main():
                             stats['errors'] += 1
                             log_msg(f"[오류] {target} #{post_info['id']} 새 글 수집 실패: {short_err(deep_ex)}", "WARN")
 
-                    # 에펨코리아는 게시판 목록 전체와도 비교 (댓글 수 변화, 목록 범위 안에서 사라진 글의 삭제 확인).
-                    # 검색한 주기에는 검색 목록에 게시판 목록을 더해, 검색 결과에 아직 없는 방금 모은 글을 사라진 글로 보지 않게 함
-                    sync_list = new_post_list
-                    if board_rows is not None:
-                        searched_ids = {p['id'] for p in new_post_list} if searched else set()
-                        sync_list = (new_post_list if searched else []) + [row for row in board_rows if row['id'] not in searched_ids]
-                    sync_existing_posts(driver, target, sync_list, board_data, stats, verified_present)
-                    settle_resumed(resumed, (board, keyword), board_rows, searched)
+                    sync_existing_posts(driver, target, new_post_list, board_data, stats, verified_present)
+                    resumed.discard((board, keyword))
 
             # 주기 요약: 변화나 오류가 있을 때만 INFO로 남기고, 조용한 주기는 1시간마다 상태 로그로 묶어서 보고
             elapsed = time.time() - cycle_started
