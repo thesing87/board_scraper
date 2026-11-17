@@ -89,6 +89,10 @@ FM_SEARCH_INTERVAL = None if _fm_search_interval < 0 else _fm_search_interval
 FM_LIST_MAX_PAGES = max(1, int(os.environ.get('FM_LIST_MAX_PAGES', 3)))
 # 에펨코리아 '접속 확인 중입니다(사람 확인)' 화면이 나오면 자동으로 넘어가기를 기다리는 최대 시간(초)
 FM_CHALLENGE_WAIT = max(0, int(os.environ.get('FM_CHALLENGE_WAIT', 15)))
+# 사람 확인 화면으로 막히면 이 시간(초) 동안 에펨코리아에 요청을 아예 보내지 않고 쉰 뒤 다시 확인 (기본 6시간).
+# 수집기의 크롬은 이 화면을 통과하지 못하고, 한 시간마다 확인하는 동안에는 16시간 넘게 풀리지 않다가
+# 3시간 반쯤 요청이 없던 뒤에 풀린 적이 있어 길게 쉼 (수집기를 다시 띄워도 남은 시간만큼 이어서 쉼)
+FM_CHALLENGE_REST = max(60, int(os.environ.get('FM_CHALLENGE_REST', 6 * 3600)))
 # 댓글이 여러 페이지인 글은 이 페이지 수까지 모두 열어 읽음 (넘으면 최신 쪽 페이지만). 페이지마다 요청이 하나씩 늘어남
 COMMENT_PAGE_LIMIT = max(1, int(os.environ.get('COMMENT_PAGE_LIMIT', 10)))
 # 검색 목록 1페이지의 글 수. 이 범위의 글은 매 주기 목록의 댓글 수로 변화를 감시함 (대시보드 '동기화중' 배지 기준)

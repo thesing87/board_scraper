@@ -18,6 +18,7 @@ from config import (
     short_err,
     CHECK_INTERVAL,
     FM_CHECK_INTERVAL,
+    FM_CHALLENGE_REST,
     FM_SEARCH_INTERVAL,
     FM_LIST_MAX_PAGES,
     DDNS_URL,
@@ -83,7 +84,7 @@ from storage import (
 from images import remove_orphan_image_dirs
 from notifier import (send_telegram_message, send_post_alert, send_comment_alert, send_digest, send_popular_alert,
                       retry_pending_alerts)
-from scraper import parse_count, BlockedError
+from scraper import parse_count, BlockedError, ChallengeError
 # 목록·상세·게시판 확인은 카테고리(글)의 사이트에 맞는 수집기(에펨코리아·디시인사이드)로
 from sites import (
     get_list_page_posts,
@@ -121,6 +122,8 @@ DIGEST_DATE_META = 'digest_date'
 BACKOFF_MAX_SECONDS = 3600
 # 차단 의심이 이 횟수만큼 주기를 이어서 났을 때 텔레그램으로 알림 (한 주기만 실패하고 돌아오는 일시적인 오류는 로그에만)
 BLOCK_ALERT_STREAK = 2
+# 사람 확인 화면으로 막혀 쉬는 사이트를 언제까지 쉴지 (meta, 사이트마다). 수집기를 다시 띄워도 남은 시간만큼 이어서 쉼
+BLOCK_REST_META = 'block_rest_until:'
 # 에펨코리아 검색이 막히면 검색만 이 시간(초) x 1, 2, 4 … 쉬었다가 다시 확인하되 최대값을 넘기지 않음.
 # 막힌 동안 계속 두드리면 풀리지 않아서 길게 쉼 (한 시간에 한 번씩 확인했을 때 8시간 넘게 그대로였음)
 FM_SEARCH_RETRY_SECONDS = 1800
@@ -245,6 +248,25 @@ class SearchSchedule:
         self.retry_at = now + wait
         self.planned = set()
         return wait
+
+def wait_text(seconds):
+    """대기 시간을 '6시간 0분', '4분 0초'처럼"""
+    seconds = int(seconds)
+    if seconds >= 3600:
+        return f"{seconds // 3600}시간 {seconds % 3600 // 60}분"
+    return f"{seconds // 60}분 {seconds % 60}초"
+
+def load_block_rests():
+    """사람 확인 화면으로 막혀 쉬던 사이트의 남은 대기 시간 {site: 초} (수집기를 다시 띄웠을 때 이어서 쉬려고)"""
+    rests = {}
+    for site in site_labels():
+        try:
+            left = float(get_meta(BLOCK_REST_META + site) or 0) - time.time()
+        except ValueError:
+            continue
+        if left > 0:
+            rests[site] = left
+    return rests
 
 def note_search_blocked(fm_search, target, reason, now):
     """에펨코리아 검색만 막혔을 때 (게시판 목록은 열림): 검색을 쉬게 하고, 이어서 막히면 텔레그램으로 한 번 알림"""
@@ -704,6 +726,13 @@ def main():
         # 막힌 사이트만 쉬고 다른 사이트는 원래 주기로 계속 수집 (에펨코리아가 막혀도 디시인사이드는 그대로)
         block_streak = {}
         block_wait = {}
+        # 차단 의심을 텔레그램으로 알린 사이트 (알렸을 때만 복구도 알림)
+        block_alerted = set()
+        # 사람 확인 화면으로 막혀 길게 쉬던 사이트는 수집기를 다시 띄워도 남은 시간만큼 이어서 쉼
+        for site, left in load_block_rests().items():
+            block_streak[site], block_wait[site] = 1, left
+            block_alerted.add(site)
+            log_msg(f"[차단 의심] {site_labels()[site]['name']} 사람 확인 화면으로 쉬는 중 → {wait_text(left)} 뒤 다시 확인")
         # 에펨코리아 키워드를 마지막으로 확인한 주기의 시작 시각 (FM_CHECK_INTERVAL마다만 확인)
         fm_checked_at = 0.0
         # 에펨코리아 키워드 검색 일정과, 게시판마다 지난번에 읽은 목록의 가장 큰 글 번호
@@ -770,6 +799,8 @@ def main():
                      'list_ok': 0, 'list_failed': 0}
             # 이번 주기에 차단이 의심된 사이트와 사유 {site: 사유}. 그 사이트는 이번 주기의 남은 요청을 멈춤 (다른 사이트는 계속 수집)
             blocked_reasons = {}
+            # 그중 사람 확인 화면으로 막힌 사이트 (잠깐씩 늘려 가며 확인하지 않고 FM_CHALLENGE_REST만큼 길게 쉼)
+            challenged_sites = set()
             # 이번 주기에 목록을 요청한 사이트, 그중 목록이 정상으로 온 사이트
             tried_sites, ok_sites = set(), set()
 
@@ -795,6 +826,8 @@ def main():
                         # 차단이 의심되면 그 사이트의 남은 게시판까지 요청을 이어가지 않고 이번 주기에는 멈춤
                         stats['errors'] += 1
                         blocked_reasons[site] = f"{site_labels()[site]['name']} {board_name} {block_ex}"
+                        if isinstance(block_ex, ChallengeError):
+                            challenged_sites.add(site)
                         continue
                     except Exception as list_ex:
                         stats['errors'] += 1
@@ -827,6 +860,8 @@ def main():
                             if board_rows is None:
                                 # 차단이 의심되면 그 사이트의 남은 키워드까지 요청을 이어가지 않고 이번 주기에는 멈춤
                                 blocked_reasons[site] = f"{site_labels()[site]['name']} {target} {block_ex}"
+                                if isinstance(block_ex, ChallengeError):
+                                    challenged_sites.add(site)
                                 break
                             # 게시판 목록은 방금 열렸으므로 검색만 막힌 것: 검색을 쉬고 이 키워드는 게시판 목록으로 확인
                             note_search_blocked(fm_search, target, block_ex, cycle_started)
@@ -950,20 +985,33 @@ def main():
                 block_wait[site] -= elapsed
             for site, reason in blocked_reasons.items():
                 streak = block_streak[site] = block_streak.get(site, 0) + 1
-                wait = block_wait[site] = min(CHECK_INTERVAL * (2 ** streak), BACKOFF_MAX_SECONDS)
-                log_msg(f"[차단 의심] {reason} → {wait // 60}분 {wait % 60}초 후 다시 확인 (연속 {streak}회)", "WARN")
-                if streak == BLOCK_ALERT_STREAK:
+                # 사람 확인 화면은 기다려도 넘어가지 않고 계속 두드리면 풀리지 않아, 요청을 아예 보내지 않고 길게 쉼
+                challenged = site in challenged_sites
+                if challenged:
+                    wait = block_wait[site] = FM_CHALLENGE_REST
+                    set_meta(BLOCK_REST_META + site, str(time.time() + wait))
+                else:
+                    wait = block_wait[site] = min(CHECK_INTERVAL * (2 ** streak), BACKOFF_MAX_SECONDS)
+                log_msg(f"[차단 의심] {reason} → {wait_text(wait)} 후 다시 확인 (연속 {streak}회)", "WARN")
+                # 한 주기만 실패하고 돌아오는 일시적인 오류는 알리지 않지만, 사람 확인 화면은 처음부터 알림
+                if site not in block_alerted and (challenged or streak >= BLOCK_ALERT_STREAK):
+                    block_alerted.add(site)
                     send_telegram_message(
                         f"⚠️ {labels[site]['name']} 접속 차단 의심\n\n{reason}\n\n"
-                        f"요청을 줄이기 위해 이 사이트만 대기 시간을 늘립니다. 정상으로 돌아오면 다시 알려드립니다."
+                        + (f"사람 확인 화면이라 {wait_text(wait)} 동안 이 사이트에 요청을 보내지 않고 쉰 뒤 다시 확인합니다. "
+                           if challenged else "요청을 줄이기 위해 이 사이트만 대기 시간을 늘립니다. ")
+                        + "정상으로 돌아오면 다시 알려드립니다."
                     )
             for site in ok_sites - set(blocked_reasons):
                 streak = block_streak.pop(site, 0)
                 block_wait.pop(site, None)
                 if streak:
+                    if get_meta(BLOCK_REST_META + site):
+                        set_meta(BLOCK_REST_META + site, '')
                     log_msg(f"[복구] {labels[site]['name']} 정상 응답 확인 (차단 의심 {streak}회 후) → 원래 주기로 복귀")
                     # 차단 의심을 알렸을 때만 복구도 알림
-                    if streak >= BLOCK_ALERT_STREAK:
+                    if site in block_alerted:
+                        block_alerted.discard(site)
                         send_telegram_message(f"✅ {labels[site]['name']} 접속이 정상으로 돌아왔습니다. (차단 의심 {streak}회 후 복구)")
             # 키워드가 있는 사이트가 모두 쉬는 중이면 가장 먼저 다시 확인할 때까지, 아니면 원래 주기만큼 쉼
             active_sites = {board_site(board) for board, keywords in config_data.items() if keywords}

@@ -174,3 +174,37 @@ assert [c for c, i in state['details'] if i == '55'] == [0, 7, 8], state['detail
 status = m.runtime_status.snapshot()
 assert status['block_streak'] == 0 and status['blocked_label'] == '' and status['block_retry_at'] is None, status
 print('PER-SITE BACKOFF OK')
+
+# --- 5) 사람 확인 화면으로 막히면 잠깐씩 늘려 가며 확인하지 않고 길게 쉼 (첫 번째부터 알림), 수집기를 다시 띄워도 이어서 쉼
+m.FM_CHALLENGE_REST = 270            # 시험용: 주기 3번(90초 x 3) 동안 쉼
+assert m.wait_text(6 * 3600) == '6시간 0분' and m.wait_text(240) == '4분 0초'
+def run_main(challenge_cycles, last_cycle):
+    state.update(cycle=0, sleeps=[], telegram=[], lists=[], details=[])
+    def board(driver, board, page=1):
+        state['lists'].append((state['cycle'], sites.board_site(board)))
+        if state['cycle'] in challenge_cycles:
+            raise scraper.ChallengeError('게시판 목록이 아닌 페이지 응답 (제목: 에펨코리아 보안 시스템)')
+        return []
+    def sleep(s):
+        state['sleeps'].append(s)
+        state['cycle'] += 1
+        if state['cycle'] > last_cycle:
+            raise KeyboardInterrupt
+    m.get_board_page_posts, m.time.sleep = board, sleep
+    with contextlib.redirect_stdout(io.StringIO()):
+        m.main()
+    return [c for c, s in state['lists'] if s == 'fmkorea'], [c for c, s in state['lists'] if s == 'dcinside']
+
+# 1주기에 사람 확인 화면 → 2~3주기는 요청 없음 → 4주기에 다시 확인해 복구
+fm, dc = run_main({1}, 5)
+assert fm == [0, 1, 4, 5] and dc == list(range(6)), (fm, dc)
+assert state['telegram'] == [(1, '⚠️ 에펨코리아 접속 차단 의심'),
+                             (4, '✅ 에펨코리아 접속이 정상으로 돌아왔습니다. (차단 의심 1회 후 복구)')], state['telegram']
+assert not storage.get_meta(m.BLOCK_REST_META + 'fmkorea')             # 풀리면 쉬는 기록을 지움
+# 쉬는 중에 수집기를 다시 띄우면 처음부터 두드리지 않고 남은 시간만큼 이어서 쉼 (복구 알림도 감)
+fm, _ = run_main({1}, 1)
+assert fm == [0, 1] and float(storage.get_meta(m.BLOCK_REST_META + 'fmkorea')) > m.time.time()
+fm, dc = run_main(set(), 4)
+assert fm == [3, 4] and dc == list(range(5)), (fm, dc)
+assert state['telegram'] == [(3, '✅ 에펨코리아 접속이 정상으로 돌아왔습니다. (차단 의심 1회 후 복구)')], state['telegram']
+print('CHALLENGE REST OK')
