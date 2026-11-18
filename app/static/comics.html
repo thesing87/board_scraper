@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>만화</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23BE185D'/%3E%3Cpath d='M8 9h7v15H8zM17 9h7v15h-7z' fill='white'/%3E%3C/svg%3E">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <meta name="theme-color" content="#F4F5F7">
+    <link rel="stylesheet" href="/comics.css">
+    <link rel="stylesheet" href="/nav.css">
+    <script src="/nav.js" defer></script>
+    <script src="/comics.js" defer></script>
+</head>
+<body>
+    <header class="site-top">
+        <div class="site-top-row">
+            <div class="site-top-brand">
+                <span class="site-top-mark" style="background:#BE185D" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5C5.5 4.5 8.5 4.5 12 6c3.5-1.5 6.5-1.5 9-.5v13c-2.5-1-5.5-1-9 .5-3.5-1.5-6.5-1.5-9-.5z"></path><path d="M12 6v13.5"></path></svg></span>
+                <h1>만화</h1>
+            </div>
+        </div>
+        <nav class="site-nav" data-current="comics"></nav>
+    </header>
+
+    <main class="library" id="library">
+        <!-- 로그인 (관리자 암호, 키워드 게시판과 같은 로그인 키) -->
+        <form class="login" id="login" hidden>
+            <h2>로그인이 필요합니다</h2>
+            <p>만화 폴더는 관리자 암호로 로그인한 기기에서만 볼 수 있습니다.</p>
+            <input type="password" id="login-password" autocomplete="current-password" placeholder="관리자 암호" aria-label="관리자 암호">
+            <button type="submit">로그인</button>
+            <p class="login-error" id="login-error" role="alert"></p>
+        </form>
+        <div class="notice" id="notice" hidden></div>
+        <div id="content" hidden>
+            <nav class="crumbs" id="crumbs" aria-label="폴더 위치"></nav>
+            <section class="recent" id="recent" hidden>
+                <h2>이어 보기</h2>
+                <div class="recent-list" id="recent-list"></div>
+            </section>
+            <div class="folders" id="folders"></div>
+            <div class="books" id="books"></div>
+            <p class="empty" id="empty" hidden>이 폴더에는 만화가 없습니다.</p>
+        </div>
+    </main>
+
+    <!-- 보기 화면: 한 장씩 넘김. 가운데를 누르면 메뉴, 양옆을 누르면 앞뒤 장 -->
+    <div class="reader" id="reader" hidden>
+        <div class="pager" id="pager" tabindex="-1"></div>
+        <div class="reader-top" id="reader-top">
+            <button type="button" class="r-btn" id="reader-close" aria-label="목록으로"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg></button>
+            <div class="reader-title" id="reader-title"></div>
+            <button type="button" class="r-btn" id="reader-settings-btn" aria-label="보기 설정" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg></button>
+        </div>
+        <div class="reader-settings" id="reader-settings" hidden>
+            <div class="set-row">
+                <span class="set-label">넘기는 방향</span>
+                <div class="seg" id="set-dir" role="radiogroup" aria-label="넘기는 방향">
+                    <button type="button" data-v="rtl" role="radio">← 일본식</button>
+                    <button type="button" data-v="ltr" role="radio">→ 왼쪽부터</button>
+                    <button type="button" data-v="vertical" role="radio">↓ 위아래</button>
+                </div>
+            </div>
+            <label class="set-row set-check"><input type="checkbox" id="set-split"> 가로로 긴 양면 페이지를 반으로 나눠 보기</label>
+        </div>
+        <div class="reader-bottom" id="reader-bottom">
+            <span class="reader-count" id="reader-count"></span>
+            <input type="range" id="reader-slider" min="0" max="0" value="0" aria-label="페이지 이동">
+        </div>
+    </div>
+</body>
+</html>

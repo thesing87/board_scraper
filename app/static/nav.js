@@ -1,7 +1,7 @@
 // 모든 페이지 공통 바로가기 메뉴. 페이지의 <nav class="site-nav" data-current="키"> 자리(제목 줄 바로 아래)에 그림.
 // 페이지마다 모양이 다르지 않도록 화면 폭으로만 정함
 //  - 넓은 화면: 작은 버튼 한 줄 (지금 페이지는 파랑)
-//  - 휴대폰: 아이콘 + 짧은 이름 일곱 칸 한 줄
+//  - 휴대폰: 아이콘 + 짧은 이름 아홉 칸 한 줄
 'use strict';
 
 (function () {
@@ -16,6 +16,7 @@
         { key: 'card', href: '/card/', label: '카드', short: '카드', color: '#534AB7', icon: '<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 10h18"></path>' },
         { key: 'ev', href: '/ev/', label: '유지비', short: '유지비', color: '#0F6E56', icon: '<path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"></path>' },
         { key: 'games', href: '/games/', label: '게임', short: '게임', color: '#B45309', icon: '<rect x="2.5" y="7" width="19" height="11" rx="5.5"></rect><path d="M7 11v3M5.5 12.5h3M15.5 11.5h.01M17.5 13.8h.01"></path>' },
+        { key: 'comics', href: '/comics/', label: '만화', short: '만화', color: '#BE185D', icon: '<path d="M3 5.5C5.5 4.5 8.5 4.5 12 6c3.5-1.5 6.5-1.5 9-.5v13c-2.5-1-5.5-1-9 .5-3.5-1.5-6.5-1.5-9-.5z"></path><path d="M12 6v13.5"></path>' },
         { key: 'stats', href: '/stats/', label: '통계', short: '통계', color: '#5F5E5A', icon: '<path d="M5 20v-8M12 20V5M19 20v-5"></path>' },
     ];
     const narrow = window.matchMedia('(max-width: 820px)');

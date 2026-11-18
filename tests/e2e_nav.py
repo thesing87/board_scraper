@@ -9,7 +9,7 @@ import storage, web_server
 from selenium.webdriver import Chrome
 from selenium.webdriver.chrome.options import Options
 
-# 모든 페이지 공통 바로가기 메뉴: 일곱 칸, 지금 페이지 표시, 휴대폰 아이콘 줄, 게시판의 메뉴 버튼, 인기글로 이동, 새 글 수
+# 모든 페이지 공통 바로가기 메뉴: 아홉 칸, 지금 페이지 표시, 휴대폰 아이콘 줄, 게시판의 메뉴 버튼, 인기글로 이동, 새 글 수
 storage.init_db()
 gid = storage.save_group(None, '싼타페', [{'board': 'car', 'keyword': '싼타페'}])[0]
 storage.save_keyword_post('car', '싼타페', {'id': '801', 'title': '글', 'author': 'a', 'date': 'd', 'views': '1', 'votes': '0',
@@ -21,8 +21,8 @@ BASE = f'http://127.0.0.1:{port}'
 srv = web_server.ThreadedHTTPServer(('127.0.0.1', port), web_server.KeywordAPIServer)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 
-PAGES = {'/': 'home', '/card/': 'card', '/apt/': 'apt', '/stats/': 'stats', '/ev/': 'ev', '/board/': 'board', '/games/': 'games', '/games/sudoku/': 'games'}
-KEYS = ['home', 'board', 'popular', 'apt', 'card', 'ev', 'games', 'stats']
+PAGES = {'/': 'home', '/card/': 'card', '/apt/': 'apt', '/stats/': 'stats', '/ev/': 'ev', '/board/': 'board', '/games/': 'games', '/games/sudoku/': 'games', '/comics/': 'comics'}
+KEYS = ['home', 'board', 'popular', 'apt', 'card', 'ev', 'games', 'comics', 'stats']
 o = Options()
 for a in ['--headless=new', '--window-size=1280,900']:
     o.add_argument(a)

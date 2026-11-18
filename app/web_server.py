@@ -9,6 +9,7 @@ import threading
 import ipaddress
 import requests
 from datetime import datetime, timedelta
+from http.cookies import SimpleCookie, CookieError
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs
@@ -66,6 +67,7 @@ from storage import (
     arrange_group
 )
 import apt_store
+import comics
 import apt_trades
 from card_store import (
     card_benefits,
@@ -154,6 +156,10 @@ STATIC_FILES = {
     '/sudoku.js': ('sudoku.js', 'application/javascript; charset=utf-8'),
     '/sudoku-engine.js': ('sudoku-engine.js', 'application/javascript; charset=utf-8'),
     '/sudoku.css': ('sudoku.css', 'text/css; charset=utf-8'),
+    # 만화 뷰어 (NAS 만화 폴더, 로그인 필요)
+    '/comics/': ('comics.html', 'text/html; charset=utf-8'),
+    '/comics.js': ('comics.js', 'application/javascript; charset=utf-8'),
+    '/comics.css': ('comics.css', 'text/css; charset=utf-8'),
     # 모든 페이지 공통 바로가기 메뉴
     '/nav.js': ('nav.js', 'application/javascript; charset=utf-8'),
     '/nav.css': ('nav.css', 'text/css; charset=utf-8'),
@@ -441,7 +447,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         try:
             if pure_path in STATIC_FILES:
                 self._serve_static(*STATIC_FILES[pure_path])
-            elif pure_path in ('/board', '/ev', '/card', '/stats', '/apt', '/games', '/games/sudoku'):
+            elif pure_path in ('/board', '/ev', '/card', '/stats', '/apt', '/games', '/games/sudoku', '/comics'):
                 # 끝 슬래시 없이 들어오면 붙여서 (페이지 안의 상대 주소가 맞도록)
                 self._send_body(301, b'', 'text/plain; charset=utf-8', {'Location': pure_path + '/'})
             elif pure_path in ('/index.html/board', '/index.html/board/'):
@@ -486,6 +492,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 for kw in stats['keywords']:
                     kw['board_name'] = names.get(kw['board'], kw['board'])
                 self._send_data(200, stats)
+            elif pure_path.startswith('/api/comics/'):
+                self._handle_comics_get(pure_path, query)
             elif pure_path.startswith(IMAGE_URL_PREFIX):
                 self._serve_image(pure_path[len(IMAGE_URL_PREFIX):])
             elif pure_path == '/api/state':
@@ -595,6 +603,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/card': ('_handle_card', '카드 혜택 처리'),
         '/api/ev': ('_handle_ev', '유지비 저장 처리'),
         '/api/apt': ('_handle_apt', '실거래가 처리'),
+        '/api/comics/session': ('_handle_comics_session', '만화 로그인 처리'),
+        '/api/comics/progress': ('_handle_comics_progress', '만화 읽은 위치 저장'),
     }
 
     def do_POST(self):
@@ -780,6 +790,92 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             return
         log_msg(f"[API] 관리자 로그인: {client_ip(self.client_address[0], self.headers)}")
         self._send_data(200, {'success': True, 'message': '로그인했습니다.', 'token': ADMIN_TOKEN})
+
+    # ==========================================
+    # 만화 뷰어 (/comics/, comics.py)
+    # 이미지(<img>)는 요청에 로그인 키를 담을 수 없으므로, 로그인 키를 한 번 보내면 만화 API에만 쓰는 쿠키로 받아 둠.
+    # 쿠키 값은 관리자 로그인 키와 같아 서버 암호를 바꾸면 함께 풀림. 화면 스크립트는 읽을 수 없고(HttpOnly) 다른 사이트에서는 보내지 않음
+    # ==========================================
+    COMICS_COOKIE = 'comics_key'
+
+    def _comics_authorized(self):
+        if not ADMIN_API_ENABLED:
+            return False
+        try:
+            morsel = SimpleCookie(self.headers.get('Cookie') or '').get(self.COMICS_COOKIE)
+        except CookieError:
+            return False
+        return bool(morsel) and hmac.compare_digest(morsel.value.encode('utf-8'), ADMIN_TOKEN.encode('utf-8'))
+
+    def _comics_cookie(self, value, max_age):
+        return f"{self.COMICS_COOKIE}={value}; Path=/api/comics/; Max-Age={max_age}; HttpOnly; SameSite=Strict"
+
+    def _handle_comics_session(self):
+        """만화 로그인: 암호나 로그인 키가 맞으면 쿠키를 줌. action=logout이면 쿠키를 지움"""
+        if self._body.get('action') == 'logout':
+            body = json.dumps({'success': True}).encode('utf-8')
+            self._send_body(200, body, 'application/json; charset=utf-8', {'Set-Cookie': self._comics_cookie('', 0)})
+            return
+        if not self._authorize(self._body.get('password', ''), '만화 로그인'):
+            return
+        body = json.dumps({'success': True, 'token': ADMIN_TOKEN}).encode('utf-8')
+        self._send_body(200, body, 'application/json; charset=utf-8',
+                        {'Set-Cookie': self._comics_cookie(ADMIN_TOKEN, 365 * 24 * 3600)})
+
+    def _handle_comics_get(self, pure_path, query):
+        if not self._comics_authorized():
+            self._send_json(401, False, '❌ 로그인이 필요합니다.')
+            return
+        if not comics.configured():
+            self._send_data(200, {'configured': False})
+            return
+        path = query.get('p', [''])[0]
+        if pure_path == '/api/comics/list':
+            listing = comics.list_dir(path)
+            if listing is None:
+                self._send_data(404, {'found': False})
+                return
+            if not listing['path']:
+                listing['recent'] = comics.recent()
+            self._send_data(200, {'configured': True, **listing})
+        elif pure_path == '/api/comics/book':
+            info = comics.book_info(path)
+            if info is None:
+                self._send_data(404, {'found': False})
+            else:
+                self._send_data(200, info)
+        elif pure_path in ('/api/comics/page', '/api/comics/cover'):
+            n = query.get('n', [''])[0]
+            if pure_path == '/api/comics/cover':
+                found = comics.cover_image(path)
+            else:
+                found = comics.page_image(path, int(n)) if n.isdigit() else None
+            if not found:
+                self.send_response(404)
+                self.end_headers()
+                return
+            content, content_type, tag = found
+            # 같은 책·같은 쪽이면 내용이 바뀌지 않으므로 브라우저가 오래 보관 (책 파일이 바뀌면 지문이 달라짐)
+            self._send_body(200, content, content_type, cache_control='private, max-age=2592000', etag=f'"{tag}"')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def _handle_comics_progress(self):
+        if not self._comics_authorized():
+            self._send_json(401, False, '❌ 로그인이 필요합니다.')
+            return
+        path, page, pages = self._body.get('path'), self._body.get('page'), self._body.get('pages')
+        if (not isinstance(path, str) or type(page) is not int or type(pages) is not int
+                or not 0 <= page < max(pages, 1) or not 0 < pages <= comics.MAX_PAGES):
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        path = path.replace('\\', '/').strip('/')
+        if not comics.configured() or not comics._book_full(path):
+            self._send_json(404, False, '❌ 책을 찾을 수 없습니다.')
+            return
+        comics.save_progress(path, page, pages)
+        self._send_json(200, True, '저장했습니다.')
 
     @staticmethod
     def _card_date(value):

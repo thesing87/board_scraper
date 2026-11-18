@@ -226,6 +226,14 @@ def _create_schema(conn):
             created_at  TEXT NOT NULL
         );
 
+        -- 만화 뷰어(/comics/)의 읽던 위치. path는 만화 폴더(COMICS_DIR) 기준 상대 경로, page는 0부터
+        CREATE TABLE IF NOT EXISTS comic_progress (
+            path       TEXT PRIMARY KEY,
+            page       INTEGER NOT NULL,
+            pages      INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
         -- 결제 안내 메일에서 읽은 결제. benefit_id가 비어 있으면 한도에서 차감하지 않은 결제
         CREATE TABLE IF NOT EXISTS card_mail_payments (
             approval_no TEXT PRIMARY KEY,
