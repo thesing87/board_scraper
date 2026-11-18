@@ -52,11 +52,24 @@
         <div class="player-top">
             <button type="button" class="p-btn" id="player-close" aria-label="목록으로"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg></button>
             <div class="player-title" id="player-title"></div>
+            <!-- 재생 정보: 끊길 때 원인(네트워크인지 기기 성능인지)을 보려고 (videos.js renderStats) -->
+            <button type="button" class="p-btn" id="stats-btn" aria-label="재생 정보" aria-pressed="false" title="재생 정보"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.01"></path></svg></button>
             <a class="p-btn" id="player-download" aria-label="내려받기" title="내려받기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg></a>
         </div>
         <div class="player-stage">
             <video id="video" controls playsinline preload="metadata"></video>
             <div class="player-msg" id="player-msg" hidden></div>
+            <div class="stats" id="stats" hidden aria-live="off">
+                <div class="stats-verdict" id="stats-verdict"></div>
+                <dl>
+                    <div><dt>미리 받아 둔 시간</dt><dd id="st-buffer">–</dd></div>
+                    <div><dt>받는 속도</dt><dd id="st-speed">–</dd></div>
+                    <div><dt>영상에 필요한 속도</dt><dd id="st-bitrate">–</dd></div>
+                    <div><dt>멈춰서 기다림</dt><dd id="st-waits">0번</dd></div>
+                    <div><dt>건너뛴 프레임</dt><dd id="st-dropped">–</dd></div>
+                    <div><dt>해상도</dt><dd id="st-size">–</dd></div>
+                </dl>
+            </div>
         </div>
         <div class="resume" id="resume" hidden>
             <span id="resume-text"></span>

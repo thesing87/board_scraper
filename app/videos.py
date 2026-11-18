@@ -119,6 +119,62 @@ def _ffmpeg():
     return shutil.which('ffmpeg')
 
 
+# 폴더 칸에 작게 모아 보여 줄 영상 수
+SAMPLE_COUNT = 4
+# {폴더 경로: (폴더 수정 시각, [영상 상대 경로])} — 폴더 칸마다 안을 읽으면 디스크가 쉬던 뒤 처음에 느려 기억해 둠
+_samples_cache = {}
+_samples_lock = threading.Lock()
+SAMPLES_CACHE_SIZE = 5000
+
+
+def _sample_videos(full, rel, depth=2):
+    """폴더 안 영상을 이름순으로 SAMPLE_COUNT개까지 (재생되는 형식 먼저). 모자라면 하위 폴더에서 채움"""
+    try:
+        with os.scandir(full) as it:
+            entries = sorted((e for e in it if not HIDDEN_RE.match(e.name)), key=lambda e: natural_key(e.name))
+    except OSError:
+        return []
+    files = [e for e in entries if e.is_file() and is_video(e.name)]
+    files.sort(key=lambda e: _ext(e.name) not in PLAYABLE_TYPES)
+    found = [_join(rel, e.name) for e in files[:SAMPLE_COUNT]]
+    if len(found) < SAMPLE_COUNT and depth > 0:
+        for e in entries:
+            if e.is_dir():
+                found += _sample_videos(e.path, _join(rel, e.name), depth - 1)[:SAMPLE_COUNT - len(found)]
+                if len(found) >= SAMPLE_COUNT:
+                    break
+    return found
+
+
+def folder_samples(rel):
+    """하위 폴더마다 칸에 보여 줄 영상들 {폴더 경로: [영상 경로]}. 없는 폴더면 None"""
+    rel = (rel or '').replace('\\', '/').strip('/')
+    full = resolve(rel)
+    if not full or not os.path.isdir(full):
+        return None
+    with os.scandir(full) as it:
+        subdirs = [e for e in it if not HIDDEN_RE.match(e.name) and e.is_dir()]
+    out = {}
+    for entry in subdirs:
+        try:
+            mtime = entry.stat().st_mtime_ns
+        except OSError:
+            continue
+        sub_rel = _join(rel, entry.name)
+        with _samples_lock:
+            hit = _samples_cache.get(entry.path)
+        if hit and hit[0] == mtime:
+            out[sub_rel] = hit[1]
+            continue
+        samples = _sample_videos(entry.path, sub_rel)
+        with _samples_lock:
+            _samples_cache[entry.path] = (mtime, samples)
+            if len(_samples_cache) > SAMPLES_CACHE_SIZE:
+                _samples_cache.pop(next(iter(_samples_cache)))
+        out[sub_rel] = samples
+    return out
+
+
 def _thumb_source(full):
     """폴더의 썸네일로 쓸 영상: 폴더 안 첫 영상 → 첫 하위 폴더 안에서 다시 (3단계까지)"""
     for depth in range(4):

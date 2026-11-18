@@ -22,6 +22,10 @@ shutil.copy(os.path.join(FIX, 's.mp4'), os.path.join(VIDEOS, '드라마', '01화
 shutil.copy(os.path.join(FIX, 's.mp4'), os.path.join(VIDEOS, '드라마', '02화.mp4'))
 shutil.copy(os.path.join(FIX, 's.mkv'), os.path.join(VIDEOS, '드라마', '03화.mkv'))
 shutil.copy(os.path.join(FIX, 's.avi'), os.path.join(VIDEOS, '드라마', '04화.avi'))
+# MP4지만 화면이 MPEG-4 Part 2(DivX 계열)라 브라우저가 화면을 못 푸는 영상
+shutil.copy(os.path.join(FIX, 'mpeg4.mp4'), os.path.join(VIDEOS, '드라마', '05화.mp4'))
+os.makedirs(os.path.join(VIDEOS, '짧은', '하위'))
+shutil.copy(os.path.join(FIX, 's.mp4'), os.path.join(VIDEOS, '짧은', '하위', 'a.mp4'))
 open(os.path.join(VIDEOS, '드라마', 'note.txt'), 'w').write('x')
 open(os.path.join(VIDEOS, '드라마', '01화.srt'), 'w', encoding='utf-8').write('1\n00:00:01,000 --> 00:00:03,500\n안녕하세요\n\n2\n00:00:04,000 --> 00:00:05,000\n두 번째\n')
 open(os.path.join(VIDEOS, '드라마', '02화.smi'), 'w', encoding='cp949').write(
@@ -64,10 +68,16 @@ cookie = headers['Set-Cookie'].split(';')[0]
 code, body, _ = req(f'/api/videos/list?p={q("드라마")}')
 assert [d['name'] for d in body['dirs']] == ['1부']
 vs = {v['name']: v for v in body['videos']}
-assert list(vs) == ['01화', '02화', '03화', '04화'], list(vs)
-assert [vs[n]['playable'] for n in vs] == [True, True, True, False]
+assert list(vs) == ['01화', '02화', '03화', '04화', '05화'], list(vs)
+assert [vs[n]['playable'] for n in vs] == [True, True, True, False, True]
 assert vs['01화']['subtitle'] and vs['02화']['subtitle'] and not vs['03화']['subtitle']
-assert [d['name'] for d in req('/api/videos/list?p=')[1]['dirs']] == ['드라마']
+assert [d['name'] for d in req('/api/videos/list?p=')[1]['dirs']] == ['드라마', '짧은']
+# 폴더 칸에 모아 보여 줄 영상: 재생되는 형식 먼저 4개까지, 폴더에 영상이 없으면 하위 폴더에서
+code, body, _ = req('/api/videos/samples?p=')
+assert body['samples'] == {'드라마': ['드라마/01화.mp4', '드라마/02화.mp4', '드라마/03화.mkv', '드라마/05화.mp4'],
+                           '짧은': ['짧은/하위/a.mp4']}, body
+assert req(f'/api/videos/samples?p={q("드라마")}')[1]['samples'] == {'드라마/1부': []}
+assert req(f'/api/videos/samples?p={q("없음")}')[0] == 404
 assert req(f'/api/videos/list?p={q("../")}')[0] == 404
 
 # ---- 파일: 전체·Range·끝 부분·범위 밖, 내려받기, 폴더 밖 거부
@@ -118,13 +128,18 @@ try:
     assert not js("return document.getElementById('login').hidden")
     assert not js("return !!document.querySelector('.site-share-btn')")    # 공유 버튼 없음
     js("document.getElementById('login-password').value='Secr3t!'; document.getElementById('login').requestSubmit()"); time.sleep(1.5)
-    assert js("return document.getElementById('login').hidden") and js("return [...document.querySelectorAll('#folders .tile-name')].map(e => e.textContent)") == ['드라마']
+    assert js("return document.getElementById('login').hidden") and js("return [...document.querySelectorAll('#folders .tile-name')].map(e => e.textContent)") == ['드라마', '짧은']
     d.get(BASE + '/'); time.sleep(1)
     assert 'videos' in js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)")
 
+    # 최상위 목록: 폴더 칸에 안의 영상 썸네일을 작게 모아 보여 줌 (4장은 2×2, 1장은 그대로)
+    d.get(BASE + '/videos/'); time.sleep(2)
+    mosaics = js("return [...document.querySelectorAll('#folders .tile')].map(t => [t.querySelector('.tile-name').textContent, t.querySelector('.mosaic').className, t.querySelectorAll('.mosaic img').length, t.querySelector('.folder-label').textContent])")
+    # (이 시험 환경에는 ffmpeg가 없어 썸네일 그림은 비지만, 모음 칸 수와 표시는 그대로)
+    assert mosaics[0] == ['드라마', 'mosaic is-4', 4, '폴더'] and mosaics[1][:2] == ['짧은', 'mosaic'] and mosaics[1][3] == '영상 1개', mosaics
     d.get(BASE + '/videos/#d=' + q('드라마')); time.sleep(1.5)
     tiles = js("return [...document.querySelectorAll('#videos .tile')].map(t => [t.querySelector('.tile-name').textContent, t.classList.contains('is-unplayable'), t.getAttribute('href')])")
-    assert [t[0] for t in tiles] == ['01화', '02화', '03화', '04화'] and tiles[3][1] and 'download=1' in tiles[3][2], tiles
+    assert [t[0] for t in tiles] == ['01화', '02화', '03화', '04화', '05화'] and tiles[3][1] and 'download=1' in tiles[3][2], tiles
     assert '0:12 / 0:40' in js("return document.querySelector('#videos .tile').textContent")
     # 재생: 이어 보기 위치에서 시작, 자막 트랙
     js("document.querySelector('#videos .tile').click()"); time.sleep(3)
@@ -133,6 +148,13 @@ try:
     assert '0:12부터' in js("return document.getElementById('resume-text').textContent")
     assert js("return document.querySelector('#video track').src").endswith(urllib.parse.quote('드라마/01화.mp4', safe=''))
     assert js("return document.getElementById('video').error") is None
+    # 재생 정보: 켜면 미리 받은 시간·속도·프레임 등, 다시 열어도 켜진 채
+    js("document.getElementById('stats-btn').click()"); time.sleep(2.5)
+    assert not js("return document.getElementById('stats').hidden")
+    st = js("return ['st-buffer', 'st-bitrate', 'st-waits', 'st-dropped', 'st-size'].map(i => document.getElementById(i).textContent)")
+    assert st[1].endswith('Mbps') and st[2] == '0번' and '/' in st[3] and st[4] == '320×240', st
+    assert js("return document.getElementById('stats-verdict').textContent")
+    assert js("return localStorage.getItem('videos_stats_open')") == '1'
     # 원하는 위치로 건너뛰기 (Range)
     js("document.getElementById('video').currentTime = 30"); time.sleep(1.5)
     assert js("return document.getElementById('video').currentTime") >= 30
@@ -148,6 +170,10 @@ try:
     d.get(BASE + '/videos/#v=' + q('드라마/03화.mkv')); time.sleep(3)
     mkv_error = js("return document.getElementById('video').error && document.getElementById('video').error.code")
     print('MKV playable in this Chrome:', mkv_error is None, js("return document.getElementById('video').duration"))
+    # 화면 형식을 못 푸는 MP4: 안내와 내려받기
+    d.get(BASE + '/videos/#v=' + q('드라마/05화.mp4')); time.sleep(3)
+    assert not js("return document.getElementById('player-msg').hidden"), js("return [document.getElementById('video').videoWidth, document.getElementById('video').error]")
+    assert '내려받기' in js("return document.getElementById('player-msg').textContent")
     # 목록으로 (닫기)
     js("document.getElementById('player-close').click()"); time.sleep(1.2)
     assert js("return document.getElementById('player').hidden") and js("return location.hash").startswith('#d=')

@@ -876,6 +876,12 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             if not listing['path']:
                 listing['recent'] = videos.recent()
             self._send_data(200, {'configured': True, **listing})
+        elif pure_path == '/api/videos/samples':
+            samples = videos.folder_samples(path)
+            if samples is None:
+                self._send_data(404, {'found': False})
+            else:
+                self._send_data(200, {'samples': samples})
         elif pure_path == '/api/videos/thumb':
             found = videos.thumbnail(path)
             if not found:

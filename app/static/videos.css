@@ -45,6 +45,14 @@ body.is-playing { overflow: hidden; }
     border-left: 24px solid rgba(124, 58, 237, .45); border-top: 14px solid transparent; border-bottom: 14px solid transparent; }
 .is-folder .thumb { box-shadow: 4px -4px 0 -1px #EDE9FE, 4px -4px 0 0 #C4B5FD; margin: 4px 4px 0 0; overflow: visible; }
 .is-folder .thumb img { border-radius: 9px; }
+/* 폴더 안 영상 여러 장을 작게: 2장은 좌우, 3장은 큰 것 하나 + 작은 것 둘, 4장은 2×2 */
+.mosaic { position: absolute; inset: 0; display: grid; gap: 2px; border-radius: 9px; overflow: hidden; background: #E4E2EC; }
+.mosaic img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 0 !important; min-width: 0; min-height: 0; }
+.mosaic img.is-missing { background: linear-gradient(150deg, #EDE9FE, #DDD6FE); }
+.mosaic.is-2 { grid-template-columns: 1fr 1fr; }
+.mosaic.is-3 { grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; }
+.mosaic.is-3 img:first-child { grid-row: span 2; }
+.mosaic.is-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
 .tag { position: absolute; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #fff; }
 .tag svg { width: 12px; height: 12px; }
 .tag-folder { left: 6px; bottom: 6px; background: rgba(124, 58, 237, .92); }
@@ -79,6 +87,19 @@ body.is-playing { overflow: hidden; }
 .player-msg { position: absolute; inset: auto 16px 50% 16px; transform: translateY(50%); max-width: 460px; margin: 0 auto; padding: 18px; border-radius: 14px;
     background: rgba(24,24,28,.96); border: 1px solid #2D2F36; text-align: center; line-height: 1.6; font-size: 14px; }
 .player-msg a { display: inline-block; margin-top: 10px; padding: 8px 16px; border-radius: 10px; background: var(--vid); font-weight: 700; }
+/* 재생 정보 (왼쪽 위 작은 판) */
+.stats { position: absolute; top: 10px; left: 10px; z-index: 3; width: min(300px, calc(100% - 20px)); padding: 12px 14px; border-radius: 12px;
+    background: rgba(14, 14, 18, .86); border: 1px solid #2D2F36; font-size: 12.5px; line-height: 1.4; pointer-events: none; }
+.stats dl { margin: 8px 0 0; display: grid; gap: 4px; }
+.stats dl div { display: flex; justify-content: space-between; gap: 10px; }
+.stats dt { color: #9CA3AF; }
+.stats dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stats dd.is-bad { color: #F87171; }
+.stats dd.is-ok { color: #6EE7B7; }
+.stats-verdict { padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.08); font-weight: 700; }
+.stats-verdict.is-bad { background: rgba(248, 113, 113, .18); color: #FCA5A5; }
+.stats-verdict.is-ok { background: rgba(110, 231, 183, .14); color: #A7F3D0; }
+#stats-btn[aria-pressed="true"] { background: rgba(124, 58, 237, .5); }
 .resume, .player-next { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 76px); transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
     padding: 8px 8px 8px 14px; border-radius: 999px; background: rgba(24,24,28,.94); border: 1px solid #2D2F36; font-size: 13px; white-space: nowrap; }
 .resume button, .player-next button { height: 32px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--vid); color: #fff; font-weight: 700; cursor: pointer; }
