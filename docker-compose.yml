@@ -83,6 +83,10 @@ services:
       - DEBUG_LOG_NAME=web-debug.log
       - WEB_PORT=8082
     cpu_shares: 1024
+    # 만화 폴더(/volume2/books)는 시놀로지 공유 폴더 권한(ACL)상 administrators 그룹(gid 101)만 읽을 수 있어 이 그룹을 더함.
+    # 컨테이너가 보는 NAS 폴더는 아래 세 개뿐이고 만화 폴더는 읽기 전용
+    group_add:
+      - "101"
     restart: unless-stopped
     volumes:
       - /volume2/docker/fmkorea-scraper/output:/output
