@@ -26,10 +26,24 @@
                 <span class="dash-clock" id="dash-clock"></span>
                 <button type="button" class="tool-btn" id="layout-reset" hidden>기본값</button>
                 <button type="button" class="tool-btn" id="layout-edit" aria-pressed="false">편집</button>
+                <!-- 관리자 로그인·로그아웃 (로그인하면 카드 혜택·만화 같은 관리자 메뉴가 이 기기에서 보임. dashboard.js) -->
+                <button type="button" class="tool-btn admin-btn" id="admin-btn" aria-label="관리자 로그인" title="관리자 로그인"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg><span id="admin-label">로그인</span></button>
             </div>
         </div>
         <nav class="site-nav" data-current="home"></nav>
     </header>
+    <div class="login-modal" id="login-modal" hidden>
+        <form class="login-card" id="login-form" role="dialog" aria-modal="true" aria-labelledby="login-title">
+            <h2 id="login-title">관리자 로그인</h2>
+            <p>로그인하면 이 기기에서 카드 혜택·만화 같은 관리자 메뉴가 보입니다.</p>
+            <input type="password" id="login-password" autocomplete="current-password" placeholder="관리자 암호" aria-label="관리자 암호">
+            <p class="login-error" id="login-error" role="alert"></p>
+            <div class="login-actions">
+                <button type="button" class="tool-btn" id="login-cancel">취소</button>
+                <button type="submit" class="tool-btn is-primary" id="login-submit">로그인</button>
+            </div>
+        </form>
+    </div>
     <main class="dash">
 
         <div class="dash-grid" id="dash-grid">

@@ -93,6 +93,8 @@ services:
       - .:/app:ro
       # 만화 뷰어(/comics/)가 읽는 만화 폴더 (읽기 전용). NAS의 만화 폴더는 compose.env의 COMICS_HOST_DIR로 지정
       - ${COMICS_HOST_DIR:-/volume2/docker/fmkorea-scraper/comics}:/comics:ro
+      # 동영상(/videos/)이 읽는 동영상 폴더 (읽기 전용). NAS 폴더는 compose.env의 VIDEOS_HOST_DIR로 바꿀 수 있음
+      - ${VIDEOS_HOST_DIR:-/volume1/video}:/videos:ro
     deploy:
       resources:
         limits:

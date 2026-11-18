@@ -116,6 +116,8 @@ APT_BACKFILL_MONTHS = max(3, int(os.environ.get('APT_BACKFILL_MONTHS', 36)))
 # 만화 뷰어 (app/comics.py): 만화 폴더. NAS에서는 웹서버 컨테이너에 읽기 전용으로 연결한 /comics (docker-compose.yml).
 # 폴더가 없으면 만화 화면이 설정 안내만 보여 줌
 COMICS_DIR = (os.environ.get('COMICS_DIR') or '/comics').strip()
+# 동영상(/videos/)이 읽는 NAS 동영상 폴더 (웹서버 컨테이너에 읽기 전용으로 연결)
+VIDEOS_DIR = (os.environ.get('VIDEOS_DIR') or '/videos').strip()
 
 MAX_DATA_PER_KEYWORD = 100
 # 수집한 지 이 일수가 지난 글은 하루 한 번 정리 (각 키워드의 최근 MAX_DATA_PER_KEYWORD개는 새 글 판별 기준이라 유지). 0이면 정리 안 함

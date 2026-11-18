@@ -297,6 +297,66 @@ function renderBenefitMessage(text) {
     $('benefit-body').innerHTML = `<span class="empty">${text}</span>`;
 }
 
+// ==========================================
+// 관리자 로그인·로그아웃: 키워드 게시판과 같은 로그인 키(localStorage admin_token)를 저장·삭제한 뒤
+// 페이지를 다시 열어 메뉴(nav.js)와 관리자 카드를 새로 그림
+// ==========================================
+function adminToken() {
+    try { return localStorage.getItem(ADMIN_TOKEN_KEY) || ''; } catch (e) { return ''; }
+}
+
+function renderAdminButton() {
+    const on = !!adminToken();
+    const btn = $('admin-btn');
+    btn.classList.toggle('is-admin', on);
+    $('admin-label').textContent = on ? '관리자' : '로그인';
+    btn.setAttribute('aria-label', on ? '관리자 로그아웃' : '관리자 로그인');
+    btn.title = on ? '관리자로 로그인됨 · 누르면 로그아웃' : '관리자 로그인';
+}
+
+function setLoginOpen(open) {
+    $('login-modal').hidden = !open;
+    $('login-error').textContent = '';
+    $('login-password').value = '';
+    if (open) $('login-password').focus();
+    else $('admin-btn').focus();
+}
+
+$('admin-btn').addEventListener('click', () => {
+    if (!adminToken()) { setLoginOpen(true); return; }
+    if (!window.confirm('이 기기에서 관리자 로그아웃할까요?')) return;
+    try { localStorage.removeItem(ADMIN_TOKEN_KEY); } catch (e) { /* 지우지 못함 */ }
+    window.location.reload();
+});
+$('login-cancel').addEventListener('click', () => setLoginOpen(false));
+$('login-modal').addEventListener('click', e => { if (e.target.id === 'login-modal') setLoginOpen(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('login-modal').hidden) setLoginOpen(false); });
+$('login-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const input = $('login-password');
+    if (!input.value.trim()) { input.focus(); return; }
+    $('login-submit').disabled = true;
+    try {
+        const res = await fetch('/api/login', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ password: input.value })
+        });
+        const data = await res.json();
+        if (!data.success || !data.token) {
+            $('login-error').textContent = String(data.message || '로그인하지 못했습니다.').replace(/^❌\s*/, '');
+            input.select();
+            return;
+        }
+        try { localStorage.setItem(ADMIN_TOKEN_KEY, data.token); } catch (err) { /* 저장 불가 */ }
+        window.location.reload();
+    } catch (err) {
+        $('login-error').textContent = '서버에 연결하지 못했습니다.';
+    } finally {
+        $('login-submit').disabled = false;
+    }
+});
+renderAdminButton();
+
 // 카드 혜택은 관리자 기기에서만: 로그인 키가 없으면 카드를 통째로 숨김 (메뉴의 '카드'도 nav.js가 숨김)
 function setBenefitVisible(on) {
     const card = $('card-benefit');

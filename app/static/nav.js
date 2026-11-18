@@ -17,6 +17,7 @@
         { key: 'ev', href: '/ev/', label: '유지비', short: '유지비', color: '#0F6E56', icon: '<path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"></path>' },
         { key: 'games', href: '/games/', label: '게임', short: '게임', color: '#B45309', icon: '<rect x="2.5" y="7" width="19" height="11" rx="5.5"></rect><path d="M7 11v3M5.5 12.5h3M15.5 11.5h.01M17.5 13.8h.01"></path>' },
         { key: 'comics', adminOnly: true, href: '/comics/', label: '만화', short: '만화', color: '#BE185D', icon: '<path d="M3 5.5C5.5 4.5 8.5 4.5 12 6c3.5-1.5 6.5-1.5 9-.5v13c-2.5-1-5.5-1-9 .5-3.5-1.5-6.5-1.5-9-.5z"></path><path d="M12 6v13.5"></path>' },
+        { key: 'videos', adminOnly: true, href: '/videos/', label: '동영상', short: '동영상', color: '#7C3AED', icon: '<rect x="3" y="5" width="18" height="14" rx="2.5"></rect><path d="M10 9.5v5l4.5-2.5z"></path>' },
         { key: 'stats', href: '/stats/', label: '통계', short: '통계', color: '#5F5E5A', icon: '<path d="M5 20v-8M12 20V5M19 20v-5"></path>' },
     ];
     const narrow = window.matchMedia('(max-width: 820px)');
@@ -31,7 +32,7 @@
 
     function render(nav) {
         const current = nav.dataset.current || '';
-        // 관리자 전용 메뉴(카드·만화)는 관리자로 로그인한 기기(로그인 키가 있는 기기)에서만. 그 페이지에 있을 때는 보임
+        // 관리자 전용 메뉴(카드·만화·동영상)는 관리자로 로그인한 기기(로그인 키가 있는 기기)에서만. 그 페이지에 있을 때는 보임
         let admin = false;
         try { admin = !!localStorage.getItem('admin_token'); } catch (e) { admin = false; }
         const shown = ITEMS.filter(item => !item.adminOnly || admin || item.key === current);
@@ -128,7 +129,8 @@
         }
         navToast(await copyText(url) ? '주소를 복사했습니다' : '복사하지 못했습니다');
     }
-    document.querySelectorAll('.site-top .site-top-row').forEach(row => {
+    // 관리자 전용 페이지(동영상)처럼 data-no-share인 상단 바에는 공유 버튼을 두지 않음
+    document.querySelectorAll('.site-top:not([data-no-share]) .site-top-row').forEach(row => {
         let tools = row.querySelector('.site-top-tools');
         if (!tools) {
             tools = document.createElement('div');

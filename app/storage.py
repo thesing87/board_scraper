@@ -227,6 +227,14 @@ def _create_schema(conn):
         );
 
         -- 만화 뷰어(/comics/)의 읽던 위치. path는 만화 폴더(COMICS_DIR) 기준 상대 경로, page는 0부터
+        -- 동영상 이어 보기 위치 (초)
+        CREATE TABLE IF NOT EXISTS video_progress (
+            path       TEXT PRIMARY KEY,
+            position   REAL NOT NULL,
+            duration   REAL NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS comic_progress (
             path       TEXT PRIMARY KEY,
             page       INTEGER NOT NULL,

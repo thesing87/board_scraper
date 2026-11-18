@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from http.cookies import SimpleCookie, CookieError
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote
 
 from config import (
     log_msg,
@@ -68,6 +68,7 @@ from storage import (
 )
 import apt_store
 import comics
+import videos
 import apt_trades
 from card_store import (
     card_benefits,
@@ -157,6 +158,9 @@ STATIC_FILES = {
     '/sudoku-engine.js': ('sudoku-engine.js', 'application/javascript; charset=utf-8'),
     '/sudoku.css': ('sudoku.css', 'text/css; charset=utf-8'),
     # 만화 뷰어 (NAS 만화 폴더, 로그인 필요)
+    '/videos/': ('videos.html', 'text/html; charset=utf-8'),
+    '/videos.js': ('videos.js', 'application/javascript; charset=utf-8'),
+    '/videos.css': ('videos.css', 'text/css; charset=utf-8'),
     '/comics/': ('comics.html', 'text/html; charset=utf-8'),
     '/comics.js': ('comics.js', 'application/javascript; charset=utf-8'),
     '/comics.css': ('comics.css', 'text/css; charset=utf-8'),
@@ -447,7 +451,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         try:
             if pure_path in STATIC_FILES:
                 self._serve_static(*STATIC_FILES[pure_path])
-            elif pure_path in ('/board', '/ev', '/card', '/stats', '/apt', '/games', '/games/sudoku', '/comics'):
+            elif pure_path in ('/board', '/ev', '/card', '/stats', '/apt', '/games', '/games/sudoku', '/comics', '/videos'):
                 # 끝 슬래시 없이 들어오면 붙여서 (페이지 안의 상대 주소가 맞도록)
                 self._send_body(301, b'', 'text/plain; charset=utf-8', {'Location': pure_path + '/'})
             elif pure_path in ('/index.html/board', '/index.html/board/'):
@@ -494,6 +498,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._send_data(200, stats)
             elif pure_path.startswith('/api/comics/'):
                 self._handle_comics_get(pure_path, query)
+            elif pure_path.startswith('/api/videos/'):
+                self._handle_videos_get(pure_path, query)
             elif pure_path.startswith(IMAGE_URL_PREFIX):
                 self._serve_image(pure_path[len(IMAGE_URL_PREFIX):])
             elif pure_path == '/api/state':
@@ -605,6 +611,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/apt': ('_handle_apt', '실거래가 처리'),
         '/api/comics/session': ('_handle_comics_session', '만화 로그인 처리'),
         '/api/comics/progress': ('_handle_comics_progress', '만화 읽은 위치 저장'),
+        '/api/videos/session': ('_handle_videos_session', '동영상 로그인 처리'),
+        '/api/videos/progress': ('_handle_videos_progress', '동영상 이어 보기 저장'),
     }
 
     def do_POST(self):
@@ -821,6 +829,138 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         body = json.dumps({'success': True, 'token': ADMIN_TOKEN}).encode('utf-8')
         self._send_body(200, body, 'application/json; charset=utf-8',
                         {'Set-Cookie': self._comics_cookie(ADMIN_TOKEN, 365 * 24 * 3600)})
+
+    # ==========================================
+    # 동영상: 만화와 같이 관리자 로그인 키로 받는 쿠키가 있어야 함 (영상·썸네일 요청에는 키를 담을 수 없어서)
+    # ==========================================
+    VIDEOS_COOKIE = 'videos_key'
+    STREAM_CHUNK = 256 * 1024
+
+    def _videos_authorized(self):
+        if not ADMIN_API_ENABLED:
+            return False
+        try:
+            morsel = SimpleCookie(self.headers.get('Cookie') or '').get(self.VIDEOS_COOKIE)
+        except CookieError:
+            return False
+        return bool(morsel) and hmac.compare_digest(morsel.value.encode('utf-8'), ADMIN_TOKEN.encode('utf-8'))
+
+    def _videos_cookie(self, value, max_age):
+        return f"{self.VIDEOS_COOKIE}={value}; Path=/api/videos/; Max-Age={max_age}; HttpOnly; SameSite=Strict"
+
+    def _handle_videos_session(self):
+        """동영상 로그인: 암호나 로그인 키가 맞으면 쿠키를 줌. action=logout이면 쿠키를 지움"""
+        if self._body.get('action') == 'logout':
+            body = json.dumps({'success': True}).encode('utf-8')
+            self._send_body(200, body, 'application/json; charset=utf-8', {'Set-Cookie': self._videos_cookie('', 0)})
+            return
+        if not self._authorize(self._body.get('password', ''), '동영상 로그인'):
+            return
+        body = json.dumps({'success': True, 'token': ADMIN_TOKEN}).encode('utf-8')
+        self._send_body(200, body, 'application/json; charset=utf-8',
+                        {'Set-Cookie': self._videos_cookie(ADMIN_TOKEN, 365 * 24 * 3600)})
+
+    def _handle_videos_get(self, pure_path, query):
+        if not self._videos_authorized():
+            self._send_json(401, False, '❌ 로그인이 필요합니다.')
+            return
+        if not videos.configured():
+            self._send_data(200, {'configured': False})
+            return
+        path = query.get('p', [''])[0]
+        if pure_path == '/api/videos/list':
+            listing = videos.list_dir(path)
+            if listing is None:
+                self._send_data(404, {'found': False})
+                return
+            if not listing['path']:
+                listing['recent'] = videos.recent()
+            self._send_data(200, {'configured': True, **listing})
+        elif pure_path == '/api/videos/thumb':
+            found = videos.thumbnail(path)
+            if not found:
+                self.send_response(404)
+                self.end_headers()
+                return
+            content, tag = found
+            self._send_body(200, content, 'image/jpeg', cache_control='private, max-age=2592000', etag=f'"{tag}"')
+        elif pure_path == '/api/videos/subs':
+            text = videos.subtitle_vtt(path)
+            if text is None:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self._send_body(200, text.encode('utf-8'), 'text/vtt; charset=utf-8', cache_control='private, max-age=3600')
+        elif pure_path == '/api/videos/file':
+            full = videos.video_file(path)
+            if not full:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self._stream_file(full, videos.content_type(full), download=query.get('download', [''])[0] == '1')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def _stream_file(self, full, content_type, download=False):
+        """큰 파일을 조금씩 보냄. Range 요청이면 그 부분만 (영상의 원하는 위치로 바로 건너뛰기)"""
+        size = os.path.getsize(full)
+        start, end, status = 0, size - 1, 200
+        match = re.fullmatch(r'bytes=(\d*)-(\d*)', (self.headers.get('Range') or '').strip())
+        if match and (match.group(1) or match.group(2)):
+            if match.group(1):
+                start = int(match.group(1))
+                end = min(int(match.group(2)), size - 1) if match.group(2) else size - 1
+            else:
+                start = max(0, size - int(match.group(2)))
+            if start > end or start >= size:
+                self.send_response(416)
+                self.send_header('Content-Range', f'bytes */{size}')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+            status = 206
+        self.send_response(status)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Content-Length', str(end - start + 1))
+        self.send_header('Accept-Ranges', 'bytes')
+        self.send_header('Cache-Control', 'private, max-age=3600')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Referrer-Policy', 'no-referrer')
+        if status == 206:
+            self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+        if download:
+            self.send_header('Content-Disposition', f"attachment; filename*=UTF-8''{quote(os.path.basename(full))}")
+        self.end_headers()
+        left = end - start + 1
+        try:
+            with open(full, 'rb') as f:
+                f.seek(start)
+                while left > 0:
+                    chunk = f.read(min(self.STREAM_CHUNK, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # 건너뛰기·창 닫기로 브라우저가 받던 요청을 끊은 것 (정상)
+            pass
+
+    def _handle_videos_progress(self):
+        if not self._videos_authorized():
+            self._send_json(401, False, '❌ 로그인이 필요합니다.')
+            return
+        path, position, duration = self._body.get('path'), self._body.get('position'), self._body.get('duration')
+        if (not isinstance(path, str) or type(position) not in (int, float) or type(duration) not in (int, float)
+                or not 0 <= position <= max(duration, 0) + 5 or not 0 < duration <= 30 * 24 * 3600):
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        path = path.replace('\\', '/').strip('/')
+        if not videos.configured() or not videos.video_file(path):
+            self._send_json(404, False, '❌ 영상을 찾을 수 없습니다.')
+            return
+        videos.save_progress(path, round(float(position), 1), round(float(duration), 1))
+        self._send_json(200, True, '저장했습니다.')
 
     def _handle_comics_get(self, pure_path, query):
         if not self._comics_authorized():
