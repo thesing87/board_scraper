@@ -152,15 +152,28 @@ with zipfile.ZipFile(os.path.join(nested, '1권.cbz'), 'w') as zf:
     zf.writestr('a.png', png(3, 9))
 os.makedirs(os.path.join(COMICS, '빈폴더'))
 code, body, _ = req('/api/comics/list?p=')
-dirs = {d['name']: d for d in body['dirs']}
+assert code == 200 and all(set(d) == {'name', 'path'} for d in body['dirs'])   # 목록에는 이름만 (권수는 따로)
+code, body, _ = req('/api/comics/counts?p=')
+dirs = body['counts']
 assert (dirs['원피스']['books'], dirs['원피스']['dirs']) == (3, 0), dirs['원피스']
 assert (dirs['낱장']['images'], dirs['시리즈모음']['dirs'], dirs['빈폴더']['books']) == (2, 1, 0), dirs
+assert req('/api/comics/counts?p=' + urllib.parse.quote('없는폴더'))[0] == 404
+# 한 번 센 값은 기억, 폴더에 책을 넣으면(수정 시각이 바뀌면) 다시 셈
+with zipfile.ZipFile(os.path.join(COMICS, '빈폴더', '새 책.cbz'), 'w') as zf:
+    zf.writestr('a.png', png(3, 9))
+os.utime(os.path.join(COMICS, '빈폴더'), ns=(1, 1))   # 파일 시스템의 수정 시각 단위가 거칠어도 확실히 다르게
+assert req('/api/comics/counts?p=')[1]['counts']['빈폴더']['books'] == 1
+cookie_backup = cookie
+cookie = ''
+assert req('/api/comics/counts?p=')[0] == 401
+cookie = cookie_backup
 code, data, headers = req('/api/comics/cover?p=' + urllib.parse.quote('원피스'), raw=True)
 assert code == 200 and data == png(4, 6), code          # 1권의 첫 장 (p1.png)
 code, data, headers = req('/api/comics/cover?p=' + urllib.parse.quote('시리즈모음'), raw=True)
 assert code == 200 and data == png(3, 9), code          # 하위 폴더 안 첫 책
 code, data, _ = req('/api/comics/cover?p=' + urllib.parse.quote('낱장'), raw=True)
 assert code == 200 and data.startswith(b'\xff\xd8'), code   # 폴더 안 첫 이미지
-assert req('/api/comics/cover?p=' + urllib.parse.quote('빈폴더'), raw=True)[0] == 404
+os.makedirs(os.path.join(COMICS, '빈폴더2'))
+assert req('/api/comics/cover?p=' + urllib.parse.quote('빈폴더2'), raw=True)[0] == 404
 assert req('/api/comics/cover?p=' + urllib.parse.quote('../'), raw=True)[0] == 404
 print('FOLDER COVER OK')

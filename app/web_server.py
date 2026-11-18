@@ -838,6 +838,12 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             if not listing['path']:
                 listing['recent'] = comics.recent()
             self._send_data(200, {'configured': True, **listing})
+        elif pure_path == '/api/comics/counts':
+            counts = comics.folder_counts(path)
+            if counts is None:
+                self._send_data(404, {'found': False})
+            else:
+                self._send_data(200, {'counts': counts})
         elif pure_path == '/api/comics/book':
             info = comics.book_info(path)
             if info is None:

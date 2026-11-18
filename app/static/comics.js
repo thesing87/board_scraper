@@ -121,13 +121,24 @@
             <span class="book-name">${esc(book.name)}</span></a>`;
     }
 
-    // 폴더(시리즈) 칸: 안에 든 첫 책의 표지와 이름, 몇 권인지
+    // 폴더(시리즈) 칸: 안에 든 첫 책의 표지와 이름. 몇 권인지는 목록을 먼저 보여 준 뒤 따로 받아 채움 (loadCounts)
     function folderCard(dir) {
-        const meta = dir.books ? `${dir.books}권` : dir.dirs ? `폴더 ${dir.dirs}개` : dir.images ? `이미지 ${dir.images}장` : '';
-        return `<a class="folder-card" href="${dirHref(dir.path)}">
+        return `<a class="folder-card" href="${dirHref(dir.path)}" data-path="${esc(dir.path)}">
             <span class="book-cover"><img src="${coverUrl(dir.path)}" alt="" loading="lazy" decoding="async">
-                <span class="folder-badge">${FOLDER_ICON}${esc(meta)}</span></span>
+                <span class="folder-badge">${FOLDER_ICON}<span class="folder-count"></span></span></span>
             <span class="book-name">${esc(dir.name)}</span></a>`;
+    }
+
+    async function loadCounts(path) {
+        let data;
+        try { data = await api(`/api/comics/counts?p=${enc(path)}`); } catch (e) { return; }
+        // 그사이 다른 폴더로 옮겼으면 버림
+        if (!data || currentDir !== path || $('content').hidden) return;
+        $('folders').querySelectorAll('.folder-card').forEach(card => {
+            const c = data.counts[card.dataset.path];
+            if (!c) return;
+            card.querySelector('.folder-count').textContent = c.books ? `${c.books}권` : c.dirs ? `폴더 ${c.dirs}개` : c.images ? `이미지 ${c.images}장` : '';
+        });
     }
 
     // 표지를 못 받으면(이미지 없는 폴더 등) 그림 대신 이름 첫 글자를 크게
@@ -191,6 +202,7 @@
         }).join('');
 
         $('folders').innerHTML = data.dirs.map(folderCard).join('');
+        if (data.dirs.length) loadCounts(data.path);
         // 폴더에 이미지가 바로 들어 있으면 그 폴더 자체도 한 권
         const books = data.images && data.path
             ? [{ name: `${data.name} (이미지 ${data.images}장)`, path: data.path, progress: data.images_progress }, ...data.books]

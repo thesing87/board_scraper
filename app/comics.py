@@ -82,7 +82,8 @@ def list_dir(rel):
                 continue
             try:
                 if entry.is_dir():
-                    dirs.append({'name': entry.name, 'path': _join(rel, entry.name), **_dir_counts(entry.path)})
+                    # 폴더 안 권수는 목록을 늦추지 않도록 화면이 따로 받음 (folder_counts)
+                    dirs.append({'name': entry.name, 'path': _join(rel, entry.name)})
                 elif entry.is_file():
                     if _is_archive(entry.name):
                         books.append({'name': os.path.splitext(entry.name)[0], 'path': _join(rel, entry.name),
@@ -292,6 +293,40 @@ def _dir_counts(full):
     except OSError:
         pass
     return {'books': books, 'dirs': dirs, 'images': images}
+
+
+# 폴더 안 개수 기억: {폴더 경로: (폴더 수정 시각, 개수)}. 폴더에 파일을 넣고 빼면 수정 시각이 바뀌어 다시 셈
+_counts_cache = {}
+_counts_lock = threading.Lock()
+COUNTS_CACHE_SIZE = 5000
+
+def folder_counts(rel):
+    """폴더 안 하위 폴더마다 책·폴더·이미지 수 {경로: {...}}. 디스크가 쉬고 있던 뒤 처음에는 폴더 수백 개를 읽느라
+    몇 초 걸릴 수 있어 목록과 따로 받고, 한 번 센 값은 기억해 둠. 없는 폴더면 None"""
+    rel = (rel or '').replace(chr(92), '/').strip('/')
+    full = resolve(rel)
+    if not full or not os.path.isdir(full):
+        return None
+    out = {}
+    with os.scandir(full) as it:
+        subdirs = [e for e in it if not HIDDEN_RE.match(e.name) and e.is_dir()]
+    for entry in subdirs:
+        try:
+            mtime = entry.stat().st_mtime_ns
+        except OSError:
+            continue
+        with _counts_lock:
+            hit = _counts_cache.get(entry.path)
+        if hit and hit[0] == mtime:
+            counts = hit[1]
+        else:
+            counts = _dir_counts(entry.path)
+            with _counts_lock:
+                _counts_cache[entry.path] = (mtime, counts)
+                if len(_counts_cache) > COUNTS_CACHE_SIZE:
+                    _counts_cache.pop(next(iter(_counts_cache)))
+        out[_join(rel, entry.name)] = counts
+    return out
 
 
 # 폴더(시리즈)의 표지를 찾을 때 하위 폴더로 내려가는 최대 깊이
