@@ -132,6 +132,10 @@ try:
     js("document.getElementById('login-password').value='Secr3t!'; document.getElementById('login').requestSubmit()"); time.sleep(1.5)
     assert js("return document.getElementById('login').hidden") and js("return [...document.querySelectorAll('#folders .tile-name')].map(e => e.textContent)") == ['드라마', '짧은']
     d.get(BASE + '/'); time.sleep(1)
+    # 관리자 기기여도 숨은 메뉴: 대시보드 제목을 5번 눌러야 보임
+    assert 'videos' not in js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)")
+    for _ in range(5):
+        js("document.querySelector('.site-top-brand h1').click()")
     assert 'videos' in js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)")
 
     # 최상위 목록: 폴더 칸에 안의 영상 썸네일을 작게 모아 보여 줌 (4장은 2×2, 1장은 그대로)

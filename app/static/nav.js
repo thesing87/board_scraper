@@ -17,7 +17,7 @@
         { key: 'ev', href: '/ev/', label: '유지비', short: '유지비', color: '#0F6E56', icon: '<path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"></path>' },
         { key: 'games', href: '/games/', label: '게임', short: '게임', color: '#B45309', icon: '<rect x="2.5" y="7" width="19" height="11" rx="5.5"></rect><path d="M7 11v3M5.5 12.5h3M15.5 11.5h.01M17.5 13.8h.01"></path>' },
         { key: 'comics', adminOnly: true, href: '/comics/', label: '만화', short: '만화', color: '#BE185D', icon: '<path d="M3 5.5C5.5 4.5 8.5 4.5 12 6c3.5-1.5 6.5-1.5 9-.5v13c-2.5-1-5.5-1-9 .5-3.5-1.5-6.5-1.5-9-.5z"></path><path d="M12 6v13.5"></path>' },
-        { key: 'videos', adminOnly: true, href: '/videos/', label: '동영상', short: '동영상', color: '#7C3AED', icon: '<rect x="3" y="5" width="18" height="14" rx="2.5"></rect><path d="M10 9.5v5l4.5-2.5z"></path>' },
+        { key: 'videos', adminOnly: true, secret: true, href: '/videos/', label: '동영상', short: '동영상', color: '#7C3AED', icon: '<rect x="3" y="5" width="18" height="14" rx="2.5"></rect><path d="M10 9.5v5l4.5-2.5z"></path>' },
         { key: 'stats', href: '/stats/', label: '통계', short: '통계', color: '#5F5E5A', icon: '<path d="M5 20v-8M12 20V5M19 20v-5"></path>' },
     ];
     const narrow = window.matchMedia('(max-width: 820px)');
@@ -30,18 +30,28 @@
             + `<span class="site-nav-badge" data-badge="${item.key}" hidden></span></a>`;
     }
 
+    // 숨은 메뉴(동영상): 관리자 기기여도 평소에는 안 보이고, 대시보드 제목을 3초 안에 5번 누르면 그 화면에서만 보임.
+    // 어디에도 저장하지 않으므로 새로고침·다른 페이지·창을 닫았다 열면 다시 숨겨짐
+    const REVEAL_TAPS = 5, REVEAL_WINDOW_MS = 3000;
+    let revealed = false;
+
+    function isAdmin() {
+        try { return !!localStorage.getItem('admin_token'); } catch (e) { return false; }
+    }
+
     function render(nav) {
         const current = nav.dataset.current || '';
         // 관리자 전용 메뉴(카드·만화·동영상)는 관리자로 로그인한 기기(로그인 키가 있는 기기)에서만. 그 페이지에 있을 때는 보임
-        let admin = false;
-        try { admin = !!localStorage.getItem('admin_token'); } catch (e) { admin = false; }
-        const shown = ITEMS.filter(item => !item.adminOnly || admin || item.key === current);
+        const admin = isAdmin();
+        const shown = ITEMS.filter(item => item.key === current || (!item.adminOnly || admin) && (!item.secret || revealed));
         nav.style.setProperty('--nav-cols', shown.length);
         const items = shown.map(item => itemHtml(item, current)).join('');
         nav.setAttribute('aria-label', '바로가기');
         nav.innerHTML = items;
         const compact = () => nav.classList.toggle('is-compact', narrow.matches);
         compact();
+        if (nav.dataset.rendered) return;
+        nav.dataset.rendered = '1';
         narrow.addEventListener('change', compact);
         // 같은 페이지 안의 다른 보기(게시판 ↔ 인기글): 페이지가 정한 처리(onSamePage)가 있으면 그것으로 보기만 바꾸고,
         // 없으면 # 부분만 바뀌어서는 페이지가 다시 읽히지 않으므로 새로 엶
@@ -82,6 +92,31 @@
     };
 
     document.querySelectorAll('.site-nav[data-current]').forEach(render);
+
+    function setRevealed(on) {
+        if (revealed === on) return;
+        revealed = on;
+        document.querySelectorAll('.site-nav[data-current]').forEach(render);
+    }
+
+    // 대시보드 제목(로고 포함)을 3초 안에 5번 누르기 → 숨은 메뉴가 보임 (관리자 기기만. 아닌 기기는 아무 일 없음)
+    const homeBrand = document.querySelector('.site-nav[data-current="home"]') && document.querySelector('.site-top-brand');
+    if (homeBrand) {
+        homeBrand.classList.add('site-top-secret');
+        let taps = [];
+        homeBrand.addEventListener('click', () => {
+            const now = Date.now();
+            taps = taps.filter(t => now - t < REVEAL_WINDOW_MS).concat(now);
+            if (taps.length < REVEAL_TAPS || revealed || !isAdmin()) return;
+            taps = [];
+            setRevealed(true);
+            document.querySelectorAll('.site-nav [data-nav]').forEach(a => {
+                if (ITEMS.some(item => item.secret && item.key === a.dataset.nav)) a.classList.add('is-revealed');
+            });
+        });
+        // 뒤로 가기로 돌아온 화면(브라우저가 기억해 둔 페이지)도 다시 숨김
+        window.addEventListener('pageshow', e => { if (e.persisted) setRevealed(false); });
+    }
 
     // ==========================================
     // 공유 버튼 (공통 상단 바의 오른쪽): 지금 페이지 주소를 휴대폰 공유 창으로, 공유 창이 없으면 주소 복사.

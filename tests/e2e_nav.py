@@ -55,16 +55,36 @@ try:
 
     # 관리자로 로그인한 기기: 카드·만화가 보이고, 휴대폰 아이콘 줄이 그만큼 나뉨
     d.get(BASE + '/stats/'); time.sleep(.8)
-    js("localStorage.setItem('admin_token', 'x')")
+    js("localStorage.setItem('admin_token', arguments[0])", web_server.ADMIN_TOKEN)
     d.get(BASE + '/'); time.sleep(1.2)
+    # 동영상은 관리자 기기여도 숨어 있다가, 대시보드 제목을 3초 안에 5번 누르면 보임
+    assert js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)") == [k for k in KEYS if k != 'videos']
+    for _ in range(4):
+        js("document.querySelector('.site-top-brand h1').click()")
+    assert 'videos' not in js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)")
+    js("document.querySelector('.site-top-brand').click()"); time.sleep(.3)
     assert js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)") == KEYS
+    assert js("return document.querySelector('.site-nav [data-nav=videos]').classList.contains('is-revealed')")
     cols = js("return getComputedStyle(document.querySelector('.site-nav')).gridTemplateColumns.split(' ').length")
     assert cols == len(KEYS), cols
+    # 다른 페이지로 가면 숨겨지고, 대시보드를 다시 열어도(새로고침) 숨겨짐
+    d.get(BASE + '/stats/'); time.sleep(1)
+    assert 'videos' not in js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)")
+    d.get(BASE + '/'); time.sleep(1.2)
+    assert 'videos' not in js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)")
+    # 천천히 누르면(3초 넘게 걸리면) 안 열림
+    for _ in range(5):
+        js("document.querySelector('.site-top-brand h1').click()"); time.sleep(.8)
+    assert 'videos' not in js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)")
     assert js("return document.documentElement.scrollWidth <= innerWidth")
     js("localStorage.removeItem('admin_token')")
     d.get(BASE + '/'); time.sleep(1.2)
     shown = js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)")
     assert not set(ADMIN_ONLY) & set(shown), shown
+    # 관리자가 아니면 제목을 5번 눌러도 아무 일 없음
+    for _ in range(5):
+        js("document.querySelector('.site-top-brand h1').click()")
+    assert 'videos' not in js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)")
     assert js("return getComputedStyle(document.querySelector('.site-nav')).gridTemplateColumns.split(' ').length") == len(KEYS) - len(ADMIN_ONLY)
     print('ADMIN ONLY OK')
 
