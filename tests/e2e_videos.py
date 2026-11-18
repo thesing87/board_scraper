@@ -152,7 +152,10 @@ try:
     js("document.getElementById('stats-btn').click()"); time.sleep(2.5)
     assert not js("return document.getElementById('stats').hidden")
     st = js("return ['st-buffer', 'st-bitrate', 'st-waits', 'st-dropped', 'st-size'].map(i => document.getElementById(i).textContent)")
-    assert st[1].endswith('Mbps') and st[2] == '0번' and '/' in st[3] and st[4] == '320×240', st
+    assert st[1].endswith('Mbps') and st[2] == '0번' and '최근' in st[3] and st[4] == '320×240', st
+    # 건너뛰기 직후 버린 프레임은 세지 않음 (키프레임이 드문 영상에서 기기 문제로 잘못 판정하지 않게)
+    js("document.getElementById('video').currentTime = 25"); time.sleep(1.2)
+    assert js("return document.getElementById('st-dropped').textContent").startswith('최근 0초'), js("return document.getElementById('st-dropped').textContent")
     assert js("return document.getElementById('stats-verdict').textContent")
     assert js("return localStorage.getItem('videos_stats_open')") == '1'
     # 원하는 위치로 건너뛰기 (Range)

@@ -245,7 +245,11 @@
     // 재생 정보: 미리 받아 둔 시간·받는 속도·멈춰서 기다린 횟수(네트워크), 건너뛴 프레임(기기 성능)
     // 받는 속도는 '미리 받아 둔 끝 지점이 1초에 몇 초분 늘었는지 × 영상 평균 비트레이트'로 어림함
     // ==========================================
-    const stats = { timer: null, waits: 0, lastEnd: null, lastAt: 0, speeds: [], dropBase: 0, totalBase: 0 };
+    // frames: 1초마다 (건너뛴 프레임 수, 그린 프레임 수). 건너뛰기·이어 보기 직후에는 키프레임부터 목표 위치까지 풀고 버린 프레임이
+    // '건너뛴 프레임'으로 잡혀(이 NAS 영상은 키프레임이 10초마다라 수백 장) 기기 성능 문제로 잘못 보이므로, 그동안은 세지 않음
+    const stats = { timer: null, waits: 0, lastEnd: null, lastAt: 0, speeds: [], frames: [], dropped: 0, total: 0, quietUntil: 0 };
+    const FRAME_WINDOW = 10;     // 최근 몇 초의 프레임으로 판단할지
+    const SEEK_QUIET_MS = 3000;  // 건너뛰기·재생 시작 뒤 프레임을 세지 않는 시간
 
     function bufferedAhead() {
         const t = video.currentTime;
@@ -262,8 +266,11 @@
         stats.lastEnd = null;
         stats.speeds = [];
         const q = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : null;
-        stats.dropBase = q ? q.droppedVideoFrames : 0;
-        stats.totalBase = q ? q.totalVideoFrames : 0;
+        stats.frames = [];
+        stats.dropped = 0;
+        stats.total = 0;
+        stats.quietUntil = performance.now() + SEEK_QUIET_MS;
+        stats.last = q ? [q.droppedVideoFrames, q.totalVideoFrames] : null;
     }
 
     function renderStats() {
@@ -281,8 +288,20 @@
         stats.lastAt = now;
         const speed = stats.speeds.length ? stats.speeds.reduce((a, b) => a + b, 0) / stats.speeds.length : null;
         const q = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : null;
-        const dropped = q ? q.droppedVideoFrames - stats.dropBase : null;
-        const total = q ? q.totalVideoFrames - stats.totalBase : null;
+        // 재생 중이고 건너뛰기 직후가 아닐 때만 1초 동안 늘어난 만큼을 셈
+        if (q && stats.last) {
+            const d = q.droppedVideoFrames - stats.last[0], t = q.totalVideoFrames - stats.last[1];
+            if (!video.paused && !video.seeking && now > stats.quietUntil && t >= 0 && d >= 0) {
+                stats.frames.push([d, t]);
+                if (stats.frames.length > FRAME_WINDOW) stats.frames.shift();
+                stats.dropped += d;
+                stats.total += t;
+            }
+        }
+        if (q) stats.last = [q.droppedVideoFrames, q.totalVideoFrames];
+        const recent = stats.frames.reduce((acc, [d, t]) => [acc[0] + d, acc[1] + t], [0, 0]);
+        const dropped = q ? recent[0] : null;
+        const total = q ? recent[1] : null;
         const dropRatio = total ? dropped / total : 0;
 
         const set = (id, text, cls) => { const el = $(id); el.textContent = text; el.className = cls || ''; };
@@ -291,13 +310,14 @@
         set('st-speed', speed == null ? (full ? '–' : '재는 중') : mbps(speed), speed != null && bitrate && speed < bitrate ? 'is-bad' : speed != null ? 'is-ok' : '');
         set('st-bitrate', bitrate ? mbps(bitrate) : '–');
         set('st-waits', `${stats.waits}번`, stats.waits ? 'is-bad' : '');
-        set('st-dropped', q ? `${dropped} / ${total} (${(dropRatio * 100).toFixed(1)}%)` : '이 브라우저는 알 수 없음', dropRatio > DROP_BAD_RATIO ? 'is-bad' : '');
+        set('st-dropped', q ? `최근 ${stats.frames.length}초 ${dropped} / ${total} (${(dropRatio * 100).toFixed(1)}%) · 전체 ${stats.dropped}` : '이 브라우저는 알 수 없음',
+            dropRatio > DROP_BAD_RATIO ? 'is-bad' : '');
         set('st-size', video.videoWidth ? `${video.videoWidth}×${video.videoHeight}` : '–');
 
         let verdict = '재생 중 문제 없음', cls = 'is-ok';
         if (stats.waits && (ahead < 1 || (speed != null && bitrate && speed < bitrate))) {
             verdict = '네트워크가 느려 멈춤: 받는 속도가 영상에 필요한 속도보다 느립니다'; cls = 'is-bad';
-        } else if (dropRatio > DROP_BAD_RATIO && total > 60) {
+        } else if (dropRatio > DROP_BAD_RATIO && stats.frames.length >= 5 && total > 60) {
             verdict = '기기가 영상을 푸는 속도가 부족해 화면이 끊김'; cls = 'is-bad';
         } else if (stats.waits) {
             verdict = '잠깐 멈췄던 적이 있음 (건너뛰기 직후라면 정상)'; cls = '';
@@ -316,7 +336,8 @@
     $('stats-btn').addEventListener('click', () => setStatsOpen($('stats').hidden));
     // 재생 중에 데이터가 모자라 멈춤 (건너뛰기 직후의 기다림은 세지 않음)
     let seekingAt = 0;
-    video.addEventListener('seeking', () => { seekingAt = performance.now(); stats.lastEnd = null; });
+    video.addEventListener('seeking', () => { seekingAt = performance.now(); stats.lastEnd = null; stats.quietUntil = seekingAt + SEEK_QUIET_MS; stats.frames = []; });
+    video.addEventListener('playing', () => { stats.quietUntil = Math.max(stats.quietUntil, performance.now() + 1000); });
     video.addEventListener('waiting', () => { if (performance.now() - seekingAt > 1500 && video.currentTime > 0.5) stats.waits++; });
 
     function nextVideo() {
