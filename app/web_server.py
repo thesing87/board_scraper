@@ -69,6 +69,7 @@ from storage import (
 import apt_store
 import comics
 import videos
+import video_fix
 import apt_trades
 from card_store import (
     card_benefits,
@@ -903,14 +904,24 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self.send_response(404)
                 self.end_headers()
                 return
-            self._stream_file(full, videos.content_type(full), download=query.get('download', [''])[0] == '1')
+            download = query.get('download', [''])[0] == '1'
+            # 표시 순서표(ctts)가 빠진 MP4는 고친 moov를 끼워 보냄 (내려받기는 원본 그대로)
+            fixed = None if download else video_fix.layout(full)
+            self._stream_file(full, videos.content_type(full), download=download, layout=fixed)
+        elif pure_path == '/api/videos/prepare':
+            # 재생 중에 다음 영상을 미리 고쳐 둠 → 다음 영상은 바로 열림
+            full = videos.video_file(path)
+            if full:
+                video_fix.prepare(full)
+            self._send_data(202 if full else 404, {'queued': bool(full)})
         else:
             self.send_response(404)
             self.end_headers()
 
-    def _stream_file(self, full, content_type, download=False):
-        """큰 파일을 조금씩 보냄. Range 요청이면 그 부분만 (영상의 원하는 위치로 바로 건너뛰기)"""
-        size = os.path.getsize(full)
+    def _stream_file(self, full, content_type, download=False, layout=None):
+        """큰 파일을 조금씩 보냄. Range 요청이면 그 부분만 (영상의 원하는 위치로 바로 건너뛰기)
+        layout: (전체 크기, [(원본 시작, 길이) 또는 bytes, ...]) — 원본 일부와 고친 조각을 이어 붙인 가상의 파일"""
+        size, parts = layout if layout else (os.path.getsize(full), [(0, os.path.getsize(full))])
         start, end, status = 0, size - 1, 200
         match = re.fullmatch(r'bytes=(\d*)-(\d*)', (self.headers.get('Range') or '').strip())
         if match and (match.group(1) or match.group(2)):
@@ -938,16 +949,25 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         if download:
             self.send_header('Content-Disposition', f"attachment; filename*=UTF-8''{quote(os.path.basename(full))}")
         self.end_headers()
-        left = end - start + 1
         try:
             with open(full, 'rb') as f:
-                f.seek(start)
-                while left > 0:
-                    chunk = f.read(min(self.STREAM_CHUNK, left))
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    left -= len(chunk)
+                pos = 0  # 가상의 파일에서 지금 조각이 시작하는 자리
+                for part in parts:
+                    length = len(part) if isinstance(part, bytes) else part[1]
+                    lo, hi = max(start, pos), min(end + 1, pos + length)
+                    if lo < hi:
+                        if isinstance(part, bytes):
+                            self.wfile.write(part[lo - pos:hi - pos])
+                        else:
+                            f.seek(part[0] + lo - pos)
+                            left = hi - lo
+                            while left > 0:
+                                chunk = f.read(min(self.STREAM_CHUNK, left))
+                                if not chunk:
+                                    break
+                                self.wfile.write(chunk)
+                                left -= len(chunk)
+                    pos += length
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             # 건너뛰기·창 닫기로 브라우저가 받던 요청을 끊은 것 (정상)
             pass

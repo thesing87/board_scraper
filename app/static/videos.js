@@ -13,6 +13,10 @@
     const RESUME_MIN = 10, RESUME_END_MARGIN = 20;
     // 이만큼도 안 보고 닫은 영상은 이어 보기에 올리지 않음 (초)
     const SAVE_MIN = 5;
+    // 영상이 이만큼 안 열리면 '준비 중' 안내
+    const PREP_NOTICE_MS = 1500;
+    // 재생 시작 뒤 이만큼 지나 다음 영상 미리 고치기 (처음 받는 데이터와 디스크를 다투지 않게)
+    const NEXT_PREPARE_DELAY_MS = 15000;
     const STATS_KEY = 'videos_stats_open';
     // 건너뛴 프레임이 이 비율을 넘으면 기기 성능 부족으로 봄
     const DROP_BAD_RATIO = 0.05;
@@ -388,6 +392,16 @@
         player.resumeAt = saved && saved.position > RESUME_MIN && saved.duration - saved.position > RESUME_END_MARGIN ? saved.position : 0;
         video.src = fileUrl(path);
         video.load();
+        // 처음 여는 영상 중 일부는 서버가 표시 순서를 고쳐 보내느라(video_fix.py) 길면 수십 초 걸림
+        clearTimeout(player.prepTimer);
+        player.prepTimer = setTimeout(() => {
+            if (player.path === path && video.readyState === 0 && $('player-msg').hidden) {
+                showMessage('처음 여는 영상이라 재생 준비 중입니다…<br><small>긴 영상은 수십 초 걸릴 수 있습니다. 다음부터는 바로 열립니다.</small>');
+                player.prepShown = true;
+            }
+        }, PREP_NOTICE_MS);
+        player.prepShown = false;
+        player.nextPrepared = false;
         resetStats();
         setStatsOpen(storageGet(STATS_KEY, '') === '1');
         const playing = video.play();
@@ -397,6 +411,8 @@
     }
 
     video.addEventListener('loadedmetadata', () => {
+        clearTimeout(player.prepTimer);
+        if (player.prepShown) { $('player-msg').hidden = true; player.prepShown = false; }
         if (video.videoWidth === 0 && player.path) {
             showMessage(`이 영상은 화면 형식(MPEG-4 Part 2·HEVC 등)을 브라우저가 풀지 못해 화면이 나오지 않습니다.<br>`
                 + `소리만 들리면 이 경우입니다. 내려받아 다른 재생기로 보세요.<br><a href="${fileUrl(player.path, true)}" download>내려받기</a>`);
@@ -410,6 +426,13 @@
         player.resumeAt = 0;
     });
     video.addEventListener('pause', () => saveProgress());
+    // 재생이 시작되면 다음 영상을 서버가 미리 고쳐 두게 함 → '다음 영상'이 바로 열림
+    video.addEventListener('playing', () => {
+        if (player.nextPrepared || !player.path) return;
+        player.nextPrepared = true;
+        const next = nextVideo();
+        if (next) setTimeout(() => { if (player.path) api(`/api/videos/prepare?p=${enc(next.path)}`).catch(() => {}); }, NEXT_PREPARE_DELAY_MS);
+    });
     video.addEventListener('ended', () => {
         saveProgress();
         const next = nextVideo();
