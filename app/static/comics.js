@@ -16,6 +16,8 @@
     const SAVE_DELAY_MS = 800;
     // 이보다 가로가 길면(가로/세로) 양면 페이지로 봄
     const SPREAD_RATIO = 1.15;
+    // '자동'일 때 두 페이지로 보는 화면: 가로가 이 이상이고 가로가 세로보다 긴 화면 (데스크탑)
+    const DOUBLE_MIN_WIDTH = 900;
 
     const $ = id => document.getElementById(id);
     const esc = v => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -24,7 +26,8 @@
     const storageSet = (key, value) => { try { value ? localStorage.setItem(key, value) : localStorage.removeItem(key); } catch (e) { /* 저장 불가 */ } };
 
     function loadSettings() {
-        const defaults = { dir: 'rtl', split: true };
+        // layout: auto(넓은 화면은 두 페이지) · single · double, cover: 두 페이지 보기에서 첫 장(표지)은 혼자
+        const defaults = { dir: 'rtl', split: true, layout: 'auto', cover: true };
         try { return { ...defaults, ...JSON.parse(storageGet(SETTINGS_KEY, '{}')) }; } catch (e) { return defaults; }
     }
     const settings = loadSettings();
@@ -118,6 +121,27 @@
             <span class="book-name">${esc(book.name)}</span></a>`;
     }
 
+    // 폴더(시리즈) 칸: 안에 든 첫 책의 표지와 이름, 몇 권인지
+    function folderCard(dir) {
+        const meta = dir.books ? `${dir.books}권` : dir.dirs ? `폴더 ${dir.dirs}개` : dir.images ? `이미지 ${dir.images}장` : '';
+        return `<a class="folder-card" href="${dirHref(dir.path)}">
+            <span class="book-cover"><img src="${coverUrl(dir.path)}" alt="" loading="lazy" decoding="async">
+                <span class="folder-badge">${FOLDER_ICON}${esc(meta)}</span></span>
+            <span class="book-name">${esc(dir.name)}</span></a>`;
+    }
+
+    // 표지를 못 받으면(이미지 없는 폴더 등) 그림 대신 이름 첫 글자를 크게
+    document.addEventListener('error', e => {
+        const img = e.target;
+        if (!(img instanceof HTMLImageElement)) return;
+        const holder = img.closest('.book-cover');
+        if (!holder) return;
+        const name = holder.parentElement.querySelector('.book-name');
+        holder.dataset.initial = name ? name.textContent.trim().slice(0, 1) : '';
+        holder.classList.add('no-cover');
+        img.remove();
+    }, true);
+
     function renderCrumbs(path) {
         const parts = path ? path.split('/') : [];
         const items = [parts.length ? `<a href="#">전체</a>` : '<span class="here">전체</span>'];
@@ -166,7 +190,7 @@
                 <div class="bar"><i style="width:${(p.ratio * 100).toFixed(1)}%"></i></div></span></a>`;
         }).join('');
 
-        $('folders').innerHTML = data.dirs.map(d => `<a class="folder" href="${dirHref(d.path)}">${FOLDER_ICON}<span>${esc(d.name)}</span></a>`).join('');
+        $('folders').innerHTML = data.dirs.map(folderCard).join('');
         // 폴더에 이미지가 바로 들어 있으면 그 폴더 자체도 한 권
         const books = data.images && data.path
             ? [{ name: `${data.name} (이미지 ${data.images}장)`, path: data.path, progress: data.images_progress }, ...data.books]
@@ -195,8 +219,36 @@
     const pager = $('pager');
     const pageUrl = n => `/api/comics/page?p=${enc(reader.book.path)}&n=${n}`;
 
-    // 칸 목록: [{page, half: null|'left'|'right'}] + 마지막 '다 읽음' 칸 {end: true}
+    // 두 페이지로 볼지: 위아래 넘김은 늘 한 페이지, '자동'은 넓은 가로 화면에서만
+    function useDouble() {
+        if (settings.dir === 'vertical') return false;
+        if (settings.layout === 'double') return true;
+        if (settings.layout === 'single') return false;
+        return window.innerWidth >= DOUBLE_MIN_WIDTH && window.innerWidth > window.innerHeight;
+    }
+
+    const isWide = (book, i) => { const size = book.sizes[i]; return !!size && size[0] > size[1] * SPREAD_RATIO; };
+    // 한 칸에 보이는 페이지 번호들
+    const viewPages = view => (view.end ? [] : view.pair != null ? [view.page, view.pair] : [view.page]);
+    const findView = page => reader.views.findIndex(x => !x.end && viewPages(x).includes(page));
+
+    // 두 페이지 칸: 표지는 혼자(설정), 가로로 긴 양면 페이지와 마지막 남는 한 장도 혼자, 나머지는 두 장씩
+    function buildDoubleViews(book) {
+        const views = [];
+        let i = 0;
+        if (settings.cover && book.count) { views.push({ page: 0, half: null }); i = 1; }
+        while (i < book.count) {
+            if (isWide(book, i) || i === book.count - 1 || isWide(book, i + 1)) { views.push({ page: i, half: null }); i++; continue; }
+            views.push({ page: i, pair: i + 1, half: null });
+            i += 2;
+        }
+        views.push({ end: true });
+        return views;
+    }
+
+    // 칸 목록: [{page, half: null|'left'|'right', pair?}] + 마지막 '다 읽음' 칸 {end: true}
     function buildViews(book) {
+        if (useDouble()) return buildDoubleViews(book);
         const portrait = window.innerHeight >= window.innerWidth;
         const views = [];
         for (let i = 0; i < book.count; i++) {
@@ -220,9 +272,17 @@
         pager.classList.toggle('is-vertical', !horizontal());
         const order = reader.views.map((_, v) => v);
         if (settings.dir === 'rtl') order.reverse();
-        pager.innerHTML = order.map(v => reader.views[v].end ? endSlotHtml() : `<div class="slot" data-v="${v}"><div class="page"></div></div>`).join('');
+        pager.innerHTML = order.map(v => reader.views[v].end ? endSlotHtml() : slotHtml(v)).join('');
         pager.querySelectorAll('[data-action]').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); endAction(btn.dataset.action); }));
         layoutPages();
+    }
+
+    // 두 장 칸은 읽는 순서대로 놓음: 일본식은 앞 장이 오른쪽, 나머지는 앞 장이 왼쪽
+    function slotHtml(v) {
+        const view = reader.views[v];
+        if (view.pair == null) return `<div class="slot" data-v="${v}"><div class="page" data-p="${view.page}"></div></div>`;
+        const shown = settings.dir === 'rtl' ? [view.pair, view.page] : [view.page, view.pair];
+        return `<div class="slot is-pair" data-v="${v}">${shown.map(p => `<div class="page" data-p="${p}"></div>`).join('')}</div>`;
     }
 
     function endSlotHtml() {
@@ -242,6 +302,7 @@
         const W = pager.clientWidth, H = pager.clientHeight;
         pager.querySelectorAll('.slot[data-v]').forEach(slot => {
             const view = reader.views[+slot.dataset.v];
+            if (view.pair != null) { layoutPair(slot, W, H); return; }
             const page = slot.firstElementChild;
             const size = reader.book.sizes[view.page];
             if (!size) { page.style.cssText = ''; return; }
@@ -255,13 +316,28 @@
         });
     }
 
+    // 두 장 칸: 높이를 같게 맞춰 두 장을 합친 너비가 화면에 들어가게 (크기를 모르면 반씩)
+    function layoutPair(slot, W, H) {
+        const pages = [...slot.children];
+        const sizes = pages.map(el => reader.book.sizes[+el.dataset.p]);
+        if (sizes.some(s => !s)) { pages.forEach(el => { el.style.cssText = ''; }); return; }
+        const ratios = sizes.map(s => s[0] / s[1]);
+        const h = Math.min(H, W / (ratios[0] + ratios[1]));
+        pages.forEach((el, k) => {
+            el.style.width = `${Math.floor(h * ratios[k])}px`;
+            el.style.height = `${Math.floor(h)}px`;
+            el.style.flex = '0 0 auto';
+            el.style.backgroundSize = '100% 100%';
+            el.style.backgroundPosition = 'center';
+        });
+    }
+
     function attachImages() {
         const lo = reader.current - KEEP_AROUND, hi = reader.current + KEEP_AROUND;
-        pager.querySelectorAll('.slot[data-v]').forEach(slot => {
-            const v = +slot.dataset.v;
-            const page = slot.firstElementChild;
+        pager.querySelectorAll('.slot[data-v] .page').forEach(page => {
+            const v = +page.parentElement.dataset.v;
             const want = v >= lo && v <= hi;
-            const n = reader.views[v].page;
+            const n = +page.dataset.p;
             if (want && page.dataset.n !== String(n)) {
                 page.dataset.n = String(n);
                 page.classList.add('is-loading');
@@ -280,7 +356,7 @@
         // 다음 장 몇 개를 미리 받아 브라우저에 둠 (넘길 때 바로 보이게)
         const view = reader.views[reader.current];
         if (view && !view.end) {
-            for (let n = view.page + 1; n <= Math.min(view.page + PRELOAD_AHEAD + KEEP_AROUND, reader.book.count - 1); n++) {
+            for (let n = Math.max(...viewPages(view)) + 1; n <= Math.min(view.page + PRELOAD_AHEAD + KEEP_AROUND, reader.book.count - 1); n++) {
                 if (reader.preloaded.has(n)) continue;
                 reader.preloaded.add(n);
                 const img = new Image();
@@ -319,15 +395,18 @@
         scrollToView(v, true);
     }
 
+    // 지금 보고 있는 마지막 페이지 (두 장 칸이면 뒤 장. 읽은 위치로 저장)
     function currentPage() {
         const view = reader.views[reader.current];
-        return view.end ? reader.book.count - 1 : view.page;
+        return view.end ? reader.book.count - 1 : Math.max(...viewPages(view));
     }
 
     function updateChrome() {
         const page = currentPage();
         const view = reader.views[reader.current];
-        $('reader-count').textContent = view.end ? '끝' : `${page + 1} / ${reader.book.count}`;
+        const pages = viewPages(view);
+        $('reader-count').textContent = view.end ? '끝'
+            : pages.length === 2 ? `${pages[0] + 1}-${pages[1] + 1} / ${reader.book.count}` : `${page + 1} / ${reader.book.count}`;
         const slider = $('reader-slider');
         slider.max = String(Math.max(0, reader.book.count - 1));
         if (document.activeElement !== slider) slider.value = String(page);
@@ -365,6 +444,21 @@
     function renderSettings() {
         $('set-dir').querySelectorAll('button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.v === settings.dir)));
         $('set-split').checked = settings.split;
+        const vertical = settings.dir === 'vertical';
+        $('set-layout').querySelectorAll('button').forEach(b => {
+            b.setAttribute('aria-checked', String(b.dataset.v === settings.layout));
+            b.disabled = vertical;
+        });
+        $('set-cover').checked = settings.cover;
+        const double = useDouble();
+        $('set-layout-hint').textContent = vertical ? '위아래로 넘길 때는 한 페이지씩 봅니다.'
+            : settings.layout === 'auto' ? `자동: 지금 화면에서는 ${double ? '두 페이지' : '한 페이지'} (넓은 가로 화면에서 두 페이지)` : '';
+        $('set-cover-row').hidden = !double;
+        // 반으로 나누기는 한 페이지로 볼 때만
+        $('set-split-row').hidden = double;
+        $('reader-layout-btn').hidden = vertical;
+        $('reader-layout-label').textContent = double ? '2쪽' : '1쪽';
+        $('reader-layout-btn').setAttribute('aria-label', double ? '한 페이지로 보기' : '두 페이지로 보기');
     }
 
     // 설정을 바꾸면 칸을 다시 만들고 같은 페이지로
@@ -372,7 +466,8 @@
         const page = currentPage();
         reader.views = buildViews(reader.book);
         renderSlots();
-        const v = Math.max(0, reader.views.findIndex(x => !x.end && x.page === page));
+        renderSettings();
+        const v = Math.max(0, findView(page));
         reader.current = -1;
         scrollToView(v, false);
         setCurrent(v);
@@ -413,7 +508,7 @@
         renderSlots();
         // 읽던 곳부터 (다 읽은 책은 처음부터)
         const saved = book.progress && book.progress.page < book.count - 1 ? book.progress.page : 0;
-        const v = Math.max(0, reader.views.findIndex(x => !x.end && x.page === saved));
+        const v = Math.max(0, findView(saved));
         reader.current = -1;
         reader.lastSaved = `${book.path}:${saved}`;
         scrollToView(v, false);
@@ -468,6 +563,23 @@
         renderSettings();
         rebuild();
     });
+    function setLayout(layout) {
+        settings.layout = layout;
+        saveSettings();
+        renderSettings();
+        rebuild();
+    }
+    $('set-layout').addEventListener('click', e => {
+        const btn = e.target.closest('button[data-v]');
+        if (btn && !btn.disabled && btn.dataset.v !== settings.layout) setLayout(btn.dataset.v);
+    });
+    // 위쪽 '1쪽/2쪽' 버튼: 지금 보이는 것과 반대로 고정
+    $('reader-layout-btn').addEventListener('click', () => setLayout(useDouble() ? 'single' : 'double'));
+    $('set-cover').addEventListener('change', e => {
+        settings.cover = e.target.checked;
+        saveSettings();
+        rebuild();
+    });
     $('set-split').addEventListener('change', e => {
         settings.split = e.target.checked;
         saveSettings();
@@ -476,7 +588,7 @@
     const slider = $('reader-slider');
     slider.addEventListener('input', () => { $('reader-count').textContent = `${+slider.value + 1} / ${reader.book.count}`; });
     slider.addEventListener('change', () => {
-        const v = reader.views.findIndex(x => !x.end && x.page === +slider.value);
+        const v = findView(+slider.value);
         if (v >= 0) { scrollToView(v, false); setCurrent(v); }
         slider.blur();
     });

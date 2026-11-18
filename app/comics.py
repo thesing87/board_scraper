@@ -82,7 +82,7 @@ def list_dir(rel):
                 continue
             try:
                 if entry.is_dir():
-                    dirs.append({'name': entry.name, 'path': _join(rel, entry.name)})
+                    dirs.append({'name': entry.name, 'path': _join(rel, entry.name), **_dir_counts(entry.path)})
                 elif entry.is_file():
                     if _is_archive(entry.name):
                         books.append({'name': os.path.splitext(entry.name)[0], 'path': _join(rel, entry.name),
@@ -275,21 +275,67 @@ def page_image(rel, index):
         return None
 
 
+def _dir_counts(full):
+    """목록의 폴더 칸에 보여 줄 개수: 안에 든 책(압축 파일)·하위 폴더·이미지 수 (못 읽으면 0)"""
+    books = dirs = images = 0
+    try:
+        with os.scandir(full) as it:
+            for entry in it:
+                if HIDDEN_RE.match(entry.name):
+                    continue
+                if entry.is_dir():
+                    dirs += 1
+                elif _is_archive(entry.name):
+                    books += 1
+                elif _is_image(entry.name):
+                    images += 1
+    except OSError:
+        pass
+    return {'books': books, 'dirs': dirs, 'images': images}
+
+
+# 폴더(시리즈)의 표지를 찾을 때 하위 폴더로 내려가는 최대 깊이
+COVER_SEARCH_DEPTH = 3
+
+def _cover_source(full, depth=COVER_SEARCH_DEPTH):
+    """폴더의 표지로 쓸 파일: 폴더 안 첫 이미지 → 첫 책(압축 파일) → 첫 하위 폴더 안에서 다시. 없으면 None"""
+    try:
+        with os.scandir(full) as it:
+            entries = sorted((e for e in it if not HIDDEN_RE.match(e.name)), key=lambda e: natural_key(e.name))
+    except OSError:
+        return None
+    for test in (lambda e: e.is_file() and _is_image(e.name), lambda e: e.is_file() and _is_archive(e.name)):
+        found = next((e.path for e in entries if test(e)), None)
+        if found:
+            return found
+    if depth > 0:
+        for e in entries:
+            if e.is_dir():
+                found = _cover_source(e.path, depth - 1)
+                if found:
+                    return found
+    return None
+
+
 def cover_image(rel):
-    """책 목록의 표지: 첫 이미지만 꺼냄 (페이지 크기를 읽지 않아 책이 많은 폴더도 가벼움). (바이트, 형식, 지문용 키) 또는 None"""
-    rel = (rel or '').replace('\\', '/').strip('/')
+    """목록의 표지: 첫 이미지만 꺼냄 (페이지 크기를 읽지 않아 책이 많은 폴더도 가벼움). 폴더(시리즈)는 안에 든 첫 이미지나 첫 책의 표지.
+    (바이트, 형식, 지문용 키) 또는 None"""
+    rel = (rel or '').replace(chr(92), '/').strip('/')
     full = _book_full(rel)
     if not full:
         return None
     try:
+        if os.path.isdir(full):
+            full = _cover_source(full)
+            if not full:
+                return None
         stat = os.stat(full)
         tag = f"c{stat.st_mtime_ns}-{stat.st_size}"
-        if os.path.isdir(full):
-            names = sorted((n for n in os.listdir(full) if _is_image(n) and not HIDDEN_RE.match(n)), key=natural_key)
-            if not names or os.path.getsize(os.path.join(full, names[0])) > MAX_PAGE_BYTES:
+        if _is_image(full):
+            if stat.st_size > MAX_PAGE_BYTES:
                 return None
-            with open(os.path.join(full, names[0]), 'rb') as f:
-                return f.read(), IMAGE_TYPES[os.path.splitext(names[0])[1].lower()], tag
+            with open(full, 'rb') as f:
+                return f.read(), IMAGE_TYPES[os.path.splitext(full)[1].lower()], tag
         with zipfile.ZipFile(full) as zf:
             infos = [i for i in zf.infolist() if not i.is_dir() and _is_image(i.filename)
                      and not any(HIDDEN_RE.match(p) for p in i.filename.split('/'))]

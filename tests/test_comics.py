@@ -144,3 +144,23 @@ assert code == 200 and data == png(4, 6) and headers['ETag'], code
 assert req(f'/api/comics/cover?p={q("낱장")}', raw=True)[1] == jpeg_head(30, 40)
 assert req(f'/api/comics/cover?p={q("../secret.txt")}', raw=True)[0] == 404
 print('COVER OK')
+
+# 폴더(시리즈) 칸: 안에 든 책·폴더·이미지 수, 표지는 안에 든 첫 이미지나 첫 책의 첫 장 (하위 폴더까지 찾아 내려감), 없으면 404
+nested = os.path.join(COMICS, '시리즈모음', '1부')
+os.makedirs(nested)
+with zipfile.ZipFile(os.path.join(nested, '1권.cbz'), 'w') as zf:
+    zf.writestr('a.png', png(3, 9))
+os.makedirs(os.path.join(COMICS, '빈폴더'))
+code, body, _ = req('/api/comics/list?p=')
+dirs = {d['name']: d for d in body['dirs']}
+assert (dirs['원피스']['books'], dirs['원피스']['dirs']) == (3, 0), dirs['원피스']
+assert (dirs['낱장']['images'], dirs['시리즈모음']['dirs'], dirs['빈폴더']['books']) == (2, 1, 0), dirs
+code, data, headers = req('/api/comics/cover?p=' + urllib.parse.quote('원피스'), raw=True)
+assert code == 200 and data == png(4, 6), code          # 1권의 첫 장 (p1.png)
+code, data, headers = req('/api/comics/cover?p=' + urllib.parse.quote('시리즈모음'), raw=True)
+assert code == 200 and data == png(3, 9), code          # 하위 폴더 안 첫 책
+code, data, _ = req('/api/comics/cover?p=' + urllib.parse.quote('낱장'), raw=True)
+assert code == 200 and data.startswith(b'\xff\xd8'), code   # 폴더 안 첫 이미지
+assert req('/api/comics/cover?p=' + urllib.parse.quote('빈폴더'), raw=True)[0] == 404
+assert req('/api/comics/cover?p=' + urllib.parse.quote('../'), raw=True)[0] == 404
+print('FOLDER COVER OK')

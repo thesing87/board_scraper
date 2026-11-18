@@ -52,6 +52,8 @@
         <div class="reader-top" id="reader-top">
             <button type="button" class="r-btn" id="reader-close" aria-label="목록으로"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg></button>
             <div class="reader-title" id="reader-title"></div>
+            <!-- 한 페이지 ↔ 두 페이지 바로 바꾸기 (위아래 넘김에서는 숨김) -->
+            <button type="button" class="r-btn r-layout" id="reader-layout-btn" aria-label="두 페이지로 보기" title="한 페이지 / 두 페이지"><span id="reader-layout-label">2쪽</span></button>
             <button type="button" class="r-btn" id="reader-settings-btn" aria-label="보기 설정" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg></button>
         </div>
         <div class="reader-settings" id="reader-settings" hidden>
@@ -63,7 +65,17 @@
                     <button type="button" data-v="vertical" role="radio">↓ 위아래</button>
                 </div>
             </div>
-            <label class="set-row set-check"><input type="checkbox" id="set-split"> 가로로 긴 양면 페이지를 반으로 나눠 보기</label>
+            <div class="set-row" id="set-layout-row">
+                <span class="set-label">한 번에 보기</span>
+                <div class="seg" id="set-layout" role="radiogroup" aria-label="한 번에 보기">
+                    <button type="button" data-v="auto" role="radio">자동</button>
+                    <button type="button" data-v="single" role="radio">한 페이지</button>
+                    <button type="button" data-v="double" role="radio">두 페이지</button>
+                </div>
+                <span class="set-hint" id="set-layout-hint"></span>
+            </div>
+            <label class="set-row set-check" id="set-cover-row"><input type="checkbox" id="set-cover"> 두 페이지 보기에서 첫 장(표지)은 따로 보기</label>
+            <label class="set-row set-check" id="set-split-row"><input type="checkbox" id="set-split"> 가로로 긴 양면 페이지를 반으로 나눠 보기</label>
         </div>
         <div class="reader-bottom" id="reader-bottom">
             <span class="reader-count" id="reader-count"></span>
