@@ -297,10 +297,19 @@ function renderBenefitMessage(text) {
     $('benefit-body').innerHTML = `<span class="empty">${text}</span>`;
 }
 
+// 카드 혜택은 관리자 기기에서만: 로그인 키가 없으면 카드를 통째로 숨김 (메뉴의 '카드'도 nav.js가 숨김)
+function setBenefitVisible(on) {
+    const card = $('card-benefit');
+    if (card.hidden === !on) return;
+    card.hidden = !on;
+    applyLayout();
+}
+
 async function loadBenefit() {
     let token = '';
     try { token = localStorage.getItem(ADMIN_TOKEN_KEY) || ''; } catch (e) { token = ''; }
-    if (!token) { renderBenefitMessage('열어서 로그인하면 이번 달 사용액이 표시됩니다'); return; }
+    setBenefitVisible(!!token);
+    if (!token) return;
     try {
         const res = await fetch('/api/card', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -309,7 +318,7 @@ async function loadBenefit() {
         if (res.status === 401) {
             // 틀린 키로 1분마다 다시 요청하면 잠길 수 있어 바로 지움
             try { localStorage.removeItem(ADMIN_TOKEN_KEY); } catch (e) { /* 지우지 못해도 표시만 바꿈 */ }
-            renderBenefitMessage('열어서 로그인하면 이번 달 사용액이 표시됩니다');
+            setBenefitVisible(false);
             return;
         }
         if (!res.ok) throw new Error(res.status);

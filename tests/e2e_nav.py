@@ -22,6 +22,7 @@ srv = web_server.ThreadedHTTPServer(('127.0.0.1', port), web_server.KeywordAPISe
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 
 PAGES = {'/': 'home', '/card/': 'card', '/apt/': 'apt', '/stats/': 'stats', '/ev/': 'ev', '/board/': 'board', '/games/': 'games', '/games/sudoku/': 'games', '/comics/': 'comics'}
+ADMIN_ONLY = ('card', 'comics')
 KEYS = ['home', 'board', 'popular', 'apt', 'card', 'ev', 'games', 'comics', 'stats']
 o = Options()
 for a in ['--headless=new', '--window-size=1280,900']:
@@ -35,7 +36,9 @@ try:
         shapes = set()
         for path, key in PAGES.items():
             d.get(BASE + path); time.sleep(1.2)
-            assert js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)") == KEYS, path
+            # 카드·만화는 관리자 기기에서만 (그 페이지에 있을 때는 보임)
+            expected = [k for k in KEYS if k not in ADMIN_ONLY or k == key]
+            assert js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)") == expected, path
             assert js("return document.querySelector('.site-nav [aria-current=page]').dataset.nav") == key, path
             assert js("return document.documentElement.scrollWidth <= innerWidth"), (path, width)
             compact = js("return document.querySelector('.site-nav').classList.contains('is-compact')")
@@ -43,12 +46,27 @@ try:
             tops = js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => Math.round(a.getBoundingClientRect().top))")
             assert len(set(tops)) == 1, (path, width, tops)
             # 버튼 크기·글자도 페이지마다 같아야 함
-            shapes.add(js("const a=document.querySelector('.site-nav [data-nav=card]'), r=a.getBoundingClientRect(), s=getComputedStyle(a);"
+            shapes.add(js("const a=document.querySelector('.site-nav [data-nav=ev]'), r=a.getBoundingClientRect(), s=getComputedStyle(a);"
                           " return [Math.round(r.height), s.fontSize, s.borderRadius, a.closest('.is-compact') ? 0 : Math.round(r.width)].join('|')"))
             names = js("return [...document.querySelectorAll('.site-nav-short')].filter(e => e.offsetWidth > 0).length")
-            assert names == (len(KEYS) if compact else 0), (path, names)
+            assert names == (len(expected) if compact else 0), (path, names)
         assert len(shapes) == 1, (width, shapes)
     print('PAGES OK')
+
+    # 관리자로 로그인한 기기: 카드·만화가 보이고, 휴대폰 아이콘 줄이 그만큼 나뉨
+    d.get(BASE + '/stats/'); time.sleep(.8)
+    js("localStorage.setItem('admin_token', 'x')")
+    d.get(BASE + '/'); time.sleep(1.2)
+    assert js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)") == KEYS
+    cols = js("return getComputedStyle(document.querySelector('.site-nav')).gridTemplateColumns.split(' ').length")
+    assert cols == len(KEYS), cols
+    assert js("return document.documentElement.scrollWidth <= innerWidth")
+    js("localStorage.removeItem('admin_token')")
+    d.get(BASE + '/'); time.sleep(1.2)
+    shown = js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)")
+    assert not set(ADMIN_ONLY) & set(shown), shown
+    assert js("return getComputedStyle(document.querySelector('.site-nav')).gridTemplateColumns.split(' ').length") == len(KEYS) - len(ADMIN_ONLY)
+    print('ADMIN ONLY OK')
 
     # 대시보드: 게시판 칸에 안 읽은 새 글 수 (위에서 게시판을 열어 읽은 글은 빠지므로 새 글을 하나 더 넣음)
     d.set_window_size(1280, 900)

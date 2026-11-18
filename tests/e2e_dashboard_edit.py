@@ -37,6 +37,9 @@ def no_overlap():
             assert separated, (IDS[a], IDS[b], rs)
 def el(sel): return d.find_element(By.CSS_SELECTOR, sel)
 try:
+    # 카드 혜택 카드는 관리자 기기에서만 보여서 로그인 키를 넣고 시작
+    d.get(BASE + '/'); time.sleep(.5)
+    js("localStorage.setItem('admin_token', arguments[0])", web_server.ADMIN_TOKEN)
     d.get(BASE + '/'); time.sleep(1.5)
     assert order() == IDS
     no_overlap()

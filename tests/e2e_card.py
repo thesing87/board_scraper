@@ -57,7 +57,8 @@ hidden = lambda i: js(f"return document.getElementById('{i}').hidden")
 try:
     # 로그인 전: 로그인 칸만, 대시보드 카드는 안내문
     d.get(BASE + '/'); time.sleep(1.5)
-    assert '로그인' in text('benefit-body')
+    # 관리자 기기가 아니면 대시보드의 카드 혜택 카드와 메뉴의 '카드'가 보이지 않음
+    assert hidden('card-benefit') and not js("return !!document.querySelector('.site-nav [data-nav=card]')")
     d.get(BASE + '/card/'); time.sleep(1)
     assert not hidden('login') and hidden('content')
     js("document.getElementById('login-password').value='틀림'; document.getElementById('login').requestSubmit()"); time.sleep(1)

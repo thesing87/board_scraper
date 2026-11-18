@@ -13,10 +13,10 @@
         { key: 'board', href: '/board/#home', label: '게시판', short: '게시판', color: '#185FA5', icon: '<circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path>' },
         { key: 'popular', href: '/board/#popular', label: '인기글', short: '인기글', color: '#C2410C', icon: '<path d="M12 3c.5 3 4 5.2 4 9.5a4 4 0 0 1-8 0c0-1.8.8-3 2-4 .2 1.7 1 2.6 2 2.8-.3-3 .2-5.6 0-8.3z"></path>' },
         { key: 'apt', href: '/apt/', label: '실거래가', short: '실거래', color: '#993556', icon: '<rect x="5" y="3" width="14" height="18" rx="1.5"></rect><path d="M9 7h1.5M13.5 7H15M9 11h1.5M13.5 11H15M9 15h1.5M13.5 15H15"></path>' },
-        { key: 'card', href: '/card/', label: '카드', short: '카드', color: '#534AB7', icon: '<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 10h18"></path>' },
+        { key: 'card', adminOnly: true, href: '/card/', label: '카드', short: '카드', color: '#534AB7', icon: '<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 10h18"></path>' },
         { key: 'ev', href: '/ev/', label: '유지비', short: '유지비', color: '#0F6E56', icon: '<path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"></path>' },
         { key: 'games', href: '/games/', label: '게임', short: '게임', color: '#B45309', icon: '<rect x="2.5" y="7" width="19" height="11" rx="5.5"></rect><path d="M7 11v3M5.5 12.5h3M15.5 11.5h.01M17.5 13.8h.01"></path>' },
-        { key: 'comics', href: '/comics/', label: '만화', short: '만화', color: '#BE185D', icon: '<path d="M3 5.5C5.5 4.5 8.5 4.5 12 6c3.5-1.5 6.5-1.5 9-.5v13c-2.5-1-5.5-1-9 .5-3.5-1.5-6.5-1.5-9-.5z"></path><path d="M12 6v13.5"></path>' },
+        { key: 'comics', adminOnly: true, href: '/comics/', label: '만화', short: '만화', color: '#BE185D', icon: '<path d="M3 5.5C5.5 4.5 8.5 4.5 12 6c3.5-1.5 6.5-1.5 9-.5v13c-2.5-1-5.5-1-9 .5-3.5-1.5-6.5-1.5-9-.5z"></path><path d="M12 6v13.5"></path>' },
         { key: 'stats', href: '/stats/', label: '통계', short: '통계', color: '#5F5E5A', icon: '<path d="M5 20v-8M12 20V5M19 20v-5"></path>' },
     ];
     const narrow = window.matchMedia('(max-width: 820px)');
@@ -31,7 +31,12 @@
 
     function render(nav) {
         const current = nav.dataset.current || '';
-        const items = ITEMS.map(item => itemHtml(item, current)).join('');
+        // 관리자 전용 메뉴(카드·만화)는 관리자로 로그인한 기기(로그인 키가 있는 기기)에서만. 그 페이지에 있을 때는 보임
+        let admin = false;
+        try { admin = !!localStorage.getItem('admin_token'); } catch (e) { admin = false; }
+        const shown = ITEMS.filter(item => !item.adminOnly || admin || item.key === current);
+        nav.style.setProperty('--nav-cols', shown.length);
+        const items = shown.map(item => itemHtml(item, current)).join('');
         nav.setAttribute('aria-label', '바로가기');
         nav.innerHTML = items;
         const compact = () => nav.classList.toggle('is-compact', narrow.matches);
