@@ -99,3 +99,33 @@ services:
       resources:
         limits:
           memory: 384M
+
+  # 동영상 변환 작업기 (app/video_worker.py): 브라우저가 못 여는 영상(AVI·WMV·DivX 등)을 MP4로 바꿔 output/video_conv에 저장.
+  # ffmpeg가 CPU를 다 쓰므로 CPU 몫을 가장 작게(cpu_shares 64) 잡아 수집기·웹서버가 바쁠 때는 양보하게 함. 인터넷은 쓰지 않음
+  fmkorea-convert:
+    build: .
+    image: fmkorea-scraper:local
+    container_name: fmkorea-convert
+    command: ["python", "-u", "app/video_worker.py"]
+    network_mode: none
+    env_file:
+      - .env
+    environment:
+      - OUTPUT_DIR=/output
+      - TZ=Asia/Seoul
+      - LOG_LEVEL=INFO
+      - PYTHONDONTWRITEBYTECODE=1
+      - DEBUG_LOG_NAME=convert-debug.log
+    cpu_shares: 64
+    init: true
+    group_add:
+      - "101"
+    restart: unless-stopped
+    volumes:
+      - /volume2/docker/fmkorea-scraper/output:/output
+      - .:/app:ro
+      - ${VIDEOS_HOST_DIR:-/volume1/video}:/videos:ro
+    deploy:
+      resources:
+        limits:
+          memory: 640M

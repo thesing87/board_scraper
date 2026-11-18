@@ -69,7 +69,9 @@ code, body, _ = req(f'/api/videos/list?p={q("드라마")}')
 assert [d['name'] for d in body['dirs']] == ['1부']
 vs = {v['name']: v for v in body['videos']}
 assert list(vs) == ['01화', '02화', '03화', '04화', '05화'], list(vs)
-assert [vs[n]['playable'] for n in vs] == [True, True, True, False, True]
+# 모두 재생 화면으로 열림 (AVI 등은 재생 화면에서 변환 안내). 변환 필요 여부: AVI는 확실, MP4는 열어 봐야 앎
+assert [vs[n]['playable'] for n in vs] == [True] * 5
+assert vs['04화']['convert'] is True and vs['01화']['convert'] in (None, False) and not vs['04화']['converted']
 assert vs['01화']['subtitle'] and vs['02화']['subtitle'] and not vs['03화']['subtitle']
 assert [d['name'] for d in req('/api/videos/list?p=')[1]['dirs']] == ['드라마', '짧은']
 # 폴더 칸에 모아 보여 줄 영상: 재생되는 형식 먼저 4개까지, 폴더에 영상이 없으면 하위 폴더에서
@@ -139,7 +141,10 @@ try:
     assert mosaics[0] == ['드라마', 'mosaic is-4', 4, '폴더'] and mosaics[1][:2] == ['짧은', 'mosaic'] and mosaics[1][3] == '영상 1개', mosaics
     d.get(BASE + '/videos/#d=' + q('드라마')); time.sleep(1.5)
     tiles = js("return [...document.querySelectorAll('#videos .tile')].map(t => [t.querySelector('.tile-name').textContent, t.classList.contains('is-unplayable'), t.getAttribute('href')])")
-    assert [t[0] for t in tiles] == ['01화', '02화', '03화', '04화', '05화'] and tiles[3][1] and 'download=1' in tiles[3][2], tiles
+    assert [t[0] for t in tiles] == ['01화', '02화', '03화', '04화', '05화'] and tiles[3][1] and tiles[3][2].startswith('#v='), tiles
+    assert '변환 필요' in js("return document.querySelectorAll('#videos .tile')[3].textContent")
+    # 폴더에 변환이 필요한 영상이 있으면 '밤에 모두 변환' 막대
+    assert not js("return document.getElementById('conv-bar').hidden") and '영상 1개' in js("return document.getElementById('conv-bar-text').textContent")
     assert '0:12 / 0:40' in js("return document.querySelector('#videos .tile').textContent")
     # 재생: 이어 보기 위치에서 시작, 자막 트랙
     js("document.querySelector('#videos .tile').click()"); time.sleep(3)
@@ -168,6 +173,13 @@ try:
     assert '02화' in js("return document.getElementById('next-btn').textContent")
     js("document.getElementById('next-btn').click()"); time.sleep(2.5)
     assert js("return document.getElementById('player-title').textContent") == '02화'
+    # 소리 크기·음소거는 모든 영상에 같고 저장됨 (다음 영상·새로 열어도 그대로)
+    js("const v = document.getElementById('video'); v.volume = 0.35; v.muted = true"); time.sleep(.5)
+    d.get(BASE + '/videos/#v=' + q('드라마/01화.mp4')); time.sleep(2.5)
+    assert js("const v = document.getElementById('video'); return [v.volume, v.muted]") == [0.35, True], js("return localStorage.getItem('videos_volume')")
+    js("document.getElementById('video').muted = false"); time.sleep(.3)
+    d.get(BASE + '/videos/#v=' + q('드라마/02화.mp4')); time.sleep(2.5)
+    assert js("const v = document.getElementById('video'); return [v.volume, v.muted]") == [0.35, False]
     assert js("return document.getElementById('video').error") is None
     # MKV (크롬에서 재생)
     d.get(BASE + '/videos/#v=' + q('드라마/03화.mkv')); time.sleep(3)
@@ -177,6 +189,20 @@ try:
     d.get(BASE + '/videos/#v=' + q('드라마/05화.mp4')); time.sleep(3)
     assert not js("return document.getElementById('player-msg').hidden"), js("return [document.getElementById('video').videoWidth, document.getElementById('video').error]")
     assert '내려받기' in js("return document.getElementById('player-msg').textContent")
+    # AVI(DivX): 재생 화면에서 변환 안내 → 밤에 변환 예약 → 지금 변환으로 바꿈 → 취소
+    d.get(BASE + '/videos/#v=' + q('드라마/04화.avi')); time.sleep(2.5)
+    msg = js("return document.getElementById('player-msg').textContent")
+    assert '변환해야 볼 수 있습니다' in msg and '지금 변환' in msg and '내려받기' in msg, msg
+    js("document.querySelector('[data-conv=night]').click()"); time.sleep(1.5)
+    assert '밤(1시~7시)에 변환할 예정' in js("return document.getElementById('player-msg').textContent")
+    assert req(f'/api/videos/status?p={q("드라마/04화.avi")}')[1]['job']['night'] is True
+    js("document.querySelector('[data-conv=start]').click()"); time.sleep(1.5)
+    assert '변환 대기 중' in js("return document.getElementById('player-msg').textContent")
+    job = req(f'/api/videos/status?p={q("드라마/04화.avi")}')[1]['job']
+    assert job['state'] == 'queued' and job['night'] is False, job
+    js("document.querySelector('[data-conv=cancel]').click()"); time.sleep(1.5)
+    assert req(f'/api/videos/status?p={q("드라마/04화.avi")}')[1]['job'] is None
+    assert '지금 변환' in js("return document.getElementById('player-msg').textContent")
     # 목록으로 (닫기)
     js("document.getElementById('player-close').click()"); time.sleep(1.2)
     assert js("return document.getElementById('player').hidden") and js("return location.hash").startswith('#d=')

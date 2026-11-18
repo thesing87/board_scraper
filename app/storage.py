@@ -235,6 +235,28 @@ def _create_schema(conn):
             updated_at TEXT NOT NULL
         );
 
+        -- 동영상 형식 조사 결과 (ffmpeg로 읽은 화면·소리 형식, 파일이 바뀌면 다시 읽음). info는 JSON
+        CREATE TABLE IF NOT EXISTS video_probe (
+            path       TEXT PRIMARY KEY,
+            size       INTEGER NOT NULL,
+            mtime      INTEGER NOT NULL,
+            info       TEXT NOT NULL
+        );
+
+        -- 브라우저용 MP4 변환 작업 (video_convert.py, fmkorea-convert 컨테이너가 처리)
+        -- kind: remux(화면은 그대로·포장과 소리만)·transcode(화면까지)·auto(돌릴 때 조사), state: queued·running·done·failed·cancel, night=1이면 밤 시간에만, progress 0~1
+        CREATE TABLE IF NOT EXISTS video_jobs (
+            path       TEXT PRIMARY KEY,
+            state      TEXT NOT NULL,
+            kind       TEXT NOT NULL DEFAULT 'auto',
+            night      INTEGER NOT NULL DEFAULT 0,
+            progress   REAL NOT NULL DEFAULT 0,
+            speed      REAL,
+            error      TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS comic_progress (
             path       TEXT PRIMARY KEY,
             page       INTEGER NOT NULL,

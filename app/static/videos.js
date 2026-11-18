@@ -18,8 +18,15 @@
     // 재생 시작 뒤 이만큼 지나 다음 영상 미리 고치기 (처음 받는 데이터와 디스크를 다투지 않게)
     const NEXT_PREPARE_DELAY_MS = 15000;
     const STATS_KEY = 'videos_stats_open';
+    // 소리 크기·음소거: 모든 영상에 같은 값을 쓰고 이 기기에 저장 (다음 영상·다시 열어도 그대로)
+    const VOLUME_KEY = 'videos_volume';
     // 건너뛴 프레임이 이 비율을 넘으면 기기 성능 부족으로 봄
     const DROP_BAD_RATIO = 0.05;
+    // 변환 진행 상황을 다시 묻는 간격
+    const CONVERT_POLL_MS = 2000;
+    // ffmpeg 화면 형식 이름 → 안내에 쓸 이름
+    const CODEC_NAMES = { mpeg4: 'MPEG-4 Part 2(DivX·Xvid)', msmpeg4v3: 'MS MPEG-4(DivX 3)', msmpeg4v2: 'MS MPEG-4', wmv3: 'WMV', wmv2: 'WMV',
+                          wmv1: 'WMV', vc1: 'VC-1(WMV)', mpeg1video: 'MPEG-1', mpeg2video: 'MPEG-2', flv1: 'FLV', indeo5: 'Indeo' };
 
     const $ = id => document.getElementById(id);
     const esc = v => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -31,6 +38,7 @@
         const h = Math.floor(sec / 3600), m = Math.floor(sec / 60) % 60, s = sec % 60;
         return (h ? `${h}:${String(m).padStart(2, '0')}` : `${m}`) + `:${String(s).padStart(2, '0')}`;
     };
+    const fmtMinutes = sec => sec >= 3600 ? `${Math.floor(sec / 3600)}시간 ${Math.round(sec / 60) % 60}분` : `${Math.max(1, Math.round(sec / 60))}분`;
     const fmtSize = bytes => bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)}GB` : `${Math.max(1, Math.round(bytes / 1e6))}MB`;
 
     // ==========================================
@@ -116,18 +124,45 @@
     function videoTile(v, sub) {
         const ratio = progressRatio(v.progress);
         const watched = v.progress && v.progress.duration - v.progress.position <= RESUME_END_MARGIN;
-        // 재생 못 하는 형식은 누르면 내려받기
-        const href = v.playable ? videoHref(v.path) : fileUrl(v.path, true);
-        return `<a class="tile${v.playable ? '' : ' is-unplayable'}" href="${href}" data-path="${esc(v.path)}"${v.playable ? '' : ' download'}>
+        const conv = convertLabel(v);
+        return `<a class="tile${conv ? ' is-unplayable' : ''}" href="${videoHref(v.path)}" data-path="${esc(v.path)}">
             <span class="thumb"><img src="${thumbUrl(v.path)}" alt="" loading="lazy" decoding="async">
                 <span class="tag tag-ext">${esc(v.ext)}</span>
                 ${v.subtitle ? '<span class="tag tag-sub">자막</span>' : ''}
-                ${v.playable ? '' : '<span class="tag tag-no">재생 불가 · 내려받기</span>'}
+                ${conv ? `<span class="tag tag-no">${esc(conv)}</span>` : ''}
                 ${v.progress && v.progress.duration ? `<span class="tag tag-time">${watched ? '다 봄' : `${fmtTime(v.progress.position)} / ${fmtTime(v.progress.duration)}`}</span>` : ''}
                 ${ratio ? `<span class="bar"><i style="width:${(ratio * 100).toFixed(1)}%"></i></span>` : ''}</span>
             <span class="tile-name">${esc(v.name)}</span>
             <span class="tile-sub">${esc(sub ?? fmtSize(v.size))}</span></a>`;
     }
+
+    // 변환이 필요한데 아직 안 된 영상의 칸 위 글자 (필요 없거나 다 됐으면 빈 글자)
+    function convertLabel(v) {
+        if (v.converted || !v.convert) return '';
+        const job = v.job;
+        if (job && job.state === 'running') return `변환 중 ${Math.floor((job.progress || 0) * 100)}%`;
+        if (job && job.state === 'queued') return job.night ? '밤에 변환 예정' : '변환 대기';
+        if (job && job.state === 'failed') return '변환 실패';
+        return '변환 필요';
+    }
+
+    function renderConvertBar(list) {
+        const waiting = list.filter(v => v.convert && !v.converted && !(v.job && ['queued', 'running'].includes(v.job.state)));
+        $('conv-bar').hidden = !waiting.length;
+        $('conv-bar-text').textContent = `이 폴더에 브라우저가 못 여는 영상 ${waiting.length}개`;
+    }
+
+    $('conv-folder').addEventListener('click', async () => {
+        $('conv-folder').disabled = true;
+        const { status, data } = await postJson('/api/videos/convert', { action: 'folder', path: currentDir });
+        $('conv-folder').disabled = false;
+        if (status === 200) {
+            $('conv-bar-text').textContent = `${data.queued}개를 밤(1시~7시)에 변환하도록 예약했습니다.`;
+            setTimeout(() => showLibrary(currentDir), 1500);
+        } else {
+            $('conv-bar-text').textContent = String(data.message || '예약하지 못했습니다.').replace(/^❌\s*/, '');
+        }
+    });
 
     // 폴더 칸: 처음에는 폴더 대표 한 장, 안의 영상 목록을 받으면(loadSamples) 여러 장을 작게 모아 보여 줌
     function folderTile(d) {
@@ -223,6 +258,7 @@
         $('folders').innerHTML = data.dirs.map(folderTile).join('');
         if (data.dirs.length) loadSamples(data.path);
         $('videos').innerHTML = data.videos.map(v => videoTile(v)).join('');
+        renderConvertBar(data.videos);
         $('empty').hidden = !!(data.dirs.length || data.videos.length);
         window.scrollTo(0, scrollMemory[path] || 0);
     }
@@ -231,6 +267,21 @@
     // 재생
     // ==========================================
     const video = $('video');
+
+    function applyVolume() {
+        let saved = null;
+        try { saved = JSON.parse(storageGet(VOLUME_KEY, 'null')); } catch (e) { saved = null; }
+        if (!saved || typeof saved.volume !== 'number') return;
+        video.volume = Math.min(1, Math.max(0, saved.volume));
+        video.muted = !!saved.muted;
+    }
+    applyVolume();
+    // 브라우저 기본 재생기의 소리 단추·막대로 바꾸면 저장
+    video.addEventListener('volumechange', () => {
+        storageSet(VOLUME_KEY, JSON.stringify({ volume: Math.round(video.volume * 100) / 100, muted: video.muted }));
+    });
+    // 다른 창(탭)에서 바꾸면 이 창에도 맞춤
+    window.addEventListener('storage', e => { if (e.key === VOLUME_KEY) applyVolume(); });
     const player = { path: null, timer: null, lastSaved: null, pendingSave: null, resumeAt: 0 };
 
     function saveProgress(keepalive) {
@@ -390,6 +441,97 @@
         }
         const saved = info && info.progress;
         player.resumeAt = saved && saved.position > RESUME_MIN && saved.duration - saved.position > RESUME_END_MARGIN ? saved.position : 0;
+        clearTimeout(player.convTimer);
+        video.removeAttribute('src');
+        video.load();
+        let st = null;
+        try { st = await api(`/api/videos/status?p=${enc(path)}`); } catch (e) { /* 모르면 그냥 재생해 봄 */ }
+        if (player.path !== path) return;
+        if (st && st.mode !== 'direct' && !st.converted) {
+            showConvert(path, st);
+            return;
+        }
+        startPlayback(path);
+    }
+
+    // ==========================================
+    // 변환 (브라우저가 못 여는 영상: video_convert.py)
+    // ==========================================
+    function convertButtons(buttons) {
+        return `<div class="conv-actions">${buttons.join('')}</div>`;
+    }
+
+    function showConvert(path, st) {
+        const info = st.info || {};
+        const job = st.job;
+        const codec = CODEC_NAMES[info.video] || info.video || '알 수 없음';
+        const length = info.duration ? ` · 길이 ${fmtTime(info.duration)}` : '';
+        const dl = `<a href="${fileUrl(path, true)}" download>내려받기</a>`;
+        let html;
+        if (job && job.state === 'running') {
+            const pct = Math.floor((job.progress || 0) * 100);
+            const left = job.speed && info.duration ? ` · 남은 시간 약 ${fmtMinutes(info.duration * (1 - (job.progress || 0)) / job.speed)}` : '';
+            const what = st.mode === 'remux' ? '브라우저에 맞게 포장을 바꾸는 중' : '브라우저용으로 변환하는 중';
+            html = `<b>${what}… ${pct}%</b><div class="conv-bar-track"><i style="width:${pct}%"></i></div>`
+                + `<small>${job.speed ? `실시간의 ${job.speed.toFixed(1)}배 속도${left}` : '속도 재는 중'}. 창을 닫아도 계속 변환합니다.</small>`
+                + convertButtons(['<button type="button" data-conv="cancel" class="is-sub">변환 취소</button>']);
+        } else if (job && job.state === 'queued') {
+            html = job.night
+                ? `<b>밤(1시~7시)에 변환할 예정입니다</b><small>지금 바로 변환할 수도 있습니다 (예상 약 ${fmtMinutes(st.estimate || 0)}).</small>`
+                    + convertButtons(['<button type="button" data-conv="start">지금 변환</button>', '<button type="button" data-conv="cancel" class="is-sub">예약 취소</button>'])
+                : '<b>변환 대기 중</b><small>앞의 변환이 끝나면 바로 시작합니다.</small>'
+                    + convertButtons(['<button type="button" data-conv="cancel" class="is-sub">취소</button>']);
+        } else if (job && job.state === 'failed') {
+            html = `<b>변환하지 못했습니다</b><small>${esc(job.error || '')}</small>`
+                + convertButtons(['<button type="button" data-conv="start">다시 시도</button>', dl]);
+        } else if (st.mode === 'remux') {
+            // 화면은 그대로 쓰고 포장·소리만 바꾸면 되는 영상: 금방 끝나므로 바로 시작
+            html = '<b>브라우저에 맞게 준비하는 중…</b><small>화면은 그대로 두고 포장·소리만 바꿉니다. 보통 1분 안에 끝납니다.</small>';
+            postJson('/api/videos/convert', { action: 'start', path }).then(({ status, data }) => {
+                if (player.path === path && status === 200) showConvert(path, data);
+            });
+        } else {
+            html = `<b>이 영상은 변환해야 볼 수 있습니다</b>`
+                + `<small>화면 형식 ${esc(codec)}${info.height ? ` · ${info.width}×${info.height}` : ''}${length}<br>`
+                + `브라우저가 이 형식을 풀지 못해 NAS에서 MP4로 바꿔 둡니다. 예상 약 ${fmtMinutes(st.estimate || 0)} (한 번만, 원본은 그대로).</small>`
+                + convertButtons(['<button type="button" data-conv="start">지금 변환</button>', '<button type="button" data-conv="night" class="is-sub">밤에 변환</button>', dl]);
+        }
+        showMessage(html);
+        $('player-msg').classList.add('is-convert');
+        clearTimeout(player.convTimer);
+        // 대기·진행 중이면 계속 물어보다가 다 되면 바로 재생
+        if (job && ['queued', 'running'].includes(job.state)) {
+            player.convTimer = setTimeout(() => pollConvert(path), CONVERT_POLL_MS);
+        }
+    }
+
+    async function pollConvert(path) {
+        if (player.path !== path) return;
+        let st = null;
+        try { st = await api(`/api/videos/status?p=${enc(path)}`); } catch (e) { /* 잠깐 끊김: 다시 */ }
+        if (player.path !== path) return;
+        if (!st) { player.convTimer = setTimeout(() => pollConvert(path), CONVERT_POLL_MS * 2); return; }
+        if (st.converted || st.mode === 'direct') {
+            $('player-msg').hidden = true;
+            startPlayback(path);
+            return;
+        }
+        showConvert(path, st);
+    }
+
+    $('player-msg').addEventListener('click', async e => {
+        const btn = e.target.closest('[data-conv]');
+        if (!btn || !player.path) return;
+        const path = player.path;
+        btn.disabled = true;
+        const { status, data } = await postJson('/api/videos/convert', { action: btn.dataset.conv, path });
+        if (player.path !== path) return;
+        if (status === 200) showConvert(path, data);
+        else { btn.disabled = false; showMessage(esc(String(data.message || '처리하지 못했습니다.').replace(/^❌\s*/, ''))); }
+    });
+
+    function startPlayback(path) {
+        $('player-msg').classList.remove('is-convert');
         video.src = fileUrl(path);
         video.load();
         // 처음 여는 영상 중 일부는 서버가 표시 순서를 고쳐 보내느라(video_fix.py) 길면 수십 초 걸림
@@ -458,6 +600,8 @@
         video.innerHTML = '';
         video.load();
         player.path = null;
+        clearTimeout(player.convTimer);
+        $('player-msg').classList.remove('is-convert');
         clearInterval(stats.timer);
         $('player').hidden = true;
         document.body.classList.remove('is-playing');

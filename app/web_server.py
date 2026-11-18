@@ -70,6 +70,7 @@ import apt_store
 import comics
 import videos
 import video_fix
+import video_convert
 import apt_trades
 from card_store import (
     card_benefits,
@@ -614,6 +615,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/comics/progress': ('_handle_comics_progress', '만화 읽은 위치 저장'),
         '/api/videos/session': ('_handle_videos_session', '동영상 로그인 처리'),
         '/api/videos/progress': ('_handle_videos_progress', '동영상 이어 보기 저장'),
+        '/api/videos/convert': ('_handle_videos_convert', '동영상 변환 처리'),
     }
 
     def do_POST(self):
@@ -876,7 +878,17 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 return
             if not listing['path']:
                 listing['recent'] = videos.recent()
+                for item in listing['recent']:
+                    item['playable'] = True
+            video_convert.annotate(listing)
             self._send_data(200, {'configured': True, **listing})
+        elif pure_path == '/api/videos/status':
+            # 재생 화면이 열 때: 그대로 재생되는지, 변환이 필요한지, 변환 진행 상황
+            found = video_convert.status(path.replace('\\', '/').strip('/'))
+            if found is None:
+                self._send_data(404, {'found': False})
+            else:
+                self._send_data(200, found)
         elif pure_path == '/api/videos/samples':
             samples = videos.folder_samples(path)
             if samples is None:
@@ -905,7 +917,12 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             download = query.get('download', [''])[0] == '1'
-            # 표시 순서표(ctts)가 빠진 MP4는 고친 moov를 끼워 보냄 (내려받기는 원본 그대로)
+            # 브라우저용으로 변환해 둔 것이 있으면 그것을 보냄 (내려받기는 원본 그대로)
+            converted = None if download else video_convert.converted_file(full)
+            if converted:
+                self._stream_file(converted, 'video/mp4', layout=video_fix.layout(converted))
+                return
+            # 표시 순서표(ctts)가 빠진 MP4는 고친 moov를 끼워 보냄
             fixed = None if download else video_fix.layout(full)
             self._stream_file(full, videos.content_type(full), download=download, layout=fixed)
         elif pure_path == '/api/videos/prepare':
@@ -971,6 +988,40 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             # 건너뛰기·창 닫기로 브라우저가 받던 요청을 끊은 것 (정상)
             pass
+
+    def _handle_videos_convert(self):
+        """변환 넣기·취소·폴더 예약. {action: 'start'|'night'|'cancel'|'folder', path}"""
+        if not self._videos_authorized():
+            self._send_json(401, False, '❌ 로그인이 필요합니다.')
+            return
+        action, path = self._body.get('action'), self._body.get('path')
+        if action not in ('start', 'night', 'cancel', 'folder') or not isinstance(path, str):
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        path = path.replace('\\', '/').strip('/')
+        if not videos.configured():
+            self._send_json(404, False, '❌ 동영상 폴더가 없습니다.')
+            return
+        if action == 'folder':
+            count = video_convert.enqueue_folder(path)
+            if count is None:
+                self._send_json(404, False, '❌ 폴더를 찾을 수 없습니다.')
+                return
+            self._send_data(200, {'success': True, 'queued': count})
+            return
+        if not videos.video_file(path):
+            self._send_json(404, False, '❌ 영상을 찾을 수 없습니다.')
+            return
+        if action == 'cancel':
+            video_convert.cancel(path)
+            self._send_data(200, {'success': True, **video_convert.status(path)})
+            return
+        found = video_convert.status(path)
+        if found['mode'] == 'direct' or found['converted']:
+            self._send_json(400, False, '❌ 변환할 필요가 없는 영상입니다.')
+            return
+        video_convert.enqueue(path, found['mode'], night=action == 'night' and found['mode'] != 'remux')
+        self._send_data(200, {'success': True, **video_convert.status(path)})
 
     def _handle_videos_progress(self):
         if not self._videos_authorized():
