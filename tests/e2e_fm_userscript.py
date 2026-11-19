@@ -35,6 +35,9 @@ with urllib.request.urlopen(BASE + '/fm-keywords.user.js') as r:
     script = r.read().decode('utf-8')
     assert r.headers['Content-Type'].startswith('text/javascript')
 assert f"const SITE = '{BASE}';" in script and '// @connect      127.0.0.1' in script and '__SITE' not in script
+# www 없이 여는 주소(fmkorea.com/car)에서도 실행, 업데이트는 같은 설치 주소에서
+assert '// @match        https://fmkorea.com/*' in script and '// @match        https://*.fmkorea.com/*' in script
+assert f'// @updateURL    {BASE}/fm-keywords.user.js' in script and f'// @downloadURL  {BASE}/fm-keywords.user.js' in script
 req = urllib.request.Request(BASE + '/fm-keywords.user.js', headers={'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'example.synology.me'})
 assert "const SITE = 'https://example.synology.me';" in urllib.request.urlopen(req).read().decode('utf-8')
 data = json.load(urllib.request.urlopen(BASE + '/api/fm-links'))

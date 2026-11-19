@@ -1,10 +1,12 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.0.0
+// @version      1.0.1
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
-// @match        https://www.fmkorea.com/*
-// @match        https://m.fmkorea.com/*
+// @match        https://fmkorea.com/*
+// @match        https://*.fmkorea.com/*
+// @updateURL    __SITE__/fm-keywords.user.js
+// @downloadURL  __SITE__/fm-keywords.user.js
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
