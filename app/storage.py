@@ -164,6 +164,16 @@ def _create_schema(conn):
             last_opened  TEXT,          -- 마지막으로 링크를 누른 시각 (FM키워드 화면의 '3일 전' 표시, 기기와 상관없이 하나)
             PRIMARY KEY (group_id, board, keyword)
         );
+        -- 에펨코리아 바로가기의 새 글 기준 (에펨코리아 화면에 붙는 FM키워드 줄이 보고 있는 검색 결과에서 읽은 글 번호만 저장, 기기끼리 공유).
+        -- seen_max보다 번호가 큰 글이 새 글이고, 그중 read_ids(JSON 배열)에 있는 글은 읽은 글. '모두 읽음'을 누르면 seen_max가 그 화면의 가장 큰 번호로
+        CREATE TABLE IF NOT EXISTS fm_seen (
+            board       TEXT NOT NULL,
+            keyword     TEXT NOT NULL,
+            seen_max    INTEGER NOT NULL,
+            read_ids    TEXT NOT NULL DEFAULT '[]',
+            updated_at  TEXT NOT NULL,
+            PRIMARY KEY (board, keyword)
+        );
         -- 키워드별 무시할 표현: 이 표현을 지운 뒤에도 키워드가 남아 있는 글만 모음 (예: '싼하'에 '투싼하')
         CREATE TABLE IF NOT EXISTS keyword_ignores (
             board    TEXT NOT NULL,
@@ -912,14 +922,60 @@ def list_groups(id_limit=500):
 
 MAX_FM_LINKS_PER_GROUP = 30
 
+MAX_FM_READ_IDS = 500
+
+def _fm_seen_state(conn):
+    """{(board, keyword): (seen_max, [읽은 글 번호])}"""
+    return {(r['board'], r['keyword']): (r['seen_max'], json.loads(r['read_ids'] or '[]'))
+            for r in conn.execute("SELECT board, keyword, seen_max, read_ids FROM fm_seen")}
+
+def fm_seen_init(board, keyword, seen_max):
+    """처음 여는 키워드의 새 글 기준을 정함 (이미 있으면 그대로). (seen_max, 읽은 글 번호들) 반환"""
+    with _db() as conn, conn:
+        conn.execute("INSERT OR IGNORE INTO fm_seen(board, keyword, seen_max, read_ids, updated_at) VALUES(?, ?, ?, '[]', ?)",
+                     (board, keyword, int(seen_max), _now()))
+        row = conn.execute("SELECT seen_max, read_ids FROM fm_seen WHERE board = ? AND keyword = ?", (board, keyword)).fetchone()
+        return row['seen_max'], json.loads(row['read_ids'])
+
+def fm_seen_read(post_no):
+    """글 하나를 읽음으로: 그 글이 새 글인 모든 키워드에 (같은 글이 여러 키워드에 걸려도 함께). 바뀐 키워드 수"""
+    post_no = int(post_no)
+    changed = 0
+    with _db() as conn, conn:
+        for r in conn.execute("SELECT board, keyword, read_ids FROM fm_seen WHERE seen_max < ?", (post_no,)).fetchall():
+            ids = json.loads(r['read_ids'] or '[]')
+            if post_no in ids:
+                continue
+            ids = sorted(ids + [post_no])[-MAX_FM_READ_IDS:]
+            conn.execute("UPDATE fm_seen SET read_ids = ?, updated_at = ? WHERE board = ? AND keyword = ?",
+                         (json.dumps(ids), _now(), r['board'], r['keyword']))
+            changed += 1
+    return changed
+
+def fm_seen_read_all(board, keyword, seen_max):
+    """'모두 읽음': 기준을 그 화면의 가장 큰 글 번호로 (뒤로는 가지 않음), 기준 이하의 읽은 글 기록은 정리. 새 seen_max 반환"""
+    with _db() as conn, conn:
+        row = conn.execute("SELECT seen_max, read_ids FROM fm_seen WHERE board = ? AND keyword = ?", (board, keyword)).fetchone()
+        new_max = max(int(seen_max), row['seen_max'] if row else 0)
+        ids = [i for i in json.loads(row['read_ids']) if i > new_max] if row else []
+        conn.execute("INSERT INTO fm_seen(board, keyword, seen_max, read_ids, updated_at) VALUES(?, ?, ?, ?, ?) "
+                     "ON CONFLICT(board, keyword) DO UPDATE SET seen_max = excluded.seen_max, read_ids = excluded.read_ids, updated_at = excluded.updated_at",
+                     (board, keyword, new_max, json.dumps(ids), _now()))
+        return new_max
+
 def fm_links_by_group():
     """에펨코리아 화면에 붙는 FM키워드 줄(fm-keywords.user.js)용: 링크가 있는 게시판만 사이드바 순서대로
     [{id, name, links: [{board, board_name, keyword, last_opened}]}] (board_name은 카테고리 이름, ''이면 '전체')"""
     with _db() as conn:
         names = {r['key']: r['name'] or r['key'] for r in conn.execute("SELECT key, name FROM categories")}
+        seen = _fm_seen_state(conn)
         out = []
         for g in conn.execute("SELECT id, name FROM keyword_groups ORDER BY position, id").fetchall():
-            links = [{**l, 'board_name': names.get(l['board'], l['board']) if l['board'] else '전체'} for l in _group_fm_links(conn, g['id'])]
+            links = []
+            for l in _group_fm_links(conn, g['id']):
+                seen_max, read_ids = seen.get((l['board'], l['keyword']), (None, []))
+                links.append({**l, 'board_name': names.get(l['board'], l['board']) if l['board'] else '전체',
+                              'seen_max': seen_max, 'read_ids': read_ids})
             if links:
                 out.append({'id': g['id'], 'name': g['name'], 'links': links})
         return out

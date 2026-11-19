@@ -35,6 +35,9 @@ from storage import (
     init_db,
     add_fm_link,
     fm_links_by_group,
+    fm_seen_init,
+    fm_seen_read,
+    fm_seen_read_all,
     remove_fm_link,
     touch_fm_link,
     keyword_pairs,
@@ -820,6 +823,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         """에펨코리아 바로가기: 누른 시각 기록(open, 누구나) · 추가(add)·빼기(remove, 관리자).
         {action, group_id, board, keyword[, password]}. 서버는 에펨코리아에 요청하지 않음"""
         action = self._body.get('action')
+        if action in ('seen_init', 'read', 'read_all'):
+            self._handle_fm_seen(action)
+            return
         if action not in ('open', 'add', 'remove'):
             self._send_json(400, False, '❌ 지원하지 않는 작업입니다.')
             return
@@ -849,6 +855,31 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 return
         log_msg(f"[API] 에펨코리아 바로가기 {'추가' if action == 'add' else '빼기'}: 게시판 #{group_id} {board or '전체'}/{keyword}")
         self._send_data(200, {'success': True, 'links': links})
+
+    def _handle_fm_seen(self, action):
+        """새 글 기준 (FM키워드 줄, 누구나): seen_init {board, keyword, max} 처음 기준 · read {post} 글 하나 읽음 ·
+        read_all {board, keyword, max} 모두 읽음. 글 번호는 에펨코리아 글 번호 (보고 있는 화면에서 읽은 값)"""
+        params = self._body
+        def number(value):
+            return value if type(value) is int and 0 < value < 10 ** 13 else None
+        if action == 'read':
+            post = number(params.get('post'))
+            if post is None:
+                self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                return
+            self._send_data(200, {'success': True, 'changed': fm_seen_read(post)})
+            return
+        board, keyword, top = params.get('board'), params.get('keyword'), number(params.get('max'))
+        if (not isinstance(board, str) or not isinstance(keyword, str) or top is None
+                or (board and not FM_MID_RE.fullmatch(board)) or not keyword.strip() or len(keyword) > MAX_KEYWORD_LENGTH):
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        keyword = keyword.strip()
+        if action == 'seen_init':
+            seen_max, read_ids = fm_seen_init(board, keyword, top)
+            self._send_data(200, {'success': True, 'seen_max': seen_max, 'read_ids': read_ids})
+        else:
+            self._send_data(200, {'success': True, 'seen_max': fm_seen_read_all(board, keyword, top), 'read_ids': []})
 
     def _handle_folder(self):
         """묶음 만들기·이름 바꾸기·삭제·순서 (관리자 암호 필요)"""

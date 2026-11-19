@@ -52,7 +52,7 @@ const realMatch = window.matchMedia.bind(window);
 window.matchMedia = q => q.includes('pointer') ? { matches: false } : realMatch(q);
 window.GM_getValue = (k, d) => { const v = localStorage.getItem('gm_' + k); return v === null ? d : JSON.parse(v); };
 window.GM_setValue = (k, v) => localStorage.setItem('gm_' + k, JSON.stringify(v));
-window.GM_xmlhttpRequest = o => fetch(o.url, { method: o.method, headers: o.headers, body: o.data })
+window.GM_xmlhttpRequest = o => fetch(o.url, { method: o.method, headers: o.headers, body: o.data, keepalive: true })
     .then(r => r.text().then(t => o.onload({ status: r.status, responseText: t }))).catch(e => o.onerror(e));
 """
 def page(d, query, tall=False):
@@ -102,7 +102,10 @@ try:
     assert [b[1] for b in boxes()] == [False, True]
     # 누르면 연 시각을 남기고 같은 탭에서 그 검색으로 이동 (에펨코리아 요청은 막아 둬서 주소만 확인)
     d.execute_script("arguments[0].click()", bar(d, 'a.chip'))
-    time.sleep(1.5)
+    for _ in range(20):
+        if 'is_keyword=gpt' in d.current_url:
+            break
+        time.sleep(0.25)
     assert 'is_keyword=gpt' in d.current_url, d.current_url
     assert [l for g in storage.list_groups() if g['id'] == ai for l in g['fm_links']][0]['last_opened']
     # 접기·펴기 (기억)
@@ -191,18 +194,49 @@ try:
     assert '오늘 1/3' in d.execute_script("return arguments[0].textContent", bar(d, '.prog'))
     nxt = d.execute_script("return arguments[0].textContent", bar(d, '[data-next]'))
     assert nxt.startswith('다음 ▶') and nxt.endswith('gpt'), nxt                                 # 안 본 것 먼저 (모델y는 봤던 적 있음)
+    N = 9000000000
+    seen = lambda: (lambda r: (r[0], json.loads(r[1])) if r else None)(
+        storage._db().__enter__().execute("SELECT seen_max, read_ids FROM fm_seen WHERE board = 'car' AND keyword = '테슬라'").fetchone())
+    assert seen() == (N + 105, []), seen()                                                     # 처음 연 화면이 기준 (서버에 저장)
+    new_rows = lambda: d.execute_script("return [...document.querySelectorAll('tr.kmfm-new a')].map(a => a.textContent)")
     visit(TESLA, [108, 107, 105, 104])
-    marked = d.execute_script("return [...document.querySelectorAll('tr.kmfm-new a')].map(a => a.textContent)")
-    assert marked == ['NEW글 108', 'NEW글 107'], marked
+    assert new_rows() == ['NEW글 108', 'NEW글 107'], new_rows()
     assert d.execute_script("return document.querySelector('tr.kmfm-new + tr.kmfm-line') !== null")
-    assert '이후 새 글 2개' in d.execute_script("return document.querySelector('.kmfm-note').textContent")
+    assert '안 읽은 새 글 2개' in d.execute_script("return document.querySelector('.kmfm-note').textContent")
     assert d.execute_script("return arguments[0].textContent", bar(d, 'a.chip.on .newb')) == '새 2'
-    # 2페이지는 기억을 바꾸지 않음
-    visit(TESLA + '&page=2', [99, 98])
+    # 글을 누르면 그 글만 읽음 (누르기 전까지는 계속 새 글). 이동할 주소는 로컬로 바꿔 둠
+    d.execute_script("const a = [...document.querySelectorAll('tr.kmfm-new a')][1]; a.href = '/api/fm-links?post=1'; a.setAttribute('href', '/' + (9000000107)); a.click()")
+    for _ in range(20):
+        if seen()[1] == [N + 107]:
+            break
+        time.sleep(0.25)
+    assert seen()[1] == [N + 107], seen()
     visit(TESLA, [108, 107, 105])
-    assert not d.execute_script("return document.querySelectorAll('.kmfm-new').length")
+    assert new_rows() == ['NEW글 108'], new_rows()
+    visit(TESLA, [108, 107, 105])                                                               # 다시 열어도 그대로 (안 누른 글)
+    assert new_rows() == ['NEW글 108'], new_rows()
+    # 다른 기기(기억이 없는 브라우저)에서도 같음
+    d.execute_script("localStorage.clear()")
+    visit(TESLA, [108, 107, 105])
+    assert new_rows() == ['NEW글 108'], new_rows()
+    # 모두 읽음: 기준이 이 화면의 가장 큰 번호로
+    d.execute_script("document.querySelector('[data-kmfm-readall]').click()"); time.sleep(1)
+    assert new_rows() == [] and not bar(d, 'a.chip.on .newb') and seen() == (N + 108, []), seen()
+    visit(TESLA, [109, 108, 107])
+    assert new_rows() == ['NEW글 109']
+    # 글 화면을 다른 경로로 열어도 읽음
+    d.get(BASE + '/stats/?x=1'); time.sleep(0.5)
+    d.execute_script("history.replaceState(null, '', '/' + arguments[0])", N + 109)
+    d.execute_script(SHIM + script); time.sleep(1)
+    assert seen()[1] == [N + 109], seen()
+    visit(TESLA, [109, 108, 107])
+    assert new_rows() == []
     # 다음 ▶ 과 ] 단축키: 오늘 안 본 것 중 가장 오래 안 본 것으로 이동 (시험에서는 이동 대신 주소만 확인)
-    d.execute_script("arguments[0].click()", bar(d, '[data-next]')); time.sleep(1.5)
+    d.execute_script("arguments[0].click()", bar(d, '[data-next]'))
+    for _ in range(20):
+        if 'is_keyword=gpt' in d.current_url:
+            break
+        time.sleep(0.25)
     assert 'is_keyword=gpt' in d.current_url, d.current_url
     with storage._db() as conn:
         opened = conn.execute("SELECT last_opened FROM fm_links WHERE keyword = 'gpt'").fetchone()[0]

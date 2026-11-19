@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.1.0
+// @version      1.2.0
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -330,9 +330,10 @@
         }, { passive: true });
     }
 
-    // ---------- 지난번 이후 새 글 표시 ----------
-    // 지금 보는 검색 결과(이미 브라우저에 떠 있는 화면)에서 글 번호만 읽어, 지난번 이 키워드 결과에서 본 가장 큰 글 번호보다 큰 글을 새 글로.
-    // 키워드 모니터 서버는 에펨코리아에 요청하지 않음. 첫 페이지를 볼 때만 기억을 새로 씀
+    // ---------- 새 글 표시 (기기끼리 공유) ----------
+    // 지금 보는 검색 결과(이미 브라우저에 떠 있는 화면)에서 글 번호만 읽음. 키워드마다 기준 글 번호(seen_max)보다 큰 글이 새 글이고,
+    // 그 글을 직접 열기 전까지 계속 새 글(NEW). '모두 읽음'을 누르면 기준이 그 화면의 가장 큰 번호로.
+    // 기준과 읽은 글 번호는 키워드 모니터 서버에 두어 PC·휴대폰이 같게 봄 (서버는 에펨코리아에 요청하지 않음)
     const postNumber = href => {
         const m = /document_srl=(\d+)/.exec(href || '') || /^\/(\d{5,})(?:[?#]|$)/.exec((href || '').replace(/^https?:\/\/[^/]+/, ''));
         return m ? Number(m[1]) : 0;
@@ -353,45 +354,110 @@
         return rows.map(row => ({ row, title: titleOf(row) })).filter(x => x.title)
             .map(x => ({ ...x, no: postNumber(x.title.getAttribute('href')) })).filter(x => x.no);
     }
+    function saveCache() {
+        cachedJson = JSON.stringify(groups);
+        GM_setValue(KEY_CACHE, cachedJson);
+    }
+    let styled = false;
+    function addStyle() {
+        if (styled) return;
+        styled = true;
+        const style = document.createElement('style');
+        style.textContent = `.kmfm-new { background: #E6F1FB !important; box-shadow: inset 3px 0 0 #185FA5; }
+            .kmfm-tag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; background: #185FA5; color: #fff; font-size: 11px; font-weight: 700; line-height: 17px; vertical-align: 1px; }
+            .kmfm-line td, li.kmfm-line { padding: 4px !important; text-align: center; color: #185FA5; font-size: 12px; border-bottom: 1px dashed #85B7EB; list-style: none; }
+            .kmfm-note { display: flex; align-items: center; gap: 10px; margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: #E6F1FB; color: #0C447C; font-size: 13px; }
+            .kmfm-note button { margin-left: auto; border: 1px solid #185FA5; background: #fff; color: #185FA5; border-radius: 6px; padding: 3px 10px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }`;
+        (document.head || document.documentElement).appendChild(style);
+    }
+    function clearMarks() {
+        document.querySelectorAll('.kmfm-new').forEach(row => row.classList.remove('kmfm-new'));
+        document.querySelectorAll('.kmfm-tag, .kmfm-line, .kmfm-note').forEach(el => el.remove());
+    }
     function markNewPosts() {
+        clearMarks();
+        newCount = 0;
         const cur = allLinks().find(x => isCurrent(x.l));
-        if (!cur) return;
-        const rows = resultRows();
-        if (!rows.length) return;
-        const key = `fm_seen:${cur.l.board}|${cur.l.keyword}`;
-        const before = GM_getValue(key, null);
-        const page = Number(params.get('page') || 1);
-        const fresh = before ? rows.filter(x => x.no > before.max) : [];
-        if (fresh.length) {
-            const style = document.createElement('style');
-            style.textContent = `.kmfm-new { background: #E6F1FB !important; box-shadow: inset 3px 0 0 #185FA5; }
-                .kmfm-tag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; background: #185FA5; color: #fff; font-size: 11px; font-weight: 700; line-height: 17px; vertical-align: 1px; }
-                .kmfm-line td, li.kmfm-line { padding: 4px !important; text-align: center; color: #185FA5; font-size: 12px; border-bottom: 1px dashed #85B7EB; list-style: none; }
-                .kmfm-note { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: #E6F1FB; color: #0C447C; font-size: 13px; }`;
-            document.head.appendChild(style);
-            fresh.forEach(x => {
+        const rows = cur ? resultRows() : [];
+        if (!rows.length) { render(); return; }
+        const link = cur.l;
+        if (link.seen_max == null) {
+            // 처음 여는 키워드: 지금 화면의 가장 최근 글을 기준으로 (예전 버전이 이 브라우저에 기억한 기준이 있으면 그것을 이어 씀)
+            const old = GM_getValue(`fm_seen:${link.board}|${link.keyword}`, null);
+            link.seen_max = old && old.max ? old.max : Math.max(...rows.map(x => x.no));
+            link.read_ids = [];
+            saveCache();
+            request('POST', '/api/fm-link', { action: 'seen_init', board: link.board, keyword: link.keyword, max: link.seen_max }).then(data => {
+                // 다른 기기가 먼저 정한 기준이 있으면 그것을 따름
+                if (data.seen_max !== link.seen_max) { link.seen_max = data.seen_max; link.read_ids = data.read_ids; saveCache(); markNewPosts(); }
+            }, () => {});
+        }
+        const read = new Set(link.read_ids || []);
+        const since = rows.filter(x => x.no > link.seen_max);
+        const unread = since.filter(x => !read.has(x.no));
+        if (since.length) {
+            addStyle();
+            unread.forEach(x => {
                 x.row.classList.add('kmfm-new');
                 const tag = document.createElement('span');
                 tag.className = 'kmfm-tag';
                 tag.textContent = 'NEW';
                 x.title.prepend(tag);
             });
-            const last = fresh[fresh.length - 1].row;
-            const line = document.createElement(last.tagName === 'TR' ? 'tr' : 'li');
-            line.className = 'kmfm-line';
-            line.innerHTML = last.tagName === 'TR' ? '<td colspan="20">여기까지 새 글 · 아래는 지난번에 본 글</td>' : '여기까지 새 글 · 아래는 지난번에 본 글';
-            if (fresh.length < rows.length) last.after(line);
+            const last = since[since.length - 1].row;
+            if (since.length < rows.length) {
+                const line = document.createElement(last.tagName === 'TR' ? 'tr' : 'li');
+                line.className = 'kmfm-line';
+                const text = '여기까지 마지막으로 모두 읽은 뒤 올라온 글';
+                line.innerHTML = last.tagName === 'TR' ? `<td colspan="20">${text}</td>` : text;
+                last.after(line);
+            }
             const note = document.createElement('div');
             note.className = 'kmfm-note';
-            note.textContent = `지난번(${agoText(before.at)}) 이후 새 글 ${fresh.length}개${fresh.length === rows.length ? ' · 이 페이지가 모두 새 글' : ''}`;
+            note.innerHTML = unread.length
+                ? `<span>안 읽은 새 글 ${unread.length}개</span><button type="button" data-kmfm-readall>모두 읽음</button>`
+                : '<span>새 글을 모두 읽었습니다</span><button type="button" data-kmfm-readall>모두 읽음</button>';
             const list = rows[0].row.closest('table, ul, ol') || rows[0].row;
             list.parentNode.insertBefore(note, list);
-            newCount = fresh.length;
-            render();
+            note.querySelector('[data-kmfm-readall]').addEventListener('click', () => readAll(link, Math.max(...rows.map(x => x.no))));
         }
-        if (page === 1) GM_setValue(key, { max: Math.max(before ? before.max : 0, ...rows.map(x => x.no)), at: nowText() });
+        newCount = unread.length;
+        render();
     }
-    // 화면이 다 그려지고 키워드 목록이 있을 때 한 번만 (처음 설치해 목록이 없으면 서버에서 받은 뒤)
+    // '모두 읽음': 기준을 이 화면의 가장 큰 글 번호로
+    function readAll(link, top) {
+        link.seen_max = Math.max(link.seen_max || 0, top);
+        link.read_ids = (link.read_ids || []).filter(no => no > link.seen_max);
+        saveCache();
+        request('POST', '/api/fm-link', { action: 'read_all', board: link.board, keyword: link.keyword, max: top }).catch(() => {});
+        markNewPosts();
+    }
+    // 글 하나를 읽음으로: 그 글이 새 글인 모든 키워드에서 (같은 글이 여러 키워드에 걸려도 함께)
+    function markRead(no) {
+        let changed = false;
+        allLinks().forEach(({ l }) => {
+            if (l.seen_max == null || no <= l.seen_max || (l.read_ids || []).includes(no)) return;
+            l.read_ids = [...(l.read_ids || []), no];
+            changed = true;
+        });
+        if (changed) saveCache();
+        request('POST', '/api/fm-link', { action: 'read', post: no }).catch(() => {});
+    }
+    // 검색 결과에서 글을 누르면(가운데 버튼·새 탭 포함) 읽음
+    ['click', 'auxclick'].forEach(type => document.addEventListener(type, e => {
+        const a = e.target.closest && e.target.closest('a[href]');
+        if (!a || a.closest('#keyword-monitor-fm-bar')) return;
+        const no = postNumber(a.getAttribute('href'));
+        if (!no || !a.closest('.kmfm-new')) return;
+        markRead(no);
+        const row = a.closest('.kmfm-new');
+        if (row) { row.classList.remove('kmfm-new'); const tag = row.querySelector('.kmfm-tag'); if (tag) tag.remove(); }
+    }, true));
+    // 다른 경로로 글을 열어도 읽음 (글 화면 주소의 번호)
+    const pagePost = !currentKeyword ? postNumber(location.pathname + location.search) : 0;
+    if (pagePost) markRead(pagePost);
+
+    // 화면이 다 그려지고 키워드 목록이 있을 때 (처음 설치해 목록이 없으면 서버에서 받은 뒤). 새 목록을 받으면 다시 (다른 기기에서 읽은 글 반영)
     let marked = false;
     function tryMark() {
         if (marked || !groups.length || document.readyState === 'loading') return;
@@ -411,6 +477,6 @@
         GM_setValue(KEY_CACHE, json);
         groups = fresh;
         if (!groups.length) render('등록한 키워드가 없습니다');
-        else { render(); tryMark(); }
+        else { render(); if (marked) markNewPosts(); else tryMark(); }
     }, () => { if (!groups.length) render('키워드 모니터에 연결하지 못했습니다'); });
 })();
