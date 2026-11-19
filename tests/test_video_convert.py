@@ -81,6 +81,28 @@ assert vc.enqueue_folder('f') == 0 and vc.enqueue_folder('none') is None
 for p in ('f/a.avi', 'f/b.mp4', 'f/c.mp4'):
     vc.cancel(p)
 
+# ---- 밤 자동 변환: 폴더 전체(하위 폴더 포함, 숨긴 폴더 제외)를 훑어 변환이 필요한 것만 밤 변환으로
+os.makedirs(os.path.join(VIDEOS, 'f', 'sub'))
+os.makedirs(os.path.join(VIDEOS, '@eaDir'))
+shutil.copy(os.path.join(FIX, 'mpeg4.mp4'), os.path.join(VIDEOS, 'f', 'sub', 'd.mp4'))
+shutil.copy(os.path.join(FIX, 'mpeg4.mp4'), os.path.join(VIDEOS, '@eaDir', 'x.mp4'))
+# 형식 조사는 ffmpeg 없이도 되게 바꿔 끼움 (a·b는 그대로 되는 파일, mpeg4는 화면 변환)
+real_probe = vc.probe
+vc.probe = lambda rel, full=None: {'mode': 'transcode' if rel.endswith(('c.mp4', 'd.mp4')) else 'direct'}
+assert [r for r, _ in vc._walk_videos()] == ['f/a.avi', 'f/b.mp4', 'f/c.mp4', 'f/sub/d.mp4']
+vc.enqueue('f/a.avi', 'transcode')
+vc._set('f/a.avi', state='failed', error='x')                 # 전에 실패한 것은 다시 넣지 않음
+assert vc.scan_library() == (4, 2)
+assert vc.job('f/b.mp4') is None                               # 그대로 재생되는 MP4는 넣지 않음
+assert all(vc.job(p)['night'] and vc.job(p)['kind'] == 'transcode' for p in ('f/c.mp4', 'f/sub/d.mp4'))
+assert vc.scan_library() == (4, 0)                             # 이미 대기 중
+assert vc.scan_library(lambda: False) == (0, 0)                # 밤이 끝나면 멈춤
+for p in ('f/a.avi', 'f/c.mp4', 'f/sub/d.mp4'):
+    vc.cancel(p)
+shutil.rmtree(os.path.join(VIDEOS, 'f', 'sub'))
+shutil.rmtree(os.path.join(VIDEOS, '@eaDir'))
+vc.probe = real_probe
+
 if not FFMPEG:
     print('test_video_convert: OK (ffmpeg 없음: 실제 변환은 건너뜀)')
     sys.exit(0)

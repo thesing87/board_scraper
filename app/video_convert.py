@@ -243,6 +243,47 @@ def enqueue_folder(rel):
     return count
 
 
+def _walk_videos():
+    """동영상 폴더 전체(하위 폴더 포함, 숨긴 폴더 제외)의 영상 (상대 경로, 실제 경로)"""
+    root = videos.resolve('')
+    if not root or not os.path.isdir(root):
+        return
+    for top, dirs, files in os.walk(root):
+        dirs[:] = sorted((d for d in dirs if not videos.HIDDEN_RE.match(d)), key=videos.natural_key)
+        rel_top = os.path.relpath(top, root).replace(os.sep, '/')
+        for name in sorted(files, key=videos.natural_key):
+            if videos.HIDDEN_RE.match(name) or not videos.is_video(name):
+                continue
+            yield (name if rel_top == '.' else f'{rel_top}/{name}'), os.path.join(top, name)
+
+
+def scan_library(keep_going=None):
+    """밤 자동 변환: 동영상 폴더 전체에서 변환이 필요한 영상을 찾아 밤 변환으로 넣음.
+    형식을 모르는 영상은 조사(DB에 기억하므로 다음 밤에는 바로 넘어감). 이미 변환했거나 대기·진행 중,
+    전에 실패한 영상은 넣지 않음 (실패는 재생 화면에서 직접 다시 시도). keep_going()이 False가 되면 멈춤.
+    (훑은 영상 수, 넣은 수)"""
+    keep_going = keep_going or (lambda: True)
+    seen = added = 0
+    for rel, full in _walk_videos():
+        if not keep_going():
+            break
+        seen += 1
+        current = job(rel)
+        if current and current['state'] in ('queued', 'running', 'failed', 'cancel'):
+            continue
+        try:
+            if converted_file(full):
+                continue
+            info = probe(rel, full)
+        except OSError:
+            continue
+        if not info or info['mode'] == 'direct':
+            continue
+        enqueue(rel, info['mode'], night=True)
+        added += 1
+    return seen, added
+
+
 def status(rel):
     """재생 화면용: 형식·변환 필요 여부·작업 상태·어림 시간"""
     full = videos.video_file(rel)
