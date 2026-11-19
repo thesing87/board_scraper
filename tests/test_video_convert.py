@@ -81,7 +81,7 @@ assert vc.enqueue_folder('f') == 0 and vc.enqueue_folder('none') is None
 for p in ('f/a.avi', 'f/b.mp4', 'f/c.mp4'):
     vc.cancel(p)
 
-# ---- 밤 자동 변환: 폴더 전체(하위 폴더 포함, 숨긴 폴더 제외)를 훑어 변환이 필요한 것만 밤 변환으로
+# ---- 자동 변환: 폴더 전체(하위 폴더 포함, 숨긴 폴더 제외)를 훑어 변환이 필요한 것만 자동 변환으로 (아무 때나, 직접 넣은 작업 뒤에)
 os.makedirs(os.path.join(VIDEOS, 'f', 'sub'))
 os.makedirs(os.path.join(VIDEOS, '@eaDir'))
 shutil.copy(os.path.join(FIX, 'mpeg4.mp4'), os.path.join(VIDEOS, 'f', 'sub', 'd.mp4'))
@@ -94,9 +94,23 @@ vc.enqueue('f/a.avi', 'transcode')
 vc._set('f/a.avi', state='failed', error='x')                 # 전에 실패한 것은 다시 넣지 않음
 assert vc.scan_library() == (4, 2)
 assert vc.job('f/b.mp4') is None                               # 그대로 재생되는 MP4는 넣지 않음
-assert all(vc.job(p)['night'] and vc.job(p)['kind'] == 'transcode' for p in ('f/c.mp4', 'f/sub/d.mp4'))
+assert all(vc.job(p)['auto'] and not vc.job(p)['night'] and vc.job(p)['kind'] == 'transcode' for p in ('f/c.mp4', 'f/sub/d.mp4'))
+assert vc.next_job('slow', day) == ('f/c.mp4', 'transcode')    # 낮에도 돎
+vc.enqueue('f/x.avi', 'transcode', night=True)
+vc.enqueue('f/y.avi', 'transcode')
+assert vc.next_job('slow', day) == ('f/y.avi', 'transcode')    # 지금 변환이 먼저
+assert vc.next_job('slow', night) == ('f/y.avi', 'transcode')
+vc.cancel('f/y.avi')
+assert vc.next_job('slow', night) == ('f/x.avi', 'transcode')  # 밤에는 밤 예약이 자동보다 먼저
+vc.cancel('f/x.avi')
 assert vc.scan_library() == (4, 0)                             # 이미 대기 중
-assert vc.scan_library(lambda: False) == (0, 0)                # 밤이 끝나면 멈춤
+assert vc.scan_library(lambda: False) == (0, 0)
+vc.cancel('f/c.mp4')                                           # 자동 변환 취소: 다음 훑기에서 다시 넣지 않음
+assert vc.job('f/c.mp4')['state'] == 'skipped' and vc.scan_library() == (4, 0)
+vc.enqueue('f/c.mp4', 'transcode')                             # 직접 누르면 됨
+assert vc.job('f/c.mp4')['state'] == 'queued' and not vc.job('f/c.mp4')['auto']
+vc.enqueue('f/sub/d.mp4', 'transcode')                         # 자동 → 지금 변환
+assert not vc.job('f/sub/d.mp4')['auto']
 for p in ('f/a.avi', 'f/c.mp4', 'f/sub/d.mp4'):
     vc.cancel(p)
 shutil.rmtree(os.path.join(VIDEOS, 'f', 'sub'))

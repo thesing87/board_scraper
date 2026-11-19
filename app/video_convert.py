@@ -43,6 +43,8 @@ CRF = 23
 AUDIO_BITRATE = '160k'
 # 밤 변환 시간 (시, 이 시각 이상 ~ 미만). 시작한 작업은 끝날 때까지 계속
 NIGHT_START, NIGHT_END = 1, 7
+# video_jobs.night 값: 밤 예약, 자동 변환 (0은 지금 변환). 작업은 이 값 순서(지금 → 밤 → 자동), 그다음 넣은 순서로 꺼냄
+NIGHT, AUTO = 1, 2
 PROBE_TIMEOUT = 30
 # 미리 어림하는 변환 속도 (실시간의 몇 배). 실제로 돌면 잰 속도로 바뀜
 SPEED_GUESS = ((576, 4.0), (720, 1.6), (99999, 1.0))
@@ -160,7 +162,8 @@ def converted_file(full):
 def _job_dict(row):
     if not row:
         return None
-    return {'state': row['state'], 'kind': row['kind'], 'night': bool(row['night']), 'progress': row['progress'],
+    # night: 0 지금 변환, 1 밤 예약(1~7시에만), 2 자동 변환(아무 때나, 직접 넣은 작업 뒤에)
+    return {'state': row['state'], 'kind': row['kind'], 'night': row['night'] == NIGHT, 'auto': row['night'] == AUTO, 'progress': row['progress'],
             'speed': row['speed'], 'error': row['error'], 'updated_at': row['updated_at']}
 
 
@@ -180,25 +183,28 @@ def jobs_for(paths):
     return out
 
 
-def enqueue(rel, kind='auto', night=False):
-    """변환 작업을 넣음. 이미 대기·진행 중이면 그대로(밤 예약이 '지금 변환'으로 바뀌는 것만 반영)"""
+def enqueue(rel, kind='auto', night=False, auto=False):
+    """변환 작업을 넣음. 이미 대기·진행 중이면 그대로(밤 예약·자동 변환이 '지금 변환'으로 바뀌는 것만 반영)"""
     now = _now()
+    value = NIGHT if night else AUTO if auto else 0
     with _db() as conn, conn:
         row = conn.execute("SELECT state, night FROM video_jobs WHERE path = ?", (rel,)).fetchone()
         if row and row['state'] in ('queued', 'running'):
-            if row['night'] and not night:
+            if row['night'] and value == 0:
                 conn.execute("UPDATE video_jobs SET night = 0, kind = ?, updated_at = ? WHERE path = ?", (kind, now, rel))
             return
         conn.execute("INSERT INTO video_jobs(path, state, kind, night, progress, speed, error, created_at, updated_at) "
                      "VALUES(?, 'queued', ?, ?, 0, NULL, NULL, ?, ?) ON CONFLICT(path) DO UPDATE SET state = 'queued', "
                      "kind = excluded.kind, night = excluded.night, progress = 0, speed = NULL, error = NULL, "
                      "created_at = excluded.created_at, updated_at = excluded.updated_at",
-                     (rel, kind, 1 if night else 0, now, now))
+                     (rel, kind, value, now, now))
 
 
 def cancel(rel):
-    """대기 중이면 지우고, 도는 중이면 멈추라고 표시 (작업기가 보고 멈춤)"""
+    """대기 중이면 지우고, 도는 중이면 멈추라고 표시 (작업기가 보고 멈춤).
+    자동 변환으로 들어온 것은 지우지 않고 'skipped'로 남겨 다음 훑기에서 다시 넣지 않음"""
     with _db() as conn, conn:
+        conn.execute("UPDATE video_jobs SET state = 'skipped', updated_at = ? WHERE path = ? AND state = 'queued' AND night = ?", (_now(), rel, AUTO))
         conn.execute("DELETE FROM video_jobs WHERE path = ? AND state IN ('queued', 'failed')", (rel,))
         conn.execute("UPDATE video_jobs SET state = 'cancel', updated_at = ? WHERE path = ? AND state = 'running'", (_now(), rel))
 
@@ -258,9 +264,9 @@ def _walk_videos():
 
 
 def scan_library(keep_going=None):
-    """밤 자동 변환: 동영상 폴더 전체에서 변환이 필요한 영상을 찾아 밤 변환으로 넣음.
-    형식을 모르는 영상은 조사(DB에 기억하므로 다음 밤에는 바로 넘어감). 이미 변환했거나 대기·진행 중,
-    전에 실패한 영상은 넣지 않음 (실패는 재생 화면에서 직접 다시 시도). keep_going()이 False가 되면 멈춤.
+    """자동 변환: 동영상 폴더 전체에서 변환이 필요한 영상을 찾아 자동 변환으로 넣음 (아무 때나, 직접 넣은 작업 뒤에).
+    형식을 모르는 영상은 조사(DB에 기억하므로 다음 훑기에서는 바로 넘어감). 이미 변환했거나 대기·진행 중,
+    전에 실패했거나 자동 변환을 취소한 영상은 넣지 않음 (재생 화면에서 직접 하면 됨). keep_going()이 False가 되면 멈춤.
     (훑은 영상 수, 넣은 수)"""
     keep_going = keep_going or (lambda: True)
     seen = added = 0
@@ -269,7 +275,7 @@ def scan_library(keep_going=None):
             break
         seen += 1
         current = job(rel)
-        if current and current['state'] in ('queued', 'running', 'failed', 'cancel'):
+        if current and current['state'] in ('queued', 'running', 'failed', 'cancel', 'skipped'):
             continue
         try:
             if converted_file(full):
@@ -279,7 +285,7 @@ def scan_library(keep_going=None):
             continue
         if not info or info['mode'] == 'direct':
             continue
-        enqueue(rel, info['mode'], night=True)
+        enqueue(rel, info['mode'], auto=True)
         added += 1
     return seen, added
 
@@ -337,7 +343,7 @@ def next_job(lane, now=None):
     with _db() as conn:
         rows = conn.execute("SELECT * FROM video_jobs WHERE state = 'queued' ORDER BY night, created_at").fetchall()
     for r in rows:
-        if r['night'] and not night_ok:
+        if r['night'] == NIGHT and not night_ok:
             continue
         if (lane == 'fast') != (r['kind'] == 'remux'):
             continue
