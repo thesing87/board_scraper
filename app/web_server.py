@@ -32,6 +32,9 @@ from sites import is_post_id, board_site, site_enabled, SITE_NAMES, DC_BOARD_PRE
 from images import image_file, IMAGE_URL_PREFIX
 from storage import (
     init_db,
+    add_fm_link,
+    remove_fm_link,
+    touch_fm_link,
     keyword_pairs,
     set_group_alert,
     set_group_popular,
@@ -600,6 +603,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/group': ('_handle_group', '게시판 처리'),
         '/api/folder': ('_handle_folder', '묶음 처리'),
         '/api/category': ('_handle_category', '카테고리 처리'),
+        '/api/fm-link': ('_handle_fm_link', '에펨코리아 바로가기 처리'),
         '/api/site': ('_handle_site', '사이트 이름 처리'),
         '/api/login': ('_handle_login', '로그인 처리'),
         '/api/card': ('_handle_card', '카드 혜택 처리'),
@@ -771,6 +775,56 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             return ''
         names = category_names()
         return f" / 수집 중단 키워드: {', '.join(f'{names.get(b, b)}/{k}' for b, k in dropped)}"
+
+    def _fm_link_params(self):
+        """바로가기 요청의 (게시판 ID, 에펨코리아 게시판 mid, 키워드). 잘못되면 응답하고 None"""
+        params = self._body
+        group_id, board, keyword = params.get('group_id'), params.get('board'), params.get('keyword')
+        if type(group_id) is not int or not isinstance(board, str) or not isinstance(keyword, str):
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return None
+        board, keyword = board.strip().lower(), keyword.strip()
+        if board and not FM_MID_RE.fullmatch(board):
+            self._send_json(400, False, '❌ 에펨코리아 게시판 이름(주소의 영문, 예: football_world)을 확인해 주세요.')
+            return None
+        if not keyword or len(keyword) > MAX_KEYWORD_LENGTH or any(ch in keyword for ch in '\r\n\t'):
+            self._send_json(400, False, f'❌ 키워드는 줄바꿈 없이 {MAX_KEYWORD_LENGTH}자 이하로 입력해 주세요.')
+            return None
+        return group_id, board, keyword
+
+    def _handle_fm_link(self):
+        """에펨코리아 바로가기: 누른 시각 기록(open, 누구나) · 추가(add)·빼기(remove, 관리자).
+        {action, group_id, board, keyword[, password]}. 서버는 에펨코리아에 요청하지 않음"""
+        action = self._body.get('action')
+        if action not in ('open', 'add', 'remove'):
+            self._send_json(400, False, '❌ 지원하지 않는 작업입니다.')
+            return
+        if action != 'open' and not self._authorize(self._body.get('password', ''), '에펨코리아 바로가기'):
+            return
+        found = self._fm_link_params()
+        if not found:
+            return
+        group_id, board, keyword = found
+        if action == 'open':
+            at = touch_fm_link(group_id, board, keyword)
+            if at is None:
+                self._send_json(404, False, '❌ 없는 바로가기입니다.')
+                return
+            self._send_data(200, {'success': True, 'last_opened': at})
+            return
+        if action == 'add':
+            try:
+                links = add_fm_link(group_id, board, keyword)
+            except ValueError as ve:
+                self._send_json(400, False, f'❌ {ve}')
+                return
+        else:
+            links = remove_fm_link(group_id, board, keyword)
+            if links is None:
+                self._send_json(404, False, '❌ 없는 바로가기입니다.')
+                return
+        log_msg(f"[API] 에펨코리아 바로가기 {'추가' if action == 'add' else '빼기'}: 게시판 #{group_id} {board or '전체'}/{keyword}")
+        self._send_data(200, {'success': True, 'links': links})
 
     def _handle_folder(self):
         """묶음 만들기·이름 바꾸기·삭제·순서 (관리자 암호 필요)"""

@@ -158,9 +158,10 @@ def _create_schema(conn):
         -- 에펨코리아 바로가기: 수집하지 않고 게시판 제목 아래·대시보드에 에펨코리아 검색 링크만 보여 줌
         -- (에펨코리아는 이용약관상 자동 수집을 하지 말아 달라는 운영자 답변). board는 게시판 mid, ''이면 사이트 전체 검색. rowid 순서가 표시 순서
         CREATE TABLE IF NOT EXISTS fm_links (
-            group_id  INTEGER NOT NULL REFERENCES keyword_groups(id) ON DELETE CASCADE,
-            board     TEXT NOT NULL,
-            keyword   TEXT NOT NULL,
+            group_id     INTEGER NOT NULL REFERENCES keyword_groups(id) ON DELETE CASCADE,
+            board        TEXT NOT NULL,
+            keyword      TEXT NOT NULL,
+            last_opened  TEXT,          -- 마지막으로 링크를 누른 시각 (FM키워드 화면의 '3일 전' 표시, 기기와 상관없이 하나)
             PRIMARY KEY (group_id, board, keyword)
         );
         -- 키워드별 무시할 표현: 이 표현을 지운 뒤에도 키워드가 남아 있는 글만 모음 (예: '싼하'에 '투싼하')
@@ -399,6 +400,9 @@ def _migrate_legacy_files(conn):
 
 def _add_missing_columns(conn):
     """이미 만들어진 DB에 나중에 추가된 컬럼을 보충"""
+    if 'last_opened' not in {row['name'] for row in conn.execute("PRAGMA table_info(fm_links)")}:
+        conn.execute("ALTER TABLE fm_links ADD COLUMN last_opened TEXT")
+        log_msg("[DB] fm_links.last_opened 컬럼 추가")
     columns = {row['name'] for row in conn.execute("PRAGMA table_info(posts)")}
     if 'list_comment_count' not in columns:
         # 목록 페이지에 표시된 댓글 수. 이 값이 바뀐 글만 상세 페이지를 다시 열어 댓글을 갱신함
@@ -896,8 +900,8 @@ def list_groups(id_limit=500):
                 JOIN keywords k ON k.board = m.board AND k.keyword = m.keyword
                 WHERE m.group_id = ? ORDER BY k.rowid
             """, (g['id'],)).fetchall()]
-            fm_links = [dict(board=r['board'], keyword=r['keyword']) for r in conn.execute(
-                "SELECT board, keyword FROM fm_links WHERE group_id = ? ORDER BY rowid", (g['id'],)).fetchall()]
+            fm_links = [dict(board=r['board'], keyword=r['keyword'], last_opened=r['last_opened']) for r in conn.execute(
+                "SELECT board, keyword, last_opened FROM fm_links WHERE group_id = ? ORDER BY rowid", (g['id'],)).fetchall()]
             # 게시판은 한 사이트의 키워드만 담음 (save_group에서 검사). 사이드바에서 사이트별로 묶어 보여줌
             groups.append({'id': g['id'], 'name': g['name'], 'site': g['site'], 'members': members, 'fm_links': fm_links,
                            'alert': bool(g['alert']), 'video_alert': bool(g['video_alert']), 'digest': bool(g['digest']),
@@ -905,6 +909,41 @@ def list_groups(id_limit=500):
                            'folder_id': g['folder_id'], 'position': g['position'],
                            **_feed_summary(conn, id_limit, g['id'])})
     return groups
+
+MAX_FM_LINKS_PER_GROUP = 30
+
+def _group_fm_links(conn, group_id):
+    return [dict(board=r['board'], keyword=r['keyword'], last_opened=r['last_opened']) for r in conn.execute(
+        "SELECT board, keyword, last_opened FROM fm_links WHERE group_id = ? ORDER BY rowid", (group_id,)).fetchall()]
+
+def add_fm_link(group_id, board, keyword):
+    """게시판에 에펨코리아 바로가기 하나 추가 (FM키워드 화면의 편집). 그 게시판의 바로가기 목록 반환.
+    없는 게시판·이미 있는 링크·개수 초과는 ValueError"""
+    with _db() as conn, conn:
+        if not conn.execute("SELECT 1 FROM keyword_groups WHERE id = ?", (group_id,)).fetchone():
+            raise ValueError('존재하지 않는 게시판입니다.')
+        if conn.execute("SELECT 1 FROM fm_links WHERE group_id = ? AND board = ? AND keyword = ?", (group_id, board, keyword)).fetchone():
+            raise ValueError('이미 등록한 바로가기입니다.')
+        if conn.execute("SELECT COUNT(*) FROM fm_links WHERE group_id = ?", (group_id,)).fetchone()[0] >= MAX_FM_LINKS_PER_GROUP:
+            raise ValueError(f'바로가기는 게시판마다 {MAX_FM_LINKS_PER_GROUP}개까지 등록할 수 있습니다.')
+        conn.execute("INSERT INTO fm_links(group_id, board, keyword) VALUES(?, ?, ?)", (group_id, board, keyword))
+        return _group_fm_links(conn, group_id)
+
+def remove_fm_link(group_id, board, keyword):
+    """바로가기 하나 빼기. 그 게시판의 바로가기 목록 반환, 없는 링크면 None"""
+    with _db() as conn, conn:
+        if conn.execute("DELETE FROM fm_links WHERE group_id = ? AND board = ? AND keyword = ?", (group_id, board, keyword)).rowcount == 0:
+            return None
+        return _group_fm_links(conn, group_id)
+
+def touch_fm_link(group_id, board, keyword):
+    """바로가기를 누른 시각 기록 (FM키워드 화면의 '방금 전'). 기록한 시각, 없는 링크면 None"""
+    now = _now()
+    with _db() as conn, conn:
+        if conn.execute("UPDATE fm_links SET last_opened = ? WHERE group_id = ? AND board = ? AND keyword = ?",
+                        (now, group_id, board, keyword)).rowcount == 0:
+            return None
+    return now
 
 def _site_label(labels, site):
     return '여러 사이트' if site == MULTI_SITE else labels[site]['name']
@@ -944,6 +983,10 @@ def save_group(group_id, name, members, merge_ids=(), folder_id=None, fm_links=N
         """, (site, name, group_id or -1, *merge_ids)).fetchone()
         if clash:
             raise ValueError(f"{_site_label(labels, site)}에 같은 이름의 게시판이 이미 있습니다.")
+        # 바로가기를 다시 넣어도 마지막으로 연 시각은 이어 감 (합친 게시판의 것도)
+        opened = {(r['board'], r['keyword']): r['last_opened'] for r in conn.execute(
+            f"SELECT board, keyword, last_opened FROM fm_links WHERE group_id IN ({','.join('?' * (len(merge_ids) + 1))})",
+            (group_id or -1, *merge_ids)).fetchall()}
         merged_links = [(r['board'], r['keyword']) for merge_id in merge_ids for r in conn.execute(
             "SELECT board, keyword FROM fm_links WHERE group_id = ? ORDER BY rowid", (merge_id,)).fetchall()]
         for merge_id in merge_ids:
@@ -966,8 +1009,8 @@ def save_group(group_id, name, members, merge_ids=(), folder_id=None, fm_links=N
             links = [(l['board'], l['keyword']) for l in fm_links]
         else:
             links = merged_links
-        conn.executemany("INSERT OR IGNORE INTO fm_links(group_id, board, keyword) VALUES(?, ?, ?)",
-                         [(group_id, b, k) for b, k in dict.fromkeys(links)])
+        conn.executemany("INSERT OR IGNORE INTO fm_links(group_id, board, keyword, last_opened) VALUES(?, ?, ?, ?)",
+                         [(group_id, b, k, opened.get((b, k))) for b, k in dict.fromkeys(links)])
         for m in members:
             if 'ignores' in m:
                 _set_keyword_ignores(conn, m['board'], m['keyword'], m['ignores'])

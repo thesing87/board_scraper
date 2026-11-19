@@ -255,6 +255,16 @@ document.addEventListener('click', (e) => {
         openBoard(ALL_KEY);
     } else if (action === 'open-fm') {
         openBoard(FM_KEY);
+    } else if (action === 'fm-sort') {
+        storageSet(localStorage, FM_SORT_KEY, el.dataset.sort);
+        renderFmKeywords();
+    } else if (action === 'fm-edit') {
+        app.fmEdit = !app.fmEdit;
+        renderFmKeywords();
+    } else if (action === 'fm-remove') {
+        fmLinkRequest({ action: 'remove', group_id: Number(el.dataset.groupId), board: el.dataset.board, keyword: el.dataset.keyword }, el);
+    } else if (action === 'fm-add') {
+        addFmLinkFromRow(el);
     } else if (action === 'set-view') {
         setFilter(el.dataset.filter);
     } else if (action === 'popular-days') {

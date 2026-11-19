@@ -36,7 +36,7 @@ def post(body):
     except urllib.error.HTTPError as e:
         return e.code, json.loads(e.read())
 def links(gid):
-    return next(g for g in storage.list_groups() if g['id'] == gid)['fm_links']
+    return [{'board': l['board'], 'keyword': l['keyword']} for l in next(g for g in storage.list_groups() if g['id'] == gid)['fm_links']]
 
 # API: 잘못된 게시판 이름·빈 키워드는 거부, 보내지 않으면 그대로
 base = {'action': 'update', 'id': tesla, 'name': '테슬라', 'members': [{'board': B, 'keyword': '테슬라'}]}
@@ -89,7 +89,7 @@ try:
     js("document.querySelector('#keyword-groups [data-action=\"open-fm\"]').click()"); time.sleep(0.8)
     assert js("return document.querySelector('.feed-title').textContent") == 'FM키워드'
     assert js("return document.getElementById('view-bar-tabs').offsetHeight") == 0
-    cards = js("return [...document.querySelectorAll('.fmk-card')].map(g => [g.querySelector('.fmk-name').textContent, [...g.querySelectorAll('.fmk-chip')].map(a => [a.textContent.trim(), a.href, a.target])])")
+    cards = js("return [...document.querySelectorAll('.fmk-card')].map(g => [g.querySelector('.fmk-name').textContent, [...g.querySelectorAll('.fmk-chip')].map(a => [a.querySelector('.fmk-kw').textContent.trim(), a.href, a.target])])")
     print('cards', cards)
     q = urllib.parse.quote('테슬라')
     assert [c[0] for c in cards] == ['테슬라'], cards
@@ -114,12 +114,78 @@ try:
     assert js("return document.querySelector('.feed-title').textContent") == 'FM키워드'
     print('FM KEYWORDS VIEW OK')
 
+    # 마지막으로 연 시각: 처음엔 '아직 안 봄', 누르면 서버에 기록되고 '방금 전'. 7일 넘으면 주황 표시, 오래 안 본 순
+    assert js("return document.querySelector('.fmk-chip .fmk-when').textContent") == '아직 안 봄'
+    main = d.current_window_handle
+    js("document.querySelector('.fmk-chip').click()"); time.sleep(1.2)
+    for h in d.window_handles:
+        if h != main:
+            d.switch_to.window(h); d.close()
+    d.switch_to.window(main)
+    opened = [l for l in next(g for g in storage.list_groups() if g['id'] == tesla)['fm_links'] if l['keyword'] == '테슬라'][0]['last_opened']
+    assert opened, '누른 시각이 기록되지 않음'
+    assert js("return document.querySelector('.fmk-chip .fmk-when').textContent") == '방금 전'
+    with storage._db() as conn, conn:
+        conn.execute("UPDATE fm_links SET last_opened = '2020-01-01 00:00:00' WHERE keyword = '손흥민'")
+    # 바로가기를 고쳐 저장해도 연 시각은 이어 감
+    assert post({**base, 'fm_links': [{'board': 'car', 'keyword': '테슬라'}, {'board': 'football_world', 'keyword': '손흥민'}, {'board': '', 'keyword': 'gpt'}]})[0] == 200
+    assert next(g for g in storage.list_groups() if g['id'] == tesla)['fm_links'][0]['last_opened'] == opened
+    d.refresh(); time.sleep(2)
+    assert '7일 넘게 안 본 링크 1개' in js("return document.querySelector('.feed-sub').textContent")
+    assert js("return document.querySelectorAll('.fmk-chip.is-stale').length") == 1
+    js("document.querySelector('[data-action=\"fm-sort\"][data-sort=\"stale\"]').click()"); time.sleep(0.3)
+    order = js("return [...document.querySelectorAll('.fmk-chip .fmk-kw')].map(e => e.textContent.trim())")
+    assert order[0].endswith('gpt') and order[1].endswith('손흥민') and order[2].endswith('테슬라'), order   # 안 본 것 → 오래된 것
+    js("document.querySelector('[data-action=\"fm-sort\"][data-sort=\"order\"]').click()"); time.sleep(0.3)
+    print('LAST OPENED OK')
+
+    # 바로 편집: 관리자 기기에만 '편집'. 빼기·추가(엔터), 다른 게시판에 추가
+    js("localStorage.removeItem('admin_token'); updateAdminUI(); renderFmKeywords()")
+    assert not js("return document.querySelector('[data-action=\"fm-edit\"]')")
+    js("localStorage.setItem('admin_token', 'Secr3t!'); updateAdminUI(); renderFmKeywords()")
+    js("document.querySelector('[data-action=\"fm-edit\"]').click()"); time.sleep(0.3)
+    assert js("return document.querySelectorAll('a.fmk-chip').length") == 0 and js("return document.querySelectorAll('.fmk-remove').length") == 3
+    js("document.querySelector('.fmk-remove[data-keyword=\"gpt\"]').click()"); time.sleep(1)
+    assert [l['keyword'] for l in links(tesla)] == ['테슬라', '손흥민']
+    row = f'[data-fm-row="{tesla}"]'
+    assert js(f"return document.querySelector('{row} .fmk-board-select').value") in ('car', 'football_world')
+    js(f"const r = document.querySelector('{row}'); r.querySelector('.fmk-board-select').value = 'car'; const i = r.querySelector('.fmk-kw-input'); i.value = '모델y'; i.focus()")
+    from selenium.webdriver.common.keys import Keys
+    d.switch_to.active_element.send_keys(Keys.ENTER); time.sleep(1)
+    assert links(tesla)[-1] == {'board': 'car', 'keyword': '모델y'}, links(tesla)
+    # 같은 것을 또 넣으면 거부 (알림 창)
+    js(f"const r = document.querySelector('{row}'); r.querySelector('.fmk-board-select').value = 'car'; r.querySelector('.fmk-kw-input').value = '모델y'; r.querySelector('[data-action=\"fm-add\"]').click()"); time.sleep(1)
+    alert = d.switch_to.alert; assert '이미 등록한' in alert.text; alert.accept()
+    # 다른 게시판(볼보)에 직접 입력 게시판으로 추가 → 카드가 새로 생김
+    js(f"""const r = document.querySelector('[data-fm-row="other"]'); r.querySelector('.fmk-group-select').value = '{mixed}';
+          const s = r.querySelector('.fmk-board-select'); s.value = '__custom'; s.dispatchEvent(new Event('change', {{bubbles: true}}));""")
+    assert not js("return document.querySelector('[data-fm-row=\"other\"] .fmk-mid-input').hidden")
+    js("""const r = document.querySelector('[data-fm-row="other"]'); r.querySelector('.fmk-mid-input').value = 'car';
+          r.querySelector('.fmk-kw-input').value = 'ex30'; r.querySelector('[data-action="fm-add"]').click()"""); time.sleep(1)
+    assert links(mixed) == [{'board': 'car', 'keyword': 'ex30'}], links(mixed)
+    assert [c for c in js("return [...document.querySelectorAll('.fmk-name')].map(e => e.textContent)")] == ['테슬라', '볼보']
+    # 암호 없이 추가하면 거부
+    req = urllib.request.Request(BASE + '/api/fm-link', json.dumps({'action': 'add', 'group_id': tesla, 'board': 'car', 'keyword': 'x', 'password': 'wrong'}).encode(), {'Content-Type': 'application/json'})
+    try:
+        urllib.request.urlopen(req); raise AssertionError('암호 없이 추가됨')
+    except urllib.error.HTTPError as e:
+        assert e.code == 401
+    js("document.querySelector('[data-action=\"fm-edit\"]').click()"); time.sleep(0.3)
+    assert js("return document.querySelectorAll('a.fmk-chip').length") == 4
+    d.set_window_size(390, 844); time.sleep(0.4)
+    js("document.querySelector('[data-action=\"fm-edit\"]').click()"); time.sleep(0.3)
+    assert js("return document.documentElement.scrollWidth <= innerWidth")
+    js("document.querySelector('[data-action=\"fm-edit\"]').click()"); time.sleep(0.3)
+    d.set_window_size(1440, 900)
+    js("localStorage.removeItem('admin_token')")
+    print('EDIT OK')
+
     # 대시보드 카드 (머리를 누르면 링크 페이지)
     d.get(BASE + '/'); time.sleep(2.5)
     body = js("return document.getElementById('fmlinks-body').textContent")
     hrefs = js("return [...document.querySelectorAll('#fmlinks-body .fm-chip')].map(a => a.href)")
-    assert '테슬라' in body and len(hrefs) == 3 and hrefs[2] == 'https://www.fmkorea.com/search.php?act=IS&is_keyword=gpt', hrefs
-    assert js("return document.getElementById('fmlinks-sub').textContent") == '검색 링크 3개 · 새 창'
+    assert '테슬라' in body and '볼보' in body and len(hrefs) == 4 and hrefs[-1].endswith('search_keyword=ex30'), hrefs
+    assert js("return document.getElementById('fmlinks-sub').textContent") == '검색 링크 4개 · 새 창'
     assert js("return document.querySelector('#card-fmlinks .card-head').getAttribute('href')") == '/board/#fm'
     d.set_window_size(390, 844); time.sleep(0.5)
     assert js("return document.documentElement.scrollWidth <= innerWidth")

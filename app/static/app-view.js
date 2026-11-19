@@ -419,7 +419,55 @@ function renderPopularBoards(data, group, folder) {
 }
 
 // ---------- FM키워드: 게시판마다 등록한 에펨코리아 검색 링크 모아 보기 ----------
-// 누르면 새 창에서 에펨코리아 검색 결과 (서버는 에펨코리아에 요청하지 않음). 링크는 관리 → 게시판 편집에서 추가·빼기
+// 누르면 새 창에서 에펨코리아 검색 결과 (서버는 에펨코리아에 요청하지 않음). 누른 시각은 서버에 기록해 기기와 상관없이 '3일 전'처럼 보여 줌.
+// 관리자 기기에서는 '편집'으로 이 화면에서 바로 추가·빼기 (관리 → 게시판 편집의 바로가기 칸과 같은 링크)
+const FM_STALE_DAYS = 7;
+const FM_SORT_KEY = 'fm_keywords_sort';
+
+function fmOpenedAt(link) { return link.last_opened ? new Date(link.last_opened.replace(' ', 'T')) : null; }
+function fmAgeDays(link) { const at = fmOpenedAt(link); return at ? Math.floor((Date.now() - at) / 86400000) : null; }
+function fmAgoText(link) {
+    const at = fmOpenedAt(link);
+    if (!at) return '아직 안 봄';
+    const minutes = Math.max(0, Math.floor((Date.now() - at) / 60000));
+    if (minutes < 1) return '방금 전';
+    if (minutes < 60) return `${minutes}분 전`;
+    if (minutes < 1440) return `${Math.floor(minutes / 60)}시간 전`;
+    const days = Math.floor(minutes / 1440);
+    return days === 1 ? '어제' : `${days}일 전`;
+}
+function fmIsStale(link) { const days = fmAgeDays(link); return days !== null && days >= FM_STALE_DAYS; }
+function fmSort() { return storageGet(localStorage, FM_SORT_KEY, 'order') === 'stale' ? 'stale' : 'order'; }
+// 오래 안 본 순: 아직 안 본 링크 먼저, 그다음 오래전에 본 순 (같으면 등록 순)
+function fmSortedLinks(links) {
+    if (fmSort() !== 'stale') return links;
+    const key = l => (fmOpenedAt(l) ? fmOpenedAt(l).getTime() : -1);
+    return links.map((l, i) => [l, i]).sort((a, b) => key(a[0]) - key(b[0]) || a[1] - b[1]).map(([l]) => l);
+}
+// 바로가기 게시판 고르기: 예전 에펨코리아 카테고리 + 전체 + 직접 입력 (게시판 편집의 바로가기 칸과 같음)
+function fmBoardOptions(selected) {
+    const fmBoards = (app.state.boards || []).filter(b => boardSite(b.key) === 'fmkorea');
+    return fmBoards.map(b => `<option value="${esc(b.key)}" ${b.key === selected ? 'selected' : ''}>${esc(b.name)}</option>`).join('')
+        + `<option value="" ${selected === '' ? 'selected' : ''}>전체 게시판</option><option value="${FM_CUSTOM}">직접 입력…</option>`;
+}
+// 그 게시판에서 가장 많이 쓴 에펨코리아 게시판 (추가 칸의 처음 값)
+function fmMainBoard(links) {
+    const counts = new Map();
+    links.forEach(l => counts.set(l.board, (counts.get(l.board) || 0) + 1));
+    return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'car';
+}
+function fmAddRow(id, selected) {
+    return `
+        <div class="fmk-add" data-fm-row="${id}">
+            ${id === 'other' ? `<select class="input select fmk-group-select" aria-label="바로가기를 넣을 게시판">${(app.state.groups || []).map(g =>
+                `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select>` : ''}
+            <select class="input select fmk-board-select" aria-label="에펨코리아 게시판">${fmBoardOptions(selected)}</select>
+            <input class="input fmk-mid-input" aria-label="에펨코리아 게시판 이름(주소의 영문)" placeholder="게시판 영문 (예: football_world)" maxlength="40" hidden>
+            <input class="input fmk-kw-input" aria-label="바로가기 키워드" placeholder="키워드" maxlength="50">
+            <button class="btn btn-outline btn-small" data-action="fm-add" data-row="${id}">추가</button>
+        </div>`;
+}
+
 function renderFmKeywords() {
     const feed = document.getElementById('feed');
     feed.removeAttribute('aria-busy');
@@ -433,8 +481,33 @@ function renderFmKeywords() {
     app.openPostIds = new Set();
     document.body.classList.remove('gallery-mode');
     storageSet(sessionStorage, 'last_active_tab', app.activeKey);
+    const admin = !!adminPassword();
+    if (!admin) app.fmEdit = false;
+    const editing = !!app.fmEdit;
+    // 다시 그려도 입력 중인 추가 칸의 값은 그대로 (상태를 새로 받아 다시 그릴 때)
+    const typed = [...feed.querySelectorAll('[data-fm-row]')].map(row => [row.dataset.fmRow, row.querySelector('.fmk-kw-input').value,
+        row.querySelector('.fmk-board-select').value, row.querySelector('.fmk-mid-input').value]);
+    const focused = document.activeElement && document.activeElement.closest && document.activeElement.closest('[data-fm-row]');
+    const focusedRow = focused ? focused.dataset.fmRow : null;
+
     const groups = (app.state.groups || []).filter(g => (g.fm_links || []).length);
-    const total = fmLinkCount();
+    const all = groups.flatMap(g => g.fm_links);
+    const stale = all.filter(fmIsStale).length;
+    const chip = (g, l, showBoard) => {
+        const label = `${showBoard ? `<small>${esc(fmBoardName(l.board))}</small>` : ''}${esc(l.keyword)}`;
+        if (editing) {
+            return `<span class="fmk-chip is-editing">${label}
+                <button class="fmk-remove" data-action="fm-remove" data-group-id="${g.id}" data-board="${esc(l.board)}" data-keyword="${esc(l.keyword)}"
+                        aria-label="${esc(l.keyword)} 바로가기 빼기">${ICONS.close}</button></span>`;
+        }
+        const ago = fmAgoText(l);
+        const cls = fmIsStale(l) ? ' is-stale' : l.last_opened ? '' : ' is-unseen';
+        return `<a class="fmk-chip${cls}" href="${esc(fmSearchUrl(l.board, l.keyword))}" target="_blank" rel="noopener noreferrer"
+                   data-fm-open="${g.id}" data-board="${esc(l.board)}" data-keyword="${esc(l.keyword)}"
+                   title="에펨코리아 ${esc(fmBoardName(l.board))}에서 '${esc(l.keyword)}' 검색 · 마지막으로 연 때: ${ago}">
+                    <span class="fmk-kw">${fmIsStale(l) ? '<i class="fmk-dot" aria-hidden="true"></i>' : ''}${label}${ICONS.external}</span>
+                    <span class="fmk-when">${ago}</span></a>`;
+    };
     const card = g => {
         const boards = new Set(g.fm_links.map(l => l.board));
         const note = boards.size === 1 ? fmBoardName(g.fm_links[0].board) : `게시판 ${boards.size}곳`;
@@ -444,27 +517,109 @@ function renderFmKeywords() {
                 <button class="fmk-name" data-action="open-group" data-group-id="${g.id}">${esc(g.name)}</button>
                 <span class="fmk-note">${esc(note)}</span>
             </div>
-            <div class="fmk-chips">${g.fm_links.map(l => `
-                <a class="fmk-chip" href="${esc(fmSearchUrl(l.board, l.keyword))}" target="_blank" rel="noopener noreferrer"
-                   title="에펨코리아 ${esc(fmBoardName(l.board))}에서 '${esc(l.keyword)}' 검색">
-                    ${boards.size > 1 ? `<small>${esc(fmBoardName(l.board))}</small>` : ''}${esc(l.keyword)}${ICONS.external}</a>`).join('')}
-            </div>
+            <div class="fmk-chips">${fmSortedLinks(g.fm_links).map(l => chip(g, l, boards.size > 1)).join('')}</div>
+            ${editing ? fmAddRow(g.id, fmMainBoard(g.fm_links)) : ''}
         </section>`;
     };
+    const sortButtons = editing ? '' : [['order', '등록 순'], ['stale', '오래 안 본 순']].map(([key, label]) =>
+        `<button class="btn btn-outline btn-small fmk-pill" data-action="fm-sort" data-sort="${key}" aria-pressed="${fmSort() === key}">${label}</button>`).join('');
+    const editButton = !admin ? '' : editing
+        ? `<button class="btn btn-primary btn-small" data-action="fm-edit" aria-pressed="true">편집 끝내기</button>`
+        : `<button class="btn btn-outline btn-small" data-action="fm-edit" aria-pressed="false">편집</button>`;
+    const sub = editing ? '편집 중 · 바꾸면 바로 저장됩니다'
+        : all.length ? `링크 ${all.length}개${stale ? ` · ${FM_STALE_DAYS}일 넘게 안 본 링크 <strong class="fmk-stale-count">${stale}개</strong>` : ''} · 누르면 새 창에서 에펨코리아 검색`
+        : '에펨코리아는 수집하지 않고 검색 링크만 모아 둡니다';
+    const empty = `<div class="empty-card">아직 등록한 링크가 없습니다.<br>${admin ? "'편집'을 누르거나 관리 → 게시판 편집의 '에펨코리아 바로가기'에서 추가하면 여기에 모입니다." : '관리자 기기에서 추가하면 여기에 모입니다.'}</div>`;
     feed.innerHTML = `
         <div class="feed-head">
             <div class="feed-head-text">
-                <div class="feed-title-row"><h1 class="feed-title">${FM_LABEL}</h1></div>
-                <span class="feed-sub">${total ? `링크 ${total}개 · 누르면 새 창에서 에펨코리아 검색` : '에펨코리아는 수집하지 않고 검색 링크만 모아 둡니다'}</span>
+                <div class="feed-title-row"><h1 class="feed-title">${FM_LABEL}</h1>${sortButtons}${editButton}</div>
+                <span class="feed-sub">${sub}</span>
             </div>
             <div class="feed-tools">${renderFontSizeControl()}</div>
         </div>
-        ${groups.length ? `<div class="fmk-grid">${groups.map(card).join('')}</div>`
-            : `<div class="empty-card">아직 등록한 링크가 없습니다.<br>관리 → 게시판 편집의 '에펨코리아 바로가기'에서 추가하면 여기에 모입니다.</div>`}`;
-    window.scrollTo({ top: 0 });
+        ${groups.length ? `<div class="fmk-grid">${groups.map(card).join('')}</div>` : editing ? '' : empty}
+        ${editing ? `<div class="fmk-card fmk-other"><span class="fmk-note">다른 게시판에 추가</span>${fmAddRow('other', 'car')}</div>` : ''}`;
+    typed.forEach(([id, kw, board, mid]) => {
+        const row = feed.querySelector(`[data-fm-row="${id}"]`);
+        if (!row) return;
+        row.querySelector('.fmk-kw-input').value = kw;
+        if ([...row.querySelector('.fmk-board-select').options].some(o => o.value === board)) row.querySelector('.fmk-board-select').value = board;
+        row.querySelector('.fmk-mid-input').value = mid;
+        row.querySelector('.fmk-mid-input').hidden = row.querySelector('.fmk-board-select').value !== FM_CUSTOM;
+    });
+    if (focusedRow) {
+        const input = feed.querySelector(`[data-fm-row="${focusedRow}"] .fmk-kw-input`);
+        if (input) input.focus();
+    }
     document.querySelector('.fab-next').hidden = true;
     updateShortcutGuide();
     return Promise.resolve(false);
+}
+
+// 링크를 누르면 서버에 누른 시각을 남기고, 화면의 표시도 바로 '방금 전'으로 (새 창이 열리는 것은 막지 않음)
+function recordFmOpen(a) {
+    const group = (app.state.groups || []).find(g => g.id === Number(a.dataset.fmOpen));
+    const link = group && group.fm_links.find(l => l.board === a.dataset.board && l.keyword === a.dataset.keyword);
+    if (!link) return;
+    const pad = n => String(n).padStart(2, '0');
+    const now = new Date();
+    link.last_opened = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    fetch('/api/fm-link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+        body: JSON.stringify({ action: 'open', group_id: group.id, board: link.board, keyword: link.keyword }) }).catch(() => {});
+    setTimeout(() => { if (isFmView()) renderFmKeywords(); }, 300);
+}
+['click', 'auxclick'].forEach(type => document.addEventListener(type, e => {
+    const a = e.target.closest && e.target.closest('a.fmk-chip[data-fm-open]');
+    if (a && (type === 'click' || e.button === 1)) recordFmOpen(a);
+}));
+document.addEventListener('change', e => {
+    if (!e.target.classList || !e.target.classList.contains('fmk-board-select')) return;
+    e.target.closest('[data-fm-row]').querySelector('.fmk-mid-input').hidden = e.target.value !== FM_CUSTOM;
+});
+document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || !e.target.classList || !e.target.classList.contains('fmk-kw-input')) return;
+    e.preventDefault();
+    e.target.closest('[data-fm-row]').querySelector('[data-action="fm-add"]').click();
+});
+
+async function fmLinkRequest(body, button) {
+    const pwd = adminPassword();
+    if (!pwd) { needPassword(); return false; }
+    button.disabled = true;
+    try {
+        const data = await postJSON('/api/fm-link', { ...body, password: pwd });
+        if (!data.success) { if (data.message) alert(data.message); return false; }
+        const group = (app.state.groups || []).find(g => g.id === body.group_id);
+        if (group) group.fm_links = data.links;
+        renderFmKeywords();
+        renderNavigation();
+        return true;
+    } catch (e) {
+        alert('요청 중 오류가 발생했습니다.');
+        return false;
+    } finally {
+        button.disabled = false;
+    }
+}
+
+async function addFmLinkFromRow(button) {
+    const row = button.closest('[data-fm-row]');
+    const input = row.querySelector('.fmk-kw-input');
+    const keyword = input.value.trim();
+    let board = row.querySelector('.fmk-board-select').value;
+    if (board === FM_CUSTOM) {
+        board = row.querySelector('.fmk-mid-input').value.trim().toLowerCase();
+        if (!/^(?![0-9]+$)[a-z0-9_]{1,40}$/.test(board)) {
+            alert('게시판 이름은 주소의 영문 부분을 넣어 주세요. (예: fmkorea.com/football_world → football_world)');
+            row.querySelector('.fmk-mid-input').focus();
+            return;
+        }
+    }
+    if (!keyword) { input.focus(); return; }
+    const groupId = row.dataset.fmRow === 'other' ? Number(row.querySelector('.fmk-group-select').value) : Number(row.dataset.fmRow);
+    input.value = '';
+    if (!await fmLinkRequest({ action: 'add', group_id: groupId, board, keyword }, button)) input.value = keyword;
 }
 
 // 인기글 카드의 '게시판 인기순': 그 게시판을 같은 기간의 인기순으로 엶
