@@ -222,10 +222,13 @@ function feedSubText(total) {
     const unread = summary.unread_count;
     const group = findGroup(app.activeKey);
     const folder = findFolder(app.activeKey);
-    // 여러 사이트 게시판은 키워드마다 사이트를 붙여 구분 (FM 싼타페, DC 싼타페)
-    const memberLabel = m => (group && isMultiGroup(group) ? esc(siteLabel(boardSite(m.board)).short) + ' ' : '')
+    // 수집하는 키워드만 (예전 에펨코리아 키워드는 빼고. 에펨코리아는 제목 아래 '에펨코리아에서 보기' 줄로).
+    // 여러 사이트 키워드가 남아 있으면 키워드마다 사이트를 붙여 구분
+    const collected = group ? group.members.filter(m => boardSite(m.board) !== 'fmkorea') : [];
+    const mixed = new Set(collected.map(m => boardSite(m.board))).size > 1;
+    const memberLabel = m => (mixed ? esc(siteLabel(boardSite(m.board)).short) + ' ' : '')
         + esc(m.keyword) + (m.paused ? ' (일시정지)' : '');
-    const label = group ? `키워드 ${group.members.map(memberLabel).join(', ')}`
+    const label = group ? (collected.length ? `키워드 ${collected.map(memberLabel).join(', ')}` : '수집하는 키워드 없음')
         : folder ? `${esc(folder.name)} 묶음의 모든 게시판` : '모든 게시판';
     if (app.filter === 'unread') return unread ? `${label} · 안 읽은 새 글 <strong>${unread}개</strong>` : '안 읽은 글을 모두 읽었습니다';
     if (app.filter === 'comments') return summary.comment_count

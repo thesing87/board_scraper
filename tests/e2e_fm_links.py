@@ -16,6 +16,9 @@ B = 'dc:car_new1'
 storage.add_category(B)
 storage.set_category_checked(B, True, page_name='자동차 갤러리')
 tesla, _ = storage.save_group(None, '테슬라', [{'board': B, 'keyword': '테슬라'}])
+# 예전 에펨코리아 키워드가 남은 게시판 (키워드 설명 줄에는 디시 키워드만)
+mixed, _ = storage.save_group(None, '볼보', [{'board': 'car', 'keyword': '볼보'}, {'board': B, 'keyword': '볼보'}])
+fm_only, _ = storage.save_group(None, '삼성', [{'board': 'baseball', 'keyword': '삼성'}])
 ai, _ = storage.save_group(None, 'AI', [{'board': B, 'keyword': '클로드'}], fm_links=[{'board': '', 'keyword': 'gpt'}])
 
 with socket.socket() as s:
@@ -74,6 +77,11 @@ try:
     # 바로가기 없는 게시판은 줄이 없음
     js("openBoard(ALL_KEY)"); time.sleep(1.2)
     assert not js("return document.querySelector('.fm-links')")
+    js(f"openBoard('group:{mixed}')"); time.sleep(1.2)
+    sub = js("return document.querySelector('.feed-sub').textContent")
+    assert '키워드 볼보' in sub and 'FM' not in sub and 'DC' not in sub, sub
+    js(f"openBoard('group:{fm_only}')"); time.sleep(1.2)
+    assert '수집하는 키워드 없음' in js("return document.querySelector('.feed-sub').textContent")
     print('BOARD VIEW OK')
 
     # 게시판 합치기: AI 게시판을 테슬라에 합치면 AI의 바로가기(전체 검색 gpt)도 옮겨 옴
