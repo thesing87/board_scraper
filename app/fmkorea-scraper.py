@@ -1,5 +1,4 @@
 import os
-import math
 import time
 import sys
 import re
@@ -17,9 +16,6 @@ from config import (
     log_msg,
     short_err,
     CHECK_INTERVAL,
-    FM_CHECK_INTERVAL,
-    FM_CHALLENGE_REST,
-    FM_SEARCH_INTERVAL,
     DDNS_URL,
     MAX_DATA_PER_KEYWORD,
     RETENTION_DAYS,
@@ -83,7 +79,7 @@ from storage import (
 from images import remove_orphan_image_dirs
 from notifier import (send_telegram_message, send_post_alert, send_comment_alert, send_digest, send_popular_alert,
                       retry_pending_alerts)
-from scraper import parse_count, BlockedError, ChallengeError
+from scraper import parse_count, BlockedError
 # 목록·상세·게시판 확인은 카테고리(글)의 사이트에 맞는 수집기(에펨코리아·디시인사이드)로
 from sites import (
     get_list_page_posts,
@@ -121,8 +117,6 @@ DIGEST_DATE_META = 'digest_date'
 BACKOFF_MAX_SECONDS = 3600
 # 차단 의심이 이 횟수만큼 주기를 이어서 났을 때 텔레그램으로 알림 (한 주기만 실패하고 돌아오는 일시적인 오류는 로그에만)
 BLOCK_ALERT_STREAK = 2
-# 사람 확인 화면으로 막혀 쉬는 사이트를 언제까지 쉴지 (meta, 사이트마다). 수집기를 다시 띄워도 남은 시간만큼 이어서 쉼
-BLOCK_REST_META = 'block_rest_until:'
 
 try:
     if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
@@ -197,37 +191,6 @@ def ensure_driver_alive(driver):
         pass
     return create_driver()
 
-class SearchSchedule:
-    """에펨코리아 키워드 검색(search.php) 일정: 키워드마다 FM_SEARCH_INTERVAL에 한 번, 한 주기에 몰리지 않게 나눠서 검색.
-    검색이 잦으면 '사람 확인' 화면으로 막혀서(키워드 29개를 주기마다 검색하다 막힘) 요청을 드물고 고르게 보냄.
-    차례가 아닌 키워드는 그 주기에 아무 요청도 보내지 않음"""
-
-    def __init__(self):
-        self.searched_at = {}       # (board, keyword) → 마지막으로 검색에 성공한 시각
-        self.planned = set()        # 이번 주기에 검색할 키워드
-
-    def is_due(self, key, now):
-        return now - self.searched_at.get(key, 0.0) >= FM_SEARCH_INTERVAL
-
-    def plan(self, keys, now):
-        """이번 주기에 검색할 키워드를 고름: 검색한 지 가장 오래된 것부터 한 주기 몫만큼"""
-        due = sorted((k for k in keys if self.is_due(k, now)), key=lambda k: self.searched_at.get(k, 0.0))
-        if not due:
-            quota = 0
-        elif FM_SEARCH_INTERVAL <= FM_CHECK_INTERVAL:
-            quota = len(due)
-        else:
-            quota = max(1, math.ceil(len(keys) * FM_CHECK_INTERVAL / FM_SEARCH_INTERVAL))
-        self.planned = set(due[:quota])
-
-    def wants(self, key, has_posts, now):
-        """이 키워드를 지금 검색할지. 모은 글이 없는(새로 등록한) 키워드는 검색 첫 페이지로 게시판을 채워야 해서 몫과 상관없이"""
-        return key in self.planned or (not has_posts and self.is_due(key, now))
-
-    def succeeded(self, key, now):
-        """검색 성공을 기록 (실패한 키워드는 기록하지 않아 다음 주기에 다시 차례가 됨)"""
-        self.searched_at[key] = now
-
 def wait_text(seconds):
     """대기 시간을 '6시간 0분', '4분 0초'처럼"""
     seconds = int(seconds)
@@ -235,31 +198,12 @@ def wait_text(seconds):
         return f"{seconds // 3600}시간 {seconds % 3600 // 60}분"
     return f"{seconds // 60}분 {seconds % 60}초"
 
-def load_block_rests():
-    """사람 확인 화면으로 막혀 쉬던 사이트의 남은 대기 시간 {site: 초} (수집기를 다시 띄웠을 때 이어서 쉬려고)"""
-    rests = {}
-    for site in site_labels():
-        try:
-            left = float(get_meta(BLOCK_REST_META + site) or 0) - time.time()
-        except ValueError:
-            continue
-        if left > 0:
-            rests[site] = left
-    return rests
-
 def pick_new_posts(list_posts, board_data, site):
     """검색 목록에서 아직 모으지 않은 글 (목록 순서 그대로, 최신이 앞). board_data: 그 키워드로 모아 둔 최근 글 (비어 있지 않음)"""
     existing = {post['id'] for post in board_data}
-    if site != FMKOREA:
-        # 최신순 검색 목록: 이미 모은 글이 나오면 그 뒤는 모두 지난 글
-        end = next((i for i, post in enumerate(list_posts) if post['id'] in existing), len(list_posts))
-        return list_posts[:end]
-    # 에펨코리아: 이미 모은 글에서 멈추지 않고, 목록에 있는 모은 글 중 가장 오래된 것보다 새 글을 모두 봄
-    # (지난번에 상세 수집에 실패했거나 예전에 제목으로만 모아 사이에 빠진 글까지. 그보다 오래된 글은 키워드를 등록하기 전의 지난 글).
-    # 목록에 모은 글이 하나도 없으면 모아 둔 가장 새 글보다 새 글만
-    listed_known = [post_number(post['id']) for post in list_posts if post['id'] in existing]
-    floor = min(listed_known) if listed_known else max(post_number(post['id']) for post in board_data)
-    return [post for post in list_posts if post['id'] not in existing and post_number(post['id']) > floor]
+    # 최신순 검색 목록: 이미 모은 글이 나오면 그 뒤는 모두 지난 글
+    end = next((i for i, post in enumerate(list_posts) if post['id'] in existing), len(list_posts))
+    return list_posts[:end]
 
 def sync_existing_posts(driver, target, list_posts, board_data, stats, verified_present):
     """목록 페이지 값과 저장된 값을 비교해, 댓글 수가 바뀐 글만 상세 페이지를 다시 열어 갱신하고
@@ -624,11 +568,9 @@ def main():
     except Exception as fix_err:
         log_msg(f"[DB] 디시 이미지 다시 수집 실패: {short_err(fix_err)}", "WARN")
 
-    log_msg(f"[시스템] 모니터링 시작 (주기 {CHECK_INTERVAL}초)")
-    # 수집하지 않기로 한 사이트 (config.DISABLED_SITES): 매 주기 쉬는 사이트처럼 건너뜀
-    off_sites = {site for site in (FMKOREA, 'dcinside') if not site_enabled(site)}
-    if off_sites:
-        log_msg(f"[시스템] 수집하지 않는 사이트: {', '.join(site_labels()[s]['name'] for s in sorted(off_sites))}")
+    log_msg(f"[시스템] 모니터링 시작 (주기 {CHECK_INTERVAL}초, 디시인사이드만)")
+    # 수집기가 없는 사이트(에펨코리아): 예전에 등록한 키워드가 남아 있어도 건너뜀
+    off_sites = {FMKOREA}
 
     try:
         is_initial_run = True
@@ -645,17 +587,6 @@ def main():
         block_wait = {}
         # 차단 의심을 텔레그램으로 알린 사이트 (알렸을 때만 복구도 알림)
         block_alerted = set()
-        # 사람 확인 화면으로 막혀 길게 쉬던 사이트는 수집기를 다시 띄워도 남은 시간만큼 이어서 쉼
-        for site, left in load_block_rests().items():
-            if not site_enabled(site):
-                continue
-            block_streak[site], block_wait[site] = 1, left
-            block_alerted.add(site)
-            log_msg(f"[차단 의심] {site_labels()[site]['name']} 사람 확인 화면으로 쉬는 중 → {wait_text(left)} 뒤 다시 확인")
-        # 에펨코리아 키워드를 마지막으로 확인한 주기의 시작 시각 (FM_CHECK_INTERVAL마다만 확인)
-        fm_checked_at = 0.0
-        # 에펨코리아 키워드 검색 일정 (키워드마다 FM_SEARCH_INTERVAL에 한 번, 주기마다 몇 개씩 나눠서)
-        fm_search = SearchSchedule()
         next_wait = CHECK_INTERVAL
         # 크롬을 마지막으로 띄운 뒤 지난 주기 수, 유지 관리(백업·정리)를 마지막으로 한 날짜
         cycles_since_chrome = 0
@@ -688,13 +619,10 @@ def main():
             except Exception as e:
                 log_msg(f"[알림] 대기열 알림 다시 보내기 실패: {short_err(e)}", "ERROR")
 
-            config_data = load_keywords()
+            config_data = {board: keywords for board, keywords in load_keywords().items() if site_enabled(board_site(board))}
             current_keys = {(board, keyword) for board, keywords in config_data.items() for keyword in keywords}
             if collected_keys is not None:
                 resumed |= current_keys - collected_keys
-                # 다시 켠 에펨코리아 키워드는 검색 차례를 기다리지 않고 다음 확인 때 바로 검색 (멈춘 동안의 글을 얼른 정리)
-                for key in current_keys - collected_keys:
-                    fm_search.searched_at.pop(key, None)
             resumed &= current_keys
             collected_keys = current_keys
             filled_keys = first_page_filled_keys()
@@ -709,18 +637,10 @@ def main():
             cycle_started = time.time()
             # 차단 의심으로 쉬는 중인 사이트 (남은 대기 시간이 다 지나면 다시 확인)
             waiting_sites = {site for site, left in block_wait.items() if left > 0} | off_sites
-            # 에펨코리아는 FM_CHECK_INTERVAL마다, 그 주기에 검색할 차례인 키워드만 확인 (차단 의심 뒤 다시 확인할 때는 대기 시간이 지났으면 바로)
-            fm_due = bool(block_streak.get(FMKOREA)) or cycle_started - fm_checked_at >= FM_CHECK_INTERVAL - 5
-            if fm_due and FMKOREA not in waiting_sites:
-                fm_checked_at = cycle_started
-                fm_search.plan([(board, keyword) for board, keywords in config_data.items()
-                                if board_site(board) == FMKOREA for keyword in keywords], cycle_started)
             stats = {'keywords': 0, 'new': 0, 'updated': 0, 'deleted': 0, 'errors': 0, 'details': 0,
                      'list_ok': 0, 'list_failed': 0}
             # 이번 주기에 차단이 의심된 사이트와 사유 {site: 사유}. 그 사이트는 이번 주기의 남은 요청을 멈춤 (다른 사이트는 계속 수집)
             blocked_reasons = {}
-            # 그중 사람 확인 화면으로 막힌 사이트 (잠깐씩 늘려 가며 확인하지 않고 FM_CHALLENGE_REST만큼 길게 쉼)
-            challenged_sites = set()
             # 이번 주기에 목록을 요청한 사이트, 그중 목록이 정상으로 온 사이트
             tried_sites, ok_sites = set(), set()
 
@@ -730,15 +650,9 @@ def main():
                 if site in blocked_reasons or site in waiting_sites:
                     continue
 
-                if site == FMKOREA and not fm_due:
-                    continue
-
                 for keyword in keywords:
                     # 새 글 판별 기준이 되는 최근 수집 글 (최신순)
                     board_data = recent_keyword_posts(board, keyword, MAX_DATA_PER_KEYWORD)
-                    # 에펨코리아는 이번 주기에 검색할 차례인 키워드만 (나머지는 요청 없이 다음 차례까지 기다림)
-                    if site == FMKOREA and not fm_search.wants((board, keyword), bool(board_data), cycle_started):
-                        continue
 
                     driver = restart_if_hung(driver)
                     stats['keywords'] += 1
@@ -753,14 +667,10 @@ def main():
                         new_post_list = get_list_page_posts(driver, board, keyword, page=1)
                         stats['list_ok'] += 1
                         ok_sites.add(site)
-                        if site == FMKOREA:
-                            fm_search.succeeded((board, keyword), cycle_started)
                     except BlockedError as block_ex:
                         # 차단이 의심되면 그 사이트의 남은 키워드까지 요청을 이어가지 않고 이번 주기에는 멈춤
                         stats['errors'] += 1
                         blocked_reasons[site] = f"{site_labels()[site]['name']} {target} {block_ex}"
-                        if isinstance(block_ex, ChallengeError):
-                            challenged_sites.add(site)
                         break
                     except Exception as list_ex:
                         stats['errors'] += 1
@@ -857,29 +767,19 @@ def main():
                 block_wait[site] -= elapsed
             for site, reason in blocked_reasons.items():
                 streak = block_streak[site] = block_streak.get(site, 0) + 1
-                # 사람 확인 화면은 기다려도 넘어가지 않고 계속 두드리면 풀리지 않아, 요청을 아예 보내지 않고 길게 쉼
-                challenged = site in challenged_sites
-                if challenged:
-                    wait = block_wait[site] = FM_CHALLENGE_REST
-                    set_meta(BLOCK_REST_META + site, str(time.time() + wait))
-                else:
-                    wait = block_wait[site] = min(CHECK_INTERVAL * (2 ** streak), BACKOFF_MAX_SECONDS)
+                wait = block_wait[site] = min(CHECK_INTERVAL * (2 ** streak), BACKOFF_MAX_SECONDS)
                 log_msg(f"[차단 의심] {reason} → {wait_text(wait)} 후 다시 확인 (연속 {streak}회)", "WARN")
-                # 한 주기만 실패하고 돌아오는 일시적인 오류는 알리지 않지만, 사람 확인 화면은 처음부터 알림
-                if site not in block_alerted and (challenged or streak >= BLOCK_ALERT_STREAK):
+                # 한 주기만 실패하고 돌아오는 일시적인 오류는 알리지 않음
+                if site not in block_alerted and streak >= BLOCK_ALERT_STREAK:
                     block_alerted.add(site)
                     send_telegram_message(
                         f"⚠️ {labels[site]['name']} 접속 차단 의심\n\n{reason}\n\n"
-                        + (f"사람 확인 화면이라 {wait_text(wait)} 동안 이 사이트에 요청을 보내지 않고 쉰 뒤 다시 확인합니다. "
-                           if challenged else "요청을 줄이기 위해 이 사이트만 대기 시간을 늘립니다. ")
-                        + "정상으로 돌아오면 다시 알려드립니다."
+                        "요청을 줄이기 위해 이 사이트만 대기 시간을 늘립니다. 정상으로 돌아오면 다시 알려드립니다."
                     )
             for site in ok_sites - set(blocked_reasons):
                 streak = block_streak.pop(site, 0)
                 block_wait.pop(site, None)
                 if streak:
-                    if get_meta(BLOCK_REST_META + site):
-                        set_meta(BLOCK_REST_META + site, '')
                     log_msg(f"[복구] {labels[site]['name']} 정상 응답 확인 (차단 의심 {streak}회 후) → 원래 주기로 복귀")
                     # 차단 의심을 알렸을 때만 복구도 알림
                     if site in block_alerted:

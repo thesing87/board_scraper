@@ -103,8 +103,6 @@ MAX_CARD_AMOUNT = 10000000
 MAX_APT_WATCHES = 30
 MAX_APT_NAME_LENGTH = 40
 APT_AREA_RANGE = (10, 400)
-# 에펨코리아 게시판 mid (글 주소 'fmkorea.com/12345'와 헷갈리지 않게 숫자만인 값은 제외)
-BOARD_KEY_RE = re.compile(r'(?![0-9]+$)[a-z0-9_]{1,40}')
 POSTS_PER_PAGE = 10
 # 인기순으로 볼 수 있는 기간(일). 없으면 전체 기간
 POPULAR_DAYS = ('1', '7', '30')
@@ -241,8 +239,7 @@ if not ADMIN_API_ENABLED:
 ADMIN_TOKEN = hmac.new(ADMIN_PASSWORD.encode('utf-8'), b'dashboard-admin-login-v1', 'sha256').hexdigest()
 
 def board_key_from_input(text):
-    """관리 화면에 입력한 게시판 주소나 이름에서 카테고리 키를 뽑음. 알아볼 수 없으면 None
-    - 에펨코리아: 'hotdeal', 'https://www.fmkorea.com/hotdeal', 'fmkorea.com/index.php?mid=hotdeal&page=2' → 'hotdeal'
+    """관리 화면에 입력한 갤러리 주소나 키에서 카테고리 키를 뽑음. 알아볼 수 없으면 None (에펨코리아는 수집하지 않음)
     - 디시인사이드 갤러리: 'https://gall.dcinside.com/board/lists/?id=car_new1', 'dc:car_new1' → 'dc:car_new1'
       (마이너·미니 갤러리는 주소 형태가 달라 아직 지원하지 않음)"""
     text = (text or '').strip()
@@ -257,14 +254,7 @@ def board_key_from_input(text):
             if not url.path.startswith('/board/') or not DC_GALLERY_RE.fullmatch(gallery):
                 return None
             return DC_BOARD_PREFIX + gallery
-        if host != 'fmkorea.com' and not host.endswith('.fmkorea.com'):
-            return None
-        text = parse_qs(url.query).get('mid', [''])[0]
-        if not text:
-            segments = [seg for seg in url.path.split('/') if seg]
-            text = segments[0] if segments and segments[0] != 'index.php' else ''
-    text = text.lower()
-    return text if BOARD_KEY_RE.fullmatch(text) else None
+    return None
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     """요청마다 새로운 스레드를 독립 할당하여 동기 블로킹 및 접속 지연을 차단"""
@@ -1310,7 +1300,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             raw = str(params.get('input') or '')[:MAX_CATEGORY_INPUT_LENGTH]
             key = board_key_from_input(raw)
             if key is None:
-                self._send_json(400, False, '❌ 에펨코리아 게시판 주소(예: https://www.fmkorea.com/hotdeal)·영문 이름(mid)이나 디시 갤러리 주소(예: https://gall.dcinside.com/board/lists/?id=car_new1)를 입력해 주세요.')
+                self._send_json(400, False, '❌ 디시 갤러리 주소(예: https://gall.dcinside.com/board/lists/?id=car_new1)를 입력해 주세요. 에펨코리아는 수집하지 않습니다.')
                 return
             if not site_enabled(board_site(key)):
                 self._send_json(400, False, f'❌ {SITE_NAMES[board_site(key)]}는 수집하지 않도록 설정되어 게시판을 추가할 수 없습니다.')

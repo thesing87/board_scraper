@@ -4,7 +4,7 @@ from common import ROOT
 import tempfile, importlib.util, io, contextlib, threading, json, sqlite3, urllib.request
 os.environ.update(OUTPUT_DIR=tempfile.mkdtemp(), ADMIN_PASSWORD='Secr3t!', TELEGRAM_TOKEN='', LOG_LEVEL='WARN',
                   KEYWORDS_BASEBALL='삼성')
-import storage, web_server, scraper, config
+import storage, web_server, config
 
 storage.init_db()
 
@@ -29,58 +29,36 @@ legacy_dir = tempfile.mkdtemp()
 legacy = sqlite3.connect(os.path.join(legacy_dir, 'board.db'))
 storage._create_schema(legacy)
 legacy.execute("INSERT INTO meta(key, value) VALUES('schema_version', '1'), ('keyword_boards_migrated', '1')")
-legacy.execute("INSERT INTO keywords(board, keyword) VALUES('football_world', '손흥민')")
+legacy.execute("INSERT INTO keywords(board, keyword) VALUES('dc:football_new8', '손흥민')")
 legacy.commit(); legacy.close()
 with contextlib.closing(sqlite3.connect(os.path.join(legacy_dir, 'board.db'))) as conn:
     conn.row_factory = sqlite3.Row
     with conn:
         storage._seed_categories(conn)
     rows = {r['key']: dict(r) for r in conn.execute("SELECT * FROM categories")}
-assert rows['football_world']['status'] == 'ok' and rows['football_world']['name'] == 'football_world', rows
+assert rows['dc:football_new8']['status'] == 'ok' and rows['dc:football_new8']['name'] == 'dc:football_new8', rows
 print('LEGACY SEED OK')
 
-# --- 3) 주소·mid 입력 해석
+# --- 3) 주소 입력 해석: 디시 갤러리만 (에펨코리아는 수집하지 않음)
 cases = {
-    'hotdeal': 'hotdeal',
-    ' HotDeal ': 'hotdeal',
-    'https://www.fmkorea.com/hotdeal': 'hotdeal',
-    'https://m.fmkorea.com/football_world': 'football_world',
-    'fmkorea.com/index.php?mid=stock&page=2': 'stock',
-    'https://www.fmkorea.com/index.php?mid=car&search_keyword=x': 'car',
-    'https://www.fmkorea.com/12345': None,       # 글 주소
-    '12345': None,
-    'https://www.fmkorea.com/': None,
-    'https://example.com/hotdeal': None,
-    'https://fmkorea.com.evil.com/hotdeal': None,
-    'hot deal': None,
+    'https://gall.dcinside.com/board/lists/?id=football_new8': 'dc:football_new8',
+    'dc:Football_New8': 'dc:football_new8',
+    'hotdeal': None,
+    'https://www.fmkorea.com/hotdeal': None,
+    'fmkorea.com/index.php?mid=stock&page=2': None,
+    'https://example.com/board/lists/?id=x': None,
     '': None,
 }
 for text, expected in cases.items():
     assert web_server.board_key_from_input(text) == expected, (text, web_server.board_key_from_input(text))
 print('INPUT PARSE OK')
 
-# --- 4) 게시판 확인 (표 형태 목록인지)
-class Page:
-    def __init__(self, html, title): self.page_source, self.title, self.urls = html, title, []
-    def get(self, url): self.urls.append(url)
-scraper.WebDriverWait = lambda d, t: type('W', (), {'until': lambda self, c: True})()
-scraper.time.sleep = lambda s: None
-table = '<div class="bd_lst_wrp"><table class="bd_lst"><tbody><tr><td class="title"><a class="hx" href="/123">t</a></td></tr></tbody></table></div>'
-cards = '<div class="fm_best_widget"><ul><li class="li"><h3 class="title"><a href="/123">t</a></h3></li></ul></div>'
-page = Page(table, '핫딜 - 에펨코리아')
-assert scraper.check_board(page, 'hotdeal') == (True, '핫딜') and page.urls == ['https://www.fmkorea.com/index.php?mid=hotdeal']
-ok, reason = scraper.check_board(Page(cards, '핫딜 - 에펨코리아'), 'hotdeal')
-assert not ok and '핫딜 - 에펨코리아' in reason, reason
-assert scraper.check_board(Page('<table class="bd_lst"><tbody></tbody></table>', 'x'), 'x')[0] is False
-assert scraper.board_title('캐스퍼 - 자동차 - 에펨코리아') == '자동차' and scraper.board_title('') == ''
-print('CHECK BOARD OK')
-
 # --- 5) 메인 루프: 추가한 카테고리는 확인 전에는 수집하지 않고, 확인되면 다음 주기부터 수집.
 #        수집할 수 없는 게시판은 차단 의심으로 보지 않음 (대기 시간·텔레그램 그대로)
-storage.add_category('football_world')           # 이름 없이 추가 → 게시판 제목으로 채움
-storage.add_category('wrongmid', '오타')
-storage.save_group(None, '해외축구 모음', [{'board': 'football_world', 'keyword': '손흥민'}, {'board': 'wrongmid', 'keyword': 'x'}])
-assert 'football_world' not in storage.load_keywords() and storage.pending_categories() == ['football_world', 'wrongmid']
+storage.add_category('dc:football_new8')           # 이름 없이 추가 → 게시판 제목으로 채움
+storage.add_category('dc:wrongid', '오타')
+storage.save_group(None, '해외축구 모음', [{'board': 'dc:football_new8', 'keyword': '손흥민'}, {'board': 'dc:wrongid', 'keyword': 'x'}])
+assert 'dc:football_new8' not in storage.load_keywords() and storage.pending_categories() == ['dc:football_new8', 'dc:wrongid']
 
 spec = importlib.util.spec_from_file_location('m', os.path.join(ROOT, 'app', 'fmkorea-scraper.py'))
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
@@ -89,19 +67,16 @@ class FakeDriver:
     def quit(self): pass
 m.create_driver = lambda: FakeDriver()
 m.run_api_server = lambda: None
-# 시험에서는 쉬는 시간이 실제로 흐르지 않으므로 에펨코리아도 매 주기 확인하게 함
-m.FM_CHECK_INTERVAL = 0
 state = {'cycle': 0, 'list_calls': [], 'checks': [], 'sleeps': [], 'telegram': []}
 def fake_list(driver, board, keyword, page=1):
     state['list_calls'].append((state['cycle'], board))
     return []
 def fake_check(driver, board):
     state['checks'].append((state['cycle'], board))
-    if board == 'football_world':
+    if board == 'dc:football_new8':
         return True, '해외축구'
-    return False, '글 목록(표)이 없는 페이지 (제목: 에펨코리아)'
+    return False, '갤러리 목록(표)이 없는 페이지 (제목: 디시인사이드)'
 m.get_list_page_posts = fake_list
-import common; common.search_every_cycle(m)
 m.check_board = fake_check
 m.send_telegram_message = lambda text: state['telegram'].append(text)
 def fake_sleep(s):
@@ -113,27 +88,27 @@ m.time.sleep = fake_sleep
 with contextlib.redirect_stdout(io.StringIO()):
     m.main()
 print('checks', state['checks'], 'list calls', sorted(set(state['list_calls'])))
-assert state['checks'] == [(0, 'football_world'), (0, 'wrongmid')], state['checks']
-assert (0, 'football_world') not in state['list_calls'] and (1, 'football_world') in state['list_calls']
-assert not any(b == 'wrongmid' for _, b in state['list_calls'])
+assert state['checks'] == [(0, 'dc:football_new8'), (0, 'dc:wrongid')], state['checks']
+assert (0, 'dc:football_new8') not in state['list_calls'] and (1, 'dc:football_new8') in state['list_calls']
+assert not any(b == 'dc:wrongid' for _, b in state['list_calls'])
 assert state['sleeps'] == [config.CHECK_INTERVAL] * 3 and state['telegram'] == [], (state['sleeps'], state['telegram'])
 cats = {c['key']: c for c in storage.list_categories()}
-assert cats['football_world']['status'] == 'ok' and cats['football_world']['name'] == '해외축구', cats['football_world']
-assert cats['wrongmid']['status'] == 'invalid' and cats['wrongmid']['name'] == '오타' and '표' in cats['wrongmid']['message']
-assert storage.load_keywords()['football_world'] == ['손흥민'] and 'wrongmid' not in storage.load_keywords()
+assert cats['dc:football_new8']['status'] == 'ok' and cats['dc:football_new8']['name'] == '해외축구', cats['dc:football_new8']
+assert cats['dc:wrongid']['status'] == 'invalid' and cats['dc:wrongid']['name'] == '오타' and '표' in cats['dc:wrongid']['message']
+assert storage.load_keywords()['dc:football_new8'] == ['손흥민'] and 'dc:wrongid' not in storage.load_keywords()
 print('MAIN LOOP OK')
 
 # 차단 의심 주기에는 확인하지 않음 (차단 화면을 잘못된 게시판으로 오판하지 않도록)
-storage.recheck_category('wrongmid')
+storage.recheck_category('dc:wrongid')
 state.update(cycle=0, checks=[], sleeps=[], telegram=[])
 def blocked_list(driver, board, keyword, page=1):
     if state['cycle'] == 0:
-        raise m.BlockedError('게시판 목록이 아닌 페이지 응답 (제목: Just a moment...)')
+        raise m.BlockedError('갤러리 목록이 아닌 페이지 응답 (제목: Just a moment...)')
     return []
 m.get_list_page_posts = blocked_list
 with contextlib.redirect_stdout(io.StringIO()):
     m.main()
-assert state['checks'] == [(1, 'wrongmid')], state['checks']
+assert state['checks'] == [(1, 'dc:wrongid')], state['checks']
 print('BLOCKED CYCLE SKIP OK')
 
 # --- 6) 관리 API
@@ -152,22 +127,22 @@ def get_state():
     with urllib.request.urlopen(base + '/api/state') as res:
         return json.load(res)
 
-assert post({'action': 'create', 'input': 'https://www.fmkorea.com/stock'}, password='wrong')[0] == 401
-status, data = post({'action': 'create', 'input': 'https://www.fmkorea.com/stock'})
-assert status == 200 and data['key'] == 'stock', data
-assert post({'action': 'create', 'input': 'stock'})[0] == 400                      # 중복
-assert post({'action': 'create', 'input': 'https://www.fmkorea.com/1234'})[0] == 400  # 글 주소
+assert post({'action': 'create', 'input': 'https://gall.dcinside.com/board/lists/?id=stock_new2'}, password='wrong')[0] == 401
+status, data = post({'action': 'create', 'input': 'https://gall.dcinside.com/board/lists/?id=stock_new2'})
+assert status == 200 and data['key'] == 'dc:stock_new2', data
+assert post({'action': 'create', 'input': 'dc:stock_new2'})[0] == 400                      # 중복
+assert post({'action': 'create', 'input': 'https://www.fmkorea.com/stock'})[0] == 400  # 에펨코리아는 추가 못 함
 assert post({'action': 'create', 'input': 'x', 'name': '가' * 21})[0] == 400
 boards = {b['key']: b for b in get_state()['boards']}
-assert boards['stock']['status'] == 'pending' and boards['stock']['name'] == 'stock'
-assert boards['football_world']['groups'] == ['해외축구 모음']
+assert boards['dc:stock_new2']['status'] == 'pending'
+assert boards['dc:football_new8']['groups'] == ['해외축구 모음']
 
-assert post({'action': 'rename', 'key': 'stock', 'name': '주식'})[0] == 200
+assert post({'action': 'rename', 'key': 'dc:stock_new2', 'name': '주식'})[0] == 200
 assert post({'action': 'rename', 'key': 'nope', 'name': '주식'})[0] == 400
-assert post({'action': 'rename', 'key': 'stock', 'name': ' '})[0] == 400
+assert post({'action': 'rename', 'key': 'dc:stock_new2', 'name': ' '})[0] == 400
 # 확인 대기 중인 카테고리에도 키워드를 미리 등록할 수 있음 (확인되면 수집)
 req = urllib.request.Request(base + '/api/group', data=json.dumps({
-    'action': 'create', 'name': '주식', 'members': [{'board': 'stock', 'keyword': '삼전'}], 'password': 'Secr3t!'}).encode(),
+    'action': 'create', 'name': '주식', 'members': [{'board': 'dc:stock_new2', 'keyword': '삼전'}], 'password': 'Secr3t!'}).encode(),
     headers={'Content-Type': 'application/json'})
 assert json.load(urllib.request.urlopen(req))['success']
 st = get_state()
@@ -183,13 +158,13 @@ except urllib.error.HTTPError as e:
     assert e.code == 400
 
 # 키워드가 등록된 카테고리는 삭제 거부, 키워드를 빼면 삭제 가능
-status, data = post({'action': 'delete', 'key': 'stock'})
+status, data = post({'action': 'delete', 'key': 'dc:stock_new2'})
 assert status == 400 and '주식' in data['message'], data
-assert post({'action': 'recheck', 'key': 'stock'})[0] == 400                       # 실패 상태가 아님
+assert post({'action': 'recheck', 'key': 'dc:stock_new2'})[0] == 400                       # 실패 상태가 아님
 storage.delete_group(next(g for g in st['groups'] if g['name'] == '주식')['id'])
-assert post({'action': 'delete', 'key': 'stock'})[0] == 200
-assert 'stock' not in storage.category_names()
-assert post({'action': 'recheck', 'key': 'wrongmid'})[0] == 200
+assert post({'action': 'delete', 'key': 'dc:stock_new2'})[0] == 200
+assert 'dc:stock_new2' not in storage.category_names()
+assert post({'action': 'recheck', 'key': 'dc:wrongid'})[0] == 200
 assert post({'action': 'drop'})[0] == 400
 srv.shutdown()
 print('API OK')

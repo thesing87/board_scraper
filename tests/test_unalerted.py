@@ -12,9 +12,13 @@ spec = importlib.util.spec_from_file_location('m', os.path.join(ROOT, 'app', 'fm
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 
 storage.init_db()
-casper, _ = storage.save_group(None, '캐스퍼', [{'board': 'car', 'keyword': '캐스퍼'}])
-ev, _ = storage.save_group(None, '전기차', [{'board': 'car', 'keyword': 'EV'}])
-order = storage.load_keywords()['car']
+B = 'dc:car_new1'
+storage.add_category(B)
+storage.set_category_checked(B, True, page_name='자동차 갤러리')
+casper, _ = storage.save_group(None, '캐스퍼', [{'board': B, 'keyword': '캐스퍼'}])
+ev, _ = storage.save_group(None, '전기차', [{'board': B, 'keyword': 'EV'}])
+storage.mark_first_page_filled(B, '캐스퍼'); storage.mark_first_page_filled(B, 'EV')
+order = storage.load_keywords()[B]
 assert sorted(order) == ['EV', '캐스퍼'], order
 
 class FakeDriver:
@@ -27,6 +31,7 @@ m.restart_if_hung = lambda driver: driver
 state = {'cycle': 0, 'new_id': None, 'alerts': []}
 
 def info(pid, title):
+    pid = f'dc-car_new1-{pid}'
     return {'id': pid, 'title': title, 'author': 'a', 'date': '', 'link': f'/{pid}', 'list_comment_count': 0,
             'list_views': '1', 'list_votes': '0'}
 def fake_list(driver, board, keyword, page=1):
@@ -41,7 +46,6 @@ def fake_sleep(s):
     state['cycle'] += 1
     raise KeyboardInterrupt
 m.get_list_page_posts = fake_list
-import common; common.search_every_cycle(m)
 m.scrape_post_detail = fake_detail
 m.send_post_alert = lambda post, boards, keyword, board_name, *urls: state['alerts'].append((post['id'], boards, keyword))
 m.time.sleep = fake_sleep
@@ -64,20 +68,20 @@ first, second = order
 names = {'캐스퍼': '캐스퍼', 'EV': '전기차'}
 set_alerts(casper_on=(second == '캐스퍼'), ev_on=(second == 'EV'))
 alerts = run_cycle('201')
-assert alerts == [('201', [names[second]], second)], alerts
+assert alerts == [('dc-car_new1-201', [names[second]], second)], alerts
 print('LATER KEYWORD ALERT OK')
 
 # 2) 처음 키워드에서 알림을 보냈으면 나중 키워드에서는 보내지 않음 (둘 다 알림 켬)
 set_alerts(True, True)
 alerts = run_cycle('202')
-assert alerts == [('202', [names[first]], first)], alerts
+assert alerts == [('dc-car_new1-202', [names[first]], first)], alerts
 print('NO DUPLICATE OK')
 
 # 3) 둘 다 알림 끔 → 알림 없음. 기억은 남았다가 하루 한 번 정리로 지워짐
 set_alerts(False, False)
 assert run_cycle('203') == []
 with storage._db() as conn:
-    assert conn.execute("SELECT post_id FROM unalerted_posts").fetchall()[0]['post_id'] == '203'
+    assert conn.execute("SELECT post_id FROM unalerted_posts").fetchall()[0]['post_id'] == 'dc-car_new1-203'
     conn.execute("UPDATE unalerted_posts SET collected_at = '2000-01-01 00:00:00'")
     conn.commit()
 assert storage.prune_unalerted_posts(24) == 1

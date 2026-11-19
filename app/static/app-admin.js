@@ -369,7 +369,7 @@ async function toggleGroupPause(groupId, button) {
     }
 }
 
-// ---------- 카테고리 (수집할 에펨코리아 게시판. 추가하면 수집기가 다음 주기에 확인) ----------
+// ---------- 카테고리 (수집할 디시 갤러리. 추가하면 수집기가 다음 주기에 확인) ----------
 const CATEGORY_STATUS = {
     pending: { label: '확인 대기', cls: 'cat-pending' },
     ok: { label: '수집 중', cls: 'cat-ok' },

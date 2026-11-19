@@ -26,7 +26,7 @@ assert key('gall.dcinside.com/board/view/?id=car_new1&no=11561402&page=1') == 'd
 assert key('dc:Car_New1') == 'dc:car_new1'
 assert key('https://gall.dcinside.com/mgallery/board/lists/?id=rezero') is None   # 마이너 갤러리는 아직 미지원
 assert key('https://gall.dcinside.com/board/lists/') is None
-assert key('https://www.fmkorea.com/hotdeal') == 'hotdeal' and key('car') == 'car'
+assert key('https://www.fmkorea.com/hotdeal') is None and key('car') is None   # 에펨코리아는 수집하지 않음
 assert key('https://example.com/board/lists/?id=car_new1') is None
 print('INPUT OK')
 
