@@ -12,6 +12,7 @@
         { key: 'home', href: '/', label: '대시보드', short: '홈', color: '#374151', icon: GRID },
         { key: 'board', href: '/board/#home', label: '게시판', short: '게시판', color: '#185FA5', icon: '<circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path>' },
         { key: 'popular', href: '/board/#popular', label: '인기글', short: '인기글', color: '#C2410C', icon: '<path d="M12 3c.5 3 4 5.2 4 9.5a4 4 0 0 1-8 0c0-1.8.8-3 2-4 .2 1.7 1 2.6 2 2.8-.3-3 .2-5.6 0-8.3z"></path>' },
+        { key: 'links', href: '/links/', label: '에펨 링크', short: '에펨', color: '#993C1D', icon: '<path d="M14 4h6v6"></path><path d="M10 14L20 4"></path><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"></path>' },
         { key: 'apt', href: '/apt/', label: '실거래가', short: '실거래', color: '#993556', icon: '<rect x="5" y="3" width="14" height="18" rx="1.5"></rect><path d="M9 7h1.5M13.5 7H15M9 11h1.5M13.5 11H15M9 15h1.5M13.5 15H15"></path>' },
         { key: 'card', adminOnly: true, href: '/card/', label: '카드', short: '카드', color: '#534AB7', icon: '<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 10h18"></path>' },
         { key: 'ev', href: '/ev/', label: '유지비', short: '유지비', color: '#0F6E56', icon: '<path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"></path>' },

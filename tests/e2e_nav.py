@@ -21,9 +21,9 @@ BASE = f'http://127.0.0.1:{port}'
 srv = web_server.ThreadedHTTPServer(('127.0.0.1', port), web_server.KeywordAPIServer)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 
-PAGES = {'/': 'home', '/card/': 'card', '/apt/': 'apt', '/stats/': 'stats', '/ev/': 'ev', '/board/': 'board', '/games/': 'games', '/games/sudoku/': 'games', '/comics/': 'comics'}
+PAGES = {'/': 'home', '/card/': 'card', '/apt/': 'apt', '/stats/': 'stats', '/ev/': 'ev', '/board/': 'board', '/games/': 'games', '/games/sudoku/': 'games', '/comics/': 'comics', '/links/': 'links'}
 ADMIN_ONLY = ('card', 'comics', 'videos')
-KEYS = ['home', 'board', 'popular', 'apt', 'card', 'ev', 'games', 'comics', 'videos', 'stats']
+KEYS = ['home', 'board', 'popular', 'links', 'apt', 'card', 'ev', 'games', 'comics', 'videos', 'stats']
 o = Options()
 for a in ['--headless=new', '--window-size=1280,900']:
     o.add_argument(a)

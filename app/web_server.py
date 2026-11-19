@@ -32,6 +32,7 @@ from sites import is_post_id, board_site, site_enabled, SITE_NAMES, DC_BOARD_PRE
 from images import image_file, IMAGE_URL_PREFIX
 from storage import (
     init_db,
+    fm_links_by_group,
     keyword_pairs,
     set_group_alert,
     set_group_popular,
@@ -144,6 +145,10 @@ STATIC_FILES = {
     # 전기차 vs 내연기관 유지비 계산기
     '/ev/': ('ev.html', 'text/html; charset=utf-8'),
     '/ev.js': ('ev.js', 'application/javascript; charset=utf-8'),
+    # 에펨코리아 바로가기 (수집하지 않고 검색 링크만 모아 보여 줌)
+    '/links/': ('links.html', 'text/html; charset=utf-8'),
+    '/links.js': ('links.js', 'application/javascript; charset=utf-8'),
+    '/links.css': ('links.css', 'text/css; charset=utf-8'),
     # 수집 통계
     '/stats/': ('stats.html', 'text/html; charset=utf-8'),
     '/stats.js': ('stats.js', 'application/javascript; charset=utf-8'),
@@ -447,7 +452,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         try:
             if pure_path in STATIC_FILES:
                 self._serve_static(*STATIC_FILES[pure_path])
-            elif pure_path in ('/board', '/ev', '/card', '/stats', '/apt', '/games', '/games/sudoku', '/comics', '/videos'):
+            elif pure_path in ('/board', '/ev', '/card', '/stats', '/apt', '/games', '/games/sudoku', '/comics', '/videos', '/links'):
                 # 끝 슬래시 없이 들어오면 붙여서 (페이지 안의 상대 주소가 맞도록)
                 self._send_body(301, b'', 'text/plain; charset=utf-8', {'Location': pure_path + '/'})
             elif pure_path in ('/index.html/board', '/index.html/board/'):
@@ -498,6 +503,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._handle_videos_get(pure_path, query)
             elif pure_path.startswith(IMAGE_URL_PREFIX):
                 self._serve_image(pure_path[len(IMAGE_URL_PREFIX):])
+            elif pure_path == '/api/fm-links':
+                self._send_data(200, {'groups': fm_links_by_group()})
             elif pure_path == '/api/state':
                 self._send_data(200, build_state())
             elif pure_path == '/api/posts' and 'ids' in query:

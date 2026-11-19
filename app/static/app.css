@@ -309,14 +309,7 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 
 .feed-head-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .feed-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-/* 에펨코리아 바로가기 줄 (게시판 제목 아래): 누르면 새 창에서 에펨코리아 검색 */
-.fm-links { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.fm-links-label { font-size: 12px; color: var(--text-3); margin-right: 2px; }
-.fm-link { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border);
-    background: var(--surface); color: var(--text); font-size: 13px; text-decoration: none; }
-.fm-link:hover { border-color: var(--accent); color: var(--accent); }
-.fm-link svg { color: var(--text-3); }
-.fm-link-board { font-size: 11px; color: var(--text-3); }
+/* 게시판 편집의 에펨코리아 바로가기: 열어 보기 버튼 */
 .fm-link-try { display: inline-flex; color: var(--text-3); }
 .fm-links-hint { margin-top: 6px; }
 .btn-small { height: 28px; padding: 0 10px; font-size: 12px; border-radius: 8px; }

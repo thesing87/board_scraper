@@ -68,14 +68,7 @@ try:
     js("document.querySelectorAll('[data-action=\"remove-draft-fmlink\"]')[1].click()"); time.sleep(0.2)
     js("document.querySelector('[data-action=\"save-group\"]').click()"); time.sleep(2)
     assert links(tesla) == [{'board': 'car', 'keyword': '테슬라'}, {'board': 'football_world', 'keyword': '손흥민'}], links(tesla)
-    # 저장하면 그 게시판이 열림: 제목 아래 바로가기 줄 (게시판이 둘 이상이면 게시판 이름도)
-    chips = js("return [...document.querySelectorAll('.fm-links .fm-link')].map(a => [a.textContent.trim(), a.href, a.target])")
-    print('chips', chips)
-    q = urllib.parse.quote('테슬라')
-    assert chips[0][1] == f'https://www.fmkorea.com/index.php?mid=car&search_target=title_content&search_keyword={q}' and chips[0][2] == '_blank'
-    assert chips[0][0].endswith('테슬라') and 'football_world' in chips[1][1]
-    # 바로가기 없는 게시판은 줄이 없음
-    js("openBoard(ALL_KEY)"); time.sleep(1.2)
+    # 게시판 화면에는 링크 줄이 없음 (링크는 '에펨 링크' 페이지에서 모아 봄)
     assert not js("return document.querySelector('.fm-links')")
     js(f"openBoard('group:{mixed}')"); time.sleep(1.2)
     sub = js("return document.querySelector('.feed-sub').textContent")
@@ -89,12 +82,32 @@ try:
     assert st == 200 and links(tesla)[-1] == {'board': '', 'keyword': 'gpt'} and len(links(tesla)) == 3, links(tesla)
     print('MERGE OK')
 
-    # 대시보드 카드
+    # 에펨 링크 페이지: 게시판마다 링크, 게시판이 여러 곳이면 키워드마다 게시판 이름, 거르기
+    d.get(BASE + '/links/'); time.sleep(2)
+    assert js("return document.querySelector('.site-nav [aria-current=page]').dataset.nav") == 'links'
+    cards = js("return [...document.querySelectorAll('.link-group')].map(g => [g.querySelector('.link-group-name').textContent, [...g.querySelectorAll('.link-chip')].map(a => [a.textContent.trim(), a.href, a.target])])")
+    print('cards', cards)
+    q = urllib.parse.quote('테슬라')
+    assert [c[0] for c in cards] == ['테슬라'], cards
+    chips = cards[0][1]
+    assert chips[0][1] == f'https://www.fmkorea.com/index.php?mid=car&search_target=title_content&search_keyword={q}' and chips[0][2] == '_blank'
+    assert chips[0][0] == '자동차테슬라' and chips[2][0] == '전체gpt' and 'football_world' in chips[1][1], chips
+    assert js("return document.getElementById('links-count').textContent") == '링크 3개'
+    js("const f = document.getElementById('links-filter'); f.value = '손흥'; f.dispatchEvent(new Event('input'))"); time.sleep(0.2)
+    got = js("return [...document.querySelectorAll('.link-chip')].map(a => a.textContent.trim())"); assert got == ['football_world손흥민'], got
+    assert js("return document.getElementById('links-count').textContent") == '1 / 3개'
+    d.set_window_size(390, 844); time.sleep(0.5)
+    assert js("return document.documentElement.scrollWidth <= innerWidth")
+    d.set_window_size(1440, 900)
+    print('LINKS PAGE OK')
+
+    # 대시보드 카드 (머리를 누르면 링크 페이지)
     d.get(BASE + '/'); time.sleep(2.5)
     body = js("return document.getElementById('fmlinks-body').textContent")
     hrefs = js("return [...document.querySelectorAll('#fmlinks-body .fm-chip')].map(a => a.href)")
     assert '테슬라' in body and len(hrefs) == 3 and hrefs[2] == 'https://www.fmkorea.com/search.php?act=IS&is_keyword=gpt', hrefs
     assert js("return document.getElementById('fmlinks-sub').textContent") == '검색 링크 3개 · 새 창'
+    assert js("return document.querySelector('#card-fmlinks .card-head').getAttribute('href')") == '/links/'
     d.set_window_size(390, 844); time.sleep(0.5)
     assert js("return document.documentElement.scrollWidth <= innerWidth")
     print('DASHBOARD OK')
