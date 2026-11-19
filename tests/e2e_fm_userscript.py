@@ -78,6 +78,9 @@ o = Options()
 for a in ['--headless=new', '--window-size=1280,900']:
     o.add_argument(a)
 d = Chrome(options=o)
+# 시험 중에는 에펨코리아로 가는 요청을 크롬에서 모두 막음 (이동하려 한 주소만 확인)
+d.execute_cdp_cmd('Network.enable', {})
+d.execute_cdp_cmd('Network.setBlockedURLs', {'urls': ['*fmkorea.com*']})
 try:
     # PC: 위에 고정, 지금 보는 검색(테슬라)이 들어 있는 게시판, 연 시각·7일 넘으면 주황
     page(d, 'mid=car&search_target=title_content&search_keyword=%ED%85%8C%EC%8A%AC%EB%9D%BC')
@@ -89,7 +92,7 @@ try:
     assert got[0][0].startswith('▾ 테슬라') and got[0][1] and got[1] == ['▸ AI 1', False], got
     got = chips(d)
     assert got[0][0].startswith('테슬라') and got[0][1] and not got[0][2] and got[1][0].startswith('모델y') and got[1][2], got
-    assert '아직 안 봄' in got[0][0] and float(d.execute_script("return document.documentElement.style.paddingTop")[:-2]) > 20
+    assert '지금 보는 중' in got[0][0] and float(d.execute_script("return document.documentElement.style.paddingTop")[:-2]) > 20
     # AI 펼치기·테슬라 접기 (기억)
     d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{ai}"]')); time.sleep(0.2)
     d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{tesla}"]')); time.sleep(0.2)
@@ -97,10 +100,10 @@ try:
     assert [b[1] for b in got[0]] == [False, True] and len(got[1]) == 1 and got[1][0][0].startswith('gpt') and got[2] == f'[{ai}]', got
     page(d, 'mid=car&search_keyword=x')
     assert [b[1] for b in boxes()] == [False, True]
-    # 누르면 연 시각을 남기고 같은 탭에서 이동 (시험에서는 이동할 주소를 로컬로 바꿔 에펨코리아에 접속하지 않음)
-    d.execute_script("const a = arguments[0]; a.href = location.origin + '/api/fm-links?moved=1'; a.click()", bar(d, 'a.chip'))
+    # 누르면 연 시각을 남기고 같은 탭에서 그 검색으로 이동 (에펨코리아 요청은 막아 둬서 주소만 확인)
+    d.execute_script("arguments[0].click()", bar(d, 'a.chip'))
     time.sleep(1.5)
-    assert 'moved=1' in d.current_url, d.current_url
+    assert 'is_keyword=gpt' in d.current_url, d.current_url
     assert [l for g in storage.list_groups() if g['id'] == ai for l in g['fm_links']][0]['last_opened']
     # 접기·펴기 (기억)
     page(d, 'mid=car&search_keyword=x')
@@ -165,6 +168,46 @@ try:
     assert not gone()                                                   # 맨 아래에 닿으면 보임
     assert d.execute_script("return document.documentElement.scrollWidth <= innerWidth")
     print('MOBILE OK')
+
+    # 오늘 진행·다음 키워드·단축키, 지난번 이후 새 글 표시 (가짜 검색 결과 표)
+    d.set_window_size(1280, 900)
+    with storage._db() as conn, conn:
+        conn.execute("UPDATE fm_links SET last_opened = NULL")
+        conn.execute("UPDATE fm_links SET last_opened = datetime('now', 'localtime') WHERE keyword = '테슬라'")
+        conn.execute("UPDATE fm_links SET last_opened = '2025-01-01 00:00:00' WHERE keyword = '모델y'")
+    # 결과 표를 그린 뒤 스크립트를 다시 실행 (실제로는 표가 먼저 있는 화면에서 실행됨)
+    TESLA = 'mid=car&search_target=title_content&search_keyword=%ED%85%8C%EC%8A%AC%EB%9D%BC'
+    def visit(query, numbers):
+        rows = ''.join(f'<tr><td class="title"><a class="hx" href="/{9000000000 + n}">글 {n}</a></td></tr>' for n in numbers)   # 에펨코리아 글 번호처럼 긴 번호
+        for _ in range(3):
+            d.get(BASE + '/api/fm-links?' + query); time.sleep(0.5)
+            if d.current_url.startswith(BASE):
+                break
+        d.execute_script("document.body.innerHTML = arguments[0]", f'<table class="bd_lst"><tbody><tr class="notice"><td class="title"><a href="/1">공지</a></td></tr>{rows}</tbody></table>')
+        d.execute_script(SHIM + script); time.sleep(1.2)
+    d.execute_script("localStorage.clear()")
+    visit(TESLA, [105, 104, 103])
+    assert not d.execute_script("return document.querySelectorAll('.kmfm-new').length")          # 처음은 비교할 기록이 없음
+    assert '오늘 1/3' in d.execute_script("return arguments[0].textContent", bar(d, '.prog'))
+    nxt = d.execute_script("return arguments[0].textContent", bar(d, '[data-next]'))
+    assert nxt.startswith('다음 ▶') and nxt.endswith('gpt'), nxt                                 # 안 본 것 먼저 (모델y는 봤던 적 있음)
+    visit(TESLA, [108, 107, 105, 104])
+    marked = d.execute_script("return [...document.querySelectorAll('tr.kmfm-new a')].map(a => a.textContent)")
+    assert marked == ['NEW글 108', 'NEW글 107'], marked
+    assert d.execute_script("return document.querySelector('tr.kmfm-new + tr.kmfm-line') !== null")
+    assert '이후 새 글 2개' in d.execute_script("return document.querySelector('.kmfm-note').textContent")
+    assert d.execute_script("return arguments[0].textContent", bar(d, 'a.chip.on .newb')) == '새 2'
+    # 2페이지는 기억을 바꾸지 않음
+    visit(TESLA + '&page=2', [99, 98])
+    visit(TESLA, [108, 107, 105])
+    assert not d.execute_script("return document.querySelectorAll('.kmfm-new').length")
+    # 다음 ▶ 과 ] 단축키: 오늘 안 본 것 중 가장 오래 안 본 것으로 이동 (시험에서는 이동 대신 주소만 확인)
+    d.execute_script("arguments[0].click()", bar(d, '[data-next]')); time.sleep(1.5)
+    assert 'is_keyword=gpt' in d.current_url, d.current_url
+    with storage._db() as conn:
+        opened = conn.execute("SELECT last_opened FROM fm_links WHERE keyword = 'gpt'").fetchone()[0]
+    assert opened and opened[:10] == time.strftime('%Y-%m-%d'), opened
+    print('NEXT AND NEW POSTS OK')
 
     # 실제처럼 페이지가 막 열릴 때(본문이 생기기 전) 실행: 기억한 목록으로 줄을 바로 붙이고, 본문이 생긴 뒤에도 그대로
     d.set_window_size(1280, 900)

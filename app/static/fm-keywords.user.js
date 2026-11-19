@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.0.4
+// @version      1.1.0
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -120,6 +120,16 @@
         a.chip.stale { border-color: #EF9F27; }
         a.chip.on { background: #993C1D; border-color: #993C1D; color: #fff; }
         a.chip.on small { color: #F5C4B3; }
+        a.chip { position: relative; }
+        a.chip.done { opacity: .55; }
+        a.chip.on.done { opacity: 1; }
+        .newb { position: absolute; top: -7px; right: -7px; background: #185FA5; color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; padding: 0 5px; line-height: 15px; }
+        .prog { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #712B13; white-space: nowrap; }
+        .pbar { width: 56px; height: 5px; border-radius: 3px; background: #F5C4B3; overflow: hidden; }
+        .pbar i { display: block; height: 100%; background: #993C1D; }
+        .side .next { border: 0; border-radius: 8px; background: #993C1D; color: #fff; font-size: 12px; font-weight: 700; padding: 4px 10px; cursor: pointer; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+        .side .next small { font-weight: 400; opacity: .85; margin-left: 2px; }
+        .side .next.alldone { background: #fff; color: #3B6D11; border: 1px solid #97C459; cursor: default; }
         .side { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: 0 0 auto; white-space: nowrap; }
         .side a, .side button { font: inherit; font-size: 12px; color: #993C1D; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: none; }
         .mini { display: flex; justify-content: center; padding: 4px 0 calc(4px + env(safe-area-inset-bottom, 0px)); cursor: pointer; color: #993C1D; font-size: 12px; font-weight: 700; }
@@ -152,10 +162,30 @@
         if (!mobileTouched && currentGroup()) return currentGroup().id;
         return groups.some(g => g.id === saved) ? saved : groups[0].id;
     }
+    // 오늘 연 키워드 (날짜가 바뀌면 처음부터)
+    const pad2 = n => String(n).padStart(2, '0');
+    const nowText = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; };
+    const openedToday = l => !!l.last_opened && l.last_opened.slice(0, 10) === nowText().slice(0, 10);
+    const allLinks = () => groups.flatMap(g => g.links.map(l => ({ g, l })));
+    // 다음 키워드: 오늘 아직 안 본 것 중 가장 오래 안 본 것 (안 본 것 먼저, 같으면 등록 순). 지금 보는 것은 빼고
+    function nextLink() {
+        const key = x => (x.l.last_opened ? new Date(x.l.last_opened.replace(' ', 'T')).getTime() : -1);
+        return allLinks().map((x, i) => ({ ...x, i })).filter(x => !openedToday(x.l) && !isCurrent(x.l))
+            .sort((a, b) => key(a) - key(b) || a.i - b.i)[0] || null;
+    }
+    let newCount = 0;   // 지금 보는 검색 결과에서 지난번 이후 새 글 수 (지금 보는 칩에 표시)
     const chipHtml = (g, l) => `
-        <a class="chip${isCurrent(l) ? ' on' : ''}${isStale(l.last_opened) ? ' stale' : ''}" href="${esc(searchUrl(l.board, l.keyword))}"
+        <a class="chip${isCurrent(l) ? ' on' : ''}${isStale(l.last_opened) ? ' stale' : ''}${openedToday(l) ? ' done' : ''}" href="${esc(searchUrl(l.board, l.keyword))}"
            data-board="${esc(l.board)}" data-keyword="${esc(l.keyword)}" data-group="${g.id}">
-            ${esc(l.keyword)}${MOBILE ? '' : `<small>${esc(agoText(l.last_opened))}</small>`}</a>`;
+            ${esc(l.keyword)}${MOBILE ? '' : `<small>${esc(isCurrent(l) ? '지금 보는 중' : agoText(l.last_opened))}</small>`}${isCurrent(l) && newCount ? `<span class="newb">${MOBILE ? '' : '새 '}${newCount}</span>` : ''}</a>`;
+    function progressHtml() {
+        const all = allLinks(), done = all.filter(x => openedToday(x.l)).length;
+        const next = nextLink();
+        const nextBtn = next
+            ? `<button class="next" data-next title="오늘 아직 안 본 키워드 중 가장 오래 안 본 것 (단축키 ])">다음 ▶${MOBILE ? '' : `<small>${esc(next.l.keyword)}</small>`}</button>`
+            : `<span class="next alldone">오늘 모두 확인 ✓</span>`;
+        return `<span class="prog" title="오늘 연 키워드">오늘 ${done}/${all.length}${MOBILE ? '' : `<span class="pbar"><i style="width:${all.length ? Math.round(done / all.length * 100) : 0}%"></i></span>`}</span>${nextBtn}`;
+    }
     const countHtml = g => `<span class="cnt">${g.links.length}${staleCount(g) ? ` · 오래 안 봄 <b>${staleCount(g)}</b>` : ''}</span>`;
 
     function render(message) {
@@ -167,7 +197,7 @@
         } else if (folded) {
             html = `<div class="bar ${place} mini" data-unfold>FM키워드 ${MOBILE ? '▴' : '▾'}</div>`;
         } else {
-            const side = `<span class="side">${MOBILE ? '' : `<a href="${SITE}/board/#fm" target="_blank" rel="noopener">키워드 모니터 ↗</a>`}<button data-fold>${MOBILE ? '숨기기 ▾' : '접기 ▴'}</button></span>`;
+            const side = `<span class="side">${progressHtml()}${MOBILE ? '' : `<a href="${SITE}/board/#fm" target="_blank" rel="noopener">키워드 모니터 ↗</a>`}<button data-fold>${MOBILE ? '숨기기 ▾' : '접기 ▴'}</button></span>`;
             if (MOBILE) {
                 // 윗줄: 묶음 이름 (누르면 아랫줄이 그 묶음으로, 같은 것을 다시 누르면 아랫줄 접힘), 아랫줄: 고른 묶음의 키워드
                 const picked = groups.find(g => g.id === mobileGroupId());
@@ -200,26 +230,42 @@
         if (active && MOBILE) active.scrollIntoView({ block: 'nearest', inline: 'center' });
     }
 
+    // 누른 시각을 남기고 같은 탭에서 그 검색으로 (새 화면에서 바로 '방금 전'으로 보이게 기억해 둔 목록에도 반영)
+    function openLink(group, link) {
+        link.last_opened = nowText();
+        GM_setValue(KEY_CACHE, JSON.stringify(groups));
+        const href = searchUrl(link.board, link.keyword);
+        let gone = false;
+        const go = () => { if (!gone) { gone = true; location.href = href; } };
+        request('POST', '/api/fm-link', { action: 'open', group_id: group.id, board: link.board, keyword: link.keyword }).then(go, go);
+        setTimeout(go, 800);
+    }
+    function goNext() { const next = nextLink(); if (next) openLink(next.g, next.l); }
+
+    // 단축키 (PC): ] 다음 키워드, [ 방금 보던 화면으로, \ 줄 펼치기·접기. 글을 쓰는 중이거나 Ctrl·Alt 등과 함께 누르면 무시
+    if (!MOBILE) {
+        document.addEventListener('keydown', e => {
+            if (e.ctrlKey || e.metaKey || e.altKey || !groups.length) return;
+            const t = e.target;
+            if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+            if (e.key === ']') { e.preventDefault(); goNext(); }
+            else if (e.key === '[') { e.preventDefault(); history.back(); }
+            else if (e.key === '\\') { e.preventDefault(); GM_setValue(KEY_FOLDED, !GM_getValue(KEY_FOLDED, false)); render(); }
+        }, true);
+    }
+
     root.addEventListener('click', e => {
         const chip = e.target.closest('a.chip');
         if (chip) {
             // 누른 시각을 남기고 같은 탭에서 그 검색으로
             if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
             e.preventDefault();
-            // 새 화면에서 바로 '방금 전'으로 보이게 기억해 둔 목록에도 반영
             const group = groups.find(g => g.id === Number(chip.dataset.group));
             const link = group && group.links.find(l => l.board === chip.dataset.board && l.keyword === chip.dataset.keyword);
-            if (link) {
-                const pad = n => String(n).padStart(2, '0'), now = new Date();
-                link.last_opened = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-                GM_setValue(KEY_CACHE, JSON.stringify(groups));
-            }
-            const go = () => { location.href = chip.href; };
-            request('POST', '/api/fm-link', { action: 'open', group_id: Number(chip.dataset.group), board: chip.dataset.board, keyword: chip.dataset.keyword })
-                .then(go, go);
-            setTimeout(go, 800);
+            if (link) openLink(group, link);
             return;
         }
+        if (e.target.closest('[data-next]')) { goNext(); return; }
         const toggle = e.target.closest('[data-toggle]');
         if (toggle) {
             const open = openIds();
@@ -284,6 +330,77 @@
         }, { passive: true });
     }
 
+    // ---------- 지난번 이후 새 글 표시 ----------
+    // 지금 보는 검색 결과(이미 브라우저에 떠 있는 화면)에서 글 번호만 읽어, 지난번 이 키워드 결과에서 본 가장 큰 글 번호보다 큰 글을 새 글로.
+    // 키워드 모니터 서버는 에펨코리아에 요청하지 않음. 첫 페이지를 볼 때만 기억을 새로 씀
+    const postNumber = href => {
+        const m = /document_srl=(\d+)/.exec(href || '') || /^\/(\d{5,})(?:[?#]|$)/.exec((href || '').replace(/^https?:\/\/[^/]+/, ''));
+        return m ? Number(m[1]) : 0;
+    };
+    function resultRows() {
+        let rows = [...document.querySelectorAll('table.bd_lst tbody tr:not(.notice)')];
+        let titleOf = row => row.querySelector('td.title a.hx') || row.querySelector('td.title a');
+        if (!rows.length) {   // 휴대폰 화면 등 표가 아닌 목록: 글로 가는 링크를 담은 줄
+            const seen = new Set();
+            rows = [];
+            document.querySelectorAll('a[href]').forEach(a => {
+                if (!postNumber(a.getAttribute('href')) || a.closest('#keyword-monitor-fm-bar, header, nav, .notice')) return;
+                const row = a.closest('li, tr');
+                if (row && !seen.has(row)) { seen.add(row); rows.push(row); }
+            });
+            titleOf = row => [...row.querySelectorAll('a[href]')].find(a => postNumber(a.getAttribute('href')));
+        }
+        return rows.map(row => ({ row, title: titleOf(row) })).filter(x => x.title)
+            .map(x => ({ ...x, no: postNumber(x.title.getAttribute('href')) })).filter(x => x.no);
+    }
+    function markNewPosts() {
+        const cur = allLinks().find(x => isCurrent(x.l));
+        if (!cur) return;
+        const rows = resultRows();
+        if (!rows.length) return;
+        const key = `fm_seen:${cur.l.board}|${cur.l.keyword}`;
+        const before = GM_getValue(key, null);
+        const page = Number(params.get('page') || 1);
+        const fresh = before ? rows.filter(x => x.no > before.max) : [];
+        if (fresh.length) {
+            const style = document.createElement('style');
+            style.textContent = `.kmfm-new { background: #E6F1FB !important; box-shadow: inset 3px 0 0 #185FA5; }
+                .kmfm-tag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; background: #185FA5; color: #fff; font-size: 11px; font-weight: 700; line-height: 17px; vertical-align: 1px; }
+                .kmfm-line td, li.kmfm-line { padding: 4px !important; text-align: center; color: #185FA5; font-size: 12px; border-bottom: 1px dashed #85B7EB; list-style: none; }
+                .kmfm-note { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: #E6F1FB; color: #0C447C; font-size: 13px; }`;
+            document.head.appendChild(style);
+            fresh.forEach(x => {
+                x.row.classList.add('kmfm-new');
+                const tag = document.createElement('span');
+                tag.className = 'kmfm-tag';
+                tag.textContent = 'NEW';
+                x.title.prepend(tag);
+            });
+            const last = fresh[fresh.length - 1].row;
+            const line = document.createElement(last.tagName === 'TR' ? 'tr' : 'li');
+            line.className = 'kmfm-line';
+            line.innerHTML = last.tagName === 'TR' ? '<td colspan="20">여기까지 새 글 · 아래는 지난번에 본 글</td>' : '여기까지 새 글 · 아래는 지난번에 본 글';
+            if (fresh.length < rows.length) last.after(line);
+            const note = document.createElement('div');
+            note.className = 'kmfm-note';
+            note.textContent = `지난번(${agoText(before.at)}) 이후 새 글 ${fresh.length}개${fresh.length === rows.length ? ' · 이 페이지가 모두 새 글' : ''}`;
+            const list = rows[0].row.closest('table, ul, ol') || rows[0].row;
+            list.parentNode.insertBefore(note, list);
+            newCount = fresh.length;
+            render();
+        }
+        if (page === 1) GM_setValue(key, { max: Math.max(before ? before.max : 0, ...rows.map(x => x.no)), at: nowText() });
+    }
+    // 화면이 다 그려지고 키워드 목록이 있을 때 한 번만 (처음 설치해 목록이 없으면 서버에서 받은 뒤)
+    let marked = false;
+    function tryMark() {
+        if (marked || !groups.length || document.readyState === 'loading') return;
+        marked = true;
+        markNewPosts();
+    }
+    document.addEventListener('DOMContentLoaded', tryMark, { once: true });
+    tryMark();
+
     // 기억해 둔 목록이 있으면 바로 그리고, 서버의 새 목록이 다를 때만 다시 그림 (처음 설치했을 때만 받을 때까지 기다림)
     if (groups.length) render();
     request('GET', '/api/fm-links').then(data => {
@@ -294,6 +411,6 @@
         GM_setValue(KEY_CACHE, json);
         groups = fresh;
         if (!groups.length) render('등록한 키워드가 없습니다');
-        else render();
+        else { render(); tryMark(); }
     }, () => { if (!groups.length) render('키워드 모니터에 연결하지 못했습니다'); });
 })();
