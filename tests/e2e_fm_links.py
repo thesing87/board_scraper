@@ -84,7 +84,7 @@ try:
 
     # FM키워드 (사이드바 맨 위): 게시판마다 링크, 게시판이 여러 곳이면 키워드마다 게시판 이름, 보기 탭은 숨김
     d.get(BASE + '/board/'); time.sleep(2)
-    side = js("return [...document.querySelectorAll('#keyword-groups .kw-item')].map(b => b.textContent.replace(/\s+/g, ' ').trim())")
+    side = js("return [...document.querySelectorAll('#keyword-groups .kw-item')].map(b => b.textContent.replace(/\\s+/g, ' ').trim())")
     assert side[0].startswith('FM키워드') and side[0].endswith('3') and side[1].startswith('전체'), side
     js("document.querySelector('#keyword-groups [data-action=\"open-fm\"]').click()"); time.sleep(0.8)
     assert js("return document.querySelector('.feed-title').textContent") == 'FM키워드'
