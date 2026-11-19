@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.5.1
+// @version      1.6.0
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
     const SITE = '__SITE__';
-    const VERSION = '1.5.1';
+    const VERSION = '1.6.0';
     // 오류로 멈추면 키워드 모니터 서버 기록에 한 줄 남김 (화면마다 한 번, 원인을 찾으려고. 에펨코리아 화면 내용은 보내지 않음)
     let reported = false;
     function reportError(where, err) {
@@ -201,6 +201,10 @@
         .picker .to small { font-size: 11px; color: #993C1D; margin-left: 4px; }
         .picker .to:disabled { opacity: .5; cursor: default; }
         .picker .err { font-size: 12px; color: #A32D2D; }
+        .knav { display: inline-flex; align-items: center; border: 1px solid #F0997B; border-radius: 8px; background: #fff; overflow: hidden; }
+        .side .knav button { border: 0; border-radius: 0; background: none; color: #712B13; font-weight: 700; padding: 3px 8px; line-height: 1.2; }
+        .side .knav button:hover { background: #FFF6F2; }
+        .knav .kpos { font-size: 11px; color: #993C1D; padding: 0 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .pnav { display: inline-flex; align-items: center; gap: 4px; padding-right: 10px; margin-right: 2px; border-right: 1px solid #F0997B; }
         .bottom .pnav { border-right: 0; padding-right: 0; }
         .side .pnav button, .side .pnav a { border: 1px solid #F0997B; border-radius: 7px; background: #fff; color: #712B13; font-weight: 700; padding: 3px 8px; line-height: 1.2; }
@@ -259,6 +263,26 @@
            data-board="${esc(l.board)}" data-keyword="${esc(l.keyword)}" data-group="${g.id}">
             <span class="kw">${esc(l.keyword)}${unread ? `<span class="newb">${MOBILE ? '' : '새 '}${unread}</span>` : ''}</span>${MOBILE ? '' : `<small>${esc(isCurrent(l) ? '지금 보는 중' : agoText(l.last_opened))}</small>`}</a>`;
     };
+    // 전체 키워드를 차례대로 (카드 순서 → 카드 안 순서, 끝에서는 처음으로). 지금 보는 검색이 목록에 없으면 다음은 첫 키워드, 이전은 마지막
+    function seqTarget(delta) {
+        const all = allLinks();
+        if (!all.length) return null;
+        const i = all.findIndex(x => isCurrent(x.l));
+        if (i < 0) return delta > 0 ? all[0] : all[all.length - 1];
+        return all[(i + delta + all.length) % all.length];
+    }
+    function goSeq(delta) { const t = seqTarget(delta); if (t) openLink(t.g, t.l); }
+    function seqHtml() {
+        const all = allLinks();
+        if (all.length < 2) return '';
+        const i = all.findIndex(x => isCurrent(x.l));
+        const prev = seqTarget(-1), next = seqTarget(1);
+        const tip = (t, key) => `${t.g.name} · ${t.l.keyword}${MOBILE ? '' : ` (단축키 ${key})`}`;
+        return `<span class="knav" title="전체 키워드 차례대로">
+            <button data-seq="-1" title="이전 키워드: ${esc(tip(prev, ','))}" aria-label="이전 키워드">‹</button>
+            <span class="kpos">${i >= 0 ? `${i + 1}/${all.length}` : `–/${all.length}`}</span>
+            <button data-seq="1" title="다음 키워드: ${esc(tip(next, '.'))}" aria-label="다음 키워드">›</button></span>`;
+    }
     function progressHtml() {
         const all = allLinks(), done = all.filter(x => openedToday(x.l)).length;
         const next = nextLink();
@@ -405,7 +429,7 @@
         } else {
             const addBtn = canAdd() && !(compact && !MOBILE)
                 ? `<button class="add" data-add title="지금 보는 검색을 FM키워드에 추가">+ ${MOBILE ? '추가' : `'${esc(currentKeyword)}' 추가`}</button>` : '';
-            const side = `<span class="side">${postNavHtml()}${addBtn}${progressHtml()}${MOBILE ? '' : `<a href="${SITE}/board/#fm" target="_blank" rel="noopener">키워드 모니터 ↗</a>`}<button data-fold>${MOBILE ? '숨기기 ▾' : '접기 ▴'}</button></span>`;
+            const side = `<span class="side">${postNavHtml()}${addBtn}${seqHtml()}${progressHtml()}${MOBILE ? '' : `<a href="${SITE}/board/#fm" target="_blank" rel="noopener">키워드 모니터 ↗</a>`}<button data-fold>${MOBILE ? '숨기기 ▾' : '접기 ▴'}</button></span>`;
             if (MOBILE) {
                 // 윗줄: 묶음 이름 (누르면 아랫줄이 그 묶음으로, 같은 것을 다시 누르면 아랫줄 접힘), 아랫줄: 고른 묶음의 키워드
                 const picked = groups.find(g => g.id === mobileGroupId());
@@ -460,13 +484,14 @@
     }
     function goNext() { const next = nextLink(); if (next) openLink(next.g, next.l); }
 
-    // 단축키 (PC): ] 다음 키워드, [ 방금 보던 화면으로, \ 줄 펼치기·접기. 글을 쓰는 중이거나 Ctrl·Alt 등과 함께 누르면 무시
+    // 단축키 (PC): ] 다음 키워드(새 글·오래 안 본 순), . , 전체 키워드 차례대로 다음·이전, [ 방금 보던 화면으로, \ 줄 펼치기·접기. 글을 쓰는 중이거나 Ctrl·Alt 등과 함께 누르면 무시
     if (!MOBILE) {
         document.addEventListener('keydown', e => {
             if (e.ctrlKey || e.metaKey || e.altKey || !groups.length) return;
             const t = (e.composedPath && e.composedPath()[0]) || e.target;
             if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
             if (e.key === ']') { e.preventDefault(); goNext(); }
+            else if (e.key === '.' || e.key === ',') { e.preventDefault(); goSeq(e.key === '.' ? 1 : -1); }
             else if ('jknu'.includes(e.key) && e.key.length === 1 && trailIndex() >= 0) {
                 if (goTrail({ j: 'next', k: 'prev', n: 'new', u: 'list' }[e.key])) e.preventDefault();
             }
@@ -487,6 +512,8 @@
             return;
         }
         if (e.target.closest('[data-next]')) { goNext(); return; }
+        const seq = e.target.closest('[data-seq]');
+        if (seq) { goSeq(Number(seq.dataset.seq)); return; }
         const pnav = e.target.closest('[data-pnav]');
         if (pnav) { goTrail(pnav.dataset.pnav); return; }
         if (e.target.closest('[data-add]')) { addOpen = !addOpen; addError = ''; render(); const pwd = root.querySelector('[data-addpwd]'); if (pwd) pwd.focus(); return; }
