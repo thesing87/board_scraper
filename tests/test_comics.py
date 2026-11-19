@@ -125,7 +125,25 @@ assert req('/api/comics/progress', {'path': '없는책.cbz', 'page': 0, 'pages':
 assert req('/api/comics/progress', {'path': '../secret.txt', 'page': 0, 'pages': 3})[0] == 404
 assert req(f'/api/comics/book?p={q("원피스/원피스 2권.cbz")}')[1]['progress']['page'] == 2
 assert req(f'/api/comics/list?p={q("원피스")}')[1]['books'][1]['progress']['page'] == 2
-assert [r['name'] for r in req('/api/comics/list')[1]['recent']] == ['원피스 2권']
+# 이어 읽기: 2권을 다 읽었으므로(3쪽 중 3쪽) 2권 대신 같은 폴더의 다음 권(이름순: 1·2·10권 → 10권)
+recent = req('/api/comics/list')[1]['recent']
+assert [(r['kind'], r['name'], r.get('after'), r['forget']) for r in recent] == [('next', '원피스 10권', '원피스 2권', '원피스/원피스 2권.cbz')], recent
+# 읽다 만 책은 그대로, 다음 권을 읽기 시작하면 '다음 권' 대신 읽는 중으로
+import time as _time
+_time.sleep(1.1)
+assert req('/api/comics/progress', {'path': '원피스/원피스 1권.cbz', 'page': 0, 'pages': 3})[0] == 200
+_time.sleep(1.1)
+assert req('/api/comics/progress', {'path': '원피스/원피스 10권.cbz', 'page': 1, 'pages': 3})[0] == 200
+recent = req('/api/comics/list')[1]['recent']
+assert [(r['kind'], r['name']) for r in recent] == [('reading', '원피스 10권'), ('reading', '원피스 1권')], recent
+assert recent[0]['progress']['page'] == 1
+# 마지막 권을 다 읽으면 다음 권이 없어 목록에서 빠짐
+assert req('/api/comics/progress', {'path': '원피스/원피스 10권.cbz', 'page': 2, 'pages': 3})[0] == 200
+assert [r['name'] for r in req('/api/comics/list')[1]['recent']] == ['원피스 1권']
+# 목록에서 지우기 (읽은 위치 기록을 지움)
+assert req('/api/comics/progress', {'action': 'forget', 'path': '원피스/원피스 1권.cbz'})[0] == 200
+assert req('/api/comics/list')[1]['recent'] == []
+assert req(f'/api/comics/book?p={q("원피스/원피스 1권.cbz")}')[1]['progress'] is None
 print('PROGRESS OK')
 
 # 7) 만화 폴더가 없으면 설정 안내

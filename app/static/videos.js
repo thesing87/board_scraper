@@ -194,6 +194,62 @@
         });
     }
 
+    const fmtAgo = sec => {
+        const d = Math.max(0, Date.now() / 1000 - sec);
+        if (d < 3600) return `${Math.max(1, Math.round(d / 60))}분 전`;
+        if (d < 86400) return `${Math.round(d / 3600)}시간 전`;
+        if (d < 86400 * 30) return `${Math.round(d / 86400)}일 전`;
+        return new Date(sec * 1000).toLocaleDateString('ko-KR');
+    };
+
+    // 최근 추가: 맨 위 폴더에서만, 목록을 먼저 보여 주고 따로 받아 채움 (전체 폴더를 훑는 데 처음에는 몇 초 걸림)
+    async function loadLatest() {
+        let data;
+        try { data = await api('/api/videos/latest'); } catch (e) { return; }
+        if (!data || currentDir !== '' || $('content').hidden) return;
+        $('latest').hidden = !data.videos.length;
+        $('latest-list').innerHTML = data.videos.map(v => videoTile(v, `${v.folder || '전체'} · ${fmtAgo(v.added)}`)).join('');
+    }
+
+    // ==========================================
+    // 검색 (동영상 폴더 전체, 이름·폴더에 낱말이 모두 들어간 영상)
+    // ==========================================
+    const SEARCH_DELAY_MS = 250;
+    let searchTimer = null, searchSeq = 0;
+
+    function setSearchMode(on) {
+        $('search-results').hidden = !on;
+        $('library-view').hidden = on;
+        $('vsearch-clear').hidden = !$('vsearch-input').value;
+    }
+
+    async function runSearch() {
+        const q = $('vsearch-input').value.trim();
+        const seq = ++searchSeq;
+        if (!q) { setSearchMode(false); return; }
+        setSearchMode(true);
+        $('search-count').textContent = '찾는 중…';
+        let data;
+        try { data = await api(`/api/videos/search?q=${enc(q)}`); } catch (e) {
+            if (seq === searchSeq) $('search-count').textContent = '검색하지 못했습니다.';
+            return;
+        }
+        if (seq !== searchSeq || !data) return;
+        $('search-count').textContent = data.total
+            ? `‘${q}’ 영상 ${data.total}개${data.total > data.videos.length ? ` (앞의 ${data.videos.length}개)` : ''}`
+            : `‘${q}’에 맞는 영상이 없습니다.`;
+        $('search-list').innerHTML = data.videos.map(v => videoTile(v, v.folder || '전체')).join('');
+    }
+
+    $('vsearch-input').addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        $('vsearch-clear').hidden = !$('vsearch-input').value;
+        searchTimer = setTimeout(runSearch, SEARCH_DELAY_MS);
+    });
+    $('vsearch').addEventListener('submit', e => { e.preventDefault(); clearTimeout(searchTimer); runSearch(); $('vsearch-input').blur(); });
+    $('vsearch-input').addEventListener('keydown', e => { if (e.key === 'Escape') { $('vsearch-input').value = ''; runSearch(); } });
+    $('vsearch-clear').addEventListener('click', () => { $('vsearch-input').value = ''; runSearch(); $('vsearch-input').focus(); });
+
     function recentTile(r) {
         return videoTile({ ...r, ext: r.path.split('.').pop(), subtitle: false }, r.folder || '전체');
     }
@@ -263,6 +319,10 @@
         $('folders').innerHTML = data.dirs.map(folderTile).join('');
         if (data.dirs.length) loadSamples(data.path);
         $('videos').innerHTML = data.videos.map(v => videoTile(v)).join('');
+        $('latest').hidden = true;
+        if (!data.path) loadLatest();
+        // 검색어가 남아 있으면(검색 결과에서 영상을 열었다가 돌아옴) 검색 결과를 다시 보여 줌
+        if ($('vsearch-input').value.trim()) runSearch(); else setSearchMode(false);
         renderConvertBar(data.videos);
         $('empty').hidden = !!(data.dirs.length || data.videos.length);
         window.scrollTo(0, scrollMemory[path] || 0);

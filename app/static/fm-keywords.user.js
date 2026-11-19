@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.4.2
+// @version      1.5.0
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -35,6 +35,10 @@
     const KEY_PENDING = 'fm_bar_pending_opens';
     // 아직 서버에 못 보낸 읽은 글 번호: 글을 누르면 바로 넘어가므로, 넘어가는 사이 끊긴 기록은 다음 화면에서 다시 보내고 받은 목록에도 반영
     const KEY_PENDING_READS = 'fm_bar_pending_reads';
+    // 마지막으로 본 검색 결과 목록 {board, keyword, url, page, at, posts: [{no, href, title}]} (글 화면에서 이전·다음 글로 넘어가려고)
+    const KEY_TRAIL = 'fm_bar_trail';
+    // 이보다 오래된 검색 결과 목록은 쓰지 않음 (하루)
+    const TRAIL_MAX_AGE = 86400000;
 
     // 응답 코드와 내용을 그대로 (실패 이유를 보여 줄 때)
     function requestRaw(method, path, body) {
@@ -82,6 +86,12 @@
     const currentBoard = params.get('act') === 'IS' ? '' : (params.get('mid') || '');
     const currentKeyword = (params.get('search_keyword') || params.get('is_keyword') || '').trim();
     const isCurrent = l => !!currentKeyword && l.keyword === currentKeyword && l.board === currentBoard;
+    // 지금 보는 글 번호 (글 화면이 아니면 0). 검색 결과에서 연 글은 주소에 검색어가 붙어 있어도
+    const postNumberOf = href => {
+        const m = /document_srl=(\d+)/.exec(href || '') || /^\/(\d{5,})(?:[?#]|$)/.exec((href || '').replace(/^https?:\/\/[^/]+/, ''));
+        return m ? Number(m[1]) : 0;
+    };
+    const pagePostNo = postNumberOf(location.pathname + location.search) || Number(params.get('document_srl')) || 0;
 
     // 페이지가 막 열릴 때(본문이 생기기 전) 실행되므로 문서 맨 바깥에 붙임: 에펨코리아 화면이 나타날 때부터 줄·여백이 함께 있어 화면이 밀리지 않음
     const host = document.createElement('div');
@@ -177,6 +187,13 @@
         .picker .to small { font-size: 11px; color: #993C1D; margin-left: 4px; }
         .picker .to:disabled { opacity: .5; cursor: default; }
         .picker .err { font-size: 12px; color: #A32D2D; }
+        .pnav { display: inline-flex; align-items: center; gap: 4px; padding-right: 10px; margin-right: 2px; border-right: 1px solid #F0997B; }
+        .bottom .pnav { border-right: 0; padding-right: 0; }
+        .side .pnav button, .side .pnav a { border: 1px solid #F0997B; border-radius: 7px; background: #fff; color: #712B13; font-weight: 700; padding: 3px 8px; line-height: 1.2; }
+        .side .pnav button:disabled { opacity: .4; cursor: default; }
+        .side .pnav .pnew { border-color: #185FA5; color: #185FA5; }
+        .pnav .ppos { font-size: 12px; color: #712B13; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .pnav .ppos b { font-variant-numeric: tabular-nums; }
         .picker .x { position: absolute; top: 6px; right: 8px; border: 0; background: none; color: #993C1D; cursor: pointer; font-size: 14px; }
     `;
 
@@ -287,6 +304,72 @@
         saveCache();
         markNewPosts();
     }
+    // ---------- 검색 결과 이전·다음 글 ----------
+    // 검색 결과 화면에서 본 목록(이미 화면에 떠 있는 것)을 순서대로 기억해 두고, 그 목록의 글을 열면 줄에 ◀ 이전 · n/전체 · 다음 ▶ ·
+    // 다음 새 글 · 목록. 마지막 글에서는 다음 쪽 검색 결과로. 에펨코리아에는 내가 누른 화면만 열림 (미리 받아 오지 않음)
+    function loadTrail() {
+        const t = GM_getValue(KEY_TRAIL, null);
+        return t && Array.isArray(t.posts) && Date.now() - (t.at || 0) < TRAIL_MAX_AGE ? t : null;
+    }
+    const trail = loadTrail();
+    const trailIndex = () => (trail && pagePostNo ? trail.posts.findIndex(p => p.no === pagePostNo) : -1);
+    function trailLink() {
+        return trail ? allLinks().map(x => x.l).find(l => l.board === trail.board && l.keyword === trail.keyword) : null;
+    }
+    // 이 글 뒤로(없으면 앞에서부터) 아직 안 읽은 새 글
+    function nextNewPost() {
+        const i = trailIndex(), l = trailLink();
+        if (i < 0 || !l || l.seen_max == null) return null;
+        const read = new Set(l.read_ids || []);
+        const isNew = p => p.no > l.seen_max && !read.has(p.no) && p.no !== pagePostNo;
+        return trail.posts.slice(i + 1).find(isNew) || trail.posts.slice(0, i).find(isNew) || null;
+    }
+    function pageUrl(delta) {
+        try {
+            const u = new URL(trail.url);
+            const page = Math.max(1, (Number(u.searchParams.get('page')) || 1) + delta);
+            if (page === 1) u.searchParams.delete('page'); else u.searchParams.set('page', String(page));
+            return u.href;
+        } catch (e) { return ''; }
+    }
+    function postNavHtml() {
+        const i = trailIndex();
+        if (i < 0) return '';
+        const n = trail.posts.length, prev = trail.posts[i - 1], next = trail.posts[i + 1], fresh = nextNewPost();
+        const tip = (p, key) => p ? ` title="${esc(p.title)}${MOBILE ? '' : ` (단축키 ${key})`}"` : '';
+        const nextBtn = next
+            ? `<button data-pnav="next"${tip(next, 'j')}>다음 ▶</button>`
+            : `<button data-pnav="nextpage" title="다음 쪽 검색 결과${MOBILE ? '' : ' (단축키 j)'}">다음 쪽 ▶</button>`;
+        return `<span class="pnav">
+            <button data-pnav="prev"${tip(prev, 'k')} ${prev ? '' : 'disabled'}>◀${MOBILE ? '' : ' 이전'}</button>
+            <span class="ppos" title="'${esc(trail.keyword)}' 검색 결과"><b>${i + 1}/${n}</b>${MOBILE ? '' : ` · ${esc(trail.keyword)}`}</span>
+            ${nextBtn}
+            ${fresh ? `<button class="pnew" data-pnav="new"${tip(fresh, 'n')}>새 글 ▶▶</button>` : ''}
+            <button data-pnav="list" title="검색 결과로${MOBILE ? '' : ' (단축키 u)'}">목록</button></span>`;
+    }
+    function goTrail(action) {
+        const i = trailIndex();
+        if (i < 0) return false;
+        let url = '';
+        if (action === 'prev' && trail.posts[i - 1]) url = trail.posts[i - 1].href;
+        else if (action === 'next') url = trail.posts[i + 1] ? trail.posts[i + 1].href : pageUrl(1);
+        else if (action === 'nextpage') url = pageUrl(1);
+        else if (action === 'new') { const p = nextNewPost(); url = p ? p.href : ''; }
+        else if (action === 'list') url = trail.url;
+        if (!url) return false;
+        location.href = url;
+        return true;
+    }
+    // 검색 결과 화면이면 목록을 기억 (글 화면에 붙은 목록은 기억하지 않음: 그 글을 연 검색 결과가 기준)
+    function saveTrail() {
+        if (!currentKeyword || pagePostNo) return;
+        const rows = resultRows();
+        if (!rows.length) return;
+        const posts = rows.map(x => ({ no: x.no, href: new URL(x.title.getAttribute('href'), location.href).href,
+                                       title: x.title.textContent.replace(/\s+/g, ' ').trim().slice(0, 120) }));
+        GM_setValue(KEY_TRAIL, { board: currentBoard, keyword: currentKeyword, url: location.href, at: Date.now(), posts });
+    }
+
     const countHtml = g => `<span class="cnt">${g.links.length}${groupUnread(g) ? ` · <span class="newg">새 ${groupUnread(g)}</span>` : ''}${staleCount(g) ? ` · 오래 안 봄 <b>${staleCount(g)}</b>` : ''}</span>`;
 
     function render(message) {
@@ -300,7 +383,7 @@
         } else {
             const addBtn = canAdd() && !(compact && !MOBILE)
                 ? `<button class="add" data-add title="지금 보는 검색을 FM키워드에 추가">+ ${MOBILE ? '추가' : `'${esc(currentKeyword)}' 추가`}</button>` : '';
-            const side = `<span class="side">${addBtn}${progressHtml()}${MOBILE ? '' : `<a href="${SITE}/board/#fm" target="_blank" rel="noopener">키워드 모니터 ↗</a>`}<button data-fold>${MOBILE ? '숨기기 ▾' : '접기 ▴'}</button></span>`;
+            const side = `<span class="side">${postNavHtml()}${addBtn}${progressHtml()}${MOBILE ? '' : `<a href="${SITE}/board/#fm" target="_blank" rel="noopener">키워드 모니터 ↗</a>`}<button data-fold>${MOBILE ? '숨기기 ▾' : '접기 ▴'}</button></span>`;
             if (MOBILE) {
                 // 윗줄: 묶음 이름 (누르면 아랫줄이 그 묶음으로, 같은 것을 다시 누르면 아랫줄 접힘), 아랫줄: 고른 묶음의 키워드
                 const picked = groups.find(g => g.id === mobileGroupId());
@@ -362,6 +445,9 @@
             const t = (e.composedPath && e.composedPath()[0]) || e.target;
             if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
             if (e.key === ']') { e.preventDefault(); goNext(); }
+            else if ('jknu'.includes(e.key) && e.key.length === 1 && trailIndex() >= 0) {
+                if (goTrail({ j: 'next', k: 'prev', n: 'new', u: 'list' }[e.key])) e.preventDefault();
+            }
             else if (e.key === '[') { e.preventDefault(); history.back(); }
             else if (e.key === '\\') { e.preventDefault(); GM_setValue(KEY_FOLDED, !GM_getValue(KEY_FOLDED, false)); render(); }
         }, true);
@@ -379,6 +465,8 @@
             return;
         }
         if (e.target.closest('[data-next]')) { goNext(); return; }
+        const pnav = e.target.closest('[data-pnav]');
+        if (pnav) { goTrail(pnav.dataset.pnav); return; }
         if (e.target.closest('[data-add]')) { addOpen = !addOpen; addError = ''; render(); const pwd = root.querySelector('[data-addpwd]'); if (pwd) pwd.focus(); return; }
         if (e.target.closest('[data-addclose]')) { addOpen = false; render(); return; }
         const addto = e.target.closest('[data-addto]');
@@ -588,11 +676,15 @@
         if (row) { row.classList.remove('kmfm-new'); const tag = row.querySelector('.kmfm-tag'); if (tag) tag.remove(); }
     }, true));
     // 다른 경로로 글을 열어도 읽음 (글 화면 주소의 번호. 검색 결과에서 연 글은 주소에 검색어가 붙어 있어도)
-    const pagePost = postNumber(location.pathname + location.search) || Number(params.get('document_srl')) || 0;
+    const pagePost = pagePostNo;
     if (pagePost) markRead(pagePost);
 
     // 화면이 다 그려지고 키워드 목록이 있을 때 (처음 설치해 목록이 없으면 서버에서 받은 뒤). 새 목록을 받으면 다시 (다른 기기에서 읽은 글 반영)
     let marked = false;
+    // 검색 결과 목록은 키워드 목록과 상관없이 화면이 다 그려지면 기억 (FM키워드에 없는 검색도 이전·다음 글로)
+    function trySaveTrail() { if (document.readyState !== 'loading') saveTrail(); }
+    document.addEventListener('DOMContentLoaded', trySaveTrail, { once: true });
+    trySaveTrail();
     function tryMark() {
         if (marked || !groups.length || document.readyState === 'loading') return;
         marked = true;

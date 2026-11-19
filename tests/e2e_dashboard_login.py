@@ -5,11 +5,17 @@ import tempfile, threading, time, socket
 os.environ.update(OUTPUT_DIR=tempfile.mkdtemp(), LOG_LEVEL='CRITICAL', ADMIN_PASSWORD='Secr3t!', TELEGRAM_TOKEN='')
 for name in [k for k in os.environ if k.startswith('KEYWORDS_')]:
     os.environ[name] = ''
-import storage, web_server
+import storage, web_server, system_status
 from selenium.webdriver import Chrome
 from selenium.webdriver.chrome.options import Options
 
-# 대시보드 관리자 로그인: 로그인하면 카드·만화 메뉴와 카드 혜택 카드가 보이고, 로그아웃하면 다시 숨김
+# 대시보드 관리자 로그인: 로그인하면 카드·만화 메뉴와 카드 혜택·NAS 상태 카드가 보이고, 로그아웃하면 다시 숨김
+# (이 시험 PC에는 /proc이 없을 수 있어 NAS 값은 흉내냄)
+_proc = {'/proc/stat': 'cpu  100 0 100 800 0 0 0\n',
+         '/proc/meminfo': 'MemTotal: 2000000 kB\nMemAvailable: 1000000 kB\nSwapTotal: 1000 kB\nSwapFree: 1000 kB\n',
+         '/proc/loadavg': '0.50 0.40 0.30 1/2 3\n', '/proc/uptime': '7200.0 0\n'}
+system_status._read = lambda path: _proc[path]
+system_status.CPU_SAMPLE_SECONDS = 0
 storage.init_db()
 with socket.socket() as s:
     s.bind(('127.0.0.1', 0))
@@ -27,7 +33,7 @@ navs = lambda: js("return [...document.querySelectorAll('.site-nav [data-nav]')]
 visible = lambda i: js(f"const e = document.getElementById('{i}'); return !!e && !e.hidden && e.offsetHeight > 0")
 try:
     d.get(BASE + '/'); time.sleep(1.5)
-    assert not visible('card-benefit') and 'card' not in navs() and 'comics' not in navs()
+    assert not visible('card-benefit') and not visible('card-system') and 'card' not in navs() and 'comics' not in navs()
     assert js("return document.getElementById('admin-label').textContent") == '로그인'
     assert not visible('login-modal')
     js("document.getElementById('admin-btn').click()")
@@ -49,7 +55,10 @@ try:
     js("document.getElementById('login-password').value = 'Secr3t!'; document.getElementById('login-form').requestSubmit()"); time.sleep(2.5)
     assert js("return localStorage.getItem('admin_token')") == web_server.ADMIN_TOKEN
     assert 'card' in navs() and 'comics' in navs(), navs()
-    assert visible('card-benefit')
+    assert visible('card-benefit') and visible('card-system')
+    body = js("return document.getElementById('system-body').textContent")
+    assert 'CPU' in body and '메모리' in body and '디스크' in body and '수집기' in body and '동영상 변환' in body, body
+    assert '켜진 지 2시간' in js("return document.getElementById('system-sub').textContent") or '확인 필요' in js("return document.getElementById('system-sub').textContent")
     assert js("return document.getElementById('admin-label').textContent") == '관리자'
     print('LOGIN OK')
     # 로그아웃 (확인 창)
@@ -59,7 +68,7 @@ try:
     js("document.getElementById('admin-btn').click()")
     d.switch_to.alert.accept(); time.sleep(2)
     assert not js("return localStorage.getItem('admin_token')")
-    assert not visible('card-benefit') and 'card' not in navs()
+    assert not visible('card-benefit') and not visible('card-system') and 'card' not in navs()
     # 휴대폰: 아이콘 버튼, 넘침 없음
     d.set_window_size(390, 844); time.sleep(.5)
     assert js("return document.getElementById('admin-btn').getBoundingClientRect().width") < 40

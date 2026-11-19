@@ -410,20 +410,59 @@ def save_progress(rel, page, pages):
                      (rel, page, pages, _now()))
 
 
-def recent(limit=6):
-    """최근 읽은 책 (다 읽은 책 포함). 지금은 없는 책은 빼고 보냄"""
+RECENT_LIMIT = 12
+
+
+def _finished(page, pages):
+    return pages > 0 and page >= pages - 1
+
+
+def _next_book(path, books_cache):
+    """같은 폴더에서 이 책 다음 권(압축 파일, 이름순). 없으면 None"""
+    folder = path.rsplit('/', 1)[0] if '/' in path else ''
+    if folder not in books_cache:
+        listing = list_dir(folder)
+        books_cache[folder] = listing['books'] if listing else []
+    books = books_cache[folder]
+    idx = next((i for i, b in enumerate(books) if b['path'] == path), None)
+    return books[idx + 1] if idx is not None and idx + 1 < len(books) else None
+
+
+def recent(limit=RECENT_LIMIT):
+    """이어 읽기: 읽다 만 책(최근 순). 다 읽은 책은 빼고, 같은 폴더에 다음 권이 있으면 그 다음 권을 대신 보여 줌
+    (kind: reading·next, forget: 목록에서 지울 때 지울 기록의 경로). 지금은 없는 책은 뺌"""
     with _db() as conn:
         rows = conn.execute("SELECT path, page, pages, updated_at FROM comic_progress ORDER BY updated_at DESC LIMIT ?",
-                            (limit * 3,)).fetchall()
-    items = []
+                            (limit * 5,)).fetchall()
+    progress = {r['path']: r for r in rows}
+    items, seen, books_cache = [], set(), {}
     for r in rows:
         full = resolve(r['path'])
         if not full or not os.path.exists(full):
             continue
+        folder = r['path'].rsplit('/', 1)[0] if '/' in r['path'] else ''
         name = os.path.basename(r['path'])
-        items.append({'path': r['path'], 'name': os.path.splitext(name)[0] if os.path.isfile(full) else name,
-                      'folder': r['path'].rsplit('/', 1)[0] if '/' in r['path'] else '',
-                      'progress': {'page': r['page'], 'pages': r['pages'], 'updated_at': r['updated_at']}})
+        if not _finished(r['page'], r['pages']):
+            if r['path'] in seen:
+                continue
+            seen.add(r['path'])
+            items.append({'kind': 'reading', 'path': r['path'], 'forget': r['path'], 'folder': folder,
+                          'name': os.path.splitext(name)[0] if os.path.isfile(full) else name,
+                          'progress': {'page': r['page'], 'pages': r['pages'], 'updated_at': r['updated_at']}})
+        elif os.path.isfile(full):
+            nxt = _next_book(r['path'], books_cache)
+            # 다음 권을 이미 읽기 시작했으면 그 책이 '읽는 중'으로 따로 나오므로 여기서는 넣지 않음
+            if not nxt or nxt['path'] in seen or nxt['path'] in progress:
+                continue
+            seen.add(nxt['path'])
+            items.append({'kind': 'next', 'path': nxt['path'], 'forget': r['path'], 'folder': folder, 'name': nxt['name'],
+                          'after': os.path.splitext(name)[0], 'progress': None, 'updated_at': r['updated_at']})
         if len(items) >= limit:
             break
     return items
+
+
+def forget_progress(rel):
+    """이어 읽기 목록에서 지움 (그 책의 읽은 위치 기록을 지움)"""
+    with _db() as conn, conn:
+        return conn.execute("DELETE FROM comic_progress WHERE path = ?", (rel,)).rowcount

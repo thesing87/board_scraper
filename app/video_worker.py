@@ -18,6 +18,8 @@ import storage
 import video_convert
 
 POLL_SECONDS = 3
+# 대시보드 'NAS 상태'가 이 작업기가 살아 있는지 보도록 남기는 기록 간격 (system_status.CONVERT_HEARTBEAT_META)
+HEARTBEAT_SECONDS = 60
 CLEANUP_EVERY = 6 * 3600
 SCAN_CHECK_SECONDS = 300
 
@@ -57,8 +59,18 @@ def auto_scanner():
         time.sleep(SCAN_CHECK_SECONDS)
 
 
+def heartbeat():
+    while True:
+        try:
+            storage.set_meta('convert_heartbeat', storage._now())
+        except Exception as e:  # noqa: BLE001 - 기록을 못 해도 변환은 계속
+            log_msg(f"[변환] 상태 기록 실패: {short_err(e)}", 'DEBUG')
+        time.sleep(HEARTBEAT_SECONDS)
+
+
 def main():
     storage.init_db()
+    threading.Thread(target=heartbeat, name='convert-heartbeat', daemon=True).start()
     video_convert.recover()
     log_msg('[변환] 작업기 시작')
     for name in ('fast', 'slow'):

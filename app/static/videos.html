@@ -36,6 +36,17 @@
         </form>
         <div class="notice" id="notice" hidden></div>
         <div id="content" hidden>
+            <!-- 동영상 폴더 전체에서 이름·폴더 검색 (videos.js runSearch) -->
+            <form class="vsearch" id="vsearch" role="search" autocomplete="off">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+                <input type="search" id="vsearch-input" placeholder="영상 이름·폴더 검색" aria-label="영상 검색" enterkeyhint="search">
+                <button type="button" id="vsearch-clear" aria-label="검색어 지우기" hidden>×</button>
+            </form>
+            <section class="search-results" id="search-results" hidden>
+                <h2 id="search-count"></h2>
+                <div class="videos" id="search-list"></div>
+            </section>
+            <div id="library-view">
             <nav class="crumbs" id="crumbs" aria-label="폴더 위치"></nav>
             <!-- 이 폴더에 브라우저가 못 여는 영상이 있으면: 자동 변환 순서에 바로 넣기 (videos.js renderConvertBar) -->
             <div class="conv-bar" id="conv-bar" hidden>
@@ -46,9 +57,15 @@
                 <h2>이어 보기</h2>
                 <div class="recent-list" id="recent-list"></div>
             </section>
+            <!-- 최근에 들어온 영상 (맨 위 폴더에서만, videos.js loadLatest) -->
+            <section class="recent" id="latest" hidden>
+                <h2>최근 추가</h2>
+                <div class="recent-list" id="latest-list"></div>
+            </section>
             <div class="folders" id="folders"></div>
             <div class="videos" id="videos"></div>
             <p class="empty" id="empty" hidden>이 폴더에는 동영상이 없습니다.</p>
+            </div>
         </div>
     </main>
 

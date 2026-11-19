@@ -92,6 +92,20 @@
                 <div class="card-body" id="benefit-body"></div>
             </section>
 
+            <!-- NAS 상태: CPU·메모리·디스크, 컨테이너가 살아 있는지, 동영상 변환 (dashboard.js loadSystem). 관리자 기기에서만 -->
+            <section class="card" id="card-system" aria-labelledby="system-title" hidden>
+                <div class="card-head">
+                    <span class="card-icon is-system" aria-hidden="true">
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"></rect><rect x="3" y="13" width="18" height="7" rx="2"></rect><path d="M7 7.5h.01M7 16.5h.01"></path></svg>
+                    </span>
+                    <span class="card-name">
+                        <span class="card-title" id="system-title">NAS 상태</span>
+                        <span class="card-sub" id="system-sub">불러오는 중</span>
+                    </span>
+                </div>
+                <div class="card-body" id="system-body"><div class="skeleton"></div></div>
+            </section>
+
             <!-- 아파트 실거래가: 관심 단지마다 최근 거래가·직전 대비·추이 한 줄, 누르면 그 단지 상세로 (dashboard.js loadApt) -->
             <section class="card" id="card-apt" aria-labelledby="apt-title">
                 <a class="card-head" href="/apt/">

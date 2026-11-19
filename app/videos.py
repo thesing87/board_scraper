@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 
 from config import VIDEOS_DIR, OUTPUT_DIR
 from storage import _db, _now
@@ -110,6 +111,93 @@ def list_dir(rel):
     for v in videos:
         v['progress'] = progress.get(v['path'])
     return {'path': rel, 'name': os.path.basename(rel) if rel else '', 'dirs': dirs, 'videos': videos}
+
+
+# ==========================================
+# 전체 영상 목록 (검색·최근 추가용)
+# 폴더를 다 훑으면 디스크가 쉬던 뒤 몇 초 걸리므로 기억해 두고 INDEX_TTL마다 새로 훑음 (훑는 동안은 예전 목록으로 답함)
+# 최근 추가는 파일이 이 폴더에 들어온 시각(ctime: 복사·이동할 때 바뀜. 수정 시각은 원래 파일 것을 그대로 가져오는 일이 많음)
+# ==========================================
+INDEX_TTL = 600
+SEARCH_LIMIT = 120
+LATEST_LIMIT = 24
+_index = {'at': 0.0, 'items': [], 'root': None}
+_index_lock = threading.Lock()
+_index_building = threading.Lock()
+
+
+def _scan_all():
+    items = []
+    root = VIDEOS_DIR
+    for folder, dirs, files in os.walk(root):
+        dirs[:] = sorted((d for d in dirs if not HIDDEN_RE.match(d)), key=natural_key)
+        rel_folder = os.path.relpath(folder, root).replace(os.sep, '/')
+        rel_folder = '' if rel_folder == '.' else rel_folder
+        names = {n.lower() for n in files}
+        for name in files:
+            if HIDDEN_RE.match(name) or not is_video(name):
+                continue
+            try:
+                st = os.stat(os.path.join(folder, name))
+            except OSError:
+                continue
+            stem = os.path.splitext(name)[0]
+            items.append({'name': stem, 'path': _join(rel_folder, name), 'folder': rel_folder, 'ext': _ext(name)[1:],
+                          'size': st.st_size, 'added': max(st.st_ctime, st.st_mtime),
+                          'playable': _ext(name) in PLAYABLE_TYPES,
+                          'subtitle': any(stem.lower() + ext in names for ext in SUBTITLE_EXTS),
+                          '_key': f"{stem} {rel_folder}".lower()})
+    return items
+
+
+def all_videos():
+    """동영상 폴더 전체의 영상 (기억해 둔 목록). 처음이거나 오래됐으면 새로 훑음"""
+    now = time.time()
+    with _index_lock:
+        fresh = _index['root'] == VIDEOS_DIR and now - _index['at'] < INDEX_TTL
+        items = _index['items'] if _index['root'] == VIDEOS_DIR else None
+    if fresh:
+        return items
+    # 다른 요청이 훑는 중이면 예전 목록으로 (처음이라 없으면 끝날 때까지 기다림)
+    if not _index_building.acquire(blocking=items is None):
+        return items
+    try:
+        with _index_lock:
+            if _index['root'] == VIDEOS_DIR and time.time() - _index['at'] < INDEX_TTL:
+                return _index['items']
+        scanned = _scan_all()
+        with _index_lock:
+            _index.update(at=time.time(), items=scanned, root=VIDEOS_DIR)
+        return scanned
+    finally:
+        _index_building.release()
+
+
+def _public(item):
+    return {k: v for k, v in item.items() if not k.startswith('_')}
+
+
+def _with_progress(items):
+    progress = progress_for([v['path'] for v in items])
+    for v in items:
+        v['progress'] = progress.get(v['path'])
+    return items
+
+
+def search(query, limit=SEARCH_LIMIT):
+    """이름·폴더에 검색어(띄어 쓴 낱말 모두)가 들어간 영상. 이름에 들어간 것 먼저. (결과, 전체 개수)"""
+    terms = [t for t in (query or '').lower().split() if t]
+    if not terms:
+        return [], 0
+    found = [v for v in all_videos() if all(t in v['_key'] for t in terms)]
+    found.sort(key=lambda v: (not all(t in v['name'].lower() for t in terms), natural_key(v['folder']), natural_key(v['name'])))
+    return _with_progress([_public(v) for v in found[:limit]]), len(found)
+
+
+def latest(limit=LATEST_LIMIT):
+    """최근에 들어온 영상"""
+    items = sorted(all_videos(), key=lambda v: v['added'], reverse=True)[:limit]
+    return _with_progress([_public(v) for v in items])
 
 
 # ==========================================

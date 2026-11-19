@@ -196,9 +196,14 @@
         $('recent').hidden = !recent.length;
         $('recent-list').innerHTML = recent.map(r => {
             const p = progressInfo(r.progress);
+            // 다 읽은 책 대신 나온 다음 권은 '다음 권' 표시와 어떤 책 다음인지
+            const line = r.kind === 'next'
+                ? `<span class="next-tag">다음 권</span>${esc(r.after)} 다 읽음`
+                : `${esc(r.folder || '전체')} · ${esc(p.label)}`;
             return `<a class="recent-item" href="${bookHref(r.path)}"><img src="${coverUrl(r.path)}" alt="" loading="lazy" decoding="async">
-                <span style="min-width:0"><div class="recent-name">${esc(r.name)}</div><div class="recent-folder">${esc(r.folder || '전체')} · ${esc(p.label)}</div>
-                <div class="bar"><i style="width:${(p.ratio * 100).toFixed(1)}%"></i></div></span></a>`;
+                <span style="min-width:0"><div class="recent-name">${esc(r.name)}</div><div class="recent-folder">${line}</div>
+                <div class="bar"><i style="width:${(p.ratio * 100).toFixed(1)}%"></i></div></span>
+                <button type="button" class="recent-forget" data-forget="${esc(r.forget)}" aria-label="${esc(r.name)} 이어 읽기에서 지우기" title="목록에서 지우기">×</button></a>`;
         }).join('');
 
         $('folders').innerHTML = data.dirs.map(folderCard).join('');
@@ -609,7 +614,24 @@
     window.addEventListener('pagehide', () => saveProgress(true));
 
     // 목록에서 책을 누르면 '목록에서 왔음'을 기록 (닫을 때 뒤로 가기로 돌아가 목록 위치가 그대로)
-    document.addEventListener('click', e => {
+    document.addEventListener('click', async e => {
+        // 이어 읽기에서 지우기 (책은 열지 않음)
+        const forget = e.target.closest('.recent-forget');
+        if (forget) {
+            e.preventDefault();
+            e.stopPropagation();
+            const item = forget.closest('.recent-item');
+            item.style.opacity = '.4';
+            const res = await fetch('/api/comics/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+                                                              body: JSON.stringify({ action: 'forget', path: forget.dataset.forget }) });
+            if (res.ok) {
+                item.remove();
+                $('recent').hidden = !$('recent-list').children.length;
+            } else {
+                item.style.opacity = '';
+            }
+            return;
+        }
         const link = e.target.closest('a.book, a.recent-item');
         if (!link) return;
         e.preventDefault();

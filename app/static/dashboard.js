@@ -427,12 +427,77 @@ async function loadBenefit() {
 }
 
 // ==========================================
+// NAS 상태 (관리자 기기에서만): CPU·메모리·스왑·디스크, 컨테이너가 살아 있는지, 동영상 변환 (/api/system, system_status.py)
+// ==========================================
+const fmtBytes = b => b >= 1e12 ? `${(b / 1e12).toFixed(2)}TB` : b >= 1e9 ? `${(b / 1e9).toFixed(b >= 1e11 ? 0 : 1)}GB` : `${Math.round(b / 1e6)}MB`;
+const fmtAge = s => s == null ? '기록 없음' : s < 90 ? '방금' : s < 3600 ? `${Math.round(s / 60)}분 전` : s < 86400 ? `${Math.round(s / 3600)}시간 전` : `${Math.round(s / 86400)}일 전`;
+
+function sysMeter(label, value, ratio, sub, warn = 0.75, bad = 0.9) {
+    const level = ratio >= bad ? 'is-bad' : ratio >= warn ? 'is-warn' : '';
+    return `<div class="sys-meter"><div class="sys-meter-top"><span>${esc(label)}</span><b>${esc(value)}</b></div>
+        <div class="sys-bar ${level}"><i style="width:${Math.min(100, Math.max(0, ratio * 100)).toFixed(1)}%"></i></div>
+        ${sub ? `<div class="sys-meter-sub">${esc(sub)}</div>` : ''}</div>`;
+}
+
+function setSystemVisible(on) {
+    const card = $('card-system');
+    if (card.hidden === !on) return;
+    card.hidden = !on;
+    applyLayout();
+}
+
+async function loadSystem() {
+    const token = adminToken();
+    setSystemVisible(!!token);
+    if (!token) return;
+    let data;
+    try {
+        const res = await fetch('/api/system', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ password: token })
+        });
+        if (res.status === 401) { setSystemVisible(false); return; }
+        if (!res.ok) throw new Error(res.status);
+        data = await res.json();
+    } catch (e) {
+        $('system-sub').textContent = '잠시 후 다시 확인합니다';
+        return;
+    }
+    // 읽지 못한 값(null)은 '–'
+    const m = data.memory || { total: 0, used: 0, swap_total: 0, swap_used: 0 };
+    const bad = data.services.filter(s => s.ok === false);
+    $('system-sub').textContent = bad.length ? `확인 필요: ${bad.map(s => s.name).join(', ')}` : `정상${data.uptime ? ` · 켜진 지 ${data.uptime}` : ''}`;
+    $('system-sub').classList.toggle('is-bad', !!bad.length);
+    const conv = data.conversion;
+    const running = conv.running.map(r => `<div>변환 중: ${esc(r.name)} · ${Math.floor((r.progress || 0) * 100)}%${r.speed ? ` (실시간 ${r.speed.toFixed(1)}배)` : ''}
+        <div class="sys-bar"><i style="width:${((r.progress || 0) * 100).toFixed(1)}%"></i></div></div>`).join('');
+    $('system-body').innerHTML = `<div>
+        <div class="sys-meters">
+            ${sysMeter('CPU', data.cpu == null ? '–' : `${Math.round(data.cpu)}%`, (data.cpu || 0) / 100,
+                data.load ? `부하 ${data.load.map(v => v.toFixed(2)).join(' · ')} (코어 ${data.cpus})` : '')}
+            ${sysMeter('메모리', data.memory ? fmtBytes(m.used) : '–', m.total ? m.used / m.total : 0, data.memory ? `전체 ${fmtBytes(m.total)}` : '', 0.8, 0.92)}
+            ${sysMeter('스왑', data.memory ? fmtBytes(m.swap_used) : '–', m.swap_total ? m.swap_used / m.swap_total : 0, data.memory ? `전체 ${fmtBytes(m.swap_total)}` : '', 0.4, 0.7)}
+        </div>
+        <div class="sys-section">디스크</div>
+        <div class="sys-disks">${data.disks.map(d => sysMeter(d.label, `${fmtBytes(d.free)} 남음`, d.total ? d.used / d.total : 0,
+            `${fmtBytes(d.used)} / ${fmtBytes(d.total)} 사용`, 0.85, 0.95)).join('')}</div>
+        <div class="sys-section">컨테이너</div>
+        <div class="sys-services">${data.services.map(s => `<div class="sys-service" title="${esc(s.detail)}">
+            <i class="sys-dot ${s.ok === false ? 'is-bad' : s.ok == null ? 'is-off' : ''}"></i>
+            <span>${esc(s.name)} <small>${esc(s.key === 'web' ? s.detail : `${fmtAge(s.age)} · ${s.detail}`)}</small></span></div>`).join('')}</div>
+        <div class="sys-section">동영상 변환</div>
+        <div class="sys-conv">완료 ${conv.done}개 · 대기 ${conv.queued}개${conv.failed ? ` · 실패 ${conv.failed}개` : ''} · 변환본 ${fmtBytes(conv.size)}${running}</div>
+    </div>`;
+}
+
+// ==========================================
 // 카드 배치 편집 (이동·크기). 화면 크기가 기기마다 달라 이 기기에만 저장
 // ==========================================
 const LAYOUT_KEY = 'dashboard_layout_v1';
 const COLUMNS = 12;
 const MIN_COLUMNS = 3;
 const DEFAULT_LAYOUT = [{ id: 'card-board', w: 7, h: null }, { id: 'card-ev', w: 5, h: null }, { id: 'card-benefit', w: 5, h: null },
+                        { id: 'card-system', w: 7, h: null },
                         { id: 'card-stats', w: 7, h: null }, { id: 'card-apt', w: 5, h: null }, { id: 'card-popular', w: 12, h: null },
                         { id: 'card-games', w: 5, h: null }, { id: 'card-fmlinks', w: 7, h: null }];
 const MIN_HEIGHT = 120, MAX_HEIGHT = 1200, HEIGHT_STEP = 10;
@@ -706,7 +771,7 @@ function renderGames() {
 // 카드 내용을 새로 그린 뒤에는 최소 높이(내용 높이)가 달라질 수 있어 높이를 다시 맞춤
 function loadAll() {
     renderGames();
-    return Promise.all([loadBoard(), loadBenefit(), loadPopular(), loadApt()]).then(applyLayout);
+    return Promise.all([loadBoard(), loadBenefit(), loadSystem(), loadPopular(), loadApt()]).then(applyLayout);
 }
 
 renderClock();

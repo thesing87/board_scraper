@@ -53,6 +53,30 @@ a { color: inherit; text-decoration: none; }
 .card-icon.is-popular { background: var(--orange-weak); color: var(--orange); }
 .card-icon.is-apt { background: var(--ev-weak); color: var(--ev); }
 .card-icon.is-games { background: #FDF0E1; color: #B45309; }
+.card-icon.is-system { background: #EEF2F7; color: #334155; }
+.card-sub.is-bad { color: var(--bad); font-weight: 700; }
+/* NAS 상태 */
+.sys-meters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 14px; }
+.sys-meter { min-width: 0; }
+.sys-meter-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; font-size: 12px; color: var(--muted); }
+.sys-meter-top b { font-size: 15px; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sys-meter-sub { font-size: 11.5px; color: var(--faint); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.sys-bar { height: 6px; margin-top: 6px; border-radius: 999px; background: var(--divider); overflow: hidden; }
+.sys-bar i { display: block; height: 100%; border-radius: 999px; background: #64748B; }
+.sys-bar.is-warn i { background: #F59E0B; }
+.sys-bar.is-bad i { background: var(--bad); }
+.sys-section { font-size: 12px; font-weight: 700; color: var(--muted); margin: 14px 0 6px; }
+.sys-disks { display: grid; gap: 8px; }
+.sys-services { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; }
+.sys-service { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+.sys-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.sys-dot.is-bad { background: var(--bad); }
+.sys-dot.is-off { background: #CBD5E1; }
+.sys-service span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sys-service small { color: var(--faint); }
+.sys-conv { font-size: 13px; color: var(--text-2); line-height: 1.6; }
+.sys-conv .sys-bar { margin: 4px 0 2px; }
+@media (max-width: 520px) { .sys-meters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sys-services { grid-template-columns: 1fr; } }
 .card-icon.is-fmlinks { background: #FAECE7; color: #993C1D; }
 /* 에펨코리아 바로가기 카드: 게시판 이름 + 키워드 칩 (누르면 새 창에서 에펨코리아 검색) */
 .fm-groups { display: flex; flex-direction: column; gap: 10px; }

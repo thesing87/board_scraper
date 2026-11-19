@@ -84,6 +84,7 @@ import comics
 import videos
 import video_fix
 import video_convert
+import system_status
 import apt_trades
 from card_store import (
     card_benefits,
@@ -645,6 +646,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/videos/session': ('_handle_videos_session', '동영상 로그인 처리'),
         '/api/videos/progress': ('_handle_videos_progress', '동영상 이어 보기 저장'),
         '/api/videos/convert': ('_handle_videos_convert', '동영상 변환 처리'),
+        '/api/system': ('_handle_system', 'NAS 상태 조회'),
     }
 
     def do_POST(self):
@@ -1069,6 +1071,13 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._send_data(404, {'found': False})
             else:
                 self._send_data(200, found)
+        elif pure_path == '/api/videos/search':
+            # 동영상 폴더 전체에서 이름·폴더 검색 (videos.all_videos: 기억해 둔 전체 목록)
+            found, total = videos.search(query.get('q', [''])[0][:100])
+            self._send_data(200, {'videos': video_convert.annotate({'videos': found})['videos'], 'total': total})
+        elif pure_path == '/api/videos/latest':
+            # 최근에 들어온 영상 (목록 맨 위 '최근 추가')
+            self._send_data(200, {'videos': video_convert.annotate({'videos': videos.latest()})['videos']})
         elif pure_path == '/api/videos/samples':
             samples = videos.folder_samples(path)
             if samples is None:
@@ -1168,6 +1177,12 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             # 건너뛰기·창 닫기로 브라우저가 받던 요청을 끊은 것 (정상)
             pass
+
+    def _handle_system(self):
+        """대시보드 'NAS 상태' 카드 (관리자 전용): CPU·메모리·디스크·컨테이너·동영상 변환"""
+        if not self._authorize(self._body.get('password', ''), 'NAS 상태'):
+            return
+        self._send_data(200, system_status.snapshot())
 
     def _handle_videos_convert(self):
         """변환 넣기·취소·폴더를 자동 변환에 넣기. {action: 'start'|'cancel'|'folder', path}"""
@@ -1269,6 +1284,14 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_json(401, False, '❌ 로그인이 필요합니다.')
             return
         path, page, pages = self._body.get('path'), self._body.get('page'), self._body.get('pages')
+        # 이어 읽기 목록에서 지우기
+        if self._body.get('action') == 'forget':
+            if not isinstance(path, str) or not comics.configured():
+                self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                return
+            comics.forget_progress(path.replace('\\', '/').strip('/'))
+            self._send_json(200, True, '지웠습니다.')
+            return
         if (not isinstance(path, str) or type(page) is not int or type(pages) is not int
                 or not 0 <= page < max(pages, 1) or not 0 < pages <= comics.MAX_PAGES):
             self._send_json(400, False, '❌ 잘못된 요청입니다.')

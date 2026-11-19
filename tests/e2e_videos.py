@@ -80,6 +80,18 @@ assert body['samples'] == {'드라마': ['드라마/01화.mp4', '드라마/02화
                            '짧은': ['짧은/하위/a.mp4']}, body
 assert req(f'/api/videos/samples?p={q("드라마")}')[1]['samples'] == {'드라마/1부': []}
 assert req(f'/api/videos/samples?p={q("없음")}')[0] == 404
+# 검색: 동영상 폴더 전체에서 이름·폴더에 낱말이 모두 들어간 영상, 이름에 들어간 것 먼저
+code, body, _ = req(f'/api/videos/search?q={q("드라마 05")}')
+assert code == 200 and [v['path'] for v in body['videos']] == ['드라마/05화.mp4'] and body['total'] == 1, body
+body = req(f'/api/videos/search?q={q("화")}')[1]
+assert body['total'] == 5 and all(v['folder'] == '드라마' and 'convert' in v for v in body['videos']), body
+assert [v['path'] for v in req(f'/api/videos/search?q={q("하위")}')[1]['videos']] == ['짧은/하위/a.mp4']   # 폴더 이름으로도
+assert req('/api/videos/search?q=')[1]['total'] == 0
+# 최근 추가: 폴더 전체 영상을 들어온 시각이 최근인 것부터
+body = req('/api/videos/latest')[1]
+assert sorted(v['path'] for v in body['videos']) == sorted(['드라마/01화.mp4', '드라마/02화.mp4', '드라마/03화.mkv', '드라마/04화.avi',
+                                                              '드라마/05화.mp4', '짧은/하위/a.mp4']), body
+assert all(v['added'] for v in body['videos'])
 assert req(f'/api/videos/list?p={q("../")}')[0] == 404
 
 # ---- 파일: 전체·Range·끝 부분·범위 밖, 내려받기, 폴더 밖 거부
@@ -143,6 +155,21 @@ try:
     mosaics = js("return [...document.querySelectorAll('#folders .tile')].map(t => [t.querySelector('.tile-name').textContent, t.querySelector('.mosaic').className, t.querySelectorAll('.mosaic img').length, t.querySelector('.folder-label').textContent])")
     # (이 시험 환경에는 ffmpeg가 없어 썸네일 그림은 비지만, 모음 칸 수와 표시는 그대로)
     assert mosaics[0] == ['드라마', 'mosaic is-4', 4, '폴더'] and mosaics[1][:2] == ['짧은', 'mosaic'] and mosaics[1][3] == '영상 1개', mosaics
+    # 최근 추가 줄 (맨 위 폴더에서만)
+    assert not js("return document.getElementById('latest').hidden") and js("return document.querySelectorAll('#latest-list .tile').length") == 6
+    assert js("return document.querySelector('#latest-list .tile-sub').textContent").endswith('분 전'), js("return document.querySelector('#latest-list .tile-sub').textContent")
+    # 검색: 쓰는 대로 결과, 지우면 목록으로
+    js("const i = document.getElementById('vsearch-input'); i.value = '05'; i.dispatchEvent(new Event('input'))"); time.sleep(1.2)
+    assert not js("return document.getElementById('search-results').hidden") and js("return document.getElementById('library-view').hidden")
+    assert js("return [...document.querySelectorAll('#search-list .tile-name')].map(e => e.textContent)") == ['05화']
+    assert '영상 1개' in js("return document.getElementById('search-count').textContent")
+    js("document.getElementById('vsearch-clear').click()"); time.sleep(.5)
+    assert js("return document.getElementById('search-results').hidden") and not js("return document.getElementById('library-view').hidden")
+    js("const i = document.getElementById('vsearch-input'); i.value = '없는이름'; i.dispatchEvent(new Event('input'))"); time.sleep(1.2)
+    assert '없습니다' in js("return document.getElementById('search-count').textContent")
+    js("document.getElementById('vsearch-clear').click()"); time.sleep(.3)
+    d.get(BASE + '/videos/#d=' + q('드라마')); time.sleep(1.5)
+    assert js("return document.getElementById('latest').hidden")      # 하위 폴더에서는 없음
     d.get(BASE + '/videos/#d=' + q('드라마')); time.sleep(1.5)
     tiles = js("return [...document.querySelectorAll('#videos .tile')].map(t => [t.querySelector('.tile-name').textContent, t.classList.contains('is-unplayable'), t.getAttribute('href')])")
     assert [t[0] for t in tiles] == ['01화', '02화', '03화', '04화', '05화'] and tiles[3][1] and tiles[3][2].startswith('#v='), tiles
