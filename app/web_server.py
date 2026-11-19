@@ -32,6 +32,7 @@ from sites import is_post_id, board_site, site_enabled, SITE_NAMES, DC_BOARD_PRE
 from images import image_file, IMAGE_URL_PREFIX
 from storage import (
     init_db,
+    keyword_pairs,
     set_group_alert,
     set_group_popular,
     saved_comment_alert,
@@ -711,9 +712,14 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                     **({'ignores': [p.strip() for p in m['ignores']]} if 'ignores' in m else {}),
                     **({'paused': m['paused']} if 'paused' in m else {})} for m in members]
         names = category_names()
+        # 에펨코리아 키워드는 새로 등록할 수 없음 (수집하지 않음). 예전부터 있던 키워드는 예전 글을 보여 주려고 그대로 둘 수 있음
+        existing = keyword_pairs()
         for m in members:
             if m['board'] not in names:
                 self._send_json(400, False, '❌ 존재하지 않는 카테고리입니다.')
+                return
+            if not site_enabled(board_site(m['board'])) and (m['board'], m['keyword']) not in existing:
+                self._send_json(400, False, f"❌ {SITE_NAMES[board_site(m['board'])]}는 수집하지 않아 키워드를 새로 등록할 수 없습니다.")
                 return
             if not m['keyword'] or len(m['keyword']) > MAX_KEYWORD_LENGTH or any(ch in m['keyword'] for ch in '\r\n\t'):
                 self._send_json(400, False, f'❌ 키워드는 줄바꿈 없이 {MAX_KEYWORD_LENGTH}자 이하로 입력해 주세요.')

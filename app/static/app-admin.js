@@ -46,9 +46,10 @@ function renderGroupSettings() {
     if (app.groupDraft === undefined) {
         app.groupDraft = editing
             ? editing.members.map(m => ({ board: m.board, keyword: m.keyword, paused: !!m.paused, ignores: m.ignores.slice() })) : [];
-        // 이 게시판이 수집할 카테고리: 수정이면 등록된 키워드의 카테고리, 새 게시판이면 첫 카테고리
-        const first = app.state.boards.find(b => b.status !== 'invalid');
-        app.draftBoards = editing ? [...new Set(app.groupDraft.map(m => m.board))] : (first ? [first.key] : []);
+        // 이 게시판이 수집할 카테고리: 수정이면 등록된 키워드의 카테고리, 새 게시판이면 첫 카테고리.
+        // 에펨코리아 카테고리는 고를 수 없음 (수집하지 않음. 예전 키워드는 보이지 않게 그대로 두어 예전 글은 게시판에 남음)
+        const first = selectableBoards()[0];
+        app.draftBoards = editing ? [...new Set(app.groupDraft.map(m => m.board))].filter(isSelectableBoard) : (first ? [first.key] : []);
         // 새로 연 양식은 찾을 곳을 처음 값(카테고리가 둘 이상이면 '공통')으로
         document.getElementById('group-kw-target').innerHTML = '';
     }
@@ -223,11 +224,16 @@ function toggleDraftBoard(board) {
     renderGroupSettings();
 }
 
-// 카테고리 고르기 칩과 키워드를 찾을 곳 상자 (확인을 통과하지 못한 카테고리는 뺌)
+// 키워드를 등록할 수 있는 카테고리: 수집하는 사이트(디시인사이드)의, 확인을 통과하지 못한 것을 뺀 카테고리
+function isSelectableBoard(key) { return boardSite(key) !== 'fmkorea'; }
+function selectableBoards() { return (app.state.boards || []).filter(b => b.status !== 'invalid' && isSelectableBoard(b.key)); }
+
+// 카테고리 고르기 칩과 키워드를 찾을 곳 상자
 function renderBoardChecks() {
     if (!app.draftBoards) return;
-    const boards = app.state.boards.filter(b => b.status !== 'invalid');
-    app.draftBoards = app.draftBoards.filter(key => boards.some(b => b.key === key) || app.groupDraft.some(m => m.board === key));
+    const boards = selectableBoards();
+    app.draftBoards = app.draftBoards.filter(key => isSelectableBoard(key)
+        && (boards.some(b => b.key === key) || app.groupDraft.some(m => m.board === key)));
     document.getElementById('group-board-checks').innerHTML = boards.map(b => `
         <button type="button" class="board-check" data-action="toggle-draft-board" data-board="${esc(b.key)}" aria-pressed="${app.draftBoards.includes(b.key)}">
             ${siteTag(b.site)}${esc(b.name)}${b.status === 'pending' ? ' (확인 대기)' : ''}
@@ -379,7 +385,8 @@ const CATEGORY_STATUS = {
 // 키워드 등록용 카테고리 선택: 수집할 수 없는 카테고리는 빼고, 확인 전인 카테고리는 표시해서 보여줌
 // 사이트 이름·짧은 표시 편집 (저장하면 사이드바·FM·DC 표시·텔레그램 알림에 바로 반영)
 function renderSiteSettings() {
-    document.getElementById('settings-sites').innerHTML = Object.entries(SITES).map(([site, label]) => `
+    // 에펨코리아는 수집하지 않아 이름을 바꿀 일이 없으므로 디시인사이드만
+    document.getElementById('settings-sites').innerHTML = Object.entries(SITES).filter(([site]) => site !== 'fmkorea').map(([site, label]) => `
         <div class="group-row site-row">
             ${siteTag(site)}
             <input class="input site-name-input" data-site="${site}" value="${esc(label.name)}" maxlength="20" aria-label="${esc(label.name)} 이름" autocomplete="off">
@@ -410,7 +417,8 @@ async function saveSite(site, button) {
 }
 
 function renderCategorySettings() {
-    const boards = app.state.boards || [];
+    // 에펨코리아 카테고리는 보이지 않게 함 (수집하지 않음. 예전 글을 보여 주려고 DB에는 남겨 둠)
+    const boards = (app.state.boards || []).filter(b => isSelectableBoard(b.key));
     document.getElementById('settings-categories').innerHTML = boards.length ? boards.map(b => {
         const status = CATEGORY_STATUS[b.status] || CATEGORY_STATUS.pending;
         // 확인은 됐지만 등록한 키워드가 없으면 실제로 수집하는 글은 없음

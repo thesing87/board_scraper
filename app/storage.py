@@ -899,6 +899,11 @@ def list_groups(id_limit=500):
 def _site_label(labels, site):
     return '여러 사이트' if site == MULTI_SITE else labels[site]['name']
 
+def keyword_pairs():
+    """등록된 (카테고리, 키워드) 전부 (일시정지 포함)"""
+    with _db() as conn:
+        return {(r['board'], r['keyword']) for r in conn.execute("SELECT board, keyword FROM keywords")}
+
 def save_group(group_id, name, members, merge_ids=(), folder_id=None):
     """게시판 생성(group_id=None) 또는 수정. 새 키워드는 수집 대상으로 등록하고,
     어느 게시판에도 남지 않은 키워드는 수집 데이터와 함께 삭제. (게시판 ID, 삭제된 키워드 목록) 반환.
