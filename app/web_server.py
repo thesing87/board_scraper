@@ -832,6 +832,14 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         if action in ('seen_init', 'read', 'read_all', 'found'):
             self._handle_fm_seen(action)
             return
+        if action == 'client_error':
+            # FM키워드 줄(탬퍼몽키)이 사용자 브라우저에서 오류로 멈췄을 때 알려 오는 한 줄 (원인을 서버 기록에서 보려고)
+            message = str(self._body.get('message') or '')[:300].replace('\n', ' | ')
+            where = str(self._body.get('where') or '')[:40]
+            version = str(self._body.get('version') or '')[:20]
+            log_msg(f"[FM키워드 줄] 브라우저 오류 ({version}, {where}): {message}", "WARN")
+            self._send_json(200, True, '기록했습니다.')
+            return
         if action in ('reorder', 'reorder_groups', 'move'):
             self._handle_fm_reorder(action)
             return

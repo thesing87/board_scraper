@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.5.0
+// @version      1.5.1
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -20,6 +20,20 @@
 (function () {
     'use strict';
     const SITE = '__SITE__';
+    const VERSION = '1.5.1';
+    // 오류로 멈추면 키워드 모니터 서버 기록에 한 줄 남김 (화면마다 한 번, 원인을 찾으려고. 에펨코리아 화면 내용은 보내지 않음)
+    let reported = false;
+    function reportError(where, err) {
+        try { console.error('[FM키워드 줄]', where, err); } catch (e) { /* 콘솔 없음 */ }
+        if (reported) return;
+        reported = true;
+        try {
+            GM_xmlhttpRequest({ method: 'POST', url: SITE + '/api/fm-link', headers: { 'Content-Type': 'application/json' }, timeout: 10000,
+                data: JSON.stringify({ action: 'client_error', where, version: VERSION,
+                                       message: String((err && (err.stack || err.message)) || err).slice(0, 300) }) });
+        } catch (e) { /* 보내지 못함 */ }
+    }
+    try {
     const STALE_DAYS = 7;
     // 휴대폰: 좁은 화면이거나 브라우저가 휴대폰이라고 알려 줄 때 (휴대폰에서 PC용 화면을 열어 폭이 넓게 잡혀도 휴대폰으로).
     // 터치 화면 노트북·PC용 삼성 인터넷은 PC로
@@ -308,8 +322,10 @@
     // 검색 결과 화면에서 본 목록(이미 화면에 떠 있는 것)을 순서대로 기억해 두고, 그 목록의 글을 열면 줄에 ◀ 이전 · n/전체 · 다음 ▶ ·
     // 다음 새 글 · 목록. 마지막 글에서는 다음 쪽 검색 결과로. 에펨코리아에는 내가 누른 화면만 열림 (미리 받아 오지 않음)
     function loadTrail() {
-        const t = GM_getValue(KEY_TRAIL, null);
-        return t && Array.isArray(t.posts) && Date.now() - (t.at || 0) < TRAIL_MAX_AGE ? t : null;
+        try {
+            const t = GM_getValue(KEY_TRAIL, null);
+            return t && Array.isArray(t.posts) && Date.now() - (t.at || 0) < TRAIL_MAX_AGE ? t : null;
+        } catch (err) { reportError('trail-load', err); return null; }
     }
     const trail = loadTrail();
     const trailIndex = () => (trail && pagePostNo ? trail.posts.findIndex(p => p.no === pagePostNo) : -1);
@@ -333,6 +349,9 @@
         } catch (e) { return ''; }
     }
     function postNavHtml() {
+        try { return postNavInner(); } catch (err) { reportError('trail-nav', err); return ''; }
+    }
+    function postNavInner() {
         const i = trailIndex();
         if (i < 0) return '';
         const n = trail.posts.length, prev = trail.posts[i - 1], next = trail.posts[i + 1], fresh = nextNewPost();
@@ -373,6 +392,9 @@
     const countHtml = g => `<span class="cnt">${g.links.length}${groupUnread(g) ? ` · <span class="newg">새 ${groupUnread(g)}</span>` : ''}${staleCount(g) ? ` · 오래 안 봄 <b>${staleCount(g)}</b>` : ''}</span>`;
 
     function render(message) {
+        try { renderBar(message); } catch (err) { reportError('render', err); }
+    }
+    function renderBar(message) {
         const folded = GM_getValue(KEY_FOLDED, false);
         const place = MOBILE ? 'bottom' : 'top';
         let html;
@@ -682,7 +704,10 @@
     // 화면이 다 그려지고 키워드 목록이 있을 때 (처음 설치해 목록이 없으면 서버에서 받은 뒤). 새 목록을 받으면 다시 (다른 기기에서 읽은 글 반영)
     let marked = false;
     // 검색 결과 목록은 키워드 목록과 상관없이 화면이 다 그려지면 기억 (FM키워드에 없는 검색도 이전·다음 글로)
-    function trySaveTrail() { if (document.readyState !== 'loading') saveTrail(); }
+    function trySaveTrail() {
+        if (document.readyState === 'loading') return;
+        try { saveTrail(); } catch (err) { reportError('trail-save', err); }
+    }
     document.addEventListener('DOMContentLoaded', trySaveTrail, { once: true });
     trySaveTrail();
     function tryMark() {
@@ -739,4 +764,7 @@
         flushPending();
         refresh();
     });
+    } catch (err) {
+        reportError('start', err);
+    }
 })();
