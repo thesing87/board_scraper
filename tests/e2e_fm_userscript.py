@@ -93,9 +93,8 @@ try:
     got = chips(d)
     assert got[0][0].startswith('테슬라') and got[0][1] and not got[0][2] and got[1][0].startswith('모델y') and got[1][2], got
     assert '지금 보는 중' in got[0][0] and float(d.execute_script("return document.documentElement.style.paddingTop")[:-2]) > 20
-    # AI 펼치기·테슬라 접기 (기억)
+    # 묶음은 하나만: AI를 펼치면 테슬라는 접힘 (기억)
     d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{ai}"]')); time.sleep(0.2)
-    d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{tesla}"]')); time.sleep(0.2)
     got = (boxes(), chips(d), d.execute_script("return localStorage.getItem('gm_fm_bar_open')"))
     assert [b[1] for b in got[0]] == [False, True] and len(got[1]) == 1 and got[1][0][0].startswith('gpt') and got[2] == f'[{ai}]', got
     page(d, 'mid=car&search_keyword=x')
@@ -261,6 +260,11 @@ try:
     assert seen()[1] == [N + 109], seen()
     visit(TESLA, [109, 108, 107])
     assert new_rows() == []
+    assert not d.execute_script("return document.querySelector('.kmfm-note, .kmfm-line')")      # 다 읽었으면 안내 줄도 없음
+    # 펼친 묶음을 다시 누르면 모두 접힘
+    d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{tesla}"]')); time.sleep(0.2)
+    assert not bar(d, '.box.open')
+    d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{tesla}"]')); time.sleep(0.2)
     # 다음 ▶ 과 ] 단축키: 오늘 안 본 것 중 가장 오래 안 본 것으로 이동 (시험에서는 이동 대신 주소만 확인)
     d.execute_script("arguments[0].click()", bar(d, '[data-next]'))
     for _ in range(20):

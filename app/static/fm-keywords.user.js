@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.3.0
+// @version      1.3.1
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -156,10 +156,11 @@
     // PC: 아래로 스크롤하면 얇은 한 줄(묶음 이름만)로, 위로 올리거나 맨 위로 가면 원래대로 (줄 상태는 기억하지 않음)
     let compact = false;
     let lastY = window.scrollY;
+    // 펼친 묶음은 하나만: 지금 보는 검색이 들어 있는 묶음 → 마지막으로 펼친 묶음 (이 화면에서 직접 고쳤으면 그대로)
     function openIds() {
-        const saved = new Set(GM_getValue(KEY_OPEN, []));
-        if (currentGroup() && !openTouched) saved.add(currentGroup().id);
-        return saved;
+        const saved = GM_getValue(KEY_OPEN, []).filter(id => groups.some(g => g.id === id)).slice(0, 1);
+        if (currentGroup() && !openTouched) return new Set([currentGroup().id]);
+        return new Set(saved);
     }
     // 휴대폰: 아랫줄에 보일 묶음 = 지금 보는 검색의 묶음 → 기억한 묶음 → 첫 묶음 (0이면 아랫줄 접힘)
     let mobileTouched = false;
@@ -286,20 +287,18 @@
         if (e.target.closest('[data-next]')) { goNext(); return; }
         const toggle = e.target.closest('[data-toggle]');
         if (toggle) {
-            const open = openIds();
+            // 다른 묶음을 펼치면 펼쳐져 있던 묶음은 접힘, 펼친 묶음을 다시 누르면 모두 접힘
             const id = Number(toggle.dataset.toggle);
-            if (open.has(id)) open.delete(id); else open.add(id);
+            const open = openIds().has(id) ? [] : [id];
             openTouched = true;
-            GM_setValue(KEY_OPEN, [...open]);
+            GM_setValue(KEY_OPEN, open);
             render();
             return;
         }
         const cgroup = e.target.closest('[data-cgroup]');
         if (cgroup) {
-            const open = openIds();
-            open.add(Number(cgroup.dataset.cgroup));
             openTouched = true;
-            GM_setValue(KEY_OPEN, [...open]);
+            GM_setValue(KEY_OPEN, [Number(cgroup.dataset.cgroup)]);
             compact = false;
             lastY = window.scrollY;
             render();
@@ -420,7 +419,8 @@
             saveCache();
             request('POST', '/api/fm-link', { action: 'found', board: link.board, keyword: link.keyword, max: link.seen_max, ids: added.slice(0, 100) }).catch(() => {});
         }
-        if (since.length) {
+        // 안 읽은 새 글이 남았을 때만 안내 줄·구분선 (다 읽었으면 '모두 읽음'을 누르지 않아도 없음)
+        if (unread.length) {
             addStyle();
             unread.forEach(x => {
                 x.row.classList.add('kmfm-new');
@@ -439,9 +439,7 @@
             }
             const note = document.createElement('div');
             note.className = 'kmfm-note';
-            note.innerHTML = unread.length
-                ? `<span>안 읽은 새 글 ${unread.length}개</span><button type="button" data-kmfm-readall>모두 읽음</button>`
-                : '<span>새 글을 모두 읽었습니다</span><button type="button" data-kmfm-readall>모두 읽음</button>';
+            note.innerHTML = `<span>안 읽은 새 글 ${unread.length}개</span><button type="button" data-kmfm-readall>모두 읽음</button>`;
             const list = rows[0].row.closest('table, ul, ol') || rows[0].row;
             list.parentNode.insertBefore(note, list);
             note.querySelector('[data-kmfm-readall]').addEventListener('click', () => readAll(link, Math.max(...rows.map(x => x.no))));
