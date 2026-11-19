@@ -41,6 +41,13 @@ async function handlePostAnchor() {
         else openBoard(ALL_KEY);
         return true;
     }
+    // 대시보드의 에펨코리아 바로가기 카드(#fm)로 들어오면 FM키워드
+    if (window.location.hash === '#fm') {
+        history.replaceState(history.state, '', window.location.pathname);
+        app.galleryReturn = null;
+        openBoard(FM_KEY);
+        return true;
+    }
     // 대시보드의 게시판별 인기글 카드(#popular)로 들어오면 전체 게시판의 인기글 보기 (기간은 오늘)
     if (window.location.hash === '#popular') {
         history.replaceState(history.state, '', window.location.pathname);
@@ -246,6 +253,8 @@ document.addEventListener('click', (e) => {
         goHome();
     } else if (action === 'open-all') {
         openBoard(ALL_KEY);
+    } else if (action === 'open-fm') {
+        openBoard(FM_KEY);
     } else if (action === 'set-view') {
         setFilter(el.dataset.filter);
     } else if (action === 'popular-days') {

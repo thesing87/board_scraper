@@ -164,6 +164,8 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
     /* 게시판 칩 줄: 보기 탭바 바로 위. 아래로 스크롤하면(body.chips-hidden) 탭바 뒤로 내려가 숨고,
        그 위의 떠 있는 버튼·안내도 함께 내려옴 (--bottom-chips-h를 0으로) */
     body.chips-hidden { --bottom-chips-h: 0px; }
+    /* FM키워드 화면: 보기 탭바가 없으니 게시판 칩 줄을 화면 맨 아래로 */
+    body.fm-view { --bottom-tabs-h: env(safe-area-inset-bottom, 0px); }
     .chip-row { position: fixed; left: 0; right: 0; bottom: var(--bottom-tabs-h); z-index: 44; height: 52px; align-items: center;
                 padding: 0 16px; background: var(--surface); border-top: 1px solid var(--border); transition: transform 0.2s ease; }
     body.chips-hidden .chip-row { transform: translateY(100%); }
@@ -309,6 +311,25 @@ mark { background: #FEF08A; color: inherit; padding: 0 1px; border-radius: 2px; 
 
 .feed-head-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .feed-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* FM키워드 (사이드바 맨 위): 게시판마다 에펨코리아 검색 링크 */
+/* FM키워드 화면은 글 목록이 아니어서 보기 탭을 숨김 (보기 탭의 display 지정보다 우선) */
+.view-tabs[hidden], .view-bar-tabs[hidden] { display: none !important; }
+.fm-nav-label { display: inline-flex; align-items: center; gap: 6px; }
+.fm-nav-label svg { color: #993C1D; }
+.fmk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.fmk-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.fmk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.fmk-name { border: 0; background: none; padding: 0; font: inherit; font-size: 15px; font-weight: 800; color: var(--text); cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.fmk-name:hover { color: var(--accent); }
+.fmk-note { font-size: 12px; color: var(--text-3); flex: 0 0 auto; }
+.fmk-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fmk-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); font-size: 14px; text-decoration: none; }
+.fmk-chip:hover { border-color: #993C1D; color: #993C1D; }
+.fmk-chip small { font-size: 11px; color: var(--text-3); }
+.fmk-chip svg { color: var(--text-3); }
+@media (max-width: 899px) { .fmk-grid { grid-template-columns: minmax(0, 1fr); } }
 /* 게시판 편집의 에펨코리아 바로가기: 열어 보기 버튼 */
 .fm-link-try { display: inline-flex; color: var(--text-3); }
 .fm-links-hint { margin-top: 6px; }

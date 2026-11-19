@@ -7,6 +7,9 @@
 // 상태 및 공용 유틸
 // ==========================================
 const ALL_KEY = '__all__';            // 모든 게시판을 합친 통합 피드
+// 사이드바 맨 위 'FM키워드': 게시판마다 등록한 에펨코리아 검색 링크를 모아 보여 줌 (글 목록이 아님. 에펨코리아는 수집하지 않음)
+const FM_KEY = '__fm__';
+const FM_LABEL = 'FM키워드';
 // 보기: 고른 게시판 안에서 어떤 글을 볼지 (하나만 고름). more: 보기 탭 끝 '더보기' 목록에 넣는 보기
 const FILTERS = [
     { key: 'all', label: '모든 글' },
@@ -155,7 +158,9 @@ function isAllView() { return app.activeKey === ALL_KEY; }
 // 묶음 (사이드바 묶음 제목: 묶음 안 모든 게시판을 합친 피드): 'folder:<묶음 ID>'
 function folderKey(folder) { return 'folder:' + folder.id; }
 function findFolder(key) { return app.state ? (app.state.folders || []).find(f => folderKey(f) === key) : null; }
-function isKnownView(key) { return key === ALL_KEY || !!findGroup(key) || !!findFolder(key); }
+function isKnownView(key) { return key === ALL_KEY || key === FM_KEY || !!findGroup(key) || !!findFolder(key); }
+function isFmView() { return app.activeKey === FM_KEY && !app.searchQuery; }
+function fmLinkCount() { return (app.state ? app.state.groups || [] : []).reduce((n, g) => n + (g.fm_links || []).length, 0); }
 function isKnownFilter(key) { return FILTERS.some(f => f.key === key); }
 function filterLabel(key) { return FILTERS.find(f => f.key === key).label; }
 
@@ -404,8 +409,9 @@ function renderNavigation() {
     if (!app.state) return;
     const searching = !!app.searchQuery;
     const groups = app.state.groups || [];
-    const current = viewSummary(app.activeKey);
+    const current = viewSummary(app.activeKey) || app.state.all;
     const allActive = !searching && isAllView();
+    const fmActive = isFmView();
     const isActive = g => !searching && groupKey(g) === app.activeKey;
     const filterActive = key => !searching && app.filter === key;
     const filterAttrs = key => `data-action="set-view" data-filter="${key}"`;
@@ -448,6 +454,7 @@ function renderNavigation() {
     document.getElementById('keyword-groups').innerHTML = `
         <nav class="kw-group" aria-label="게시판">
             <div class="sidebar-head"><span>게시판</span>${ADD_BOARD_BUTTON}</div>
+            ${navItem(`<span class="fm-nav-label">${ICONS.external}${FM_LABEL}</span>`, fmLinkCount() || '', 0, fmActive, 'data-action="open-fm"')}
             ${navItem('전체', '', app.state.all.unread_count, allActive, 'data-action="open-all"', app.state.all.comment_count)}
             ${groupList}
         </nav>`;
@@ -476,9 +483,12 @@ function renderNavigation() {
             </span>`;
     };
     document.getElementById('view-bar-tabs').innerHTML = viewTabs('view-bar-tab', false);
+    document.getElementById('view-bar-tabs').hidden = fmActive;
 
     // 모바일: 위는 한 줄 보기 칸, 아래는 가로로 넘기는 게시판 칩 (맨 앞이 전체, 안 읽은 새 글은 파란 점·새 댓글은 주황 점)
     document.getElementById('view-tabs').innerHTML = viewTabs('view-tab', true);
+    document.getElementById('view-tabs').hidden = fmActive;
+    document.body.classList.toggle('fm-view', fmActive);
     const chip = (label, summary, active, attrs) => `
         <button class="chip ${active ? 'active' : ''}" ${attrs} ${active ? 'aria-current="true"' : ''}>
             <span>${label}</span>
@@ -512,6 +522,7 @@ function renderNavigation() {
         return expanded ? `<span class="chip-folder-box">${chips}</span>` : chips;
     };
     document.getElementById('chip-row').innerHTML =
+        chip(FM_LABEL, {}, fmActive, 'data-action="open-fm"') +
         chip('전체', app.state.all, allActive, 'data-action="open-all"') +
         renderTop(groupChip, folderChips);
 }

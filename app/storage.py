@@ -906,19 +906,6 @@ def list_groups(id_limit=500):
                            **_feed_summary(conn, id_limit, g['id'])})
     return groups
 
-def fm_links_by_group():
-    """에펨코리아 바로가기 페이지용: 링크가 있는 게시판만 사이드바 순서대로 [{id, name, links: [{board, board_name, keyword}]}]
-    (board_name은 카테고리 이름, 없으면 mid 그대로, ''이면 '전체')"""
-    with _db() as conn:
-        names = {r['key']: r['name'] or r['key'] for r in conn.execute("SELECT key, name FROM categories")}
-        out = []
-        for g in conn.execute("SELECT id, name FROM keyword_groups ORDER BY position, id").fetchall():
-            links = [{'board': r['board'], 'board_name': names.get(r['board'], r['board']) if r['board'] else '전체', 'keyword': r['keyword']}
-                     for r in conn.execute("SELECT board, keyword FROM fm_links WHERE group_id = ? ORDER BY rowid", (g['id'],))]
-            if links:
-                out.append({'id': g['id'], 'name': g['name'], 'links': links})
-        return out
-
 def _site_label(labels, site):
     return '여러 사이트' if site == MULTI_SITE else labels[site]['name']
 

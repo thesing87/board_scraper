@@ -245,7 +245,8 @@ function feedSubText(total) {
 }
 
 function renderFeedSub() {
-    // 읽음 처리로 안 읽은 수가 바뀌면 제목 아래 요약과 '모두 읽음' 버튼만 갱신
+    // 읽음 처리로 안 읽은 수가 바뀌면 제목 아래 요약과 '모두 읽음' 버튼만 갱신 (FM키워드는 글 목록이 아니라 그대로)
+    if (isFmView()) return;
     const sub = document.querySelector('.feed-sub');
     if (sub && !app.searchQuery) sub.innerHTML = feedSubText();
     const btn = document.querySelector('[data-action="mark-all-read"]');
@@ -278,6 +279,7 @@ async function loadPosts() {
     const feed = document.getElementById('feed');
     hideNewBanner();
     const searching = !!app.searchQuery;
+    if (isFmView()) return renderFmKeywords();
     if (!searching && app.filter === 'popular') return loadPopularBoards();
     const group = findGroup(app.activeKey);
     const viewKey = currentViewKey();
@@ -414,6 +416,55 @@ function renderPopularBoards(data, group, folder) {
     window.scrollTo({ top: 0 });
     document.querySelector('.fab-next').hidden = true;
     updateShortcutGuide();
+}
+
+// ---------- FM키워드: 게시판마다 등록한 에펨코리아 검색 링크 모아 보기 ----------
+// 누르면 새 창에서 에펨코리아 검색 결과 (서버는 에펨코리아에 요청하지 않음). 링크는 관리 → 게시판 편집에서 추가·빼기
+function renderFmKeywords() {
+    const feed = document.getElementById('feed');
+    feed.removeAttribute('aria-busy');
+    hideNewBanner();
+    app.page = 1;
+    app.totalPages = 1;
+    app.renderedTotal = null;
+    app.renderedPostTotal = 0;
+    app.renderedUnreadIds = null;
+    app.galleryRange = null;
+    app.openPostIds = new Set();
+    document.body.classList.remove('gallery-mode');
+    storageSet(sessionStorage, 'last_active_tab', app.activeKey);
+    const groups = (app.state.groups || []).filter(g => (g.fm_links || []).length);
+    const total = fmLinkCount();
+    const card = g => {
+        const boards = new Set(g.fm_links.map(l => l.board));
+        const note = boards.size === 1 ? fmBoardName(g.fm_links[0].board) : `게시판 ${boards.size}곳`;
+        return `
+        <section class="fmk-card" aria-label="${esc(g.name)}">
+            <div class="fmk-head">
+                <button class="fmk-name" data-action="open-group" data-group-id="${g.id}">${esc(g.name)}</button>
+                <span class="fmk-note">${esc(note)}</span>
+            </div>
+            <div class="fmk-chips">${g.fm_links.map(l => `
+                <a class="fmk-chip" href="${esc(fmSearchUrl(l.board, l.keyword))}" target="_blank" rel="noopener noreferrer"
+                   title="에펨코리아 ${esc(fmBoardName(l.board))}에서 '${esc(l.keyword)}' 검색">
+                    ${boards.size > 1 ? `<small>${esc(fmBoardName(l.board))}</small>` : ''}${esc(l.keyword)}${ICONS.external}</a>`).join('')}
+            </div>
+        </section>`;
+    };
+    feed.innerHTML = `
+        <div class="feed-head">
+            <div class="feed-head-text">
+                <div class="feed-title-row"><h1 class="feed-title">${FM_LABEL}</h1></div>
+                <span class="feed-sub">${total ? `링크 ${total}개 · 누르면 새 창에서 에펨코리아 검색` : '에펨코리아는 수집하지 않고 검색 링크만 모아 둡니다'}</span>
+            </div>
+            <div class="feed-tools">${renderFontSizeControl()}</div>
+        </div>
+        ${groups.length ? `<div class="fmk-grid">${groups.map(card).join('')}</div>`
+            : `<div class="empty-card">아직 등록한 링크가 없습니다.<br>관리 → 게시판 편집의 '에펨코리아 바로가기'에서 추가하면 여기에 모입니다.</div>`}`;
+    window.scrollTo({ top: 0 });
+    document.querySelector('.fab-next').hidden = true;
+    updateShortcutGuide();
+    return Promise.resolve(false);
 }
 
 // 인기글 카드의 '게시판 인기순': 그 게시판을 같은 기간의 인기순으로 엶

@@ -82,24 +82,37 @@ try:
     assert st == 200 and links(tesla)[-1] == {'board': '', 'keyword': 'gpt'} and len(links(tesla)) == 3, links(tesla)
     print('MERGE OK')
 
-    # 에펨 링크 페이지: 게시판마다 링크, 게시판이 여러 곳이면 키워드마다 게시판 이름, 거르기
-    d.get(BASE + '/links/'); time.sleep(2)
-    assert js("return document.querySelector('.site-nav [aria-current=page]').dataset.nav") == 'links'
-    cards = js("return [...document.querySelectorAll('.link-group')].map(g => [g.querySelector('.link-group-name').textContent, [...g.querySelectorAll('.link-chip')].map(a => [a.textContent.trim(), a.href, a.target])])")
+    # FM키워드 (사이드바 맨 위): 게시판마다 링크, 게시판이 여러 곳이면 키워드마다 게시판 이름, 보기 탭은 숨김
+    d.get(BASE + '/board/'); time.sleep(2)
+    side = js("return [...document.querySelectorAll('#keyword-groups .kw-item')].map(b => b.textContent.replace(/\s+/g, ' ').trim())")
+    assert side[0].startswith('FM키워드') and side[0].endswith('3') and side[1].startswith('전체'), side
+    js("document.querySelector('#keyword-groups [data-action=\"open-fm\"]').click()"); time.sleep(0.8)
+    assert js("return document.querySelector('.feed-title').textContent") == 'FM키워드'
+    assert js("return document.getElementById('view-bar-tabs').offsetHeight") == 0
+    cards = js("return [...document.querySelectorAll('.fmk-card')].map(g => [g.querySelector('.fmk-name').textContent, [...g.querySelectorAll('.fmk-chip')].map(a => [a.textContent.trim(), a.href, a.target])])")
     print('cards', cards)
     q = urllib.parse.quote('테슬라')
     assert [c[0] for c in cards] == ['테슬라'], cards
     chips = cards[0][1]
     assert chips[0][1] == f'https://www.fmkorea.com/index.php?mid=car&search_target=title_content&search_keyword={q}' and chips[0][2] == '_blank'
     assert chips[0][0] == '자동차테슬라' and chips[2][0] == '전체gpt' and 'football_world' in chips[1][1], chips
-    assert js("return document.getElementById('links-count').textContent") == '링크 3개'
-    js("const f = document.getElementById('links-filter'); f.value = '손흥'; f.dispatchEvent(new Event('input'))"); time.sleep(0.2)
-    got = js("return [...document.querySelectorAll('.link-chip')].map(a => a.textContent.trim())"); assert got == ['football_world손흥민'], got
-    assert js("return document.getElementById('links-count').textContent") == '1 / 3개'
+    assert '링크 3개' in js("return document.querySelector('.feed-sub').textContent")
+    # 게시판 이름을 누르면 그 게시판, 다시 보기 탭이 보임
+    js("document.querySelector('.fmk-name').click()"); time.sleep(1)
+    assert js("return document.querySelector('.feed-title').textContent").endswith('테슬라') and not js("return document.getElementById('view-bar-tabs').hidden")
+    # 휴대폰: 게시판 칩 줄 맨 앞이 FM키워드
     d.set_window_size(390, 844); time.sleep(0.5)
+    assert js("return document.querySelector('#chip-row .chip').textContent.trim()") == 'FM키워드'
+    js("document.querySelector('#chip-row [data-action=\"open-fm\"]').click()"); time.sleep(0.8)
+    assert js("return document.getElementById('view-tabs').offsetHeight") == 0 and js("return document.querySelectorAll('.fmk-chip').length") == 3
     assert js("return document.documentElement.scrollWidth <= innerWidth")
+    # 보기 탭바가 없으니 게시판 칩 줄이 화면 맨 아래에 붙음
+    assert js("return Math.round(innerHeight - document.getElementById('chip-row').getBoundingClientRect().bottom)") == 0
     d.set_window_size(1440, 900)
-    print('LINKS PAGE OK')
+    # 대시보드 카드에서 들어오는 주소 (#fm)
+    d.get(BASE + '/board/#fm'); time.sleep(2)
+    assert js("return document.querySelector('.feed-title').textContent") == 'FM키워드'
+    print('FM KEYWORDS VIEW OK')
 
     # 대시보드 카드 (머리를 누르면 링크 페이지)
     d.get(BASE + '/'); time.sleep(2.5)
@@ -107,7 +120,7 @@ try:
     hrefs = js("return [...document.querySelectorAll('#fmlinks-body .fm-chip')].map(a => a.href)")
     assert '테슬라' in body and len(hrefs) == 3 and hrefs[2] == 'https://www.fmkorea.com/search.php?act=IS&is_keyword=gpt', hrefs
     assert js("return document.getElementById('fmlinks-sub').textContent") == '검색 링크 3개 · 새 창'
-    assert js("return document.querySelector('#card-fmlinks .card-head').getAttribute('href')") == '/links/'
+    assert js("return document.querySelector('#card-fmlinks .card-head').getAttribute('href')") == '/board/#fm'
     d.set_window_size(390, 844); time.sleep(0.5)
     assert js("return document.documentElement.scrollWidth <= innerWidth")
     print('DASHBOARD OK')
