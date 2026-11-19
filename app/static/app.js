@@ -144,7 +144,7 @@ function memberKey(m) { return m.board + '::' + m.keyword; }
 function fmSearchUrl(board, keyword) {
     const q = encodeURIComponent(keyword);
     return board
-        ? `https://www.fmkorea.com/index.php?mid=${encodeURIComponent(board)}&search_target=title_content&search_keyword=${q}`
+        ? `https://www.fmkorea.com/search.php?mid=${encodeURIComponent(board)}&search_target=title_content&search_keyword=${q}`
         : `https://www.fmkorea.com/search.php?act=IS&is_keyword=${q}`;
 }
 function fmBoardName(board) { return board ? boardName(board) : '전체'; }

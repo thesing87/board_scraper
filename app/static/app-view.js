@@ -423,6 +423,23 @@ function renderPopularBoards(data, group, folder) {
 // 관리자 기기에서는 '편집'으로 이 화면에서 바로 추가·빼기 (관리 → 게시판 편집의 바로가기 칸과 같은 링크)
 const FM_STALE_DAYS = 7;
 const FM_SORT_KEY = 'fm_keywords_sort';
+// PC에서는 링크를 화면 오른쪽에 붙인 작은 브라우저 창 하나로 엶 (다른 링크도 같은 창에서). 기기마다 켜고 끔, 기본 켬.
+// 휴대폰·홈 화면 앱은 작은 창을 띄울 수 없어 늘 새 탭 (에펨코리아는 다른 사이트 안에 화면을 넣지 못하게 막아 둠)
+const FM_POPUP_KEY = 'fm_keywords_popup';
+const FM_POPUP_NAME = 'fmkorea_popup';
+const FM_POPUP_WIDTH = 520;
+function fmPopupSupported() {
+    return !window.matchMedia('(max-width: 899px)').matches && !window.matchMedia('(display-mode: standalone)').matches;
+}
+function fmPopupOn() { return fmPopupSupported() && storageGet(localStorage, FM_POPUP_KEY, '1') !== '0'; }
+function openFmPopup(url) {
+    const width = Math.min(FM_POPUP_WIDTH, screen.availWidth);
+    const left = (screen.availLeft || 0) + screen.availWidth - width;
+    const features = `popup=yes,width=${width},height=${screen.availHeight},left=${left},top=${screen.availTop || 0}`;
+    const win = window.open(url, FM_POPUP_NAME, features);
+    if (win) { try { win.focus(); } catch (e) { /* 포커스를 못 옮겨도 열림 */ } }
+    return !!win;
+}
 
 function fmOpenedAt(link) { return link.last_opened ? new Date(link.last_opened.replace(' ', 'T')) : null; }
 function fmAgeDays(link) { const at = fmOpenedAt(link); return at ? Math.floor((Date.now() - at) / 86400000) : null; }
@@ -501,7 +518,8 @@ function renderFmKeywords() {
                         aria-label="${esc(l.keyword)} 바로가기 빼기">${ICONS.close}</button></span>`;
         }
         const ago = fmAgoText(l);
-        const cls = fmIsStale(l) ? ' is-stale' : l.last_opened ? '' : ' is-unseen';
+        const cls = (fmIsStale(l) ? ' is-stale' : l.last_opened ? '' : ' is-unseen')
+            + (app.fmCurrent === `${g.id}|${l.board}|${l.keyword}` ? ' is-current' : '');
         return `<a class="fmk-chip${cls}" href="${esc(fmSearchUrl(l.board, l.keyword))}" target="_blank" rel="noopener noreferrer"
                    data-fm-open="${g.id}" data-board="${esc(l.board)}" data-keyword="${esc(l.keyword)}"
                    title="에펨코리아 ${esc(fmBoardName(l.board))}에서 '${esc(l.keyword)}' 검색 · 마지막으로 연 때: ${ago}">
@@ -523,17 +541,20 @@ function renderFmKeywords() {
     };
     const sortButtons = editing ? '' : [['order', '등록 순'], ['stale', '오래 안 본 순']].map(([key, label]) =>
         `<button class="btn btn-outline btn-small fmk-pill" data-action="fm-sort" data-sort="${key}" aria-pressed="${fmSort() === key}">${label}</button>`).join('');
+    const popupSwitch = editing || !fmPopupSupported() ? '' : `
+        <label class="fmk-popup-switch" title="켜면 링크를 화면 오른쪽 작은 창에서 엽니다 (끄면 새 탭)">
+            <input type="checkbox" data-fm-popup ${fmPopupOn() ? 'checked' : ''}><span class="fmk-switch" aria-hidden="true"></span>작은 창으로 열기</label>`;
     const editButton = !admin ? '' : editing
         ? `<button class="btn btn-primary btn-small" data-action="fm-edit" aria-pressed="true">편집 끝내기</button>`
         : `<button class="btn btn-outline btn-small" data-action="fm-edit" aria-pressed="false">편집</button>`;
     const sub = editing ? '편집 중 · 바꾸면 바로 저장됩니다'
-        : all.length ? `링크 ${all.length}개${stale ? ` · ${FM_STALE_DAYS}일 넘게 안 본 링크 <strong class="fmk-stale-count">${stale}개</strong>` : ''} · 누르면 새 창에서 에펨코리아 검색`
+        : all.length ? `링크 ${all.length}개${stale ? ` · ${FM_STALE_DAYS}일 넘게 안 본 링크 <strong class="fmk-stale-count">${stale}개</strong>` : ''} · 누르면 ${fmPopupOn() ? '오른쪽 작은 창' : '새 창'}에서 에펨코리아 검색`
         : '에펨코리아는 수집하지 않고 검색 링크만 모아 둡니다';
     const empty = `<div class="empty-card">아직 등록한 링크가 없습니다.<br>${admin ? "'편집'을 누르거나 관리 → 게시판 편집의 '에펨코리아 바로가기'에서 추가하면 여기에 모입니다." : '관리자 기기에서 추가하면 여기에 모입니다.'}</div>`;
     feed.innerHTML = `
         <div class="feed-head">
             <div class="feed-head-text">
-                <div class="feed-title-row"><h1 class="feed-title">${FM_LABEL}</h1>${sortButtons}${editButton}</div>
+                <div class="feed-title-row"><h1 class="feed-title">${FM_LABEL}</h1>${sortButtons}${editButton}${popupSwitch}</div>
                 <span class="feed-sub">${sub}</span>
             </div>
             <div class="feed-tools">${renderFontSizeControl()}</div>
@@ -562,6 +583,7 @@ function recordFmOpen(a) {
     const group = (app.state.groups || []).find(g => g.id === Number(a.dataset.fmOpen));
     const link = group && group.fm_links.find(l => l.board === a.dataset.board && l.keyword === a.dataset.keyword);
     if (!link) return;
+    app.fmCurrent = `${group.id}|${link.board}|${link.keyword}`;
     const pad = n => String(n).padStart(2, '0');
     const now = new Date();
     link.last_opened = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
@@ -571,8 +593,19 @@ function recordFmOpen(a) {
 }
 ['click', 'auxclick'].forEach(type => document.addEventListener(type, e => {
     const a = e.target.closest && e.target.closest('a.fmk-chip[data-fm-open]');
-    if (a && (type === 'click' || e.button === 1)) recordFmOpen(a);
+    if (!a || (type === 'auxclick' && e.button !== 1)) return;
+    // 그냥 누르면(Ctrl·Shift 등 없이) 작은 창으로. 팝업이 막히면 새 탭으로
+    if (type === 'click' && fmPopupOn() && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        if (!openFmPopup(a.href)) window.open(a.href, '_blank', 'noopener');
+    }
+    recordFmOpen(a);
 }));
+document.addEventListener('change', e => {
+    if (!e.target.matches || !e.target.matches('[data-fm-popup]')) return;
+    storageSet(localStorage, FM_POPUP_KEY, e.target.checked ? '1' : '0');
+    renderFmKeywords();
+});
 document.addEventListener('change', e => {
     if (!e.target.classList || !e.target.classList.contains('fmk-board-select')) return;
     e.target.closest('[data-fm-row]').querySelector('.fmk-mid-input').hidden = e.target.value !== FM_CUSTOM;

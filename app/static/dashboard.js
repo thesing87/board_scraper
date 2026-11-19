@@ -116,7 +116,7 @@ async function getJSON(url) {
 function fmSearchUrl(board, keyword) {
     const q = encodeURIComponent(keyword);
     return board
-        ? `https://www.fmkorea.com/index.php?mid=${encodeURIComponent(board)}&search_target=title_content&search_keyword=${q}`
+        ? `https://www.fmkorea.com/search.php?mid=${encodeURIComponent(board)}&search_target=title_content&search_keyword=${q}`
         : `https://www.fmkorea.com/search.php?act=IS&is_keyword=${q}`;
 }
 function renderFmLinks(state) {

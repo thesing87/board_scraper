@@ -94,7 +94,7 @@ try:
     q = urllib.parse.quote('테슬라')
     assert [c[0] for c in cards] == ['테슬라'], cards
     chips = cards[0][1]
-    assert chips[0][1] == f'https://www.fmkorea.com/index.php?mid=car&search_target=title_content&search_keyword={q}' and chips[0][2] == '_blank'
+    assert chips[0][1] == f'https://www.fmkorea.com/search.php?mid=car&search_target=title_content&search_keyword={q}' and chips[0][2] == '_blank'
     assert chips[0][0] == '자동차테슬라' and chips[2][0] == '전체gpt' and 'football_world' in chips[1][1], chips
     assert '링크 3개' in js("return document.querySelector('.feed-sub').textContent")
     # 게시판 이름을 누르면 그 게시판, 다시 보기 탭이 보임
@@ -104,6 +104,7 @@ try:
     d.set_window_size(390, 844); time.sleep(0.5)
     assert js("return document.querySelector('#chip-row .chip').textContent.trim()") == 'FM키워드'
     js("document.querySelector('#chip-row [data-action=\"open-fm\"]').click()"); time.sleep(0.8)
+    assert not js("return document.querySelector('[data-fm-popup]')")   # 휴대폰은 작은 창 스위치 없음 (늘 새 탭)
     assert js("return document.getElementById('view-tabs').offsetHeight") == 0 and js("return document.querySelectorAll('.fmk-chip').length") == 3
     assert js("return document.documentElement.scrollWidth <= innerWidth")
     # 보기 탭바가 없으니 게시판 칩 줄이 화면 맨 아래에 붙음
@@ -138,6 +139,32 @@ try:
     assert order[0].endswith('gpt') and order[1].endswith('손흥민') and order[2].endswith('테슬라'), order   # 안 본 것 → 오래된 것
     js("document.querySelector('[data-action=\"fm-sort\"][data-sort=\"order\"]').click()"); time.sleep(0.3)
     print('LAST OPENED OK')
+
+    # PC: 작은 창 하나로 엶 (다른 링크도 같은 창), 방금 누른 칩 표시. 스위치를 끄면 새 탭
+    main = d.current_window_handle
+    def close_others():
+        for h in d.window_handles:
+            if h != main:
+                d.switch_to.window(h); d.close()
+        d.switch_to.window(main)
+    assert js("return document.querySelector('[data-fm-popup]').checked")
+    assert '오른쪽 작은 창' in js("return document.querySelector('.feed-sub').textContent")
+    js("window.__opened = []; const o = window.open; window.open = function(u, n, f) { window.__opened.push([u, n, f || '']); return o.apply(this, arguments); }")
+    js("document.querySelectorAll('a.fmk-chip')[0].click()"); time.sleep(1)
+    js("document.querySelectorAll('a.fmk-chip')[1].click()"); time.sleep(1)
+    opened = js("return window.__opened")
+    assert [o[1] for o in opened] == ['fmkorea_popup', 'fmkorea_popup'] and 'width=520' in opened[0][2] and 'popup=yes' in opened[0][2], opened
+    assert len(d.window_handles) == 2, d.window_handles          # 같은 창을 다시 씀
+    assert js("return document.querySelectorAll('.fmk-chip.is-current').length") == 1
+    close_others()
+    js("document.querySelector('.fmk-popup-switch').click()"); time.sleep(0.3)
+    assert not js("return document.querySelector('[data-fm-popup]').checked") and js("return localStorage.getItem('fm_keywords_popup')") == '0'
+    js("window.__opened = []; document.querySelectorAll('a.fmk-chip')[0].click()"); time.sleep(1)
+    assert js("return window.__opened") == [] and len(d.window_handles) == 2   # 새 탭 (a target=_blank)
+    close_others()
+    js("document.querySelector('.fmk-popup-switch').click()"); time.sleep(0.3)
+    d.refresh(); time.sleep(2)
+    print('POPUP OK')
 
     # 바로 편집: 관리자 기기에만 '편집'. 빼기·추가(엔터), 다른 게시판에 추가
     js("localStorage.removeItem('admin_token'); updateAdminUI(); renderFmKeywords()")
