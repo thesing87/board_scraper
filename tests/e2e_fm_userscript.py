@@ -77,15 +77,21 @@ try:
     # PC: 위에 고정, 지금 보는 검색(테슬라)이 들어 있는 게시판, 연 시각·7일 넘으면 주황
     page(d, 'mid=car&search_target=title_content&search_keyword=%ED%85%8C%EC%8A%AC%EB%9D%BC')
     assert d.execute_script("const b = arguments[0].getBoundingClientRect(); return [Math.round(b.top), getComputedStyle(arguments[0]).position]", bar(d, '.bar')) == [0, 'fixed']
-    assert d.execute_script("return arguments[0].value", bar(d, 'select')) == str(tesla)
+    # 묶음 상자: 지금 보는 검색의 묶음(테슬라)만 펼침, 나머지는 이름·개수
+    boxes = lambda: d.execute_script("return [...document.getElementById('keyword-monitor-fm-bar').shadowRoot.querySelectorAll('.box')]"
+                                     ".map(b => [b.querySelector('.gh').textContent.replace(/\s+/g, ' ').trim(), b.classList.contains('open')])")
+    got = boxes()
+    assert got[0][0].startswith('▾ 테슬라') and got[0][1] and got[1] == ['▸ AI 1', False], got
     got = chips(d)
     assert got[0][0].startswith('테슬라') and got[0][1] and not got[0][2] and got[1][0].startswith('모델y') and got[1][2], got
     assert '아직 안 봄' in got[0][0] and float(d.execute_script("return document.documentElement.style.paddingTop")[:-2]) > 20
-    # 게시판 바꾸기 (기억)
-    d.execute_script("const s = arguments[0]; s.value = arguments[1]; s.dispatchEvent(new Event('change', {bubbles: true}))", bar(d, 'select'), str(ai))
-    time.sleep(0.3)
-    got = (chips(d), d.execute_script("return localStorage.getItem('gm_fm_bar_group')"))
-    assert len(got[0]) == 1 and got[0][0][0].startswith('gpt') and got[1] == str(ai), got
+    # AI 펼치기·테슬라 접기 (기억)
+    d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{ai}"]')); time.sleep(0.2)
+    d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{tesla}"]')); time.sleep(0.2)
+    got = (boxes(), chips(d), d.execute_script("return localStorage.getItem('gm_fm_bar_open')"))
+    assert [b[1] for b in got[0]] == [False, True] and len(got[1]) == 1 and got[1][0][0].startswith('gpt') and got[2] == f'[{ai}]', got
+    page(d, 'mid=car&search_keyword=x')
+    assert [b[1] for b in boxes()] == [False, True]
     # 누르면 연 시각을 남기고 같은 탭에서 이동 (시험에서는 이동할 주소를 로컬로 바꿔 에펨코리아에 접속하지 않음)
     d.execute_script("const a = arguments[0]; a.href = location.origin + '/api/fm-links?moved=1'; a.click()", bar(d, 'a.chip'))
     time.sleep(1.5)
@@ -108,6 +114,15 @@ try:
     assert rect[0] == 0 and rect[1] > 40, rect
     got = chips(d)
     assert [c[0] for c in got] == ['테슬라', '모델y'] and got[1][1], got
+    # 윗줄 묶음 이름: 누르면 아랫줄이 그 묶음으로, 같은 것을 다시 누르면 아랫줄 접힘
+    names = lambda: d.execute_script("return [...document.getElementById('keyword-monitor-fm-bar').shadowRoot.querySelectorAll('.gp')].map(b => [b.textContent.trim(), b.classList.contains('on')])")
+    assert names() == [['테슬라2', True], ['AI1', False]], names()
+    d.execute_script("arguments[0].click()", bar(d, f'[data-mgroup="{ai}"]')); time.sleep(0.2)
+    assert [c[0] for c in chips(d)] == ['gpt'] and names()[1][1]
+    d.execute_script("arguments[0].click()", bar(d, f'[data-mgroup="{ai}"]')); time.sleep(0.2)
+    assert chips(d) == [] and not any(n[1] for n in names())
+    d.execute_script("arguments[0].click()", bar(d, f'[data-mgroup="{tesla}"]')); time.sleep(0.2)
+    assert len(chips(d)) == 2
     gone = lambda: d.execute_script("return arguments[0].classList.contains('gone')", bar(d, '.bar'))
     d.execute_script("window.scrollTo(0, 600)"); time.sleep(0.4)
     assert gone()

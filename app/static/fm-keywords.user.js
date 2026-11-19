@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.0.1
+// @version      1.0.2
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -21,9 +21,12 @@
     'use strict';
     const SITE = '__SITE__';
     const STALE_DAYS = 7;
-    // 휴대폰: 좁은 화면이거나 손가락으로 누르는 기기 (휴대폰에서 PC용 화면을 열면 화면 폭이 넓게 잡혀도 휴대폰으로)
-    const MOBILE = window.matchMedia('(max-width: 899px)').matches || window.matchMedia('(hover: none) and (pointer: coarse)').matches;
-    const KEY_GROUP = 'fm_bar_group', KEY_FOLDED = 'fm_bar_folded';
+    // 휴대폰: 좁은 화면이거나 브라우저가 휴대폰이라고 알려 줄 때 (휴대폰에서 PC용 화면을 열어 폭이 넓게 잡혀도 휴대폰으로).
+    // 터치 화면 노트북·PC용 삼성 인터넷은 PC로
+    const MOBILE = window.matchMedia('(max-width: 899px)').matches
+        || !!(navigator.userAgentData && navigator.userAgentData.mobile) || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    // 기기마다 기억: 줄 전체 접힘, PC에서 펼친 묶음 ID들, 휴대폰에서 고른 묶음 ID (0이면 아랫줄 접힘)
+    const KEY_FOLDED = 'fm_bar_folded', KEY_OPEN = 'fm_bar_open', KEY_MOBILE = 'fm_bar_mobile_group';
 
     function request(method, path, body) {
         return new Promise((resolve, reject) => {
@@ -79,7 +82,19 @@
         .head { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
         .bottom .head { margin-bottom: 6px; }
         .title { font-weight: 700; color: #712B13; white-space: nowrap; }
-        select { font: inherit; font-size: 12px; padding: 2px 6px; border-radius: 6px; border: 1px solid #D85A30; background: #fff; color: #712B13; max-width: 140px; }
+        button { font: inherit; }
+        .boxes { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 auto; min-width: 0; align-items: flex-start; }
+        .box { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; border: 1px solid #F0997B; border-radius: 10px; padding: 3px 6px; background: #fff; max-width: 100%; }
+        .box.open { border-color: #993C1D; background: #FFF6F2; }
+        .gh { border: 0; background: none; padding: 1px 2px; cursor: pointer; color: #712B13; font-size: 12px; font-weight: 700; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+        .cnt { font-size: 11px; color: #993C1D; font-weight: 400; }
+        .cnt b { color: #854F0B; font-weight: 700; }
+        .groups { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-bottom: 6px; }
+        .groups::-webkit-scrollbar { display: none; }
+        .gp { flex: 0 0 auto; border: 1px solid #F0997B; background: #fff; color: #712B13; border-radius: 999px; padding: 4px 11px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+        .gp.on { background: #712B13; border-color: #712B13; color: #fff; }
+        .gp .cnt { margin-left: 3px; }
+        .gp.on .cnt { color: #F5C4B3; }
         .chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; flex: 1 1 auto; min-width: 0; }
         .chips::-webkit-scrollbar { display: none; }
         .top .chips { flex-wrap: wrap; overflow: visible; }
@@ -97,13 +112,28 @@
         .msg { font-size: 12px; color: #993C1D; }
     `;
 
-    let chosenId = null;   // 이 화면에서 상자로 고른 게시판
-    function pickGroup() {
-        const saved = Number(GM_getValue(KEY_GROUP, 0));
-        // 방금 고른 게시판 → 지금 보는 검색이 들어 있는 게시판 → 지난번에 고른 게시판 → 첫 게시판
-        return groups.find(g => g.id === chosenId) || groups.find(g => g.links.some(isCurrent))
-            || groups.find(g => g.id === saved) || groups[0];
+    const currentGroup = () => groups.find(g => g.links.some(isCurrent));
+    const staleCount = g => g.links.filter(l => isStale(l.last_opened)).length;
+    // PC: 펼친 묶음 = 기억한 묶음 + 지금 보는 검색이 들어 있는 묶음 (이 화면에서 직접 접고 폈으면 기억한 그대로만)
+    let openTouched = false;
+    function openIds() {
+        const saved = new Set(GM_getValue(KEY_OPEN, []));
+        if (currentGroup() && !openTouched) saved.add(currentGroup().id);
+        return saved;
     }
+    // 휴대폰: 아랫줄에 보일 묶음 = 지금 보는 검색의 묶음 → 기억한 묶음 → 첫 묶음 (0이면 아랫줄 접힘)
+    let mobileTouched = false;
+    function mobileGroupId() {
+        const saved = GM_getValue(KEY_MOBILE, null);
+        if (saved === 0) return 0;
+        if (!mobileTouched && currentGroup()) return currentGroup().id;
+        return groups.some(g => g.id === saved) ? saved : groups[0].id;
+    }
+    const chipHtml = (g, l) => `
+        <a class="chip${isCurrent(l) ? ' on' : ''}${isStale(l.last_opened) ? ' stale' : ''}" href="${esc(searchUrl(l.board, l.keyword))}"
+           data-board="${esc(l.board)}" data-keyword="${esc(l.keyword)}" data-group="${g.id}">
+            ${esc(l.keyword)}${MOBILE ? '' : `<small>${esc(agoText(l.last_opened))}</small>`}</a>`;
+    const countHtml = g => `<span class="cnt">${g.links.length}${staleCount(g) ? ` · 오래 안 봄 <b>${staleCount(g)}</b>` : ''}</span>`;
 
     function render(message) {
         const folded = GM_getValue(KEY_FOLDED, false);
@@ -114,16 +144,21 @@
         } else if (folded) {
             html = `<div class="bar ${place} mini" data-unfold>FM키워드 ${MOBILE ? '▴' : '▾'}</div>`;
         } else {
-            const group = pickGroup();
-            const options = groups.map(g => `<option value="${g.id}" ${g === group ? 'selected' : ''}>${esc(g.name)}</option>`).join('');
-            const chips = group.links.map(l => `
-                <a class="chip${isCurrent(l) ? ' on' : ''}${isStale(l.last_opened) ? ' stale' : ''}" href="${esc(searchUrl(l.board, l.keyword))}"
-                   data-board="${esc(l.board)}" data-keyword="${esc(l.keyword)}" data-group="${group.id}">
-                    ${esc(l.keyword)}${MOBILE ? '' : `<small>${esc(agoText(l.last_opened))}</small>`}</a>`).join('');
             const side = `<span class="side">${MOBILE ? '' : `<a href="${SITE}/board/#fm" target="_blank" rel="noopener">키워드 모니터 ↗</a>`}<button data-fold>${MOBILE ? '숨기기 ▾' : '접기 ▴'}</button></span>`;
-            html = MOBILE
-                ? `<div class="bar bottom"><div class="head"><span class="title">FM키워드</span><select aria-label="게시판">${options}</select>${side}</div><div class="chips">${chips}</div></div>`
-                : `<div class="bar top"><div class="head"><span class="title">FM키워드</span><select aria-label="게시판">${options}</select></div><div class="chips">${chips}</div>${side}</div>`;
+            if (MOBILE) {
+                // 윗줄: 묶음 이름 (누르면 아랫줄이 그 묶음으로, 같은 것을 다시 누르면 아랫줄 접힘), 아랫줄: 고른 묶음의 키워드
+                const picked = groups.find(g => g.id === mobileGroupId());
+                const names = groups.map(g => `<button class="gp${picked === g ? ' on' : ''}" data-mgroup="${g.id}">${esc(g.name)}<span class="cnt">${g.links.length}</span></button>`).join('');
+                html = `<div class="bar bottom"><div class="head"><span class="title">FM키워드</span>${side}</div>
+                    <div class="groups">${names}</div>${picked ? `<div class="chips">${picked.links.map(l => chipHtml(picked, l)).join('')}</div>` : ''}</div>`;
+            } else {
+                // 묶음 상자: 접히면 이름·개수, 펼치면 그 자리에 키워드 칩 (여러 개 함께 펼침)
+                const open = openIds();
+                const boxes = groups.map(g => open.has(g.id)
+                    ? `<span class="box open"><button class="gh" data-toggle="${g.id}" aria-expanded="true">▾ ${esc(g.name)}</button>${g.links.map(l => chipHtml(g, l)).join('')}</span>`
+                    : `<span class="box"><button class="gh" data-toggle="${g.id}" aria-expanded="false">▸ ${esc(g.name)} ${countHtml(g)}</button></span>`).join('');
+                html = `<div class="bar top"><div class="head"><span class="title">FM키워드</span></div><div class="boxes">${boxes}</div>${side}</div>`;
+            }
         }
         root.innerHTML = `<style>${CSS}</style>${html}`;
         // 에펨코리아 화면의 맨 위·맨 아래가 줄에 가리지 않게 그만큼 여백
@@ -134,12 +169,6 @@
         if (active && MOBILE) active.scrollIntoView({ block: 'nearest', inline: 'center' });
     }
 
-    root.addEventListener('change', e => {
-        if (e.target.tagName !== 'SELECT') return;
-        chosenId = Number(e.target.value);
-        GM_setValue(KEY_GROUP, chosenId);
-        render();
-    });
     root.addEventListener('click', e => {
         const chip = e.target.closest('a.chip');
         if (chip) {
@@ -150,6 +179,27 @@
             request('POST', '/api/fm-link', { action: 'open', group_id: Number(chip.dataset.group), board: chip.dataset.board, keyword: chip.dataset.keyword })
                 .then(go, go);
             setTimeout(go, 800);
+            return;
+        }
+        const toggle = e.target.closest('[data-toggle]');
+        if (toggle) {
+            const open = openIds();
+            const id = Number(toggle.dataset.toggle);
+            if (open.has(id)) open.delete(id); else open.add(id);
+            openTouched = true;
+            GM_setValue(KEY_OPEN, [...open]);
+            render();
+            return;
+        }
+        const mgroup = e.target.closest('[data-mgroup]');
+        if (mgroup) {
+            const id = Number(mgroup.dataset.mgroup);
+            const shown = mobileGroupId();
+            mobileTouched = true;
+            GM_setValue(KEY_MOBILE, shown === id ? 0 : id);
+            render();
+            const on = root.querySelector('.gp.on');
+            if (on) on.scrollIntoView({ block: 'nearest', inline: 'center' });
             return;
         }
         if (e.target.closest('[data-fold]')) { GM_setValue(KEY_FOLDED, true); render(); return; }
