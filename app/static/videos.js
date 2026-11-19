@@ -141,7 +141,7 @@
         if (v.converted || !v.convert) return '';
         const job = v.job;
         if (job && job.state === 'running') return `변환 중 ${Math.floor((job.progress || 0) * 100)}%`;
-        if (job && job.state === 'queued') return job.night ? '밤에 변환 예정' : job.auto ? '자동 변환 대기' : '변환 대기';
+        if (job && job.state === 'queued') return job.auto ? '자동 변환 대기' : '변환 대기';
         if (job && job.state === 'failed') return '변환 실패';
         return '변환 필요';
     }
@@ -157,7 +157,7 @@
         const { status, data } = await postJson('/api/videos/convert', { action: 'folder', path: currentDir });
         $('conv-folder').disabled = false;
         if (status === 200) {
-            $('conv-bar-text').textContent = `${data.queued}개를 밤(1시~7시)에 변환하도록 예약했습니다.`;
+            $('conv-bar-text').textContent = `${data.queued}개를 자동 변환 순서에 넣었습니다.`;
             setTimeout(() => showLibrary(currentDir), 1500);
         } else {
             $('conv-bar-text').textContent = String(data.message || '예약하지 못했습니다.').replace(/^❌\s*/, '');
@@ -476,10 +476,7 @@
                 + `<small>${job.speed ? `실시간의 ${job.speed.toFixed(1)}배 속도${left}` : '속도 재는 중'}. 창을 닫아도 계속 변환합니다.</small>`
                 + convertButtons(['<button type="button" data-conv="cancel" class="is-sub">변환 취소</button>']);
         } else if (job && job.state === 'queued') {
-            html = job.night
-                ? `<b>밤(1시~7시)에 변환할 예정입니다</b><small>지금 바로 변환할 수도 있습니다 (예상 약 ${fmtMinutes(st.estimate || 0)}).</small>`
-                    + convertButtons(['<button type="button" data-conv="start">지금 변환</button>', '<button type="button" data-conv="cancel" class="is-sub">예약 취소</button>'])
-                : job.auto
+            html = job.auto
                 ? `<b>자동 변환 순서를 기다리는 중입니다</b><small>직접 고른 변환이 끝난 뒤 차례로 변환합니다. 먼저 보려면 지금 변환하세요 (예상 약 ${fmtMinutes(st.estimate || 0)}).</small>`
                     + convertButtons(['<button type="button" data-conv="start">지금 변환</button>', '<button type="button" data-conv="cancel" class="is-sub">자동 변환 안 함</button>'])
                 : '<b>변환 대기 중</b><small>앞의 변환이 끝나면 바로 시작합니다.</small>'
@@ -497,7 +494,7 @@
             html = `<b>이 영상은 변환해야 볼 수 있습니다</b>`
                 + `<small>화면 형식 ${esc(codec)}${info.height ? ` · ${info.width}×${info.height}` : ''}${length}<br>`
                 + `브라우저가 이 형식을 풀지 못해 NAS에서 MP4로 바꿔 둡니다. 예상 약 ${fmtMinutes(st.estimate || 0)} (한 번만, 원본은 그대로).</small>`
-                + convertButtons(['<button type="button" data-conv="start">지금 변환</button>', '<button type="button" data-conv="night" class="is-sub">밤에 변환</button>', dl]);
+                + convertButtons(['<button type="button" data-conv="start">지금 변환</button>', dl]);
         }
         showMessage(html);
         $('player-msg').classList.add('is-convert');

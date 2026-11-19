@@ -990,12 +990,12 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             pass
 
     def _handle_videos_convert(self):
-        """변환 넣기·취소·폴더 예약. {action: 'start'|'night'|'cancel'|'folder', path}"""
+        """변환 넣기·취소·폴더를 자동 변환에 넣기. {action: 'start'|'cancel'|'folder', path}"""
         if not self._videos_authorized():
             self._send_json(401, False, '❌ 로그인이 필요합니다.')
             return
         action, path = self._body.get('action'), self._body.get('path')
-        if action not in ('start', 'night', 'cancel', 'folder') or not isinstance(path, str):
+        if action not in ('start', 'cancel', 'folder') or not isinstance(path, str):
             self._send_json(400, False, '❌ 잘못된 요청입니다.')
             return
         path = path.replace('\\', '/').strip('/')
@@ -1020,7 +1020,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         if found['mode'] == 'direct' or found['converted']:
             self._send_json(400, False, '❌ 변환할 필요가 없는 영상입니다.')
             return
-        video_convert.enqueue(path, found['mode'], night=action == 'night' and found['mode'] != 'remux')
+        video_convert.enqueue(path, found['mode'])
         self._send_data(200, {'success': True, **video_convert.status(path)})
 
     def _handle_videos_progress(self):

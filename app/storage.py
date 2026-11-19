@@ -244,7 +244,7 @@ def _create_schema(conn):
         );
 
         -- 브라우저용 MP4 변환 작업 (video_convert.py, fmkorea-convert 컨테이너가 처리)
-        -- kind: remux(화면은 그대로·포장과 소리만)·transcode(화면까지)·auto(돌릴 때 조사), state: queued·running·done·failed·cancel, night=1이면 밤 시간에만, progress 0~1
+        -- kind: remux(화면은 그대로·포장과 소리만)·transcode(화면까지)·auto(돌릴 때 조사), state: queued·running·done·failed·cancel, night=2면 자동 변환(직접 넣은 작업 뒤에, 1은 예전 밤 예약), progress 0~1
         CREATE TABLE IF NOT EXISTS video_jobs (
             path       TEXT PRIMARY KEY,
             state      TEXT NOT NULL,

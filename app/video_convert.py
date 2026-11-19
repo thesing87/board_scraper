@@ -6,7 +6,7 @@
 - remux: 화면은 그대로 재생되는데 포장(AVI·WMV 등)이나 소리(AC3·MP2·PCM·WMA)만 안 맞음
   → 화면은 복사하고 소리만 AAC로 → 1시간짜리도 1분 안팎. 재생 버튼을 누르면 바로 시작
 - transcode: 화면 형식(DivX·Xvid·WMV·MPEG-1 등)을 브라우저가 못 풂
-  → libx264로 다시 부호화 (720p까지 줄임). 이 NAS에서 SD는 실시간의 약 4배, 720p는 1~3배 → 누를 때 시작하거나 밤에 몰아서
+  → libx264로 다시 부호화 (720p까지 줄임). 이 NAS에서 SD는 실시간의 약 4배, 720p는 1~3배 → 누를 때 시작하거나 자동 변환이 남는 때에 차례로
 
 변환은 웹서버가 아니라 fmkorea-convert 컨테이너(video_worker.py)가 함: CPU 몫을 가장 작게 잡아(cpu_shares)
 게시판 수집·웹서버를 방해하지 않게. 웹서버는 DB(video_jobs)에 작업을 넣고 진행 상황을 읽기만 함.
@@ -23,7 +23,6 @@ import shutil
 import subprocess
 import threading
 import time
-from datetime import datetime
 
 from config import OUTPUT_DIR
 from storage import _db, _now
@@ -41,10 +40,9 @@ DIRECT_CONTAINERS = set(videos.PLAYABLE_TYPES)
 MAX_HEIGHT = 720
 CRF = 23
 AUDIO_BITRATE = '160k'
-# 밤 변환 시간 (시, 이 시각 이상 ~ 미만). 시작한 작업은 끝날 때까지 계속
-NIGHT_START, NIGHT_END = 1, 7
-# video_jobs.night 값: 밤 예약, 자동 변환 (0은 지금 변환). 작업은 이 값 순서(지금 → 밤 → 자동), 그다음 넣은 순서로 꺼냄
-NIGHT, AUTO = 1, 2
+# video_jobs.night 값 (이름은 예전 '밤 예약'에서 남은 것): 0 지금 변환, AUTO 자동 변환(직접 넣은 작업 뒤에).
+# 작업은 이 값 순서(지금 → 자동), 그다음 넣은 순서로 꺼냄. 예전 밤 예약(1)은 작업기가 시작할 때 자동 변환으로 바꿈
+OLD_NIGHT, AUTO = 1, 2
 PROBE_TIMEOUT = 30
 # 미리 어림하는 변환 속도 (실시간의 몇 배). 실제로 돌면 잰 속도로 바뀜
 SPEED_GUESS = ((576, 4.0), (720, 1.6), (99999, 1.0))
@@ -162,8 +160,7 @@ def converted_file(full):
 def _job_dict(row):
     if not row:
         return None
-    # night: 0 지금 변환, 1 밤 예약(1~7시에만), 2 자동 변환(아무 때나, 직접 넣은 작업 뒤에)
-    return {'state': row['state'], 'kind': row['kind'], 'night': row['night'] == NIGHT, 'auto': row['night'] == AUTO, 'progress': row['progress'],
+    return {'state': row['state'], 'kind': row['kind'], 'auto': bool(row['night']), 'progress': row['progress'],
             'speed': row['speed'], 'error': row['error'], 'updated_at': row['updated_at']}
 
 
@@ -183,10 +180,10 @@ def jobs_for(paths):
     return out
 
 
-def enqueue(rel, kind='auto', night=False, auto=False):
-    """변환 작업을 넣음. 이미 대기·진행 중이면 그대로(밤 예약·자동 변환이 '지금 변환'으로 바뀌는 것만 반영)"""
+def enqueue(rel, kind='auto', auto=False):
+    """변환 작업을 넣음. 이미 대기·진행 중이면 그대로(자동 변환이 '지금 변환'으로 바뀌는 것만 반영)"""
     now = _now()
-    value = NIGHT if night else AUTO if auto else 0
+    value = AUTO if auto else 0
     with _db() as conn, conn:
         row = conn.execute("SELECT state, night FROM video_jobs WHERE path = ?", (rel,)).fetchone()
         if row and row['state'] in ('queued', 'running'):
@@ -235,7 +232,7 @@ def annotate(listing):
 
 
 def enqueue_folder(rel):
-    """폴더 안(하위 폴더 제외) 영상 중 변환이 필요하거나 아직 모르는 것을 밤 변환으로 예약. 넣은 개수"""
+    """폴더 안(하위 폴더 제외) 영상 중 변환이 필요하거나 아직 모르는 것을 자동 변환 순서에 넣음 (다음 훑기를 기다리지 않고). 넣은 개수"""
     listing = videos.list_dir(rel)
     if listing is None:
         return None
@@ -244,7 +241,7 @@ def enqueue_folder(rel):
     for v in listing['videos']:
         if v['converted'] or v['convert'] is False or (v['job'] and v['job']['state'] in ('queued', 'running')):
             continue
-        enqueue(v['path'], 'auto', night=True)
+        enqueue(v['path'], 'auto', auto=True)
         count += 1
     return count
 
@@ -305,11 +302,6 @@ def status(rel):
 # ==========================================
 # 작업기 쪽 (fmkorea-convert 컨테이너의 video_worker.py가 부름)
 # ==========================================
-def _is_night(now=None):
-    hour = (now or datetime.now()).hour
-    return NIGHT_START <= hour < NIGHT_END
-
-
 def build_command(ffmpeg, src, dst, info, mode):
     cmd = ['nice', '-n', '19'] if shutil.which('nice') else []
     cmd += [ffmpeg, '-hide_banner', '-nostdin', '-y', '-v', 'error', '-progress', 'pipe:1', '-nostats',
@@ -337,14 +329,11 @@ def _set(rel, **fields):
         conn.execute(f"UPDATE video_jobs SET {', '.join(k + ' = ?' for k in fields)} WHERE path = ?", (*fields.values(), rel))
 
 
-def next_job(lane, now=None):
-    """lane: 'fast'(remux만) 또는 'slow'(나머지). 밤 예약은 밤에만"""
-    night_ok = _is_night(now)
+def next_job(lane):
+    """lane: 'fast'(remux만) 또는 'slow'(나머지). 지금 변환이 자동 변환보다 먼저"""
     with _db() as conn:
         rows = conn.execute("SELECT * FROM video_jobs WHERE state = 'queued' ORDER BY night, created_at").fetchall()
     for r in rows:
-        if r['night'] == NIGHT and not night_ok:
-            continue
         if (lane == 'fast') != (r['kind'] == 'remux'):
             continue
         return r['path'], r['kind']
@@ -432,6 +421,7 @@ def recover():
     with _db() as conn, conn:
         conn.execute("UPDATE video_jobs SET state = 'queued', progress = 0 WHERE state = 'running'")
         conn.execute("DELETE FROM video_jobs WHERE state = 'cancel'")
+        conn.execute("UPDATE video_jobs SET night = ? WHERE night = ?", (AUTO, OLD_NIGHT))
     for root, _, files in os.walk(CONV_DIR):
         for name in files:
             if name.endswith('.part.mp4'):

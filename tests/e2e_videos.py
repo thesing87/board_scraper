@@ -147,7 +147,7 @@ try:
     tiles = js("return [...document.querySelectorAll('#videos .tile')].map(t => [t.querySelector('.tile-name').textContent, t.classList.contains('is-unplayable'), t.getAttribute('href')])")
     assert [t[0] for t in tiles] == ['01화', '02화', '03화', '04화', '05화'] and tiles[3][1] and tiles[3][2].startswith('#v='), tiles
     assert '변환 필요' in js("return document.querySelectorAll('#videos .tile')[3].textContent")
-    # 폴더에 변환이 필요한 영상이 있으면 '밤에 모두 변환' 막대
+    # 폴더에 변환이 필요한 영상이 있으면 '모두 자동 변환' 막대
     assert not js("return document.getElementById('conv-bar').hidden") and '영상 1개' in js("return document.getElementById('conv-bar-text').textContent")
     assert '0:12 / 0:40' in js("return document.querySelector('#videos .tile').textContent")
     # 재생: 이어 보기 위치에서 시작, 자막 트랙
@@ -193,17 +193,15 @@ try:
     d.get(BASE + '/videos/#v=' + q('드라마/05화.mp4')); time.sleep(3)
     assert not js("return document.getElementById('player-msg').hidden"), js("return [document.getElementById('video').videoWidth, document.getElementById('video').error]")
     assert '내려받기' in js("return document.getElementById('player-msg').textContent")
-    # AVI(DivX): 재생 화면에서 변환 안내 → 밤에 변환 예약 → 지금 변환으로 바꿈 → 취소
+    # AVI(DivX): 재생 화면에서 변환 안내(밤에 변환 버튼 없음) → 지금 변환 → 취소
     d.get(BASE + '/videos/#v=' + q('드라마/04화.avi')); time.sleep(2.5)
     msg = js("return document.getElementById('player-msg').textContent")
-    assert '변환해야 볼 수 있습니다' in msg and '지금 변환' in msg and '내려받기' in msg, msg
-    js("document.querySelector('[data-conv=night]').click()"); time.sleep(1.5)
-    assert '밤(1시~7시)에 변환할 예정' in js("return document.getElementById('player-msg').textContent")
-    assert req(f'/api/videos/status?p={q("드라마/04화.avi")}')[1]['job']['night'] is True
+    assert '변환해야 볼 수 있습니다' in msg and '지금 변환' in msg and '내려받기' in msg and '밤' not in msg, msg
+    assert not js("return document.querySelector('[data-conv=night]')")
     js("document.querySelector('[data-conv=start]').click()"); time.sleep(1.5)
     assert '변환 대기 중' in js("return document.getElementById('player-msg').textContent")
     job = req(f'/api/videos/status?p={q("드라마/04화.avi")}')[1]['job']
-    assert job['state'] == 'queued' and job['night'] is False, job
+    assert job['state'] == 'queued' and job['auto'] is False, job
     js("document.querySelector('[data-conv=cancel]').click()"); time.sleep(1.5)
     assert req(f'/api/videos/status?p={q("드라마/04화.avi")}')[1]['job'] is None
     assert '지금 변환' in js("return document.getElementById('player-msg').textContent")

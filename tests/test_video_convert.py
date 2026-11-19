@@ -1,11 +1,10 @@
 """동영상 변환(video_convert.py·video_worker.py): ffmpeg 출력에서 형식 읽기, 그대로·포장만·화면까지 변환 판정,
-작업 넣기·밤 예약·지금 변환으로 바꾸기·취소, 빠른 줄(remux)·느린 줄 나눔과 밤 시간, 폴더 예약,
+작업 넣기·자동 변환을 지금 변환으로 바꾸기·취소, 빠른 줄(remux)·느린 줄 나눔, 폴더를 자동 변환에 넣기·폴더 전체 훑기,
 (ffmpeg가 있으면) 실제 변환 → 변환본을 서버가 대신 보냄 → 원본이 바뀌면 옛 변환본 정리"""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import TESTS_DIR
 import tempfile, shutil, subprocess, json, threading, socket, urllib.request, urllib.parse
-from datetime import datetime
 
 FIX = os.environ.get('VIDEO_FIXTURES') or os.path.join(TESTS_DIR, 'fixtures', 'videos')
 VIDEOS = tempfile.mkdtemp()
@@ -15,6 +14,9 @@ for name in [k for k in os.environ if k.startswith('KEYWORDS_')]:
 import storage, videos, video_convert as vc
 
 storage.init_db()
+def clear_jobs():
+    with storage._db() as conn, conn:
+        conn.execute("DELETE FROM video_jobs")
 FFMPEG = shutil.which('ffmpeg')
 
 # ---- ffmpeg 출력 읽기
@@ -47,39 +49,43 @@ cmd = vc.build_command('ffmpeg', 'in', 'out', {'video': 'mpeg4', 'audio': 'mp3',
 assert cmd[cmd.index('-c:v') + 1] == 'libx264' and 'min(720,ih)' in cmd[cmd.index('-vf') + 1] and cmd[cmd.index('-c:a') + 1] == 'copy'
 assert '+faststart' in cmd
 
-# ---- 작업: 밤 예약 → 지금 변환으로, 진행 중이면 그대로, 취소
+# ---- 작업: 자동 변환 → 지금 변환으로, 진행 중이면 그대로, 취소
 os.makedirs(os.path.join(VIDEOS, 'f'))
 shutil.copy(os.path.join(FIX, 's.avi'), os.path.join(VIDEOS, 'f', 'a.avi'))
 shutil.copy(os.path.join(FIX, 's.mp4'), os.path.join(VIDEOS, 'f', 'b.mp4'))
 shutil.copy(os.path.join(FIX, 'mpeg4.mp4'), os.path.join(VIDEOS, 'f', 'c.mp4'))
-vc.enqueue('f/a.avi', 'transcode', night=True)
-assert vc.job('f/a.avi')['state'] == 'queued' and vc.job('f/a.avi')['night']
-day, night = datetime(2026, 1, 1, 14), datetime(2026, 1, 1, 2)
-assert vc.next_job('slow', day) is None and vc.next_job('slow', night) == ('f/a.avi', 'transcode')
-vc.enqueue('f/a.avi', 'transcode', night=False)
-assert not vc.job('f/a.avi')['night'] and vc.next_job('slow', day) == ('f/a.avi', 'transcode')
-assert vc.next_job('fast', day) is None   # 빠른 줄은 remux만
+vc.enqueue('f/a.avi', 'transcode', auto=True)
+assert vc.job('f/a.avi')['state'] == 'queued' and vc.job('f/a.avi')['auto']
+assert vc.next_job('slow') == ('f/a.avi', 'transcode')       # 시간과 관계없이
+vc.enqueue('f/a.avi', 'transcode')
+assert not vc.job('f/a.avi')['auto'] and vc.next_job('slow') == ('f/a.avi', 'transcode')
+assert vc.next_job('fast') is None   # 빠른 줄은 remux만
 vc.enqueue('f/b.mp4', 'remux')
-assert vc.next_job('fast', day) == ('f/b.mp4', 'remux')
+assert vc.next_job('fast') == ('f/b.mp4', 'remux')
 assert vc._claim('f/b.mp4') and not vc._claim('f/b.mp4')   # 한 줄만 가져감
-vc.enqueue('f/b.mp4', 'remux', night=True)                 # 진행 중이면 그대로
-assert vc.job('f/b.mp4')['state'] == 'running' and not vc.job('f/b.mp4')['night']
+vc.enqueue('f/b.mp4', 'remux', auto=True)                  # 진행 중이면 그대로
+assert vc.job('f/b.mp4')['state'] == 'running' and not vc.job('f/b.mp4')['auto']
 vc.cancel('f/b.mp4')
 assert vc.job('f/b.mp4')['state'] == 'cancel'               # 작업기가 보고 멈춤
 vc.recover()
 assert vc.job('f/b.mp4') is None and vc.job('f/a.avi')['state'] == 'queued'
 vc.cancel('f/a.avi')
 assert vc.job('f/a.avi') is None
+# 예전 밤 예약(night=1)은 작업기가 시작할 때 자동 변환으로
+vc.enqueue('f/a.avi', 'transcode')
+vc._set('f/a.avi', night=1)
+vc.recover()
+assert vc.job('f/a.avi')['auto'] and vc.next_job('slow') == ('f/a.avi', 'transcode')
+clear_jobs()
 
-# ---- 목록 표시·폴더 예약 (MP4는 형식을 조사해 둔 것만 판정, 모르면 None)
+# ---- 목록 표시·폴더를 자동 변환에 넣기 (MP4는 형식을 조사해 둔 것만 판정, 모르면 None)
 listing = vc.annotate(videos.list_dir('f'))
 by = {v['name']: v for v in listing['videos']}
 assert by['a']['convert'] is True and by['b']['convert'] is None and all(v['playable'] for v in by.values())
 assert vc.enqueue_folder('f') == 3                            # 모르는 MP4도 넣고 작업기가 조사해 필요 없으면 지움
-assert all(vc.job(p)['night'] for p in ('f/a.avi', 'f/b.mp4', 'f/c.mp4'))
+assert all(vc.job(p)['auto'] for p in ('f/a.avi', 'f/b.mp4', 'f/c.mp4'))
 assert vc.enqueue_folder('f') == 0 and vc.enqueue_folder('none') is None
-for p in ('f/a.avi', 'f/b.mp4', 'f/c.mp4'):
-    vc.cancel(p)
+clear_jobs()
 
 # ---- 자동 변환: 폴더 전체(하위 폴더 포함, 숨긴 폴더 제외)를 훑어 변환이 필요한 것만 자동 변환으로 (아무 때나, 직접 넣은 작업 뒤에)
 os.makedirs(os.path.join(VIDEOS, 'f', 'sub'))
@@ -94,15 +100,11 @@ vc.enqueue('f/a.avi', 'transcode')
 vc._set('f/a.avi', state='failed', error='x')                 # 전에 실패한 것은 다시 넣지 않음
 assert vc.scan_library() == (4, 2)
 assert vc.job('f/b.mp4') is None                               # 그대로 재생되는 MP4는 넣지 않음
-assert all(vc.job(p)['auto'] and not vc.job(p)['night'] and vc.job(p)['kind'] == 'transcode' for p in ('f/c.mp4', 'f/sub/d.mp4'))
-assert vc.next_job('slow', day) == ('f/c.mp4', 'transcode')    # 낮에도 돎
-vc.enqueue('f/x.avi', 'transcode', night=True)
+assert all(vc.job(p)['auto'] and vc.job(p)['kind'] == 'transcode' for p in ('f/c.mp4', 'f/sub/d.mp4'))
+assert vc.next_job('slow') == ('f/c.mp4', 'transcode')
 vc.enqueue('f/y.avi', 'transcode')
-assert vc.next_job('slow', day) == ('f/y.avi', 'transcode')    # 지금 변환이 먼저
-assert vc.next_job('slow', night) == ('f/y.avi', 'transcode')
+assert vc.next_job('slow') == ('f/y.avi', 'transcode')         # 지금 변환이 먼저
 vc.cancel('f/y.avi')
-assert vc.next_job('slow', night) == ('f/x.avi', 'transcode')  # 밤에는 밤 예약이 자동보다 먼저
-vc.cancel('f/x.avi')
 assert vc.scan_library() == (4, 0)                             # 이미 대기 중
 assert vc.scan_library(lambda: False) == (0, 0)
 vc.cancel('f/c.mp4')                                           # 자동 변환 취소: 다음 훑기에서 다시 넣지 않음
@@ -111,8 +113,7 @@ vc.enqueue('f/c.mp4', 'transcode')                             # 직접 누르�
 assert vc.job('f/c.mp4')['state'] == 'queued' and not vc.job('f/c.mp4')['auto']
 vc.enqueue('f/sub/d.mp4', 'transcode')                         # 자동 → 지금 변환
 assert not vc.job('f/sub/d.mp4')['auto']
-for p in ('f/a.avi', 'f/c.mp4', 'f/sub/d.mp4'):
-    vc.cancel(p)
+clear_jobs()
 shutil.rmtree(os.path.join(VIDEOS, 'f', 'sub'))
 shutil.rmtree(os.path.join(VIDEOS, '@eaDir'))
 vc.probe = real_probe
@@ -131,8 +132,8 @@ assert vc.status('f/c.mp4')['mode'] == 'transcode' and vc.status('f/a.avi')['mod
 subprocess.run([FFMPEG, '-v', 'error', '-y', '-i', os.path.join(FIX, 's.mp4'), '-t', '6', '-c:v', 'copy', '-c:a', 'pcm_s16le',
                 os.path.join(VIDEOS, 'f', 'd.avi')], check=True)
 assert vc.status('f/d.avi')['mode'] == 'remux'
-# 폴더 예약으로 들어온 그대로 재생되는 MP4는 작업기가 조사하고 지움
-vc.enqueue('f/b.mp4', 'auto', night=True)
+# 폴더 자동 변환으로 들어온 그대로 재생되는 MP4는 작업기가 조사하고 지움
+vc.enqueue('f/b.mp4', 'auto', auto=True)
 assert vc._claim('f/b.mp4') and vc.run_job('f/b.mp4', 'auto') == 'skip' and vc.job('f/b.mp4') is None
 
 for rel, kind in (('f/d.avi', 'remux'), ('f/a.avi', 'transcode')):
