@@ -7,6 +7,8 @@
 import re
 import time
 
+from config import DISABLED_SITES
+
 FMKOREA = 'fmkorea'
 DCINSIDE = 'dcinside'
 SITE_NAMES = {FMKOREA: '에펨코리아', DCINSIDE: '디시인사이드'}
@@ -45,8 +47,19 @@ def post_number(post_id):
     """글 ID 끝의 글 번호 (같은 게시판 안에서 최신 글일수록 큼)"""
     return int(str(post_id).rsplit('-', 1)[-1])
 
-# 사이트별 수집기. 셀레늄을 쓰는 모듈이라 웹서버 등 수집하지 않는 쪽에서는 불러오지 않도록 함수 안에서 가져옴
+class SiteDisabledError(RuntimeError):
+    """수집하지 않기로 한 사이트(config.DISABLED_SITES)에 요청하려 함"""
+
+
+def site_enabled(site):
+    return site not in DISABLED_SITES
+
+
+# 사이트별 수집기. 셀레늄을 쓰는 모듈이라 웹서버 등 수집하지 않는 쪽에서는 불러오지 않도록 함수 안에서 가져옴.
+# 수집하지 않는 사이트면 요청을 보내기 전에 막음 (빠뜨린 곳이 있어도 그 사이트로는 요청이 나가지 않게)
 def _collector(site):
+    if not site_enabled(site):
+        raise SiteDisabledError(f"{SITE_NAMES.get(site, site)}는 수집하지 않도록 설정됨")
     if site == DCINSIDE:
         import dcinside
         return dcinside

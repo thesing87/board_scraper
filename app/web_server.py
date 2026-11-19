@@ -28,7 +28,7 @@ from config import (
 )
 import runtime_status
 from notifier import send_telegram_message
-from sites import is_post_id, DC_BOARD_PREFIX, DC_GALLERY_RE
+from sites import is_post_id, board_site, site_enabled, SITE_NAMES, DC_BOARD_PREFIX, DC_GALLERY_RE
 from images import image_file, IMAGE_URL_PREFIX
 from storage import (
     init_db,
@@ -1311,6 +1311,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             key = board_key_from_input(raw)
             if key is None:
                 self._send_json(400, False, '❌ 에펨코리아 게시판 주소(예: https://www.fmkorea.com/hotdeal)·영문 이름(mid)이나 디시 갤러리 주소(예: https://gall.dcinside.com/board/lists/?id=car_new1)를 입력해 주세요.')
+                return
+            if not site_enabled(board_site(key)):
+                self._send_json(400, False, f'❌ {SITE_NAMES[board_site(key)]}는 수집하지 않도록 설정되어 게시판을 추가할 수 없습니다.')
                 return
             try:
                 add_category(key, name)

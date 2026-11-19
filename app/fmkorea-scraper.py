@@ -92,6 +92,7 @@ from sites import (
     board_site,
     post_site,
     post_number,
+    site_enabled,
     FMKOREA
 )
 from matching import keyword_in_post
@@ -434,7 +435,7 @@ def release_chrome_memory(driver):
 
 def refetch_blocked_imagecon_posts(driver):
     """이미지 주소 차단 때문에 이미지콘이 '삭제됨' 그림으로 저장된 글을 다시 수집 (기동 시 1회, storage.posts_with_blocked_imagecons)"""
-    posts = posts_with_blocked_imagecons()
+    posts = [p for p in posts_with_blocked_imagecons() if site_enabled(post_site(p['id']))]
     fixed = 0
     for old in posts:
         try:
@@ -624,6 +625,10 @@ def main():
         log_msg(f"[DB] 디시 이미지 다시 수집 실패: {short_err(fix_err)}", "WARN")
 
     log_msg(f"[시스템] 모니터링 시작 (주기 {CHECK_INTERVAL}초)")
+    # 수집하지 않기로 한 사이트 (config.DISABLED_SITES): 매 주기 쉬는 사이트처럼 건너뜀
+    off_sites = {site for site in (FMKOREA, 'dcinside') if not site_enabled(site)}
+    if off_sites:
+        log_msg(f"[시스템] 수집하지 않는 사이트: {', '.join(site_labels()[s]['name'] for s in sorted(off_sites))}")
 
     try:
         is_initial_run = True
@@ -642,6 +647,8 @@ def main():
         block_alerted = set()
         # 사람 확인 화면으로 막혀 길게 쉬던 사이트는 수집기를 다시 띄워도 남은 시간만큼 이어서 쉼
         for site, left in load_block_rests().items():
+            if not site_enabled(site):
+                continue
             block_streak[site], block_wait[site] = 1, left
             block_alerted.add(site)
             log_msg(f"[차단 의심] {site_labels()[site]['name']} 사람 확인 화면으로 쉬는 중 → {wait_text(left)} 뒤 다시 확인")
@@ -701,7 +708,7 @@ def main():
 
             cycle_started = time.time()
             # 차단 의심으로 쉬는 중인 사이트 (남은 대기 시간이 다 지나면 다시 확인)
-            waiting_sites = {site for site, left in block_wait.items() if left > 0}
+            waiting_sites = {site for site, left in block_wait.items() if left > 0} | off_sites
             # 에펨코리아는 FM_CHECK_INTERVAL마다, 그 주기에 검색할 차례인 키워드만 확인 (차단 의심 뒤 다시 확인할 때는 대기 시간이 지났으면 바로)
             fm_due = bool(block_streak.get(FMKOREA)) or cycle_started - fm_checked_at >= FM_CHECK_INTERVAL - 5
             if fm_due and FMKOREA not in waiting_sites:
@@ -879,7 +886,7 @@ def main():
                         block_alerted.discard(site)
                         send_telegram_message(f"✅ {labels[site]['name']} 접속이 정상으로 돌아왔습니다. (차단 의심 {streak}회 후 복구)")
             # 키워드가 있는 사이트가 모두 쉬는 중이면 가장 먼저 다시 확인할 때까지, 아니면 원래 주기만큼 쉼
-            active_sites = {board_site(board) for board, keywords in config_data.items() if keywords}
+            active_sites = {board_site(board) for board, keywords in config_data.items() if keywords} - off_sites
             if active_sites and all(block_wait.get(site, 0) > 0 for site in active_sites):
                 next_wait = max(1, min(block_wait[site] for site in active_sites))
             else:
@@ -887,7 +894,7 @@ def main():
 
             driver = restart_if_hung(driver)
             # 차단이 의심되는 사이트에는 풀릴 때까지 카테고리 확인·보관한 글 확인 요청도 보내지 않음
-            suspected_sites = set(block_streak)
+            suspected_sites = set(block_streak) | off_sites
             verify_pending_categories(driver, suspected_sites)
             check_saved_posts(driver, stats, suspected_sites)
             release_chrome_memory(driver)

@@ -14,6 +14,10 @@ APP_DIR = os.path.join(ROOT, 'app')
 DATA_DIR = os.path.join(ROOT, 'output')
 LIVE_URL = 'http://thesing87.iptime.org'
 
+# 테스트는 기본으로 두 사이트 모두 수집하는 것으로 시험 (실제 기본값은 에펨코리아를 끔, config.DISABLED_SITES).
+# 끈 사이트를 시험하는 테스트는 따로 정함 (test_disabled_sites.py)
+os.environ.setdefault('DISABLED_SITES', '')
+
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 

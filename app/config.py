@@ -74,6 +74,9 @@ BOARD_MAP = {
 }
 
 CHECK_INTERVAL = int(os.environ.get('CHECK_INTERVAL', 90))
+# 수집하지 않는 사이트 (쉼표로 구분: fmkorea, dcinside). 에펨코리아는 이용약관상 자동 수집을 하지 말아 달라는 운영자 답변을 받아
+# 기본으로 끔: 수집기가 그 사이트에는 목록·글·게시판 확인 요청을 하나도 보내지 않음 (이미 수집한 글은 그대로 볼 수 있음)
+DISABLED_SITES = frozenset(s.strip() for s in os.environ.get('DISABLED_SITES', 'fmkorea').split(',') if s.strip())
 # 에펨코리아 페이지 요청 사이에 쉬는 시간(초, 이 범위에서 무작위). 연달아 몰아서 요청하면 '보안 시스템' 페이지로 막힘
 FM_REQUEST_GAP_MIN = max(0.0, float(os.environ.get('FM_REQUEST_GAP_MIN', 3)))
 FM_REQUEST_GAP_MAX = max(FM_REQUEST_GAP_MIN, float(os.environ.get('FM_REQUEST_GAP_MAX', 6)))
