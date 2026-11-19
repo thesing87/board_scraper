@@ -1034,6 +1034,33 @@ def reorder_fm_links(group_id, order):
                          [(group_id, b, k, rows[(b, k)]) for b, k in order])
         return _group_fm_links(conn, group_id)
 
+def move_fm_link(from_id, to_id, board, keyword, order):
+    """바로가기 하나를 다른 게시판(카드)으로 옮김 (FM키워드 화면에서 끌어서). order는 옮긴 뒤 받는 게시판의 [(board, keyword)] 전부.
+    마지막으로 연 시각은 그대로. 받는 게시판에 같은 링크가 있거나 개수가 차거나 목록이 다르면 ValueError.
+    (보낸 게시판의 바로가기 목록, 받는 게시판의 바로가기 목록) 반환"""
+    order = [(b, k) for b, k in order]
+    with _db() as conn, conn:
+        if from_id == to_id or not conn.execute("SELECT 1 FROM keyword_groups WHERE id = ?", (to_id,)).fetchone():
+            raise ValueError('옮길 게시판이 없습니다.')
+        row = conn.execute("SELECT last_opened FROM fm_links WHERE group_id = ? AND board = ? AND keyword = ?",
+                           (from_id, board, keyword)).fetchone()
+        if not row:
+            raise ValueError('바로가기 목록이 바뀌었습니다. 새로 고친 뒤 다시 옮겨 주세요.')
+        target = {(r['board'], r['keyword']): r['last_opened'] for r in conn.execute(
+            "SELECT board, keyword, last_opened FROM fm_links WHERE group_id = ?", (to_id,)).fetchall()}
+        if (board, keyword) in target:
+            raise ValueError('옮길 게시판에 같은 바로가기가 이미 있습니다.')
+        if len(target) >= MAX_FM_LINKS_PER_GROUP:
+            raise ValueError(f'바로가기는 게시판마다 {MAX_FM_LINKS_PER_GROUP}개까지 등록할 수 있습니다.')
+        target[(board, keyword)] = row['last_opened']
+        if len(order) != len(set(order)) or set(order) != set(target):
+            raise ValueError('바로가기 목록이 바뀌었습니다. 새로 고친 뒤 다시 옮겨 주세요.')
+        conn.execute("DELETE FROM fm_links WHERE group_id = ? AND board = ? AND keyword = ?", (from_id, board, keyword))
+        conn.execute("DELETE FROM fm_links WHERE group_id = ?", (to_id,))
+        conn.executemany("INSERT INTO fm_links(group_id, board, keyword, last_opened) VALUES(?, ?, ?, ?)",
+                         [(to_id, b, k, target[(b, k)]) for b, k in order])
+        return _group_fm_links(conn, from_id), _group_fm_links(conn, to_id)
+
 def reorder_fm_groups(ids):
     """FM키워드 화면의 카드 순서를 바꿈 (사이드바 순서는 그대로). ids 순서대로 1, 2, …, 나머지는 정하지 않음(0).
     없는 게시판이 있으면 ValueError"""

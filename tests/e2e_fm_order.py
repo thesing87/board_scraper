@@ -60,6 +60,18 @@ assert post({'action': 'reorder_groups', 'ids': [ai]})[0] == 200
 # 정한 카드(AI) 먼저, 나머지는 사이드바 순서
 assert bar() == [('AI', ['gpt']), ('자동차', ['아반떼', '투싼', '쏘렌토']), ('축구', ['손흥민'])], bar()
 assert [g['id'] for g in storage.list_groups()] == sidebar   # 사이드바 순서는 그대로
+# 다른 카드로 옮기기 (API): 받는 카드에 같은 링크가 있거나 목록이 다르면 거부
+to_soccer = [{'board': 'car', 'keyword': '아반떼'}, {'board': 'football_world', 'keyword': '손흥민'}]
+assert post({'action': 'move', 'from_group': car, 'group_id': soccer, 'board': 'car', 'keyword': '아반떼', 'links': to_soccer[1:]})[0] == 409
+assert post({'action': 'move', 'from_group': car, 'group_id': car, 'board': 'car', 'keyword': '아반떼', 'links': to_soccer})[0] == 409
+assert post({'action': 'move', 'from_group': car, 'group_id': soccer, 'board': 'car', 'keyword': '없음', 'links': to_soccer})[0] == 409
+assert post({'action': 'move', 'from_group': car, 'group_id': soccer, 'board': 'car', 'keyword': '아반떼', 'links': to_soccer}, password='x')[0] == 401
+st, data = post({'action': 'move', 'from_group': car, 'group_id': soccer, 'board': 'car', 'keyword': '아반떼', 'links': to_soccer})
+assert st == 200 and kws(soccer) == ['아반떼', '손흥민'] and kws(car) == ['투싼', '쏘렌토'], data
+storage.add_fm_link(car, 'car', '아반떼')
+assert post({'action': 'move', 'from_group': soccer, 'group_id': car, 'board': 'car', 'keyword': '아반떼',
+             'links': [{'board': 'car', 'keyword': k} for k in ('아반떼', '투싼', '쏘렌토')]})[0] == 409
+storage.remove_fm_link(soccer, 'car', '아반떼')
 # 처음 순서로 되돌림
 post({'action': 'reorder', 'group_id': car, 'links': [{'board': 'car', 'keyword': k} for k in ('투싼', '쏘렌토', '아반떼')]})
 post({'action': 'reorder_groups', 'ids': []})
@@ -125,6 +137,25 @@ def run(mobile):
         d.refresh(); time.sleep(2.5)
         js("openBoard(FM_KEY)"); time.sleep(1)
         assert cards() == ['AI', '자동차', '축구'] and chips() == ['아반떼', '투싼', '쏘렌토'], (cards(), chips())
+        # 다른 카드로 옮기기: 쏘렌토를 축구의 손흥민 위로 → 축구 맨 앞, 마지막으로 연 시각은 그대로
+        js("document.querySelector('[data-action=\"fm-edit\"]').click()"); time.sleep(0.4)
+        soccer_chip = lambda k: d.find_element(By.CSS_SELECTOR, f'[data-fm-group="{soccer}"] .fmk-chip[data-keyword="{k}"]')
+        drag(chip_el('쏘렌토'), soccer_chip('손흥민'))
+        assert kws(soccer) == ['쏘렌토', '손흥민'] and kws(car) == ['아반떼', '투싼'], (kws(soccer), kws(car))
+        assert next(g for g in storage.list_groups() if g['id'] == soccer)['fm_links'][0]['last_opened']
+        assert js(f"return [...document.querySelectorAll('[data-fm-group=\"{soccer}\"] .fmk-chip')].map(c => c.dataset.keyword)") == ['쏘렌토', '손흥민']
+        assert not js("return document.querySelector('.is-drop, .is-refuse')")
+        # 되돌림 (API)
+        st, data = post({'action': 'move', 'from_group': soccer, 'group_id': car, 'board': 'car', 'keyword': '쏘렌토',
+                         'links': [{'board': 'car', 'keyword': k} for k in ('아반떼', '투싼', '쏘렌토')]})
+        assert st == 200 and [l['keyword'] for l in data['from_links']] == ['손흥민'], data
+        # 같은 키워드가 있는 카드에는 넣지 않음
+        storage.add_fm_link(soccer, 'car', '아반떼')
+        js("loadState()"); time.sleep(1.5)
+        drag(chip_el('아반떼'), soccer_chip('손흥민'))
+        assert kws(car) == ['아반떼', '투싼', '쏘렌토'] and kws(soccer) == ['손흥민', '아반떼'], (kws(car), kws(soccer))
+        assert chips() == ['아반떼', '투싼', '쏘렌토'], chips()
+        storage.remove_fm_link(soccer, 'car', '아반떼')
         # 대시보드 카드도 같은 순서
         d.get(BASE + '/'); time.sleep(2.5)
         names = js("return [...document.querySelectorAll('#fmlinks-body .fm-groups > *')].map(g => g.textContent.trim().split(/\\s+/)[0])")

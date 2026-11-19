@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.3.1
+// @version      1.4.0
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -29,7 +29,20 @@
     const KEY_FOLDED = 'fm_bar_folded', KEY_OPEN = 'fm_bar_open', KEY_MOBILE = 'fm_bar_mobile_group';
     // 마지막으로 받은 키워드 목록: 새 화면이 열리면 서버를 기다리지 않고 이것으로 바로 그린 뒤, 새 목록이 다르면 다시 그림
     const KEY_CACHE = 'fm_bar_cache';
+    // 키워드 줄에서 바로 추가할 때 쓰는 관리자 비밀번호 (처음 한 번 넣으면 Tampermonkey 저장소에만 둠. 에펨코리아 페이지는 읽을 수 없음)
+    const KEY_PWD = 'fm_admin_password';
 
+    // 응답 코드와 내용을 그대로 (실패 이유를 보여 줄 때)
+    function requestRaw(method, path, body) {
+        return new Promise(resolve => {
+            GM_xmlhttpRequest({
+                method, url: SITE + path, data: body ? JSON.stringify(body) : undefined,
+                headers: body ? { 'Content-Type': 'application/json' } : {}, timeout: 15000,
+                onload: res => { let data = {}; try { data = JSON.parse(res.responseText); } catch (e) { /* 내용 없음 */ } resolve({ status: res.status, data }); },
+                onerror: () => resolve({ status: 0, data: {} }), ontimeout: () => resolve({ status: 0, data: {} }),
+            });
+        });
+    }
     function request(method, path, body) {
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
@@ -147,6 +160,20 @@
         .names::-webkit-scrollbar { display: none; }
         .compact .gh { padding: 2px 6px; border-radius: 6px; }
         .compact .gh:hover, .compact .gh.cur { background: #fff; }
+        .side .add { border: 1px solid #185FA5; border-radius: 8px; background: #fff; color: #185FA5; font-weight: 700; padding: 3px 9px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+        .picker { position: absolute; right: 12px; width: 280px; max-width: calc(100vw - 24px); background: #fff; color: #4A1B0C; border: 1px solid #F0997B; border-radius: 10px;
+            padding: 10px; box-shadow: 0 6px 20px rgba(74, 27, 12, .18); display: flex; flex-direction: column; gap: 6px; }
+        .top .picker { top: calc(100% + 4px); }
+        .bottom .picker { bottom: calc(100% + 4px); right: 10px; }
+        .picker .ph { font-size: 12px; color: #993C1D; }
+        .picker .ph b { color: #4A1B0C; }
+        .picker input { font: inherit; font-size: 13px; border: 1px solid #F0997B; border-radius: 6px; padding: 5px 8px; outline-color: #993C1D; }
+        .picker .to { text-align: left; border: 1px solid #F5C4B3; background: #fff; color: #4A1B0C; border-radius: 7px; padding: 6px 9px; cursor: pointer; font-size: 13px; }
+        .picker .to.best { border-color: #185FA5; color: #0C447C; background: #E6F1FB; }
+        .picker .to small { font-size: 11px; color: #993C1D; margin-left: 4px; }
+        .picker .to:disabled { opacity: .5; cursor: default; }
+        .picker .err { font-size: 12px; color: #A32D2D; }
+        .picker .x { position: absolute; top: 6px; right: 8px; border: 0; background: none; color: #993C1D; cursor: pointer; font-size: 14px; }
     `;
 
     const currentGroup = () => groups.find(g => g.links.some(isCurrent));
@@ -205,6 +232,57 @@
             : `<span class="next alldone">오늘 모두 확인 ✓</span>`;
         return `<span class="prog" title="오늘 연 키워드">오늘 ${done}/${all.length}${MOBILE ? '' : `<span class="pbar"><i style="width:${all.length ? Math.round(done / all.length * 100) : 0}%"></i></span>`}</span>${nextBtn}`;
     }
+    // ---------- 키워드 줄에서 바로 추가 ----------
+    // 목록에 없는 검색을 직접 보고 있으면 '+ 추가' 단추. 누르면 넣을 카드를 고름 (이 게시판을 가장 많이 쓰는 카드가 맨 위)
+    let addOpen = false, addBusy = false, addError = '', typedPwd = '';
+    const canAdd = () => !!currentKeyword && groups.length > 0 && !allLinks().some(x => isCurrent(x.l))
+        && (currentBoard === '' || /^[a-z][a-z0-9_]{0,39}$/i.test(currentBoard));
+    function addCandidates() {
+        const uses = g => g.links.filter(l => l.board === currentBoard).length;
+        return groups.map((g, i) => ({ g, i, n: uses(g) })).sort((a, b) => b.n - a.n || a.i - b.i);
+    }
+    function pickerHtml() {
+        if (!addOpen) return '';
+        const list = addCandidates();
+        const where = currentBoard ? '이 게시판' : '전체 검색';
+        const full = g => g.links.length >= 30;
+        return `<div class="picker" role="dialog" aria-label="FM키워드에 추가">
+            <button class="x" data-addclose aria-label="닫기">✕</button>
+            <div class="ph">${esc(where)} · <b>'${esc(currentKeyword)}'</b>를 넣을 카드</div>
+            ${GM_getValue(KEY_PWD, '') ? '' : `<input type="password" data-addpwd placeholder="관리자 비밀번호 (처음 한 번만)" autocomplete="off" value="${esc(typedPwd)}">`}
+            ${list.map((x, k) => `<button class="to${k === 0 && x.n ? ' best' : ''}" data-addto="${x.g.id}" ${addBusy || full(x.g) ? 'disabled' : ''}>${esc(x.g.name)}${
+                full(x.g) ? '<small>30개가 다 찼음</small>' : k === 0 && x.n ? `<small>${currentBoard ? "이 게시판을" : "전체 검색을"} 가장 많이 씀</small>` : ''}</button>`).join('')}
+            ${addError ? `<div class="err">${esc(addError)}</div>` : ''}
+        </div>`;
+    }
+    async function addTo(groupId) {
+        const group = groups.find(g => g.id === groupId);
+        const password = GM_getValue(KEY_PWD, '') || typedPwd.trim();
+        if (!group || addBusy) return;
+        if (!password) { addError = '관리자 비밀번호를 넣어 주세요'; render(); return; }
+        addBusy = true; addError = ''; render();
+        const { status, data } = await requestRaw('POST', '/api/fm-link', { action: 'add', group_id: groupId, board: currentBoard, keyword: currentKeyword, password });
+        addBusy = false;
+        if (status !== 200 || !data.success) {
+            if (status === 401) { GM_setValue(KEY_PWD, ''); addError = '비밀번호가 맞지 않습니다'; }
+            else addError = (data.message || (status ? `추가하지 못했습니다 (${status})` : '키워드 모니터에 연결하지 못했습니다')).replace(/^❌\s*/, '');
+            render();
+            return;
+        }
+        GM_setValue(KEY_PWD, password);
+        typedPwd = '';
+        // 받은 목록으로 바꾸되 새 글 기록은 이어 감. 지금 보는 검색이므로 '방금 전'으로
+        const old = new Map(group.links.map(l => [l.board + '\u001f' + l.keyword, l]));
+        group.links = data.links.map(l => ({ seen_max: null, read_ids: [], found_ids: [], ...(old.get(l.board + '\u001f' + l.keyword) || {}), ...l }));
+        const link = group.links.find(isCurrent);
+        if (link) {
+            link.last_opened = nowText();
+            request('POST', '/api/fm-link', { action: 'open', group_id: group.id, board: link.board, keyword: link.keyword }).catch(() => {});
+        }
+        addOpen = false; openTouched = false; mobileTouched = false;
+        saveCache();
+        markNewPosts();
+    }
     const countHtml = g => `<span class="cnt">${g.links.length}${groupUnread(g) ? ` · <span class="newg">새 ${groupUnread(g)}</span>` : ''}${staleCount(g) ? ` · 오래 안 봄 <b>${staleCount(g)}</b>` : ''}</span>`;
 
     function render(message) {
@@ -216,7 +294,9 @@
         } else if (folded) {
             html = `<div class="bar ${place} mini" data-unfold>FM키워드 ${MOBILE ? '▴' : '▾'}</div>`;
         } else {
-            const side = `<span class="side">${progressHtml()}${MOBILE ? '' : `<a href="${SITE}/board/#fm" target="_blank" rel="noopener">키워드 모니터 ↗</a>`}<button data-fold>${MOBILE ? '숨기기 ▾' : '접기 ▴'}</button></span>`;
+            const addBtn = canAdd() && !(compact && !MOBILE)
+                ? `<button class="add" data-add title="지금 보는 검색을 FM키워드에 추가">+ ${MOBILE ? '추가' : `'${esc(currentKeyword)}' 추가`}</button>` : '';
+            const side = `<span class="side">${addBtn}${progressHtml()}${MOBILE ? '' : `<a href="${SITE}/board/#fm" target="_blank" rel="noopener">키워드 모니터 ↗</a>`}<button data-fold>${MOBILE ? '숨기기 ▾' : '접기 ▴'}</button></span>`;
             if (MOBILE) {
                 // 윗줄: 묶음 이름 (누르면 아랫줄이 그 묶음으로, 같은 것을 다시 누르면 아랫줄 접힘), 아랫줄: 고른 묶음의 키워드
                 const picked = groups.find(g => g.id === mobileGroupId());
@@ -237,6 +317,7 @@
                 html = `<div class="bar top"><div class="head"><span class="title">FM키워드</span></div><div class="boxes">${boxes}</div>${side}</div>`;
             }
         }
+        if (!message && !folded && !(compact && !MOBILE) && canAdd()) html = html.replace(/<\/div>$/, pickerHtml() + '</div>');
         root.innerHTML = `<style>${CSS}</style>${html}`;
         if (!host.isConnected) return;
         // 에펨코리아 화면의 맨 위·맨 아래가 줄에 가리지 않게 그만큼 여백.
@@ -265,7 +346,7 @@
     if (!MOBILE) {
         document.addEventListener('keydown', e => {
             if (e.ctrlKey || e.metaKey || e.altKey || !groups.length) return;
-            const t = e.target;
+            const t = (e.composedPath && e.composedPath()[0]) || e.target;
             if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
             if (e.key === ']') { e.preventDefault(); goNext(); }
             else if (e.key === '[') { e.preventDefault(); history.back(); }
@@ -285,6 +366,10 @@
             return;
         }
         if (e.target.closest('[data-next]')) { goNext(); return; }
+        if (e.target.closest('[data-add]')) { addOpen = !addOpen; addError = ''; render(); const pwd = root.querySelector('[data-addpwd]'); if (pwd) pwd.focus(); return; }
+        if (e.target.closest('[data-addclose]')) { addOpen = false; render(); return; }
+        const addto = e.target.closest('[data-addto]');
+        if (addto) { addTo(Number(addto.dataset.addto)); return; }
         const toggle = e.target.closest('[data-toggle]');
         if (toggle) {
             // 다른 묶음을 펼치면 펼쳐져 있던 묶음은 접힘, 펼친 묶음을 다시 누르면 모두 접힘
@@ -318,6 +403,8 @@
         if (e.target.closest('[data-fold]')) { GM_setValue(KEY_FOLDED, true); render(); return; }
         if (e.target.closest('[data-unfold]')) { GM_setValue(KEY_FOLDED, false); render(); }
     });
+
+    root.addEventListener('input', e => { if (e.target.matches('[data-addpwd]')) typedPwd = e.target.value; });
 
     // 휴대폰: 아래로 스크롤하면 줄이 내려가 숨고, 위로 올리거나 맨 위·맨 아래에 닿으면 다시 보임 (10px 안의 떨림은 무시)
     if (!MOBILE) {
