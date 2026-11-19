@@ -118,10 +118,17 @@ APT_BACKFILL_MONTHS = max(3, int(os.environ.get('APT_BACKFILL_MONTHS', 36)))
 COMICS_DIR = (os.environ.get('COMICS_DIR') or '/comics').strip()
 # 동영상(/videos/)이 읽는 NAS 동영상 폴더 (웹서버 컨테이너에 읽기 전용으로 연결)
 VIDEOS_DIR = (os.environ.get('VIDEOS_DIR') or '/videos').strip()
-# 자동 변환: 시간과 관계없이 동영상 폴더 전체를 주기적으로(VIDEO_AUTO_SCAN_HOURS) 훑어 브라우저가 못 여는 영상을 알아서 변환 (0이면 끔).
-# 직접 누른 변환이 늘 먼저이고, 자동 변환은 남는 때에 하나씩
+# 자동 변환: 정한 시간(VIDEO_AUTO_HOURS '시작-끝', 기본 새벽 2시~8시)에만 하루 한 번 동영상 폴더 전체를 훑어
+# 브라우저가 못 여는 영상을 알아서 변환 (VIDEO_AUTO_CONVERT=0이면 끔). 낮에 돌리면 NAS 메모리가 모자라 사이트가 멈춤.
+# 직접 누른 '지금 변환'은 시간과 관계없이 바로
 VIDEO_AUTO_CONVERT = os.environ.get('VIDEO_AUTO_CONVERT', '1').strip() not in ('0', 'false', 'no', '')
-VIDEO_AUTO_SCAN_HOURS = max(1, int(os.environ.get('VIDEO_AUTO_SCAN_HOURS', 6)))
+def _hours(text, default):
+    try:
+        start, end = (int(x) % 24 for x in text.split('-'))
+        return (start, end) if start != end else default
+    except (AttributeError, ValueError):
+        return default
+VIDEO_AUTO_HOURS = _hours(os.environ.get('VIDEO_AUTO_HOURS', '2-8'), (2, 8))
 
 MAX_DATA_PER_KEYWORD = 100
 # 수집한 지 이 일수가 지난 글은 하루 한 번 정리 (각 키워드의 최근 MAX_DATA_PER_KEYWORD개는 새 글 판별 기준이라 유지). 0이면 정리 안 함

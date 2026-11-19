@@ -137,11 +137,15 @@
     }
 
     // 변환이 필요한데 아직 안 된 영상의 칸 위 글자 (필요 없거나 다 됐으면 빈 글자)
+    // 자동 변환 시간 (서버가 상태에 함께 보냄: auto_hours [시작, 끝])
+    let AUTO_HOURS = [2, 8];
+    const autoHours = () => `${AUTO_HOURS[0]}시~${AUTO_HOURS[1]}시`;
+
     function convertLabel(v) {
         if (v.converted || !v.convert) return '';
         const job = v.job;
         if (job && job.state === 'running') return `변환 중 ${Math.floor((job.progress || 0) * 100)}%`;
-        if (job && job.state === 'queued') return job.auto ? '자동 변환 대기' : '변환 대기';
+        if (job && job.state === 'queued') return job.auto ? '새벽 자동 변환 대기' : '변환 대기';
         if (job && job.state === 'failed') return '변환 실패';
         return '변환 필요';
     }
@@ -157,7 +161,8 @@
         const { status, data } = await postJson('/api/videos/convert', { action: 'folder', path: currentDir });
         $('conv-folder').disabled = false;
         if (status === 200) {
-            $('conv-bar-text').textContent = `${data.queued}개를 자동 변환 순서에 넣었습니다.`;
+            if (Array.isArray(data.auto_hours)) AUTO_HOURS = data.auto_hours;
+            $('conv-bar-text').textContent = `${data.queued}개를 새벽 자동 변환(${autoHours()})에 넣었습니다.`;
             setTimeout(() => showLibrary(currentDir), 1500);
         } else {
             $('conv-bar-text').textContent = String(data.message || '예약하지 못했습니다.').replace(/^❌\s*/, '');
@@ -462,6 +467,7 @@
     }
 
     function showConvert(path, st) {
+        if (Array.isArray(st.auto_hours)) AUTO_HOURS = st.auto_hours;
         const info = st.info || {};
         const job = st.job;
         const codec = CODEC_NAMES[info.video] || info.video || '알 수 없음';
@@ -477,7 +483,7 @@
                 + convertButtons(['<button type="button" data-conv="cancel" class="is-sub">변환 취소</button>']);
         } else if (job && job.state === 'queued') {
             html = job.auto
-                ? `<b>자동 변환 순서를 기다리는 중입니다</b><small>직접 고른 변환이 끝난 뒤 차례로 변환합니다. 먼저 보려면 지금 변환하세요 (예상 약 ${fmtMinutes(st.estimate || 0)}).</small>`
+                ? `<b>새벽 자동 변환(${autoHours()})을 기다리는 중입니다</b><small>그 시간에 차례로 변환합니다. 먼저 보려면 지금 변환하세요 (예상 약 ${fmtMinutes(st.estimate || 0)}).</small>`
                     + convertButtons(['<button type="button" data-conv="start">지금 변환</button>', '<button type="button" data-conv="cancel" class="is-sub">자동 변환 안 함</button>'])
                 : '<b>변환 대기 중</b><small>앞의 변환이 끝나면 바로 시작합니다.</small>'
                     + convertButtons(['<button type="button" data-conv="cancel" class="is-sub">취소</button>']);

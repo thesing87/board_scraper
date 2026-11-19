@@ -23,8 +23,9 @@ import shutil
 import subprocess
 import threading
 import time
+from datetime import datetime
 
-from config import OUTPUT_DIR
+from config import OUTPUT_DIR, VIDEO_AUTO_HOURS
 from storage import _db, _now
 import videos
 
@@ -43,6 +44,8 @@ AUDIO_BITRATE = '160k'
 # video_jobs.night 값 (이름은 예전 '밤 예약'에서 남은 것): 0 지금 변환, AUTO 자동 변환(직접 넣은 작업 뒤에).
 # 작업은 이 값 순서(지금 → 자동), 그다음 넣은 순서로 꺼냄. 예전 밤 예약(1)은 작업기가 시작할 때 자동 변환으로 바꿈
 OLD_NIGHT, AUTO = 1, 2
+# 자동 변환을 돌리는 시간 (시, 시작 이상 ~ 끝 미만, 자정을 넘겨도 됨). 끝나면 도는 자동 변환도 멈추고 다음 날 처음부터
+AUTO_START, AUTO_END = VIDEO_AUTO_HOURS
 PROBE_TIMEOUT = 30
 # 미리 어림하는 변환 속도 (실시간의 몇 배). 실제로 돌면 잰 속도로 바뀜
 SPEED_GUESS = ((576, 4.0), (720, 1.6), (99999, 1.0))
@@ -296,7 +299,7 @@ def status(rel):
     conv = converted_file(full)
     mode = info['mode'] if info else ('direct' if videos._ext(full) in DIRECT_CONTAINERS else 'transcode')
     return {'mode': mode, 'info': info, 'converted': bool(conv), 'job': job(rel),
-            'estimate': round(estimate_seconds(info, mode)) if info else None}
+            'estimate': round(estimate_seconds(info, mode)) if info else None, 'auto_hours': [AUTO_START, AUTO_END]}
 
 
 # ==========================================
@@ -329,11 +332,22 @@ def _set(rel, **fields):
         conn.execute(f"UPDATE video_jobs SET {', '.join(k + ' = ?' for k in fields)} WHERE path = ?", (*fields.values(), rel))
 
 
-def next_job(lane):
-    """lane: 'fast'(remux만) 또는 'slow'(나머지). 지금 변환이 자동 변환보다 먼저"""
+def auto_time(now=None):
+    """자동 변환 시간인지"""
+    hour = (now or datetime.now()).hour
+    if AUTO_START < AUTO_END:
+        return AUTO_START <= hour < AUTO_END
+    return hour >= AUTO_START or hour < AUTO_END
+
+
+def next_job(lane, now=None):
+    """lane: 'fast'(remux만) 또는 'slow'(나머지). 지금 변환이 먼저, 자동 변환은 자동 변환 시간에만"""
+    auto_ok = auto_time(now)
     with _db() as conn:
         rows = conn.execute("SELECT * FROM video_jobs WHERE state = 'queued' ORDER BY night, created_at").fetchall()
     for r in rows:
+        if r['night'] and not auto_ok:
+            continue
         if (lane == 'fast') != (r['kind'] == 'remux'):
             continue
         return r['path'], r['kind']
@@ -390,6 +404,14 @@ def run_job(rel, kind):
             cancelled = True
             proc.kill()
             break
+        if current['auto'] and not auto_time():
+            # 자동 변환 시간이 끝남: 멈추고 대기로 돌려 다음 날 처음부터
+            proc.kill()
+            proc.wait()
+            err_reader.join(timeout=5)
+            _remove(tmp)
+            _set(rel, state='queued', progress=0, speed=None)
+            return 'paused'
         elapsed = max(0.1, time.time() - started)
         _set(rel, progress=min(0.999, done_sec / duration) if duration else 0, speed=round(done_sec / elapsed, 2))
     code = proc.wait()

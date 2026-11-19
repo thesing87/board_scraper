@@ -12,6 +12,7 @@ os.environ.update(OUTPUT_DIR=tempfile.mkdtemp(), LOG_LEVEL='CRITICAL', ADMIN_PAS
 for name in [k for k in os.environ if k.startswith('KEYWORDS_')]:
     os.environ[name] = ''
 import storage, videos, video_convert as vc
+from datetime import datetime
 
 storage.init_db()
 def clear_jobs():
@@ -56,9 +57,12 @@ shutil.copy(os.path.join(FIX, 's.mp4'), os.path.join(VIDEOS, 'f', 'b.mp4'))
 shutil.copy(os.path.join(FIX, 'mpeg4.mp4'), os.path.join(VIDEOS, 'f', 'c.mp4'))
 vc.enqueue('f/a.avi', 'transcode', auto=True)
 assert vc.job('f/a.avi')['state'] == 'queued' and vc.job('f/a.avi')['auto']
-assert vc.next_job('slow') == ('f/a.avi', 'transcode')       # 시간과 관계없이
+day, night = datetime(2026, 1, 1, 14), datetime(2026, 1, 1, 3)
+assert (vc.AUTO_START, vc.AUTO_END) == (2, 8)
+assert [h for h in range(24) if vc.auto_time(datetime(2026, 1, 1, h))] == [2, 3, 4, 5, 6, 7]
+assert vc.next_job('slow', day) is None and vc.next_job('slow', night) == ('f/a.avi', 'transcode')   # 자동 변환은 새벽에만
 vc.enqueue('f/a.avi', 'transcode')
-assert not vc.job('f/a.avi')['auto'] and vc.next_job('slow') == ('f/a.avi', 'transcode')
+assert not vc.job('f/a.avi')['auto'] and vc.next_job('slow', day) == ('f/a.avi', 'transcode')   # 지금 변환은 낮에도
 assert vc.next_job('fast') is None   # 빠른 줄은 remux만
 vc.enqueue('f/b.mp4', 'remux')
 assert vc.next_job('fast') == ('f/b.mp4', 'remux')
@@ -75,7 +79,7 @@ assert vc.job('f/a.avi') is None
 vc.enqueue('f/a.avi', 'transcode')
 vc._set('f/a.avi', night=1)
 vc.recover()
-assert vc.job('f/a.avi')['auto'] and vc.next_job('slow') == ('f/a.avi', 'transcode')
+assert vc.job('f/a.avi')['auto'] and vc.next_job('slow', night) == ('f/a.avi', 'transcode')
 clear_jobs()
 
 # ---- 목록 표시·폴더를 자동 변환에 넣기 (MP4는 형식을 조사해 둔 것만 판정, 모르면 None)
@@ -101,9 +105,9 @@ vc._set('f/a.avi', state='failed', error='x')                 # 전에 실패한
 assert vc.scan_library() == (4, 2)
 assert vc.job('f/b.mp4') is None                               # 그대로 재생되는 MP4는 넣지 않음
 assert all(vc.job(p)['auto'] and vc.job(p)['kind'] == 'transcode' for p in ('f/c.mp4', 'f/sub/d.mp4'))
-assert vc.next_job('slow') == ('f/c.mp4', 'transcode')
+assert vc.next_job('slow', night) == ('f/c.mp4', 'transcode') and vc.next_job('slow', day) is None
 vc.enqueue('f/y.avi', 'transcode')
-assert vc.next_job('slow') == ('f/y.avi', 'transcode')         # 지금 변환이 먼저
+assert vc.next_job('slow', night) == ('f/y.avi', 'transcode')  # 지금 변환이 먼저
 vc.cancel('f/y.avi')
 assert vc.scan_library() == (4, 0)                             # 이미 대기 중
 assert vc.scan_library(lambda: False) == (0, 0)

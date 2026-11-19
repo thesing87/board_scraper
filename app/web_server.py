@@ -1007,7 +1007,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             if count is None:
                 self._send_json(404, False, '❌ 폴더를 찾을 수 없습니다.')
                 return
-            self._send_data(200, {'success': True, 'queued': count})
+            self._send_data(200, {'success': True, 'queued': count, 'auto_hours': [video_convert.AUTO_START, video_convert.AUTO_END]})
             return
         if not videos.video_file(path):
             self._send_json(404, False, '❌ 영상을 찾을 수 없습니다.')
