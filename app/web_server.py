@@ -22,6 +22,7 @@ from config import (
     TRUST_PROXY_HEADERS,
     CHECK_INTERVAL,
     WEB_PORT,
+    DDNS_URL,
     LIST_PAGE_SIZE,
     COLLECTOR_STALL_MINUTES,
     DIGEST_HOUR
@@ -33,6 +34,7 @@ from images import image_file, IMAGE_URL_PREFIX
 from storage import (
     init_db,
     add_fm_link,
+    fm_links_by_group,
     remove_fm_link,
     touch_fm_link,
     keyword_pairs,
@@ -501,6 +503,11 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._handle_videos_get(pure_path, query)
             elif pure_path.startswith(IMAGE_URL_PREFIX):
                 self._serve_image(pure_path[len(IMAGE_URL_PREFIX):])
+            elif pure_path == '/api/fm-links':
+                # 에펨코리아 화면의 FM키워드 줄(설치한 스크립트)이 가져가는 키워드 목록
+                self._send_data(200, {'groups': fm_links_by_group()})
+            elif pure_path == '/fm-keywords.user.js':
+                self._serve_userscript()
             elif pure_path == '/api/state':
                 self._send_data(200, build_state())
             elif pure_path == '/api/posts' and 'ids' in query:
@@ -576,6 +583,23 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._send_json(500, False, '❌ 요청 처리 중 서버 오류가 발생했습니다.')
             except Exception:
                 pass
+
+    def _site_base(self):
+        """이 요청이 들어온 사이트 주소 (예: https://example.synology.me). 역방향 프록시가 넘겨 준 https를 따름"""
+        host = (self.headers.get('X-Forwarded-Host') or self.headers.get('Host') or f'127.0.0.1:{WEB_PORT}').split(',')[0].strip()
+        proto = (self.headers.get('X-Forwarded-Proto') or '').split(',')[0].strip().lower()
+        if proto not in ('http', 'https'):
+            ddns = (DDNS_URL or '').strip().lower()
+            proto = 'https' if ddns.startswith('https://') and host.split(':')[0] in ddns else 'http'
+        return f'{proto}://{host}'
+
+    def _serve_userscript(self):
+        """Tampermonkey 설치용 FM키워드 줄 스크립트: 사이트 주소를 넣어서 내려줌 (주소가 .user.js로 끝나야 설치 화면이 뜸)"""
+        base = self._site_base()
+        with open(os.path.join(STATIC_DIR, 'fm-keywords.user.js'), encoding='utf-8') as f:
+            script = f.read()
+        script = script.replace('__SITE_HOST__', urlparse(base).hostname or '').replace('__SITE__', base)
+        self._send_body(200, script.encode('utf-8'), 'text/javascript; charset=utf-8', cache_control=REVALIDATE)
 
     def _serve_static(self, filename, content_type):
         content, etag, gzipped = load_static(os.path.join(STATIC_DIR, filename))

@@ -912,6 +912,18 @@ def list_groups(id_limit=500):
 
 MAX_FM_LINKS_PER_GROUP = 30
 
+def fm_links_by_group():
+    """에펨코리아 화면에 붙는 FM키워드 줄(fm-keywords.user.js)용: 링크가 있는 게시판만 사이드바 순서대로
+    [{id, name, links: [{board, board_name, keyword, last_opened}]}] (board_name은 카테고리 이름, ''이면 '전체')"""
+    with _db() as conn:
+        names = {r['key']: r['name'] or r['key'] for r in conn.execute("SELECT key, name FROM categories")}
+        out = []
+        for g in conn.execute("SELECT id, name FROM keyword_groups ORDER BY position, id").fetchall():
+            links = [{**l, 'board_name': names.get(l['board'], l['board']) if l['board'] else '전체'} for l in _group_fm_links(conn, g['id'])]
+            if links:
+                out.append({'id': g['id'], 'name': g['name'], 'links': links})
+        return out
+
 def _group_fm_links(conn, group_id):
     return [dict(board=r['board'], keyword=r['keyword'], last_opened=r['last_opened']) for r in conn.execute(
         "SELECT board, keyword, last_opened FROM fm_links WHERE group_id = ? ORDER BY rowid", (group_id,)).fetchall()]

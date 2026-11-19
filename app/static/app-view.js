@@ -560,6 +560,20 @@ function renderFmKeywords() {
             <div class="feed-tools">${renderFontSizeControl()}</div>
         </div>
         ${groups.length ? `<div class="fmk-grid">${groups.map(card).join('')}</div>` : editing ? '' : empty}
+        ${editing || !groups.length ? '' : `
+        <details class="fmk-install">
+            <summary>에펨코리아 화면에 키워드 줄 붙이기</summary>
+            <div class="fmk-install-body">
+                <p>에펨코리아를 볼 때 화면에 이 키워드 줄을 붙여, 키워드를 누르면 같은 탭에서 검색이 바뀌게 합니다 (PC는 위, 휴대폰은 아래).
+                   보고 있는 에펨코리아 화면 위에 줄만 덧붙이며, 키워드 모니터는 에펨코리아에 요청하지 않습니다.</p>
+                <ol>
+                    <li>브라우저에 Tampermonkey 확장을 설치합니다 (크롬·엣지 웹 스토어, 안드로이드는 파이어폭스 부가 기능).</li>
+                    <li><a href="/fm-keywords.user.js" target="_blank" rel="noopener">FM키워드 줄 스크립트</a>를 누르고, 뜨는 화면에서 '설치'를 누릅니다.</li>
+                    <li>에펨코리아를 열면 키워드 줄이 나옵니다. 여기서 링크를 고치면 줄에도 바로 반영됩니다.</li>
+                </ol>
+                <p class="fmk-install-note">아이폰과 키워드 모니터 홈 화면 앱 안에서는 확장을 쓸 수 없어 줄이 나오지 않습니다.</p>
+            </div>
+        </details>`}
         ${editing ? `<div class="fmk-card fmk-other"><span class="fmk-note">다른 게시판에 추가</span>${fmAddRow('other', 'car')}</div>` : ''}`;
     typed.forEach(([id, kw, board, mid]) => {
         const row = feed.querySelector(`[data-fm-row="${id}"]`);
