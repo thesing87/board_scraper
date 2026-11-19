@@ -414,6 +414,10 @@ def _add_missing_columns(conn):
     if 'found_ids' not in {row['name'] for row in conn.execute("PRAGMA table_info(fm_seen)")}:
         conn.execute("ALTER TABLE fm_seen ADD COLUMN found_ids TEXT NOT NULL DEFAULT '[]'")
         log_msg("[DB] fm_seen.found_ids 컬럼 추가")
+    if 'fm_position' not in {row['name'] for row in conn.execute("PRAGMA table_info(keyword_groups)")}:
+        # FM키워드 화면의 카드 순서 (사이드바 순서와 따로). 0이면 아직 정하지 않음 → 정한 카드 뒤에 사이드바 순서로
+        conn.execute("ALTER TABLE keyword_groups ADD COLUMN fm_position INTEGER NOT NULL DEFAULT 0")
+        log_msg("[DB] keyword_groups.fm_position 컬럼 추가")
     if 'last_opened' not in {row['name'] for row in conn.execute("PRAGMA table_info(fm_links)")}:
         conn.execute("ALTER TABLE fm_links ADD COLUMN last_opened TEXT")
         log_msg("[DB] fm_links.last_opened 컬럼 추가")
@@ -905,7 +909,7 @@ def list_groups(id_limit=500):
     groups = []
     with _db() as conn:
         for g in conn.execute("""
-            SELECT id, site, name, alert, video_alert, digest, popular_min, folder_id, position FROM keyword_groups ORDER BY position, id
+            SELECT id, site, name, alert, video_alert, digest, popular_min, folder_id, position, fm_position FROM keyword_groups ORDER BY position, id
         """).fetchall():
             members = [dict(board=r['board'], keyword=r['keyword'], paused=bool(r['paused']),
                             ignores=_keyword_ignores(conn, r['board'], r['keyword']))
@@ -920,11 +924,13 @@ def list_groups(id_limit=500):
             groups.append({'id': g['id'], 'name': g['name'], 'site': g['site'], 'members': members, 'fm_links': fm_links,
                            'alert': bool(g['alert']), 'video_alert': bool(g['video_alert']), 'digest': bool(g['digest']),
                            'popular_min': g['popular_min'],
-                           'folder_id': g['folder_id'], 'position': g['position'],
+                           'folder_id': g['folder_id'], 'position': g['position'], 'fm_position': g['fm_position'],
                            **_feed_summary(conn, id_limit, g['id'])})
     return groups
 
 MAX_FM_LINKS_PER_GROUP = 30
+# FM키워드 카드 순서: 순서를 정한 카드(fm_position 1, 2, …) 먼저, 아직 정하지 않은 카드는 그 뒤에 사이드바 순서로
+FM_GROUP_ORDER = "fm_position = 0, fm_position, position, id"
 
 MAX_FM_READ_IDS = 500
 
@@ -980,13 +986,13 @@ def fm_seen_read_all(board, keyword, seen_max):
         return new_max
 
 def fm_links_by_group():
-    """에펨코리아 화면에 붙는 FM키워드 줄(fm-keywords.user.js)용: 링크가 있는 게시판만 사이드바 순서대로
+    """에펨코리아 화면에 붙는 FM키워드 줄(fm-keywords.user.js)용: 링크가 있는 게시판만 FM키워드 화면의 카드 순서대로
     [{id, name, links: [{board, board_name, keyword, last_opened}]}] (board_name은 카테고리 이름, ''이면 '전체')"""
     with _db() as conn:
         names = {r['key']: r['name'] or r['key'] for r in conn.execute("SELECT key, name FROM categories")}
         seen = _fm_seen_state(conn)
         out = []
-        for g in conn.execute("SELECT id, name FROM keyword_groups ORDER BY position, id").fetchall():
+        for g in conn.execute(f"SELECT id, name FROM keyword_groups ORDER BY {FM_GROUP_ORDER}").fetchall():
             links = []
             for l in _group_fm_links(conn, g['id']):
                 seen_max, read_ids, found_ids = seen.get((l['board'], l['keyword']), (None, [], []))
@@ -1012,6 +1018,32 @@ def add_fm_link(group_id, board, keyword):
             raise ValueError(f'바로가기는 게시판마다 {MAX_FM_LINKS_PER_GROUP}개까지 등록할 수 있습니다.')
         conn.execute("INSERT INTO fm_links(group_id, board, keyword) VALUES(?, ?, ?)", (group_id, board, keyword))
         return _group_fm_links(conn, group_id)
+
+def reorder_fm_links(group_id, order):
+    """게시판 안 바로가기 순서를 바꿈 (FM키워드 화면에서 끌어서 옮김). order는 [(board, keyword)] 전부.
+    목록이 지금 바로가기와 다르면(그사이 다른 기기에서 바뀜) ValueError. 그 게시판의 바로가기 목록 반환"""
+    order = [(b, k) for b, k in order]
+    with _db() as conn, conn:
+        rows = {(r['board'], r['keyword']): r['last_opened'] for r in conn.execute(
+            "SELECT board, keyword, last_opened FROM fm_links WHERE group_id = ?", (group_id,)).fetchall()}
+        if len(order) != len(set(order)) or set(order) != set(rows):
+            raise ValueError('바로가기 목록이 바뀌었습니다. 새로 고친 뒤 다시 옮겨 주세요.')
+        # 순서는 rowid 순이라 새 순서대로 다시 넣음 (마지막으로 연 시각은 그대로)
+        conn.execute("DELETE FROM fm_links WHERE group_id = ?", (group_id,))
+        conn.executemany("INSERT INTO fm_links(group_id, board, keyword, last_opened) VALUES(?, ?, ?, ?)",
+                         [(group_id, b, k, rows[(b, k)]) for b, k in order])
+        return _group_fm_links(conn, group_id)
+
+def reorder_fm_groups(ids):
+    """FM키워드 화면의 카드 순서를 바꿈 (사이드바 순서는 그대로). ids 순서대로 1, 2, …, 나머지는 정하지 않음(0).
+    없는 게시판이 있으면 ValueError"""
+    ids = list(dict.fromkeys(int(i) for i in ids))
+    with _db() as conn, conn:
+        known = {r[0] for r in conn.execute("SELECT id FROM keyword_groups")}
+        if any(i not in known for i in ids):
+            raise ValueError('존재하지 않는 게시판입니다.')
+        conn.execute("UPDATE keyword_groups SET fm_position = 0")
+        conn.executemany("UPDATE keyword_groups SET fm_position = ? WHERE id = ?", [(n, i) for n, i in enumerate(ids, 1)])
 
 def remove_fm_link(group_id, board, keyword):
     """바로가기 하나 빼기. 그 게시판의 바로가기 목록 반환, 없는 링크면 None"""

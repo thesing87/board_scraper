@@ -120,7 +120,10 @@ function fmSearchUrl(board, keyword) {
         : `https://www.fmkorea.com/search.php?act=IS&is_keyword=${q}`;
 }
 function renderFmLinks(state) {
-    const groups = (state.groups || []).filter(g => (g.fm_links || []).length);
+    // 키워드 게시판의 FM키워드 카드 순서대로 (정한 순서 먼저, 나머지는 사이드바 순서)
+    const order = g => g.fm_position || Infinity;
+    const groups = (state.groups || []).filter(g => (g.fm_links || []).length)
+        .map((g, i) => [g, i]).sort((a, b) => order(a[0]) - order(b[0]) || a[1] - b[1]).map(([g]) => g);
     const total = groups.reduce((n, g) => n + g.fm_links.length, 0);
     $('fmlinks-sub').textContent = total ? `검색 링크 ${total}개 · 새 창` : '검색 링크 · 새 창';
     $('fmlinks-body').innerHTML = groups.length

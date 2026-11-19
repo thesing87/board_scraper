@@ -455,7 +455,7 @@ function fmAgoText(link) {
 }
 function fmIsStale(link) { const days = fmAgeDays(link); return days !== null && days >= FM_STALE_DAYS; }
 function fmSort() { return storageGet(localStorage, FM_SORT_KEY, 'order') === 'stale' ? 'stale' : 'order'; }
-// 오래 안 본 순: 아직 안 본 링크 먼저, 그다음 오래전에 본 순 (같으면 등록 순)
+// 오래 안 본 순: 아직 안 본 링크 먼저, 그다음 오래전에 본 순 (같으면 내 순서)
 function fmSortedLinks(links) {
     if (fmSort() !== 'stale') return links;
     const key = l => (fmOpenedAt(l) ? fmOpenedAt(l).getTime() : -1);
@@ -485,7 +485,16 @@ function fmAddRow(id, selected) {
         </div>`;
 }
 
+// FM키워드 카드 순서: 끌어서 정한 순서(fm_position 1, 2, …) 먼저, 정하지 않은 카드는 그 뒤에 사이드바 순서로
+function fmGroups() {
+    const key = g => g.fm_position || Infinity;
+    return (app.state.groups || []).filter(g => (g.fm_links || []).length)
+        .map((g, i) => [g, i]).sort((a, b) => key(a[0]) - key(b[0]) || a[1] - b[1]).map(([g]) => g);
+}
+
 function renderFmKeywords() {
+    // 끄는 중에는 다시 그리지 않음 (상태를 새로 받아도). 놓은 뒤에 그림
+    if (app.fmDrag) { app.fmDrag.pending = true; return; }
     const feed = document.getElementById('feed');
     feed.removeAttribute('aria-busy');
     hideNewBanner();
@@ -507,13 +516,13 @@ function renderFmKeywords() {
     const focused = document.activeElement && document.activeElement.closest && document.activeElement.closest('[data-fm-row]');
     const focusedRow = focused ? focused.dataset.fmRow : null;
 
-    const groups = (app.state.groups || []).filter(g => (g.fm_links || []).length);
+    const groups = fmGroups();
     const all = groups.flatMap(g => g.fm_links);
     const stale = all.filter(fmIsStale).length;
     const chip = (g, l, showBoard) => {
         const label = `${showBoard ? `<small>${esc(fmBoardName(l.board))}</small>` : ''}${esc(l.keyword)}`;
         if (editing) {
-            return `<span class="fmk-chip is-editing">${label}
+            return `<span class="fmk-chip is-editing" data-board="${esc(l.board)}" data-keyword="${esc(l.keyword)}" title="끌어서 순서 바꾸기">${label}
                 <button class="fmk-remove" data-action="fm-remove" data-group-id="${g.id}" data-board="${esc(l.board)}" data-keyword="${esc(l.keyword)}"
                         aria-label="${esc(l.keyword)} 바로가기 빼기">${ICONS.close}</button></span>`;
         }
@@ -530,16 +539,17 @@ function renderFmKeywords() {
         const boards = new Set(g.fm_links.map(l => l.board));
         const note = boards.size === 1 ? fmBoardName(g.fm_links[0].board) : `게시판 ${boards.size}곳`;
         return `
-        <section class="fmk-card" aria-label="${esc(g.name)}">
+        <section class="fmk-card" aria-label="${esc(g.name)}" data-fm-group="${g.id}">
             <div class="fmk-head">
+                ${editing ? '<span class="fmk-grip" title="끌어서 카드 순서 바꾸기" aria-hidden="true">⠿</span>' : ''}
                 <button class="fmk-name" data-action="open-group" data-group-id="${g.id}">${esc(g.name)}</button>
                 <span class="fmk-note">${esc(note)}</span>
             </div>
-            <div class="fmk-chips">${fmSortedLinks(g.fm_links).map(l => chip(g, l, boards.size > 1)).join('')}</div>
+            <div class="fmk-chips">${(editing ? g.fm_links : fmSortedLinks(g.fm_links)).map(l => chip(g, l, boards.size > 1)).join('')}</div>
             ${editing ? fmAddRow(g.id, fmMainBoard(g.fm_links)) : ''}
         </section>`;
     };
-    const sortButtons = editing ? '' : [['order', '등록 순'], ['stale', '오래 안 본 순']].map(([key, label]) =>
+    const sortButtons = editing ? '' : [['order', '내 순서'], ['stale', '오래 안 본 순']].map(([key, label]) =>
         `<button class="btn btn-outline btn-small fmk-pill" data-action="fm-sort" data-sort="${key}" aria-pressed="${fmSort() === key}">${label}</button>`).join('');
     const popupSwitch = editing || !fmPopupSupported() ? '' : `
         <label class="fmk-popup-switch" title="켜면 링크를 화면 오른쪽 작은 창에서 엽니다 (끄면 새 탭)">
@@ -547,7 +557,7 @@ function renderFmKeywords() {
     const editButton = !admin ? '' : editing
         ? `<button class="btn btn-primary btn-small" data-action="fm-edit" aria-pressed="true">편집 끝내기</button>`
         : `<button class="btn btn-outline btn-small" data-action="fm-edit" aria-pressed="false">편집</button>`;
-    const sub = editing ? '편집 중 · 바꾸면 바로 저장됩니다'
+    const sub = editing ? '편집 중 · 키워드는 끌어서 카드 안에서, 카드는 ⠿를 끌어서 순서를 바꿉니다 · 바꾸면 바로 저장됩니다'
         : all.length ? `링크 ${all.length}개${stale ? ` · ${FM_STALE_DAYS}일 넘게 안 본 링크 <strong class="fmk-stale-count">${stale}개</strong>` : ''} · 누르면 ${fmPopupOn() ? '오른쪽 작은 창' : '새 창'}에서 에펨코리아 검색`
         : '에펨코리아는 수집하지 않고 검색 링크만 모아 둡니다';
     const empty = `<div class="empty-card">아직 등록한 링크가 없습니다.<br>${admin ? "'편집'을 누르거나 관리 → 게시판 편집의 '에펨코리아 바로가기'에서 추가하면 여기에 모입니다." : '관리자 기기에서 추가하면 여기에 모입니다.'}</div>`;
@@ -629,6 +639,93 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     e.target.closest('[data-fm-row]').querySelector('[data-action="fm-add"]').click();
 });
+
+// 편집 중 끌어서 순서 바꾸기: 키워드 칩은 그 카드 안에서, 카드는 손잡이(⠿)로. 놓으면 바로 저장 (PC는 마우스, 휴대폰은 손가락)
+document.addEventListener('pointerdown', e => {
+    if (!app.fmEdit || !isFmView() || e.button !== 0 || app.fmDrag) return;
+    if (e.target.closest('.fmk-remove, button, input, select')) return;
+    const chip = e.target.closest('#feed .fmk-chip.is-editing');
+    const grip = !chip && e.target.closest('#feed .fmk-grip');
+    if (!chip && !grip) return;
+    const item = chip || grip.closest('.fmk-card');
+    const selector = chip ? '.fmk-chip' : '.fmk-card';
+    const box = item.parentElement;
+    const orderOf = () => [...box.children].filter(el => el.matches(selector));
+    const before = orderOf();
+    const drag = app.fmDrag = { pending: false, moving: false };
+    const startX = e.clientX, startY = e.clientY;
+    e.preventDefault();
+    const move = ev => {
+        if (!drag.moving) {
+            if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
+            drag.moving = true;
+            item.classList.add('is-dragging');
+            document.body.classList.add('fmk-dragging');
+        }
+        ev.preventDefault();
+        // 손가락·마우스 아래에 있는 같은 줄의 다른 칩(카드)과 자리를 바꿈
+        const over = orderOf().find(el => {
+            if (el === item) return false;
+            const r = el.getBoundingClientRect();
+            return ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
+        });
+        if (!over) return;
+        const list = orderOf();
+        if (list.indexOf(over) < list.indexOf(item)) over.before(item);
+        else over.after(item);
+    };
+    const end = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', end);
+        window.removeEventListener('pointercancel', end);
+        item.classList.remove('is-dragging');
+        document.body.classList.remove('fmk-dragging');
+        app.fmDrag = null;
+        const after = orderOf();
+        const changed = drag.moving && after.some((el, i) => el !== before[i]);
+        if (changed && chip) fmSaveLinkOrder(Number(item.closest('[data-fm-group]').dataset.fmGroup), after);
+        else if (changed) fmSaveGroupOrder(after);
+        else if (drag.pending) renderFmKeywords();
+    };
+    window.addEventListener('pointermove', move, { passive: false });
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+});
+async function fmOrderRequest(body) {
+    const pwd = adminPassword();
+    if (!pwd) { needPassword(); return null; }
+    try {
+        const data = await postJSON('/api/fm-link', { ...body, password: pwd });
+        if (!data.success) { if (data.message) alert(data.message); return null; }
+        return data;
+    } catch (e) {
+        alert('요청 중 오류가 발생했습니다.');
+        return null;
+    }
+}
+// 바꾼 순서를 화면 상태에 먼저 넣고 저장. 저장이 안 되면 새 상태를 받아 되돌림
+async function fmSaveLinkOrder(groupId, chips) {
+    const group = (app.state.groups || []).find(g => g.id === groupId);
+    if (!group) return;
+    const key = l => `${l.board}\u001f${l.keyword}`;
+    const byKey = new Map(group.fm_links.map(l => [key(l), l]));
+    const links = chips.map(el => byKey.get(key(el.dataset))).filter(Boolean);
+    if (links.length !== group.fm_links.length) { renderFmKeywords(); return; }
+    group.fm_links = links;
+    renderFmKeywords();
+    const data = await fmOrderRequest({ action: 'reorder', group_id: groupId, links: links.map(l => ({ board: l.board, keyword: l.keyword })) });
+    if (data) group.fm_links = data.links;
+    else await loadState();
+    renderFmKeywords();
+}
+async function fmSaveGroupOrder(cards) {
+    const ids = cards.map(el => Number(el.dataset.fmGroup));
+    (app.state.groups || []).forEach(g => { g.fm_position = ids.includes(g.id) ? ids.indexOf(g.id) + 1 : 0; });
+    renderFmKeywords();
+    const data = await fmOrderRequest({ action: 'reorder_groups', ids });
+    if (!data) await loadState();
+    renderFmKeywords();
+}
 
 async function fmLinkRequest(body, button) {
     const pwd = adminPassword();

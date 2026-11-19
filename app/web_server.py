@@ -40,6 +40,8 @@ from storage import (
     fm_seen_read,
     fm_seen_read_all,
     remove_fm_link,
+    reorder_fm_groups,
+    reorder_fm_links,
     touch_fm_link,
     keyword_pairs,
     set_group_alert,
@@ -827,6 +829,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         if action in ('seen_init', 'read', 'read_all', 'found'):
             self._handle_fm_seen(action)
             return
+        if action in ('reorder', 'reorder_groups'):
+            self._handle_fm_reorder(action)
+            return
         if action not in ('open', 'add', 'remove'):
             self._send_json(400, False, '❌ 지원하지 않는 작업입니다.')
             return
@@ -856,6 +861,34 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 return
         log_msg(f"[API] 에펨코리아 바로가기 {'추가' if action == 'add' else '빼기'}: 게시판 #{group_id} {board or '전체'}/{keyword}")
         self._send_data(200, {'success': True, 'links': links})
+
+    def _handle_fm_reorder(self, action):
+        """FM키워드 순서 (관리자): reorder {group_id, links: [{board, keyword}]} 게시판 안 바로가기 순서 ·
+        reorder_groups {ids: [게시판 ID]} 카드 순서"""
+        params = self._body
+        if not self._authorize(params.get('password', ''), 'FM키워드 순서'):
+            return
+        try:
+            if action == 'reorder_groups':
+                ids = params.get('ids')
+                if not isinstance(ids, list) or len(ids) > 1000 or any(type(i) is not int for i in ids):
+                    self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                    return
+                reorder_fm_groups(ids)
+                log_msg(f"[API] FM키워드 카드 순서 바꿈: {len(ids)}개")
+                self._send_data(200, {'success': True})
+                return
+            group_id, links = params.get('group_id'), params.get('links')
+            if (type(group_id) is not int or not isinstance(links, list) or len(links) > MAX_FM_LINKS
+                    or any(not isinstance(l, dict) or not isinstance(l.get('board'), str) or not isinstance(l.get('keyword'), str) for l in links)):
+                self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                return
+            result = reorder_fm_links(group_id, [(l['board'], l['keyword']) for l in links])
+        except ValueError as ve:
+            self._send_json(409, False, f'❌ {ve}')
+            return
+        log_msg(f"[API] FM키워드 순서 바꿈: 게시판 #{group_id}")
+        self._send_data(200, {'success': True, 'links': result})
 
     def _handle_fm_seen(self, action):
         """새 글 기준 (FM키워드 줄, 누구나): seen_init {board, keyword, max} 처음 기준 · read {post} 글 하나 읽음 ·
