@@ -60,8 +60,9 @@ try:
     chips = js("return [...document.querySelectorAll('#group-board-checks .board-check')].map(b => b.dataset.board)")
     assert chips == ['dc:car_new1'], chips
     assert js("return [...document.querySelectorAll('#group-kw-target option')].map(o => o.value)") == ['dc:car_new1']
-    form = js("return document.getElementById('group-form').textContent")
-    assert 'FM' not in form and '에펨코리아' not in form, form
+    # 수집할 키워드 칸에는 에펨코리아 키워드가 없음 (에펨코리아는 아래 '바로가기' 칸에서 링크로만)
+    tags = js("return document.getElementById('group-keywords').textContent + document.getElementById('group-kw-target').textContent")
+    assert 'FM' not in tags and '에펨코리아' not in tags, tags
     # 카테고리 목록·사이트 이름: 디시만
     js("document.querySelector('[data-action=\"settings-tab\"][data-tab=\"sources\"]').click()"); time.sleep(0.3)
     cats = js("return document.getElementById('settings-categories').textContent")

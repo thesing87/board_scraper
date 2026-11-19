@@ -155,6 +155,14 @@ def _create_schema(conn):
             keyword   TEXT NOT NULL,
             PRIMARY KEY (group_id, board, keyword)
         );
+        -- 에펨코리아 바로가기: 수집하지 않고 게시판 제목 아래·대시보드에 에펨코리아 검색 링크만 보여 줌
+        -- (에펨코리아는 이용약관상 자동 수집을 하지 말아 달라는 운영자 답변). board는 게시판 mid, ''이면 사이트 전체 검색. rowid 순서가 표시 순서
+        CREATE TABLE IF NOT EXISTS fm_links (
+            group_id  INTEGER NOT NULL REFERENCES keyword_groups(id) ON DELETE CASCADE,
+            board     TEXT NOT NULL,
+            keyword   TEXT NOT NULL,
+            PRIMARY KEY (group_id, board, keyword)
+        );
         -- 키워드별 무시할 표현: 이 표현을 지운 뒤에도 키워드가 남아 있는 글만 모음 (예: '싼하'에 '투싼하')
         CREATE TABLE IF NOT EXISTS keyword_ignores (
             board    TEXT NOT NULL,
@@ -888,8 +896,10 @@ def list_groups(id_limit=500):
                 JOIN keywords k ON k.board = m.board AND k.keyword = m.keyword
                 WHERE m.group_id = ? ORDER BY k.rowid
             """, (g['id'],)).fetchall()]
+            fm_links = [dict(board=r['board'], keyword=r['keyword']) for r in conn.execute(
+                "SELECT board, keyword FROM fm_links WHERE group_id = ? ORDER BY rowid", (g['id'],)).fetchall()]
             # 게시판은 한 사이트의 키워드만 담음 (save_group에서 검사). 사이드바에서 사이트별로 묶어 보여줌
-            groups.append({'id': g['id'], 'name': g['name'], 'site': g['site'], 'members': members,
+            groups.append({'id': g['id'], 'name': g['name'], 'site': g['site'], 'members': members, 'fm_links': fm_links,
                            'alert': bool(g['alert']), 'video_alert': bool(g['video_alert']), 'digest': bool(g['digest']),
                            'popular_min': g['popular_min'],
                            'folder_id': g['folder_id'], 'position': g['position'],
@@ -904,7 +914,7 @@ def keyword_pairs():
     with _db() as conn:
         return {(r['board'], r['keyword']) for r in conn.execute("SELECT board, keyword FROM keywords")}
 
-def save_group(group_id, name, members, merge_ids=(), folder_id=None):
+def save_group(group_id, name, members, merge_ids=(), folder_id=None, fm_links=None):
     """게시판 생성(group_id=None) 또는 수정. 새 키워드는 수집 대상으로 등록하고,
     어느 게시판에도 남지 않은 키워드는 수집 데이터와 함께 삭제. (게시판 ID, 삭제된 키워드 목록) 반환.
     member에 ignores(무시할 표현 목록)가 있으면 그 키워드의 표현을 바꿈 (키워드에 붙으므로 같은 키워드를 쓰는 게시판 모두에 적용).
@@ -912,6 +922,7 @@ def save_group(group_id, name, members, merge_ids=(), folder_id=None):
     게시판의 사이트는 등록한 키워드의 사이트(여러 사이트면 MULTI_SITE)이며, 이름은 같은 사이트 안에서만 겹치지 않으면 됨.
     merge_ids의 게시판은 저장한 뒤 지움 (그 게시판의 키워드를 이 게시판으로 옮겨 합칠 때, 알림 설정은 이 게시판 것).
     새 게시판은 folder_id 묶음의 맨 뒤에 둠 (없으면 묶음 없이). 기존 게시판의 묶음·순서는 arrange_group으로 바꿈.
+    fm_links([{board, keyword}])가 있으면 에펨코리아 바로가기를 그대로 바꿈 (None이면 그대로 두고, 합친 게시판의 것은 옮겨 옴).
     이름 중복 등은 ValueError"""
     pairs = list(dict.fromkeys((m['board'], m['keyword']) for m in members))
     if not pairs:
@@ -933,6 +944,8 @@ def save_group(group_id, name, members, merge_ids=(), folder_id=None):
         """, (site, name, group_id or -1, *merge_ids)).fetchone()
         if clash:
             raise ValueError(f"{_site_label(labels, site)}에 같은 이름의 게시판이 이미 있습니다.")
+        merged_links = [(r['board'], r['keyword']) for merge_id in merge_ids for r in conn.execute(
+            "SELECT board, keyword FROM fm_links WHERE group_id = ? ORDER BY rowid", (merge_id,)).fetchall()]
         for merge_id in merge_ids:
             conn.execute("DELETE FROM keyword_group_members WHERE group_id = ?", (merge_id,))
             conn.execute("DELETE FROM keyword_groups WHERE id = ?", (merge_id,))
@@ -948,6 +961,13 @@ def save_group(group_id, name, members, merge_ids=(), folder_id=None):
         conn.executemany("INSERT OR IGNORE INTO keywords(board, keyword) VALUES(?, ?)", pairs)
         conn.executemany("INSERT OR IGNORE INTO keyword_group_members(group_id, board, keyword) VALUES(?, ?, ?)",
                          [(group_id, b, k) for b, k in pairs])
+        if fm_links is not None:
+            conn.execute("DELETE FROM fm_links WHERE group_id = ?", (group_id,))
+            links = [(l['board'], l['keyword']) for l in fm_links]
+        else:
+            links = merged_links
+        conn.executemany("INSERT OR IGNORE INTO fm_links(group_id, board, keyword) VALUES(?, ?, ?)",
+                         [(group_id, b, k) for b, k in dict.fromkeys(links)])
         for m in members:
             if 'ignores' in m:
                 _set_keyword_ignores(conn, m['board'], m['keyword'], m['ignores'])

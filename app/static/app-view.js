@@ -520,7 +520,7 @@ function renderFeed(data) {
                     ${toolsButton}
                 </div>
                 <span class="feed-sub">${feedSubText(data.total)}</span>
-                ${searching ? renderSearchOptions() : ''}
+                ${searching ? renderSearchOptions() : renderFmLinks(group)}
             </div>
             <div class="feed-tools">
                 ${sortable() ? renderSortSelect() : ''}
@@ -546,6 +546,18 @@ function renderFeed(data) {
     updateShortcutGuide();
     observeReadSentinels();
     return !!target;
+}
+
+// 에펨코리아 바로가기 줄: 게시판에 등록한 에펨코리아 검색 링크 (누르면 새 창에서 에펨코리아 검색 결과)
+function renderFmLinks(group) {
+    const links = (group && group.fm_links) || [];
+    if (!links.length) return '';
+    const showBoard = new Set(links.map(l => l.board)).size > 1;
+    return `<div class="fm-links" aria-label="에펨코리아에서 보기">
+        <span class="fm-links-label">에펨코리아에서 보기</span>
+        ${links.map(l => `<a class="fm-link" href="${esc(fmSearchUrl(l.board, l.keyword))}" target="_blank" rel="noopener noreferrer">
+            ${showBoard ? `<span class="fm-link-board">${esc(fmBoardName(l.board))}</span>` : ''}${esc(l.keyword)}${ICONS.external}</a>`).join('')}
+    </div>`;
 }
 
 // 넓은 화면의 오른쪽 댓글 칸(따로 스크롤)의 시작 위치: 새 댓글이 마지막 댓글이 아니면 첫 새 댓글을 칸 맨 위에,

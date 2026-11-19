@@ -46,6 +46,7 @@ function renderGroupSettings() {
     if (app.groupDraft === undefined) {
         app.groupDraft = editing
             ? editing.members.map(m => ({ board: m.board, keyword: m.keyword, paused: !!m.paused, ignores: m.ignores.slice() })) : [];
+        app.fmDraft = editing ? (editing.fm_links || []).map(l => ({ ...l })) : [];
         // 이 게시판이 수집할 카테고리: 수정이면 등록된 키워드의 카테고리, 새 게시판이면 첫 카테고리.
         // 에펨코리아 카테고리는 고를 수 없음 (수집하지 않음. 예전 키워드는 보이지 않게 그대로 두어 예전 글은 게시판에 남음)
         const first = selectableBoards()[0];
@@ -92,6 +93,8 @@ function renderGroupSettings() {
             <button data-action="remove-draft-keyword" data-index="${idx}" aria-label="${esc(entryName(e))} 키워드 빼기">${ICONS.close}</button>
         </span>`;
     }).join('') : '<span class="settings-hint">아직 등록한 키워드가 없습니다.</span>';
+
+    renderFmLinkDraft();
 
     // 무시할 표현: 붙일 키워드를 고르는 상자(고른 키워드 유지)와 키워드별 표현 (공통 키워드는 모든 카테고리의 그 키워드에 함께)
     const ignoreSelect = document.getElementById('group-ignore-keyword');
@@ -248,6 +251,48 @@ function renderBoardChecks() {
 }
 
 // 고른 게시판의 키워드를 지금 수정 중인 게시판에 넣고, 저장할 때 그 게시판을 지우도록 기억
+// ---------- 에펨코리아 바로가기 (수집하지 않고 검색 링크만) ----------
+// 게시판 고르기: 예전 에펨코리아 카테고리 + 전체 + 직접 입력(주소의 영문 이름)
+const FM_CUSTOM = '__custom';
+function renderFmLinkDraft() {
+    const select = document.getElementById('group-fm-board');
+    const prev = select.value;
+    const fmBoards = (app.state.boards || []).filter(b => boardSite(b.key) === 'fmkorea');
+    select.innerHTML = fmBoards.map(b => `<option value="${esc(b.key)}">${esc(b.name)}</option>`).join('')
+        + '<option value="">전체 게시판</option>'
+        + `<option value="${FM_CUSTOM}">직접 입력…</option>`;
+    if ([...select.options].some(o => o.value === prev)) select.value = prev;
+    document.getElementById('group-fm-mid').hidden = select.value !== FM_CUSTOM;
+    document.getElementById('group-fmlinks').innerHTML = (app.fmDraft || []).length ? app.fmDraft.map((l, idx) => `
+        <span class="kw-tag">
+            ${siteTag('fmkorea')}<span class="kw-tag-board">${esc(fmBoardName(l.board))}</span>${esc(l.keyword)}
+            <a class="fm-link-try" href="${esc(fmSearchUrl(l.board, l.keyword))}" target="_blank" rel="noopener noreferrer" aria-label="${esc(l.keyword)} 에펨코리아 검색 열어 보기" title="열어 보기">${ICONS.external}</a>
+            <button data-action="remove-draft-fmlink" data-index="${idx}" aria-label="${esc(l.keyword)} 바로가기 빼기">${ICONS.close}</button>
+        </span>`).join('') : '<span class="settings-hint">등록한 바로가기가 없습니다.</span>';
+}
+
+function addDraftFmLink() {
+    const select = document.getElementById('group-fm-board');
+    const midInput = document.getElementById('group-fm-mid');
+    const input = document.getElementById('group-fm-input');
+    const keyword = input.value.trim();
+    let board = select.value;
+    if (board === FM_CUSTOM) {
+        board = midInput.value.trim().toLowerCase();
+        if (!/^(?![0-9]+$)[a-z0-9_]{1,40}$/.test(board)) { alert('게시판 이름은 주소의 영문 부분을 넣어 주세요. (예: fmkorea.com/football_world → football_world)'); midInput.focus(); return; }
+    }
+    if (!keyword) { input.focus(); return; }
+    if (app.fmDraft.some(l => l.board === board && l.keyword === keyword)) { alert('이미 등록한 바로가기입니다.'); return; }
+    app.fmDraft.push({ board, keyword });
+    input.value = '';
+    renderFmLinkDraft();
+    input.focus();
+}
+
+document.addEventListener('change', e => {
+    if (e.target.id === 'group-fm-board') document.getElementById('group-fm-mid').hidden = e.target.value !== FM_CUSTOM;
+});
+
 function addDraftMerge() {
     const id = Number(document.getElementById('group-merge-select').value);
     const source = (app.state.groups || []).find(g => g.id === id);
@@ -257,7 +302,10 @@ function addDraftMerge() {
             app.groupDraft.push({ board: m.board, keyword: m.keyword, paused: !!m.paused, ignores: m.ignores.slice() });
         }
     });
-    source.members.forEach(m => { if (!app.draftBoards.includes(m.board)) app.draftBoards.push(m.board); });
+    source.members.forEach(m => { if (!app.draftBoards.includes(m.board) && isSelectableBoard(m.board)) app.draftBoards.push(m.board); });
+    (source.fm_links || []).forEach(l => {
+        if (!app.fmDraft.some(d => d.board === l.board && d.keyword === l.keyword)) app.fmDraft.push({ ...l });
+    });
     app.mergeDraft.push(id);
     renderGroupSettings();
 }
@@ -268,8 +316,10 @@ function resetGroupForm() {
     app.draftBoards = undefined;
     app.editingGroupId = null;
     app.groupDraft = undefined;
+    app.fmDraft = [];
     app.groupNameDraft = undefined;
     document.getElementById('group-kw-input').value = '';
+    document.getElementById('group-fm-input').value = '';
     document.getElementById('group-ignore-input').value = '';
     renderGroupSettings();
 }
@@ -290,6 +340,7 @@ async function saveGroup(button) {
     // 입력만 하고 '추가'를 누르지 않은 키워드도 함께 등록
     if (document.getElementById('group-kw-input').value.trim()) addDraftKeyword();
     if (document.getElementById('group-ignore-input').value.trim()) addDraftIgnore();
+    if (document.getElementById('group-fm-input').value.trim()) addDraftFmLink();
     const members = app.groupDraft.map(m => ({ board: m.board, keyword: m.keyword, paused: !!m.paused, ignores: m.ignores.slice() }));
     if (!name) { alert('게시판 이름을 입력해 주세요.'); document.getElementById('group-name-input').focus(); return; }
     if (members.length === 0) { alert('키워드를 하나 이상 등록해 주세요.'); document.getElementById('group-kw-input').focus(); return; }
@@ -303,6 +354,7 @@ async function saveGroup(button) {
     try {
         const data = await postJSON('/api/group', {
             action: editingId ? 'update' : 'create', id: editingId, name: name, members: members, merge_ids: mergeIds, password: pwd,
+            fm_links: (app.fmDraft || []).map(l => ({ board: l.board, keyword: l.keyword })),
             folder_id: editingId || !document.getElementById('group-folder-select').value
                 ? null : Number(document.getElementById('group-folder-select').value)
         });

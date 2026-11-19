@@ -293,6 +293,11 @@ document.addEventListener('click', (e) => {
         renderGroupSettings();
     } else if (action === 'add-draft-ignore') {
         addDraftIgnore();
+    } else if (action === 'add-draft-fmlink') {
+        addDraftFmLink();
+    } else if (action === 'remove-draft-fmlink') {
+        app.fmDraft.splice(Number(el.dataset.index), 1);
+        renderFmLinkDraft();
     } else if (action === 'remove-draft-ignore') {
         const entry = app.draftEntries[Number(el.dataset.index)];
         const phrase = normPhrase(entryIgnores(entry)[Number(el.dataset.phraseIndex)]);

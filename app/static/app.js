@@ -137,6 +137,15 @@ function originalUrl(postId) {
 
 function groupKey(group) { return 'group:' + group.id; }
 function memberKey(m) { return m.board + '::' + m.keyword; }
+// 에펨코리아 바로가기 주소: 그 게시판에서 제목+본문 검색 (board가 ''이면 사이트 전체 검색). 서버는 에펨코리아에 요청하지 않음
+function fmSearchUrl(board, keyword) {
+    const q = encodeURIComponent(keyword);
+    return board
+        ? `https://www.fmkorea.com/index.php?mid=${encodeURIComponent(board)}&search_target=title_content&search_keyword=${q}`
+        : `https://www.fmkorea.com/search.php?act=IS&is_keyword=${q}`;
+}
+function fmBoardName(board) { return board ? boardName(board) : '전체'; }
+
 function boardName(key) {
     const board = app.state ? app.state.boards.find(b => b.key === key) : null;
     return board ? board.name : key;

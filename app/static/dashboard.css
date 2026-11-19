@@ -53,6 +53,15 @@ a { color: inherit; text-decoration: none; }
 .card-icon.is-popular { background: var(--orange-weak); color: var(--orange); }
 .card-icon.is-apt { background: var(--ev-weak); color: var(--ev); }
 .card-icon.is-games { background: #FDF0E1; color: #B45309; }
+.card-icon.is-fmlinks { background: #FAECE7; color: #993C1D; }
+/* 에펨코리아 바로가기 카드: 게시판 이름 + 키워드 칩 (누르면 새 창에서 에펨코리아 검색) */
+.fm-groups { display: flex; flex-direction: column; gap: 10px; }
+.fm-group { display: grid; grid-template-columns: minmax(0, 96px) minmax(0, 1fr); gap: 10px; align-items: start; }
+.fm-group-name { font-size: 13px; font-weight: 800; color: var(--text); padding-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fm-group-name:hover { color: var(--accent); }
+.fm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fm-chip { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); font-size: 13px; color: var(--text); background: var(--surface); }
+.fm-chip:hover { border-color: var(--accent); color: var(--accent); }
 /* 게임 카드: 스도쿠 한 줄 (누르면 바로 스도쿠) */
 .game-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-muted); }
 .game-row:hover .game-name { color: var(--accent); }

@@ -105,6 +105,9 @@ MAX_APT_WATCHES = 30
 MAX_APT_NAME_LENGTH = 40
 APT_AREA_RANGE = (10, 400)
 POSTS_PER_PAGE = 10
+# 에펨코리아 바로가기: 게시판마다 최대 개수, 게시판 mid (숫자만인 값은 글 번호라 제외. ''은 사이트 전체 검색)
+MAX_FM_LINKS = 30
+FM_MID_RE = re.compile(r'(?![0-9]+$)[a-z0-9_]{1,40}')
 # 인기순으로 볼 수 있는 기간(일). 없으면 전체 기간
 POPULAR_DAYS = ('1', '7', '30')
 # 검색에서 고를 수 있는 기간(일): 최근 그 기간에 수집한 글만. 없으면 전체 기간
@@ -724,6 +727,21 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             if not m['keyword'] or len(m['keyword']) > MAX_KEYWORD_LENGTH or any(ch in m['keyword'] for ch in '\r\n\t'):
                 self._send_json(400, False, f'❌ 키워드는 줄바꿈 없이 {MAX_KEYWORD_LENGTH}자 이하로 입력해 주세요.')
                 return
+        # 에펨코리아 바로가기 (수집하지 않고 검색 링크만). 보내지 않으면 그대로 둠
+        fm_links = params.get('fm_links')
+        if fm_links is not None:
+            if (not isinstance(fm_links, list) or len(fm_links) > MAX_FM_LINKS
+                    or not all(isinstance(l, dict) and isinstance(l.get('board'), str) and isinstance(l.get('keyword'), str) for l in fm_links)):
+                self._send_json(400, False, f'❌ 에펨코리아 바로가기는 {MAX_FM_LINKS}개까지 등록할 수 있습니다.')
+                return
+            fm_links = [{'board': l['board'].strip().lower(), 'keyword': l['keyword'].strip()} for l in fm_links]
+            for l in fm_links:
+                if l['board'] and not FM_MID_RE.fullmatch(l['board']):
+                    self._send_json(400, False, '❌ 에펨코리아 게시판 이름(주소의 영문, 예: football_world)을 확인해 주세요.')
+                    return
+                if not l['keyword'] or len(l['keyword']) > MAX_KEYWORD_LENGTH or any(ch in l['keyword'] for ch in '\r\n\t'):
+                    self._send_json(400, False, f'❌ 키워드는 줄바꿈 없이 {MAX_KEYWORD_LENGTH}자 이하로 입력해 주세요.')
+                    return
         group_id = params.get('id') if action == 'update' else None
         if action == 'update' and not isinstance(group_id, int):
             self._send_json(400, False, '❌ 존재하지 않는 게시판입니다.')
@@ -738,7 +756,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_json(400, False, '❌ 잘못된 요청입니다.')
             return
         try:
-            saved_id, dropped = save_group(group_id, name, members, merge_ids, folder_id)
+            saved_id, dropped = save_group(group_id, name, members, merge_ids, folder_id, fm_links)
         except ValueError as ve:
             self._send_json(400, False, f'❌ {ve}')
             return

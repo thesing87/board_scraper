@@ -110,10 +110,33 @@ async function getJSON(url) {
     return res.json();
 }
 
+// ==========================================
+// 에펨코리아 바로가기 카드: 게시판마다 등록한 에펨코리아 검색 링크 (누르면 새 창. 서버는 에펨코리아에 요청하지 않음)
+// ==========================================
+function fmSearchUrl(board, keyword) {
+    const q = encodeURIComponent(keyword);
+    return board
+        ? `https://www.fmkorea.com/index.php?mid=${encodeURIComponent(board)}&search_target=title_content&search_keyword=${q}`
+        : `https://www.fmkorea.com/search.php?act=IS&is_keyword=${q}`;
+}
+function renderFmLinks(state) {
+    const groups = (state.groups || []).filter(g => (g.fm_links || []).length);
+    const total = groups.reduce((n, g) => n + g.fm_links.length, 0);
+    $('fmlinks-sub').textContent = total ? `검색 링크 ${total}개 · 새 창` : '검색 링크 · 새 창';
+    $('fmlinks-body').innerHTML = groups.length
+        ? `<div class="fm-groups">${groups.map(g => `
+            <div class="fm-group">
+                <a class="fm-group-name" href="/board/#board-${g.id}">${esc(g.name)}</a>
+                <div class="fm-chips">${g.fm_links.map(l => `<a class="fm-chip" href="${esc(fmSearchUrl(l.board, l.keyword))}" target="_blank" rel="noopener noreferrer">${esc(l.keyword)}</a>`).join('')}</div>
+            </div>`).join('')}</div>`
+        : '<span class="empty">키워드 게시판의 게시판 편집에서 에펨코리아 바로가기를 추가하면 여기에 모입니다</span>';
+}
+
 async function loadBoard() {
     try {
         const [state, dash] = await Promise.all([getJSON('/api/state'), getJSON('/api/dashboard')]);
         renderBoard(state, dash);
+        renderFmLinks(state);
         if (window.siteNav) window.siteNav.setBadge('board', state.all.unread_count);
     } catch (e) {
         renderBoardError();
@@ -408,7 +431,7 @@ const COLUMNS = 12;
 const MIN_COLUMNS = 3;
 const DEFAULT_LAYOUT = [{ id: 'card-board', w: 7, h: null }, { id: 'card-ev', w: 5, h: null }, { id: 'card-benefit', w: 5, h: null },
                         { id: 'card-stats', w: 7, h: null }, { id: 'card-apt', w: 5, h: null }, { id: 'card-popular', w: 12, h: null },
-                        { id: 'card-games', w: 5, h: null }];
+                        { id: 'card-games', w: 5, h: null }, { id: 'card-fmlinks', w: 7, h: null }];
 const MIN_HEIGHT = 120, MAX_HEIGHT = 1200, HEIGHT_STEP = 10;
 const narrowScreen = window.matchMedia('(max-width: 820px)');
 const grid = $('dash-grid');
