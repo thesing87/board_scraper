@@ -43,6 +43,9 @@ print('SERVE OK')
 
 # Tampermonkey 흉내: GM_xmlhttpRequest는 fetch로, GM_getValue/SetValue는 localStorage로
 SHIM = """
+// 화면 없는 시험용 크롬은 마우스가 없는 기기(손가락 기기)로 잡히므로, 기기 종류는 화면 폭으로만 판단하게 바꿔 둠
+const realMatch = window.matchMedia.bind(window);
+window.matchMedia = q => q.includes('pointer') ? { matches: false } : realMatch(q);
 window.GM_getValue = (k, d) => { const v = localStorage.getItem('gm_' + k); return v === null ? d : JSON.parse(v); };
 window.GM_setValue = (k, v) => localStorage.setItem('gm_' + k, JSON.stringify(v));
 window.GM_xmlhttpRequest = o => fetch(o.url, { method: o.method, headers: o.headers, body: o.data })

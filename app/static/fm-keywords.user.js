@@ -20,7 +20,7 @@
     const SITE = '__SITE__';
     const STALE_DAYS = 7;
     // 휴대폰: 좁은 화면이거나 손가락으로 누르는 기기 (휴대폰에서 PC용 화면을 열면 화면 폭이 넓게 잡혀도 휴대폰으로)
-    const MOBILE = window.matchMedia('(max-width: 899px)').matches || window.matchMedia('(pointer: coarse)').matches;
+    const MOBILE = window.matchMedia('(max-width: 899px)').matches || window.matchMedia('(hover: none) and (pointer: coarse)').matches;
     const KEY_GROUP = 'fm_bar_group', KEY_FOLDED = 'fm_bar_folded';
 
     function request(method, path, body) {
