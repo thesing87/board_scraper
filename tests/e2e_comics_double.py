@@ -119,6 +119,32 @@ try:
     assert js("return document.getElementById('reader-layout-btn').hidden")
     print('CHOOSE OK')
 
+    # 넘김 애니메이션: 켜면 미끄러지듯(smooth), 끄면 바로(instant). 끈 설정은 다시 열어도 그대로
+    js("localStorage.setItem('comics_settings_v1', JSON.stringify({dir: 'rtl', layout: 'single', split: true, cover: true}))")
+    d.get('about:blank')
+    d.get(BASE + BOOK); time.sleep(2)
+    spy = ("const p = document.getElementById('pager'); window._moves = []; const orig = p.scrollTo.bind(p);"
+           " p.scrollTo = o => { window._moves.push(o.behavior); orig(o); }")
+    js(spy)
+    js("document.getElementById('reader-settings-btn').click()")
+    assert js("return document.getElementById('set-anim').checked")          # 처음에는 켜짐
+    js("document.getElementById('reader-settings-btn').click()")
+    key(Keys.ARROW_LEFT)
+    assert js("return window._moves") == ['smooth'], js("return window._moves")
+    js("document.getElementById('reader-settings-btn').click()")
+    js("document.getElementById('set-anim').click()"); time.sleep(.3)
+    assert js("return JSON.parse(localStorage.getItem('comics_settings_v1')).anim") is False
+    js("document.getElementById('reader-settings-btn').click()")
+    js("window._moves = []")
+    key(Keys.ARROW_LEFT)
+    assert js("return window._moves") == ['instant'], js("return window._moves")
+    d.get('about:blank')
+    d.get(BASE + BOOK); time.sleep(2)
+    js(spy)
+    key(Keys.ARROW_LEFT)
+    assert js("return window._moves") == ['instant'] and not js("return document.getElementById('set-anim').checked")
+    print('ANIM OK')
+
     # 휴대폰 세로 화면: '자동'은 한 페이지
     js("localStorage.setItem('comics_settings_v1', JSON.stringify({dir: 'rtl', layout: 'auto', split: true, cover: true}))")
     d.get('about:blank')

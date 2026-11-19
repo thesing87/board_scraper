@@ -26,8 +26,10 @@
     const storageSet = (key, value) => { try { value ? localStorage.setItem(key, value) : localStorage.removeItem(key); } catch (e) { /* 저장 불가 */ } };
 
     function loadSettings() {
-        // layout: auto(넓은 화면은 두 페이지) · single · double, cover: 두 페이지 보기에서 첫 장(표지)은 혼자
-        const defaults = { dir: 'rtl', split: true, layout: 'auto', cover: true };
+        // layout: auto(넓은 화면은 두 페이지) · single · double, cover: 두 페이지 보기에서 첫 장(표지)은 혼자,
+        // anim: 단추·키·화면 누르기로 넘길 때 미끄러지듯 움직임 (처음 값은 기기의 '동작 줄이기' 설정을 따름)
+        const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const defaults = { dir: 'rtl', split: true, layout: 'auto', cover: true, anim: !reduced };
         try { return { ...defaults, ...JSON.parse(storageGet(SETTINGS_KEY, '{}')) }; } catch (e) { return defaults; }
     }
     const settings = loadSettings();
@@ -409,7 +411,7 @@
     function go(delta) {
         const v = Math.max(0, Math.min(reader.views.length - 1, reader.current + delta));
         if (v === reader.current) return;
-        scrollToView(v, true);
+        scrollToView(v, settings.anim);
     }
 
     // 지금 보고 있는 마지막 페이지 (두 장 칸이면 뒤 장. 읽은 위치로 저장)
@@ -467,6 +469,7 @@
             b.disabled = vertical;
         });
         $('set-cover').checked = settings.cover;
+        $('set-anim').checked = settings.anim;
         const double = useDouble();
         $('set-layout-hint').textContent = vertical ? '위아래로 넘길 때는 한 페이지씩 봅니다.'
             : settings.layout === 'auto' ? `자동: 지금 화면에서는 ${double ? '두 페이지' : '한 페이지'} (넓은 가로 화면에서 두 페이지)` : '';
@@ -596,6 +599,10 @@
         settings.cover = e.target.checked;
         saveSettings();
         rebuild();
+    });
+    $('set-anim').addEventListener('change', e => {
+        settings.anim = e.target.checked;
+        saveSettings();
     });
     $('set-split').addEventListener('change', e => {
         settings.split = e.target.checked;
