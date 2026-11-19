@@ -37,6 +37,7 @@ with urllib.request.urlopen(BASE + '/fm-keywords.user.js') as r:
 assert f"const SITE = '{BASE}';" in script and '// @connect      127.0.0.1' in script and '__SITE' not in script
 # www 없이 여는 주소(fmkorea.com/car)에서도 실행, 업데이트는 같은 설치 주소에서
 assert '// @match        https://fmkorea.com/*' in script and '// @match        https://*.fmkorea.com/*' in script
+assert '// @run-at       document-start' in script
 assert f'// @updateURL    {BASE}/fm-keywords.user.js' in script and f'// @downloadURL  {BASE}/fm-keywords.user.js' in script
 req = urllib.request.Request(BASE + '/fm-keywords.user.js', headers={'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'example.synology.me'})
 assert "const SITE = 'https://example.synology.me';" in urllib.request.urlopen(req).read().decode('utf-8')
@@ -56,13 +57,17 @@ window.GM_xmlhttpRequest = o => fetch(o.url, { method: o.method, headers: o.head
 """
 def page(d, query, tall=False):
     # 에펨코리아 검색 화면 대신 로컬 빈 페이지 (주소의 검색 부분만 흉내)
-    d.get(BASE + '/api/fm-links?' + query); time.sleep(0.5)
+    for _ in range(3):   # 첫 접속이 가끔 끊겨 빈 화면에 머무름
+        d.get(BASE + '/api/fm-links?' + query); time.sleep(0.5)
+        if d.current_url.startswith(BASE):
+            break
     d.execute_script("document.body.innerHTML = '<div id=fake style=\"height:' + (arguments[0] ? 4000 : 300) + 'px\">에펨코리아 검색 결과</div>'", tall)
     d.execute_script(SHIM + script)
     for _ in range(30):
         if d.execute_script("const h = document.getElementById('keyword-monitor-fm-bar'); return !!(h && h.shadowRoot.querySelector('.bar'))"):
             break
         time.sleep(0.2)
+    time.sleep(0.6)   # 기억한 목록으로 먼저 그린 뒤 서버의 새 목록으로 다시 그릴 때까지
 def bar(d, sel):
     return d.execute_script(f"return document.getElementById('keyword-monitor-fm-bar').shadowRoot.querySelector('{sel}')")
 def chips(d):
@@ -79,7 +84,7 @@ try:
     assert d.execute_script("const b = arguments[0].getBoundingClientRect(); return [Math.round(b.top), getComputedStyle(arguments[0]).position]", bar(d, '.bar')) == [0, 'fixed']
     # 묶음 상자: 지금 보는 검색의 묶음(테슬라)만 펼침, 나머지는 이름·개수
     boxes = lambda: d.execute_script("return [...document.getElementById('keyword-monitor-fm-bar').shadowRoot.querySelectorAll('.box')]"
-                                     ".map(b => [b.querySelector('.gh').textContent.replace(/\s+/g, ' ').trim(), b.classList.contains('open')])")
+                                     ".map(b => [b.querySelector('.gh').textContent.replace(/\\s+/g, ' ').trim(), b.classList.contains('open')])")
     got = boxes()
     assert got[0][0].startswith('▾ 테슬라') and got[0][1] and got[1] == ['▸ AI 1', False], got
     got = chips(d)
@@ -105,6 +110,14 @@ try:
     assert bar(d, '.mini')
     d.execute_script("arguments[0].click()", bar(d, '[data-unfold]')); time.sleep(0.2)
     assert bar(d, 'a.chip')
+    # 기억해 둔 목록으로 바로 그림: 서버가 응답하지 않는 상태로 새 화면을 열어도 줄이 바로 있음 (눌렀던 링크는 '방금 전')
+    d.get(BASE + '/api/fm-links?mid=car&search_keyword=x'); time.sleep(0.5)
+    d.execute_script("document.body.innerHTML = '<div>에펨코리아</div>'")
+    d.execute_script(SHIM.replace('window.GM_xmlhttpRequest = o =>', 'window.GM_xmlhttpRequest = o => null; window.unusedXhr = o =>') + script)
+    assert bar(d, '.bar') and bar(d, '.box'), '기억한 목록으로 그리지 않음'
+    d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{ai}"]')) if not bar(d, f'.box.open [data-toggle="{ai}"]') else None
+    time.sleep(0.2)
+    assert any('방금 전' in c[0] for c in chips(d)), chips(d)
     print('PC OK')
 
     # 휴대폰: 아래에 고정, 연 시각은 줄여서 안 보임, 아래로 스크롤하면 숨고 위로 올리면 보임
@@ -136,6 +149,14 @@ try:
     assert not gone()                                                   # 맨 아래에 닿으면 보임
     assert d.execute_script("return document.documentElement.scrollWidth <= innerWidth")
     print('MOBILE OK')
+
+    # 실제처럼 페이지가 막 열릴 때(본문이 생기기 전) 실행: 기억한 목록으로 줄을 바로 붙이고, 본문이 생긴 뒤에도 그대로
+    d.set_window_size(1280, 900)
+    d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source': SHIM + script})
+    d.get(BASE + '/stats/?mid=car&search_keyword=%ED%85%8C%EC%8A%AC%EB%9D%BC'); time.sleep(1.5)   # 로컬 HTML 페이지 (에펨코리아 대신)
+    state = d.execute_script("const h = document.getElementById('keyword-monitor-fm-bar'); return [!!h, h && h.parentNode === document.documentElement, !!(h && h.shadowRoot.querySelector('.bar.top')), !!document.body]")
+    assert state == [True, True, True, True], state
+    print('DOCUMENT START OK')
 
     # 키워드 모니터 FM키워드 화면의 설치 안내
     d.set_window_size(1280, 900)

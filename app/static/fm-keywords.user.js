@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.0.2
+// @version      1.0.3
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -11,7 +11,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @connect      __SITE_HOST__
-// @run-at       document-end
+// @run-at       document-start
 // @noframes
 // ==/UserScript==
 // 키워드 모니터 서버가 설치 주소(/fm-keywords.user.js)로 내려줄 때 __SITE__ 자리에 사이트 주소를 넣음.
@@ -27,6 +27,8 @@
         || !!(navigator.userAgentData && navigator.userAgentData.mobile) || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
     // 기기마다 기억: 줄 전체 접힘, PC에서 펼친 묶음 ID들, 휴대폰에서 고른 묶음 ID (0이면 아랫줄 접힘)
     const KEY_FOLDED = 'fm_bar_folded', KEY_OPEN = 'fm_bar_open', KEY_MOBILE = 'fm_bar_mobile_group';
+    // 마지막으로 받은 키워드 목록: 새 화면이 열리면 서버를 기다리지 않고 이것으로 바로 그린 뒤, 새 목록이 다르면 다시 그림
+    const KEY_CACHE = 'fm_bar_cache';
 
     function request(method, path, body) {
         return new Promise((resolve, reject) => {
@@ -64,11 +66,24 @@
     const currentKeyword = (params.get('search_keyword') || params.get('is_keyword') || '').trim();
     const isCurrent = l => !!currentKeyword && l.keyword === currentKeyword && l.board === currentBoard;
 
+    // 페이지가 막 열릴 때(본문이 생기기 전) 실행되므로 문서 맨 바깥에 붙임: 에펨코리아 화면이 나타날 때부터 줄·여백이 함께 있어 화면이 밀리지 않음
     const host = document.createElement('div');
     host.id = 'keyword-monitor-fm-bar';
     const root = host.attachShadow({ mode: 'open' });
-    document.body.appendChild(host);
+    // 아주 이르면 문서 뼈대(html)도 아직 없을 수 있어, 생기는 즉시 붙이고 다시 그림
+    function mount() {
+        if (!document.documentElement) return false;
+        if (!host.isConnected) document.documentElement.appendChild(host);
+        return true;
+    }
+    if (!mount()) {
+        new MutationObserver((_, observer) => {
+            if (mount()) { observer.disconnect(); if (groups.length) render(); }
+        }).observe(document, { childList: true });
+    }
     let groups = [];
+    let cachedJson = GM_getValue(KEY_CACHE, '');
+    try { groups = cachedJson ? JSON.parse(cachedJson) : []; } catch (e) { groups = []; cachedJson = ''; }
 
     const CSS = `
         :host { all: initial; }
@@ -161,6 +176,7 @@
             }
         }
         root.innerHTML = `<style>${CSS}</style>${html}`;
+        if (!host.isConnected) return;
         // 에펨코리아 화면의 맨 위·맨 아래가 줄에 가리지 않게 그만큼 여백
         const bar = root.querySelector('.bar');
         const height = bar.getBoundingClientRect().height;
@@ -175,6 +191,14 @@
             // 누른 시각을 남기고 같은 탭에서 그 검색으로
             if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
             e.preventDefault();
+            // 새 화면에서 바로 '방금 전'으로 보이게 기억해 둔 목록에도 반영
+            const group = groups.find(g => g.id === Number(chip.dataset.group));
+            const link = group && group.links.find(l => l.board === chip.dataset.board && l.keyword === chip.dataset.keyword);
+            if (link) {
+                const pad = n => String(n).padStart(2, '0'), now = new Date();
+                link.last_opened = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+                GM_setValue(KEY_CACHE, JSON.stringify(groups));
+            }
             const go = () => { location.href = chip.href; };
             request('POST', '/api/fm-link', { action: 'open', group_id: Number(chip.dataset.group), board: chip.dataset.board, keyword: chip.dataset.keyword })
                 .then(go, go);
@@ -222,9 +246,16 @@
         }, { passive: true });
     }
 
+    // 기억해 둔 목록이 있으면 바로 그리고, 서버의 새 목록이 다를 때만 다시 그림 (처음 설치했을 때만 받을 때까지 기다림)
+    if (groups.length) render();
     request('GET', '/api/fm-links').then(data => {
-        groups = (data.groups || []).filter(g => g.links.length);
+        const fresh = (data.groups || []).filter(g => g.links.length);
+        const json = JSON.stringify(fresh);
+        if (json === cachedJson && groups.length) return;
+        cachedJson = json;
+        GM_setValue(KEY_CACHE, json);
+        groups = fresh;
         if (!groups.length) render('등록한 키워드가 없습니다');
         else render();
-    }, () => render('키워드 모니터에 연결하지 못했습니다'));
+    }, () => { if (!groups.length) render('키워드 모니터에 연결하지 못했습니다'); });
 })();
