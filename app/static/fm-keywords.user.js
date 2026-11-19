@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.4.0
+// @version      1.4.1
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -31,6 +31,8 @@
     const KEY_CACHE = 'fm_bar_cache';
     // 키워드 줄에서 바로 추가할 때 쓰는 관리자 비밀번호 (처음 한 번 넣으면 Tampermonkey 저장소에만 둠. 에펨코리아 페이지는 읽을 수 없음)
     const KEY_PWD = 'fm_admin_password';
+    // 아직 서버에 못 보낸 '누른 시각' [{group_id, board, keyword, at}]: 누르면 기다리지 않고 바로 넘어가므로, 넘어가는 사이 끊긴 기록은 다음 화면에서 다시 보냄
+    const KEY_PENDING = 'fm_bar_pending_opens';
 
     // 응답 코드와 내용을 그대로 (실패 이유를 보여 줄 때)
     function requestRaw(method, path, body) {
@@ -330,15 +332,24 @@
         if (active && MOBILE) active.scrollIntoView({ block: 'nearest', inline: 'center' });
     }
 
-    // 누른 시각을 남기고 같은 탭에서 그 검색으로 (새 화면에서 바로 '방금 전'으로 보이게 기억해 둔 목록에도 반영)
+    // 누른 시각을 서버에 보냄. 보내기 전에 '보낼 기록'에 적어 두고, 보내지면 지움 (같은 기록이 두 번 가도 시각만 다시 적힘)
+    const pendingKey = x => `${x.group_id}|${x.board}|${x.keyword}`;
+    function sendOpen(item) {
+        return request('POST', '/api/fm-link', { action: 'open', group_id: item.group_id, board: item.board, keyword: item.keyword }).then(() => {
+            GM_setValue(KEY_PENDING, GM_getValue(KEY_PENDING, []).filter(x => !(pendingKey(x) === pendingKey(item) && x.at <= item.at)));
+        }, err => {
+            // 없는 바로가기(그사이 지워짐)면 버림, 연결이 안 되면 다음 화면에서 다시
+            if (String(err && err.message) === '404') GM_setValue(KEY_PENDING, GM_getValue(KEY_PENDING, []).filter(x => pendingKey(x) !== pendingKey(item)));
+        });
+    }
+    // 같은 탭에서 그 검색으로 바로 넘어감 (서버 답을 기다리지 않음). 새 화면에서 바로 '방금 전'으로 보이게 기억해 둔 목록에도 반영
     function openLink(group, link) {
         link.last_opened = nowText();
         GM_setValue(KEY_CACHE, JSON.stringify(groups));
-        const href = searchUrl(link.board, link.keyword);
-        let gone = false;
-        const go = () => { if (!gone) { gone = true; location.href = href; } };
-        request('POST', '/api/fm-link', { action: 'open', group_id: group.id, board: link.board, keyword: link.keyword }).then(go, go);
-        setTimeout(go, 800);
+        const item = { group_id: group.id, board: link.board, keyword: link.keyword, at: link.last_opened };
+        GM_setValue(KEY_PENDING, [...GM_getValue(KEY_PENDING, []).filter(x => pendingKey(x) !== pendingKey(item)), item].slice(-50));
+        sendOpen(item);
+        location.href = searchUrl(link.board, link.keyword);
     }
     function goNext() { const next = nextLink(); if (next) openLink(next.g, next.l); }
 
@@ -579,8 +590,16 @@
 
     // 기억해 둔 목록이 있으면 바로 그리고, 서버의 새 목록이 다를 때만 다시 그림 (처음 설치했을 때만 받을 때까지 기다림)
     if (groups.length) render();
+    // 앞 화면에서 못 보낸 '누른 시각'을 다시 보냄
+    GM_getValue(KEY_PENDING, []).forEach(sendOpen);
     request('GET', '/api/fm-links').then(data => {
         const fresh = (data.groups || []).filter(g => g.links.length);
+        // 아직 서버에 닿지 않은 누른 시각은 받은 목록에도 반영 ('방금 전'이 예전 시각으로 돌아가지 않게)
+        GM_getValue(KEY_PENDING, []).forEach(x => {
+            const g = fresh.find(f => f.id === x.group_id);
+            const l = g && g.links.find(y => y.board === x.board && y.keyword === x.keyword);
+            if (l && (!l.last_opened || l.last_opened < x.at)) l.last_opened = x.at;
+        });
         const json = JSON.stringify(fresh);
         if (json === cachedJson && groups.length) return;
         cachedJson = json;

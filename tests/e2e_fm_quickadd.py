@@ -28,7 +28,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 BASE = f'http://127.0.0.1:{port}'
 with urllib.request.urlopen(BASE + '/fm-keywords.user.js') as r:
     script = r.read().decode('utf-8')
-assert '// @version      1.4.0' in script
+assert '// @version      1.4.1' in script
 
 SHIM = """
 const realMatch = window.matchMedia.bind(window);
@@ -108,6 +108,28 @@ def run(mobile):
         page('mid=car&search_keyword=' + urllib.parse.quote('아이오닉'))
         click('[data-add]'); assert q('.picker')
         click('[data-addclose]'); assert not q('.picker')
+        if not mobile:
+            # 키워드를 누르면 서버 답을 기다리지 않고 바로 넘어감. 기록이 끊겨도(서버에 못 닿음) 다음 화면에서 다시 보냄
+            with storage._db() as conn, conn:
+                conn.execute("UPDATE fm_links SET last_opened = NULL WHERE keyword = '쏘렌토'")
+            page('mid=car&search_keyword=' + urllib.parse.quote('아이오닉'))
+            d.execute_cdp_cmd('Network.setBlockedURLs', {'urls': ['*fmkorea.com*', '*/api/fm-link']})
+            js(f"{R}.querySelector('a.chip[data-keyword=\"쏘렌토\"]') || {R}.querySelector('[data-toggle=\"{car}\"]').click()")
+            # 누른 때와 화면을 떠나기 시작한 때를 이 페이지의 저장소에 남김
+            js("window.addEventListener('beforeunload', () => localStorage.setItem('t_leave', Date.now()));"
+               f"localStorage.setItem('t_click', Date.now()); setTimeout(() => {R}.querySelector('a.chip[data-keyword=\"쏘렌토\"]').click(), 0)")
+            time.sleep(2)
+            assert 'search_keyword' in d.current_url, d.current_url
+            d.execute_cdp_cmd('Network.setBlockedURLs', {'urls': ['*fmkorea.com*']})
+            assert not next(g for g in storage.list_groups() if g['id'] == car)['fm_links'][1]['last_opened']
+            page('mid=car&search_keyword=' + urllib.parse.quote('아이오닉'))
+            time.sleep(0.5)
+            assert next(g for g in storage.list_groups() if g['id'] == car)['fm_links'][1]['last_opened']
+            assert js("return JSON.parse(localStorage.getItem('gm_fm_bar_pending_opens'))") == []
+            waited = js("return localStorage.getItem('t_leave') - localStorage.getItem('t_click')")
+            assert 0 <= waited < 150, waited
+            # 받은 목록이 예전 시각이어도 '방금 전'
+            assert '방금 전' in js(f"return {R}.querySelector('a.chip[data-keyword=\"쏘렌토\"]').textContent")
     finally:
         d.quit()
     # 다음 실행을 위해 처음으로
