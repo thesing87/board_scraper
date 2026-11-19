@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.2.0
+// @version      1.3.0
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -123,7 +123,14 @@
         a.chip { position: relative; }
         a.chip.done { opacity: .55; }
         a.chip.on.done { opacity: 1; }
-        .newb { position: absolute; top: -7px; right: -7px; background: #185FA5; color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; padding: 0 5px; line-height: 15px; }
+        /* 새 글 뱃지: 키워드 글자 바로 옆 (칩 밖으로 튀어나오면 휴대폰의 옆으로 밀리는 칩 줄에서 잘리고, PC에서는 글자를 가림) */
+        .kw { display: inline-flex; align-items: center; gap: 4px; }
+        .newb { display: inline-block; background: #185FA5; color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; padding: 0 5px; line-height: 15px; }
+        a.chip.on .newb { background: #fff; color: #185FA5; }
+        .newg { color: #185FA5; font-weight: 700; }
+        .gp .newg { margin-left: 4px; }
+        .gp.on .newg { color: #B5D4F4; }
+        .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #185FA5; margin-left: 4px; vertical-align: 1px; }
         .prog { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #712B13; white-space: nowrap; }
         .pbar { width: 56px; height: 5px; border-radius: 3px; background: #F5C4B3; overflow: hidden; }
         .pbar i { display: block; height: 100%; background: #993C1D; }
@@ -167,26 +174,37 @@
     const nowText = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; };
     const openedToday = l => !!l.last_opened && l.last_opened.slice(0, 10) === nowText().slice(0, 10);
     const allLinks = () => groups.flatMap(g => g.links.map(l => ({ g, l })));
-    // 다음 키워드: 오늘 아직 안 본 것 중 가장 오래 안 본 것 (안 본 것 먼저, 같으면 등록 순). 지금 보는 것은 빼고
+    // 안 읽은 새 글 수: 검색 결과에서 확인한 새 글 중 아직 열지 않은 글 (열어 본 키워드만 알 수 있음)
+    function unreadOf(l) {
+        if (l.seen_max == null) return 0;
+        const read = new Set(l.read_ids || []);
+        return (l.found_ids || []).filter(no => no > l.seen_max && !read.has(no)).length;
+    }
+    const groupUnread = g => g.links.reduce((n, l) => n + unreadOf(l), 0);
+    // 다음 키워드: 안 읽은 새 글이 남은 키워드 먼저(많은 순), 그다음 오늘 아직 안 본 것 중 가장 오래 안 본 것 (같으면 등록 순). 지금 보는 것은 빼고
     function nextLink() {
         const key = x => (x.l.last_opened ? new Date(x.l.last_opened.replace(' ', 'T')).getTime() : -1);
-        return allLinks().map((x, i) => ({ ...x, i })).filter(x => !openedToday(x.l) && !isCurrent(x.l))
-            .sort((a, b) => key(a) - key(b) || a.i - b.i)[0] || null;
+        const list = allLinks().map((x, i) => ({ ...x, i })).filter(x => !isCurrent(x.l));
+        const withNew = list.filter(x => unreadOf(x.l)).sort((a, b) => unreadOf(b.l) - unreadOf(a.l) || a.i - b.i);
+        if (withNew.length) return withNew[0];
+        return list.filter(x => !openedToday(x.l)).sort((a, b) => key(a) - key(b) || a.i - b.i)[0] || null;
     }
-    let newCount = 0;   // 지금 보는 검색 결과에서 지난번 이후 새 글 수 (지금 보는 칩에 표시)
-    const chipHtml = (g, l) => `
-        <a class="chip${isCurrent(l) ? ' on' : ''}${isStale(l.last_opened) ? ' stale' : ''}${openedToday(l) ? ' done' : ''}" href="${esc(searchUrl(l.board, l.keyword))}"
+    const chipHtml = (g, l) => {
+        const unread = unreadOf(l);
+        return `
+        <a class="chip${isCurrent(l) ? ' on' : ''}${isStale(l.last_opened) ? ' stale' : ''}${openedToday(l) && !unread ? ' done' : ''}" href="${esc(searchUrl(l.board, l.keyword))}"
            data-board="${esc(l.board)}" data-keyword="${esc(l.keyword)}" data-group="${g.id}">
-            ${esc(l.keyword)}${MOBILE ? '' : `<small>${esc(isCurrent(l) ? '지금 보는 중' : agoText(l.last_opened))}</small>`}${isCurrent(l) && newCount ? `<span class="newb">${MOBILE ? '' : '새 '}${newCount}</span>` : ''}</a>`;
+            <span class="kw">${esc(l.keyword)}${unread ? `<span class="newb">${MOBILE ? '' : '새 '}${unread}</span>` : ''}</span>${MOBILE ? '' : `<small>${esc(isCurrent(l) ? '지금 보는 중' : agoText(l.last_opened))}</small>`}</a>`;
+    };
     function progressHtml() {
         const all = allLinks(), done = all.filter(x => openedToday(x.l)).length;
         const next = nextLink();
         const nextBtn = next
-            ? `<button class="next" data-next title="오늘 아직 안 본 키워드 중 가장 오래 안 본 것 (단축키 ])">다음 ▶${MOBILE ? '' : `<small>${esc(next.l.keyword)}</small>`}</button>`
+            ? `<button class="next" data-next title="안 읽은 새 글이 남은 키워드 → 오늘 아직 안 본 키워드 중 가장 오래 안 본 것 (단축키 ])">다음 ▶${MOBILE ? '' : `<small>${esc(next.l.keyword)}</small>`}</button>`
             : `<span class="next alldone">오늘 모두 확인 ✓</span>`;
         return `<span class="prog" title="오늘 연 키워드">오늘 ${done}/${all.length}${MOBILE ? '' : `<span class="pbar"><i style="width:${all.length ? Math.round(done / all.length * 100) : 0}%"></i></span>`}</span>${nextBtn}`;
     }
-    const countHtml = g => `<span class="cnt">${g.links.length}${staleCount(g) ? ` · 오래 안 봄 <b>${staleCount(g)}</b>` : ''}</span>`;
+    const countHtml = g => `<span class="cnt">${g.links.length}${groupUnread(g) ? ` · <span class="newg">새 ${groupUnread(g)}</span>` : ''}${staleCount(g) ? ` · 오래 안 봄 <b>${staleCount(g)}</b>` : ''}</span>`;
 
     function render(message) {
         const folded = GM_getValue(KEY_FOLDED, false);
@@ -201,13 +219,13 @@
             if (MOBILE) {
                 // 윗줄: 묶음 이름 (누르면 아랫줄이 그 묶음으로, 같은 것을 다시 누르면 아랫줄 접힘), 아랫줄: 고른 묶음의 키워드
                 const picked = groups.find(g => g.id === mobileGroupId());
-                const names = groups.map(g => `<button class="gp${picked === g ? ' on' : ''}" data-mgroup="${g.id}">${esc(g.name)}<span class="cnt">${g.links.length}</span></button>`).join('');
+                const names = groups.map(g => `<button class="gp${picked === g ? ' on' : ''}" data-mgroup="${g.id}">${esc(g.name)}${groupUnread(g) ? `<span class="newg">새 ${groupUnread(g)}</span>` : `<span class="cnt">${g.links.length}</span>`}</button>`).join('');
                 html = `<div class="bar bottom"><div class="head"><span class="title">FM키워드</span>${side}</div>
                     <div class="groups">${names}</div>${picked ? `<div class="chips">${picked.links.map(l => chipHtml(picked, l)).join('')}</div>` : ''}</div>`;
             } else if (compact) {
                 // 얇은 줄: 묶음 이름만 (누르면 그 묶음을 펼친 원래 줄로)
                 const cur = currentGroup();
-                const names = groups.map(g => `<button class="gh${cur === g ? ' cur' : ''}" data-cgroup="${g.id}">▸ ${esc(g.name)}</button>`).join('');
+                const names = groups.map(g => `<button class="gh${cur === g ? ' cur' : ''}" data-cgroup="${g.id}">▸ ${esc(g.name)}${groupUnread(g) ? '<span class="dot" title="안 읽은 새 글"></span>' : ''}</button>`).join('');
                 html = `<div class="bar top compact"><span class="title">FM키워드</span><div class="names">${names}</div>${side}</div>`;
             } else {
                 // 묶음 상자: 접히면 이름·개수, 펼치면 그 자리에 키워드 칩 (여러 개 함께 펼침)
@@ -376,7 +394,6 @@
     }
     function markNewPosts() {
         clearMarks();
-        newCount = 0;
         const cur = allLinks().find(x => isCurrent(x.l));
         const rows = cur ? resultRows() : [];
         if (!rows.length) { render(); return; }
@@ -395,6 +412,14 @@
         const read = new Set(link.read_ids || []);
         const since = rows.filter(x => x.no > link.seen_max);
         const unread = since.filter(x => !read.has(x.no));
+        // 이 화면에서 확인한 새 글 번호를 기억 (키워드 줄에 '새 N'을 계속 보이게, 서버에도 두어 기기끼리 같게)
+        const found = new Set(link.found_ids || []);
+        const added = since.map(x => x.no).filter(no => !found.has(no));
+        if (added.length) {
+            link.found_ids = [...found, ...added].sort((a, b) => a - b);
+            saveCache();
+            request('POST', '/api/fm-link', { action: 'found', board: link.board, keyword: link.keyword, max: link.seen_max, ids: added.slice(0, 100) }).catch(() => {});
+        }
         if (since.length) {
             addStyle();
             unread.forEach(x => {
@@ -421,13 +446,13 @@
             list.parentNode.insertBefore(note, list);
             note.querySelector('[data-kmfm-readall]').addEventListener('click', () => readAll(link, Math.max(...rows.map(x => x.no))));
         }
-        newCount = unread.length;
         render();
     }
     // '모두 읽음': 기준을 이 화면의 가장 큰 글 번호로
     function readAll(link, top) {
         link.seen_max = Math.max(link.seen_max || 0, top);
         link.read_ids = (link.read_ids || []).filter(no => no > link.seen_max);
+        link.found_ids = (link.found_ids || []).filter(no => no > link.seen_max);
         saveCache();
         request('POST', '/api/fm-link', { action: 'read_all', board: link.board, keyword: link.keyword, max: top }).catch(() => {});
         markNewPosts();
@@ -440,7 +465,7 @@
             l.read_ids = [...(l.read_ids || []), no];
             changed = true;
         });
-        if (changed) saveCache();
+        if (changed) { saveCache(); render(); }
         request('POST', '/api/fm-link', { action: 'read', post: no }).catch(() => {});
     }
     // 검색 결과에서 글을 누르면(가운데 버튼·새 탭 포함) 읽음

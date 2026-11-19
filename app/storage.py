@@ -171,6 +171,7 @@ def _create_schema(conn):
             keyword     TEXT NOT NULL,
             seen_max    INTEGER NOT NULL,
             read_ids    TEXT NOT NULL DEFAULT '[]',
+            found_ids   TEXT NOT NULL DEFAULT '[]',   -- 검색 결과에서 확인한 새 글 번호 (키워드 줄의 '새 N' = 찾은 새 글 - 읽은 글)
             updated_at  TEXT NOT NULL,
             PRIMARY KEY (board, keyword)
         );
@@ -410,6 +411,9 @@ def _migrate_legacy_files(conn):
 
 def _add_missing_columns(conn):
     """이미 만들어진 DB에 나중에 추가된 컬럼을 보충"""
+    if 'found_ids' not in {row['name'] for row in conn.execute("PRAGMA table_info(fm_seen)")}:
+        conn.execute("ALTER TABLE fm_seen ADD COLUMN found_ids TEXT NOT NULL DEFAULT '[]'")
+        log_msg("[DB] fm_seen.found_ids 컬럼 추가")
     if 'last_opened' not in {row['name'] for row in conn.execute("PRAGMA table_info(fm_links)")}:
         conn.execute("ALTER TABLE fm_links ADD COLUMN last_opened TEXT")
         log_msg("[DB] fm_links.last_opened 컬럼 추가")
@@ -925,9 +929,19 @@ MAX_FM_LINKS_PER_GROUP = 30
 MAX_FM_READ_IDS = 500
 
 def _fm_seen_state(conn):
-    """{(board, keyword): (seen_max, [읽은 글 번호])}"""
-    return {(r['board'], r['keyword']): (r['seen_max'], json.loads(r['read_ids'] or '[]'))
-            for r in conn.execute("SELECT board, keyword, seen_max, read_ids FROM fm_seen")}
+    """{(board, keyword): (seen_max, [읽은 글 번호], [찾은 새 글 번호])}"""
+    return {(r['board'], r['keyword']): (r['seen_max'], json.loads(r['read_ids'] or '[]'), json.loads(r['found_ids'] or '[]'))
+            for r in conn.execute("SELECT board, keyword, seen_max, read_ids, found_ids FROM fm_seen")}
+
+def fm_seen_found(board, keyword, ids):
+    """검색 결과에서 확인한 새 글 번호를 더함 (기준보다 큰 것만). 찾은 새 글 번호 목록 반환, 기준이 없으면 None"""
+    with _db() as conn, conn:
+        row = conn.execute("SELECT seen_max, found_ids FROM fm_seen WHERE board = ? AND keyword = ?", (board, keyword)).fetchone()
+        if not row:
+            return None
+        found = sorted(set(json.loads(row['found_ids'] or '[]')) | {int(i) for i in ids if int(i) > row['seen_max']})[-MAX_FM_READ_IDS:]
+        conn.execute("UPDATE fm_seen SET found_ids = ?, updated_at = ? WHERE board = ? AND keyword = ?", (json.dumps(found), _now(), board, keyword))
+        return found
 
 def fm_seen_init(board, keyword, seen_max):
     """처음 여는 키워드의 새 글 기준을 정함 (이미 있으면 그대로). (seen_max, 읽은 글 번호들) 반환"""
@@ -955,12 +969,14 @@ def fm_seen_read(post_no):
 def fm_seen_read_all(board, keyword, seen_max):
     """'모두 읽음': 기준을 그 화면의 가장 큰 글 번호로 (뒤로는 가지 않음), 기준 이하의 읽은 글 기록은 정리. 새 seen_max 반환"""
     with _db() as conn, conn:
-        row = conn.execute("SELECT seen_max, read_ids FROM fm_seen WHERE board = ? AND keyword = ?", (board, keyword)).fetchone()
+        row = conn.execute("SELECT seen_max, read_ids, found_ids FROM fm_seen WHERE board = ? AND keyword = ?", (board, keyword)).fetchone()
         new_max = max(int(seen_max), row['seen_max'] if row else 0)
         ids = [i for i in json.loads(row['read_ids']) if i > new_max] if row else []
-        conn.execute("INSERT INTO fm_seen(board, keyword, seen_max, read_ids, updated_at) VALUES(?, ?, ?, ?, ?) "
-                     "ON CONFLICT(board, keyword) DO UPDATE SET seen_max = excluded.seen_max, read_ids = excluded.read_ids, updated_at = excluded.updated_at",
-                     (board, keyword, new_max, json.dumps(ids), _now()))
+        found = [i for i in json.loads(row['found_ids'] or '[]') if i > new_max] if row else []
+        conn.execute("INSERT INTO fm_seen(board, keyword, seen_max, read_ids, found_ids, updated_at) VALUES(?, ?, ?, ?, ?, ?) "
+                     "ON CONFLICT(board, keyword) DO UPDATE SET seen_max = excluded.seen_max, read_ids = excluded.read_ids, "
+                     "found_ids = excluded.found_ids, updated_at = excluded.updated_at",
+                     (board, keyword, new_max, json.dumps(ids), json.dumps(found), _now()))
         return new_max
 
 def fm_links_by_group():
@@ -973,9 +989,9 @@ def fm_links_by_group():
         for g in conn.execute("SELECT id, name FROM keyword_groups ORDER BY position, id").fetchall():
             links = []
             for l in _group_fm_links(conn, g['id']):
-                seen_max, read_ids = seen.get((l['board'], l['keyword']), (None, []))
+                seen_max, read_ids, found_ids = seen.get((l['board'], l['keyword']), (None, [], []))
                 links.append({**l, 'board_name': names.get(l['board'], l['board']) if l['board'] else '전체',
-                              'seen_max': seen_max, 'read_ids': read_ids})
+                              'seen_max': seen_max, 'read_ids': read_ids, 'found_ids': found_ids})
             if links:
                 out.append({'id': g['id'], 'name': g['name'], 'links': links})
         return out

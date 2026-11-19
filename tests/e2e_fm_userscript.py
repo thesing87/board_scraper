@@ -204,6 +204,35 @@ try:
     assert d.execute_script("return document.querySelector('tr.kmfm-new + tr.kmfm-line') !== null")
     assert '안 읽은 새 글 2개' in d.execute_script("return document.querySelector('.kmfm-note').textContent")
     assert d.execute_script("return arguments[0].textContent", bar(d, 'a.chip.on .newb')) == '새 2'
+    # 다른 키워드를 보는 중에도 키워드 줄에 '새 2'가 계속 보이고, '다음 ▶'은 새 글이 남은 키워드부터
+    page(d, 'mid=car&search_keyword=x')
+    def ensure_open():
+        if not bar(d, f'.box.open [data-toggle="{tesla}"]'):
+            d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{tesla}"]')); time.sleep(0.2)
+    ensure_open()
+    tesla_chip = lambda: d.execute_script("const a = [...document.getElementById('keyword-monitor-fm-bar').shadowRoot.querySelectorAll('a.chip')]"
+                                          ".find(a => a.dataset.keyword === '테슬라'); const b = a && a.querySelector('.newb'); return b ? b.textContent : null")
+    assert tesla_chip() == '새 2', tesla_chip()
+    assert d.execute_script("return arguments[0].textContent", bar(d, '[data-next]')).endswith('테슬라')
+    # 묶음을 접어도 묶음 이름 옆에 합계
+    d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{tesla}"]')); time.sleep(0.2)
+    assert '새 2' in d.execute_script("return arguments[0].textContent", bar(d, f'[data-toggle="{tesla}"]'))
+    d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{tesla}"]')); time.sleep(0.2)
+    d.execute_script("localStorage.clear()")                                                       # 다른 기기에서도 같은 숫자 (서버)
+    page(d, 'mid=car&search_keyword=x')
+    ensure_open()
+    assert tesla_chip() == '새 2', tesla_chip()
+    # 휴대폰: 뱃지는 칩 안쪽 (옆으로 밀리는 칩 줄에서 잘리지 않게)
+    d.set_window_size(390, 844); time.sleep(0.3)
+    page(d, 'mid=car&search_keyword=x')
+    d.execute_script("arguments[0].click()", bar(d, f'[data-mgroup="{tesla}"]')) if not bar(d, f'.gp.on[data-mgroup="{tesla}"]') else None
+    time.sleep(0.2)
+    pos = d.execute_script("const b = document.getElementById('keyword-monitor-fm-bar').shadowRoot.querySelector('a.chip .newb'); const c = b.closest('a').getBoundingClientRect(), r = b.getBoundingClientRect();"
+                           " return [getComputedStyle(b).position, r.top >= c.top, r.right <= c.right, b.textContent]")
+    assert pos == ['static', True, True, '2'], pos
+    assert '새 2' in d.execute_script("return arguments[0].textContent", bar(d, f'[data-mgroup="{tesla}"]'))
+    d.set_window_size(1280, 900)
+    visit(TESLA, [108, 107, 105, 104])
     # 글을 누르면 그 글만 읽음 (누르기 전까지는 계속 새 글). 이동할 주소는 로컬로 바꿔 둠
     d.execute_script("const a = [...document.querySelectorAll('tr.kmfm-new a')][1]; a.href = '/api/fm-links?post=1'; a.setAttribute('href', '/' + (9000000107)); a.click()")
     for _ in range(20):
@@ -213,6 +242,7 @@ try:
     assert seen()[1] == [N + 107], seen()
     visit(TESLA, [108, 107, 105])
     assert new_rows() == ['NEW글 108'], new_rows()
+    assert d.execute_script("return arguments[0].textContent", bar(d, 'a.chip.on .newb')) == '새 1'   # 읽은 만큼 줄어듦
     visit(TESLA, [108, 107, 105])                                                               # 다시 열어도 그대로 (안 누른 글)
     assert new_rows() == ['NEW글 108'], new_rows()
     # 다른 기기(기억이 없는 브라우저)에서도 같음
