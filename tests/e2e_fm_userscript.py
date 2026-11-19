@@ -118,6 +118,22 @@ try:
     d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{ai}"]')) if not bar(d, f'.box.open [data-toggle="{ai}"]') else None
     time.sleep(0.2)
     assert any('방금 전' in c[0] for c in chips(d)), chips(d)
+    # PC도 스크롤하면 얇은 한 줄(묶음 이름만)로, 위로 올리면 원래대로. 얇은 줄의 이름을 누르면 그 묶음을 펼친 원래 줄
+    page(d, 'mid=car&search_keyword=x', tall=True)
+    full_pad = d.execute_script("return document.documentElement.style.paddingTop")
+    d.execute_script("window.scrollTo(0, 600)"); time.sleep(0.4)
+    assert bar(d, '.compact') and not bar(d, '.box') and d.execute_script("return document.documentElement.style.paddingTop") == full_pad
+    assert d.execute_script("return arguments[0].getBoundingClientRect().height", bar(d, '.bar')) < 40
+    d.execute_script("window.scrollTo(0, 595)"); time.sleep(0.3)      # 10px 안의 움직임은 그대로
+    assert bar(d, '.compact')
+    d.execute_script("window.scrollTo(0, 400)"); time.sleep(0.4)
+    assert not bar(d, '.compact') and bar(d, '.box')
+    d.execute_script("window.scrollTo(0, 1200)"); time.sleep(0.4)
+    assert bar(d, '.compact')
+    d.execute_script("arguments[0].click()", bar(d, f'[data-cgroup="{tesla}"]')); time.sleep(0.3)
+    assert not bar(d, '.compact') and bar(d, f'.box.open [data-toggle="{tesla}"]')
+    d.execute_script("window.scrollTo(0, 0)"); time.sleep(0.4)
+    assert not bar(d, '.compact')
     print('PC OK')
 
     # 휴대폰: 아래에 고정, 연 시각은 줄여서 안 보임, 아래로 스크롤하면 숨고 위로 올리면 보임

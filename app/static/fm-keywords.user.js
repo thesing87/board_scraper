@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.0.3
+// @version      1.0.4
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -125,12 +125,20 @@
         .mini { display: flex; justify-content: center; padding: 4px 0 calc(4px + env(safe-area-inset-bottom, 0px)); cursor: pointer; color: #993C1D; font-size: 12px; font-weight: 700; }
         .top.mini { justify-content: flex-start; padding: 3px 12px; }
         .msg { font-size: 12px; color: #993C1D; }
+        .top.compact { padding: 3px 12px; align-items: center; }
+        .names { display: flex; gap: 4px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+        .names::-webkit-scrollbar { display: none; }
+        .compact .gh { padding: 2px 6px; border-radius: 6px; }
+        .compact .gh:hover, .compact .gh.cur { background: #fff; }
     `;
 
     const currentGroup = () => groups.find(g => g.links.some(isCurrent));
     const staleCount = g => g.links.filter(l => isStale(l.last_opened)).length;
     // PC: 펼친 묶음 = 기억한 묶음 + 지금 보는 검색이 들어 있는 묶음 (이 화면에서 직접 접고 폈으면 기억한 그대로만)
     let openTouched = false;
+    // PC: 아래로 스크롤하면 얇은 한 줄(묶음 이름만)로, 위로 올리거나 맨 위로 가면 원래대로 (줄 상태는 기억하지 않음)
+    let compact = false;
+    let lastY = window.scrollY;
     function openIds() {
         const saved = new Set(GM_getValue(KEY_OPEN, []));
         if (currentGroup() && !openTouched) saved.add(currentGroup().id);
@@ -166,6 +174,11 @@
                 const names = groups.map(g => `<button class="gp${picked === g ? ' on' : ''}" data-mgroup="${g.id}">${esc(g.name)}<span class="cnt">${g.links.length}</span></button>`).join('');
                 html = `<div class="bar bottom"><div class="head"><span class="title">FM키워드</span>${side}</div>
                     <div class="groups">${names}</div>${picked ? `<div class="chips">${picked.links.map(l => chipHtml(picked, l)).join('')}</div>` : ''}</div>`;
+            } else if (compact) {
+                // 얇은 줄: 묶음 이름만 (누르면 그 묶음을 펼친 원래 줄로)
+                const cur = currentGroup();
+                const names = groups.map(g => `<button class="gh${cur === g ? ' cur' : ''}" data-cgroup="${g.id}">▸ ${esc(g.name)}</button>`).join('');
+                html = `<div class="bar top compact"><span class="title">FM키워드</span><div class="names">${names}</div>${side}</div>`;
             } else {
                 // 묶음 상자: 접히면 이름·개수, 펼치면 그 자리에 키워드 칩 (여러 개 함께 펼침)
                 const open = openIds();
@@ -177,7 +190,9 @@
         }
         root.innerHTML = `<style>${CSS}</style>${html}`;
         if (!host.isConnected) return;
-        // 에펨코리아 화면의 맨 위·맨 아래가 줄에 가리지 않게 그만큼 여백
+        // 에펨코리아 화면의 맨 위·맨 아래가 줄에 가리지 않게 그만큼 여백.
+        // 얇은 줄일 때는 여백을 그대로 둠: 스크롤 중에 여백이 바뀌면 보고 있던 글이 위아래로 덜컹거림 (맨 위는 원래 줄이 덮음)
+        if (compact && !MOBILE && !message) return;
         const bar = root.querySelector('.bar');
         const height = bar.getBoundingClientRect().height;
         document.documentElement.style.setProperty(MOBILE ? 'padding-bottom' : 'padding-top', height + 'px', 'important');
@@ -215,6 +230,17 @@
             render();
             return;
         }
+        const cgroup = e.target.closest('[data-cgroup]');
+        if (cgroup) {
+            const open = openIds();
+            open.add(Number(cgroup.dataset.cgroup));
+            openTouched = true;
+            GM_setValue(KEY_OPEN, [...open]);
+            compact = false;
+            lastY = window.scrollY;
+            render();
+            return;
+        }
         const mgroup = e.target.closest('[data-mgroup]');
         if (mgroup) {
             const id = Number(mgroup.dataset.mgroup);
@@ -231,8 +257,20 @@
     });
 
     // 휴대폰: 아래로 스크롤하면 줄이 내려가 숨고, 위로 올리거나 맨 위·맨 아래에 닿으면 다시 보임 (10px 안의 떨림은 무시)
+    if (!MOBILE) {
+        window.addEventListener('scroll', () => {
+            if (!groups.length || GM_getValue(KEY_FOLDED, false)) return;
+            const y = window.scrollY;
+            let next = compact;
+            if (y <= 0) next = false;
+            else if (y - lastY > 10) next = true;
+            else if (lastY - y > 10) next = false;
+            else return;
+            lastY = y;
+            if (next !== compact) { compact = next; render(); }
+        }, { passive: true });
+    }
     if (MOBILE) {
-        let lastY = window.scrollY;
         window.addEventListener('scroll', () => {
             const bar = root.querySelector('.bar');
             if (!bar) return;
