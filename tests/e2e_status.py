@@ -34,7 +34,7 @@ try:
     print('\n'.join(rows))
     text = ' | '.join(rows)
     assert '정상 수집 중' in text and '64초' in text and '새 글 2, 갱신 3, 오류 1' in text and '주기 12회' in text
-    assert 'board-20261027.db' in text and '4건 정리' in text and '재시작 1회' in text
+    assert 'board-20261027.db' in text and '4건 정리' in text and '수집 연결' in text and '갱신 1회' in text
     # 오류 메시지의 태그는 글자로 표시 (HTML로 해석하지 않음)
     assert '<b>x</b>' in text and not js("return !!document.querySelector('#settings-status b')")
     # 차단 의심 상태 + 새로고침 버튼

@@ -1,51 +1,71 @@
-"""디시인사이드 갤러리 수집기 (예전 에펨코리아 수집기와 같은 형태의 값을 돌려줌. 공통 도구는 scraper.py).
+"""디시인사이드 갤러리 수집기 (공통 도구는 scraper.py). 크롬 없이 HTTP 요청(requests)으로 읽음.
 
 - 카테고리 키는 'dc:갤러리id', 글 ID는 'dc-갤러리id-글번호' (sites.py)
-- 디시 이미지는 디시 페이지가 아닌 곳에서는 열리지 않으므로, 크롬이 받은 본문 이미지 파일을 저장해 보여줌 (images.py).
-  꺼내지 못한 이미지는 원문으로 가는 안내 링크로 바꿔 저장
+- 목록·글 화면은 HTML 그대로 받아 읽음. 댓글은 디시 글 화면이 쓰는 댓글 API(/board/comment/, JSON)로 받음
+- 디시 이미지는 디시 페이지에서 연 것처럼(Referer) 받아야 열리므로, 글 화면에서 받은 뒤 저장해 보여줌 (images.py).
+  받지 못한 이미지는 원문으로 가는 안내 링크로 바꿔 저장
+
+예전에는 크롬(셀레늄)으로 열었는데, NAS(메모리 1.8GB)에서 크롬이 CPU·메모리를 가장 많이 써 스왑으로 NAS 전체가 느려지고
+'Timed out receiving message from renderer'로 목록을 못 읽는 일이 잦았음. 디시 목록·글은 자바스크립트 없이도 HTML에 다 있음
 """
 import re
 import time
-import base64
 import random
 from urllib.parse import quote
+import requests
 from bs4 import BeautifulSoup
-from selenium.common.exceptions import UnexpectedAlertPresentException
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from config import log_msg, short_err, COMMENT_PAGE_LIMIT
 from images import save_post_image, clear_post_images, MAX_IMAGES_PER_POST
-from scraper import BlockedError, log_unexpected_page, parse_count, content_lines, comment_lines
+from scraper import BlockedError, parse_count, content_lines, comment_lines
 from sites import dc_gallery, dc_post_id
 
 BASE_URL = 'https://gall.dcinside.com'
+COMMENT_URL = BASE_URL + '/board/comment/'
 # 삭제됐거나 없는 글은 /derror/deleted/... 안내 페이지로 넘어감
 DELETED_URL_MARK = '/derror/deleted/'
 DELETED_PAGE_PHRASES = ('삭제했거나 존재하지 않는', '삭제된 게시물', '존재하지 않는 게시물')
-# 이미지·동영상 대신 넣는 원문 링크 모양 (에펨코리아 본문 링크와 같게)
+# 이미지·동영상 대신 넣는 원문 링크 모양
 LINK_STYLE = "color: #1877f2; text-decoration: underline; font-weight: bold;"
-# 저장한 본문 이미지 모양 (에펨코리아 본문 이미지와 같게)
+# 저장한 본문 이미지 모양
 IMAGE_STYLE = "width: 100%; height: auto; border-radius: 6px; margin-top: 8px; display: block;"
-# 본문 이미지가 다 받아질 때까지 기다리는 최대 시간 (이미지가 많으면 장당 조금씩 더, 최대 IMAGE_WAIT_MAX초)
-IMAGE_WAIT_SECONDS = 6
-IMAGE_WAIT_PER_IMAGE = 0.4
-IMAGE_WAIT_MAX = 20
-# 디시는 3번째 이미지부터 화면을 내려야 불러옴(지연 로딩): 처음에는 '불러오는 중' 그림을 보여 주고 진짜 주소는 data-original에 둠.
-# 수집용 크롬은 화면을 내리지 않으므로 진짜 주소로 바꿔 바로 불러오게 함. 그래도 이 그림이면 저장하지 않음 (원문 링크로)
+# 디시는 3번째 이미지부터 '불러오는 중' 그림을 src에 두고 진짜 주소는 data-original에 둠 (화면을 내릴 때 바꿔 끼움)
 LAZY_PLACEHOLDER = 'gallview_loading'
-LOAD_LAZY_IMAGES_JS = """
-    let n = 0;
-    document.querySelectorAll('.write_div img[data-original]').forEach(img => {
-        const real = img.getAttribute('data-original');
-        if (real && (img.classList.contains('lazy') || (img.getAttribute('src') || '').includes('%s'))) {
-            img.classList.remove('lazy');
-            img.src = real;
-            n++;
-        }
-    });
-    return n;
-""" % LAZY_PLACEHOLDER
+# 보통 크롬과 같은 브라우저 정보 (없으면 디시가 다른 화면을 줄 수 있음)
+USER_AGENT = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+              'Chrome/131.0.0.0 Safari/537.36')
+# (연결, 응답) 대기 시간(초)
+TIMEOUT = (10, 30)
+IMAGE_TIMEOUT = (10, 20)
+# 페이지를 연 뒤 다음 요청까지 쉬는 시간 (사람이 보는 속도와 비슷하게)
+PAUSE_RANGE = (0.5, 1.2)
+
+
+class DcClient:
+    """디시에 요청을 보내는 연결 하나 (쿠키를 이어 씀). 크롬 드라이버 자리에 넘겨 씀"""
+
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': USER_AGENT,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        })
+
+    def get(self, url, **kwargs):
+        kwargs.setdefault('timeout', TIMEOUT)
+        return self.session.get(url, **kwargs)
+
+    def post(self, url, **kwargs):
+        kwargs.setdefault('timeout', TIMEOUT)
+        return self.session.post(url, **kwargs)
+
+    def close(self):
+        self.session.close()
+
+
+def create_client():
+    return DcClient()
+
 
 def list_url(gallery, keyword=None, page=1):
     url = f"{BASE_URL}/board/lists/?id={quote(gallery)}"
@@ -53,13 +73,35 @@ def list_url(gallery, keyword=None, page=1):
         url += f"&s_type=search_subject_memo&s_keyword={quote(keyword)}"
     return url + (f"&page={page}" if page > 1 else '')
 
+
 def view_url(gallery, no):
     return f"{BASE_URL}/board/view/?id={quote(gallery)}&no={no}"
 
-def _open(driver, url, ready_css):
-    driver.get(url)
-    WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, ready_css)))
-    time.sleep(random.uniform(0.5, 1.2))
+
+def _pause():
+    time.sleep(random.uniform(*PAUSE_RANGE))
+
+
+def _open(client, url):
+    """페이지 HTML을 받음. 응답 코드가 오류면 예외 (호출한 쪽이 키워드 정보와 함께 기록)"""
+    res = client.get(url)
+    _pause()
+    if res.status_code >= 500:
+        raise Exception(f"디시 서버 오류 {res.status_code}")
+    res.encoding = res.encoding if res.encoding and res.encoding.lower() != 'iso-8859-1' else 'utf-8'
+    return res
+
+
+def _page_title(soup):
+    return ' '.join((soup.title.get_text() if soup.title else '').split())
+
+
+def _log_unexpected(res, soup, target):
+    """목록이 아닌 페이지가 왔을 때 무엇이 왔는지 기록 (차단 화면인지, 일시적인 오류 화면인지 나중에 가려 보려고)"""
+    text = ' '.join((soup.body.get_text(' ') if soup.body else '').split())[:200]
+    log_msg(f"[차단 의심] {target} 목록이 아닌 페이지: 응답 코드 {res.status_code}, 주소 {res.url}, "
+            f"내용 \"{text or '(빈 화면)'}\"", "DEBUG")
+
 
 def _writer(tag):
     """작성자 표시: 닉네임 + 유동 IP 앞자리(있으면). 예: 'ㅇㅇ(58.29)', '차갤러'"""
@@ -68,6 +110,7 @@ def _writer(tag):
     nick = (tag.get('data-nick') or '').strip() or '익명'
     ip = (tag.get('data-ip') or '').strip()
     return f"{nick}({ip})" if ip else nick
+
 
 def _parse_list_rows(soup, gallery):
     """목록 표(table.gall_list)의 글 행을 글 정보로. 공지·설문·광고 행은 글 번호 칸이 숫자가 아니라서 뺌"""
@@ -97,18 +140,19 @@ def _parse_list_rows(soup, gallery):
         })
     return post_list
 
-def get_list_page_posts(driver, board, keyword, page=1):
+
+def get_list_page_posts(client, board, keyword, page=1):
     gallery = dc_gallery(board)
     # 페이지 로드 실패는 호출한 쪽(메인 루프)에서 키워드 정보와 함께 한 번만 기록
-    _open(driver, list_url(gallery, keyword, page), 'table.gall_list, body')
-    soup = BeautifulSoup(driver.page_source, 'html.parser')
+    res = _open(client, list_url(gallery, keyword, page))
+    soup = BeautifulSoup(res.text, 'html.parser')
     if not soup.select_one('table.gall_list'):
-        page_title = (driver.title or '').strip()[:60] or '제목 없음'
-        log_unexpected_page(driver, f"{board}/{keyword}")
-        raise BlockedError(f"갤러리 목록이 아닌 페이지 응답 (제목: {page_title})")
+        _log_unexpected(res, soup, f"{board}/{keyword}")
+        raise BlockedError(f"갤러리 목록이 아닌 페이지 응답 (응답 {res.status_code}, 제목: {_page_title(soup)[:60] or '제목 없음'})")
     post_list = _parse_list_rows(soup, gallery)
     log_msg(f"[수집] 목록 {board}/{keyword}: {len(post_list)}건", "DEBUG")
     return post_list
+
 
 def gallery_title(page_title):
     """'자동차 갤러리 - 커뮤니티 포털 디시인사이드' 형태의 창 제목에서 갤러리 이름"""
@@ -117,182 +161,178 @@ def gallery_title(page_title):
         parts.pop()
     return parts[-1][:30] if parts else ''
 
-def check_board(driver, board):
+
+def check_board(client, board):
     """새로 추가한 디시 갤러리 확인: 첫 목록이 수집기가 읽는 표(table.gall_list) 형태로 글을 보여주는지.
     (True, 갤러리 이름) 또는 (False, 사유). 페이지를 못 열면 예외 그대로 (호출한 쪽에서 다음 주기에 재시도)"""
     gallery = dc_gallery(board)
-    _open(driver, list_url(gallery), 'table.gall_list, body')
-    page_title = (driver.title or '').strip()
-    soup = BeautifulSoup(driver.page_source, 'html.parser')
+    res = _open(client, list_url(gallery))
+    soup = BeautifulSoup(res.text, 'html.parser')
+    page_title = _page_title(soup)
     if not soup.select_one('table.gall_list'):
         return False, f"갤러리 목록(표)이 없는 페이지 (제목: {page_title[:60] or '제목 없음'})"
     if not _parse_list_rows(soup, gallery):
         return False, "목록 표에서 글을 읽지 못함"
     return True, gallery_title(page_title)
 
-def _is_deleted_page(driver):
-    return DELETED_URL_MARK in (driver.current_url or '') or any(p in driver.page_source for p in DELETED_PAGE_PHRASES)
 
-def _comment(li, is_reply):
-    """댓글 한 개 (광고·삭제 안내 등 내용이 없는 행은 None)"""
-    box = li.select_one('.cmt_info') or li
-    text_area = box.select_one('.usertxt')
-    dccon = box.select_one('.written_dccon')
-    if text_area:
-        lines = comment_lines(text_area)
-    elif dccon:
+def _is_deleted_page(res):
+    return DELETED_URL_MARK in (res.url or '') or any(p in res.text for p in DELETED_PAGE_PHRASES)
+
+
+# ==========================================
+# 댓글 (글 화면이 부르는 댓글 API: 페이지마다 JSON)
+# ==========================================
+def _comment(item):
+    """댓글 API의 댓글 한 개 → 저장 형태. 광고(댓글돌이)·삭제된 댓글·내용 없는 것은 None"""
+    if str(item.get('no') or '0') == '0' or item.get('nicktype') == 'COMMENT_BOY' or item.get('del_yn') == 'Y':
+        return None
+    memo = item.get('memo') or ''
+    if 'written_dccon' in memo:
         # 디시콘(이모티콘) 이미지는 다른 사이트에서 열리지 않으므로 표시만
         lines = ['(디시콘)']
     else:
-        return None
-    date_tag = box.select_one('.date_time')
+        box = BeautifulSoup(f'<p class="usertxt">{memo}</p>', 'html.parser').p
+        lines = comment_lines(box)
+        if not lines:
+            return None
+    name = (item.get('name') or '').strip() or '익명'
+    ip = (item.get('ip') or '').strip()
+    is_reply = str(item.get('depth') or '0') != '0'
     return {
-        'author': _writer(box.select_one('.gall_writer')),
-        'date': date_tag.get_text(strip=True) if date_tag else '',
+        'author': f"{name}({ip})" if ip else name,
+        'date': (item.get('reg_date') or '').strip(),
         'votes': '0',
         'content': lines,
         'is_reply': is_reply,
         'depth': 1 if is_reply else 0
     }
 
-def _parse_comments(soup, seen):
-    """(이미지 댓글, 댓글) 목록. 댓글(li.ub-content) 바로 뒤의 형제 li 안 .reply_list에 그 댓글의 답글이 들어 있음.
-    이미지 댓글 상자(.img_comment_box)는 댓글 페이지마다 똑같이 반복되므로 seen(이미 읽은 li id)으로 한 번만 넣음"""
-    pinned, comments = [], []
 
-    def add(li, is_reply):
-        li_id = li.get('id')
-        if li_id and li_id in seen:
-            return
-        item = _comment(li, is_reply)
-        if item:
-            if li_id:
-                seen.add(li_id)
-            (pinned if li.find_parent(class_='img_comment_box') else comments).append(item)
-
-    for li in soup.select('.cmt_list > li'):
-        classes = li.get('class') or []
-        if 'ub-content' in classes:
-            if 'dory' in classes:
-                continue
-            add(li, False)
-        for reply in li.select('.reply_list > li.ub-content'):
-            add(reply, True)
-    return pinned, comments
-
-def _comment_pages(soup):
-    """댓글 페이지 번호 줄에 보이는 가장 큰 페이지 번호 (페이지가 하나면 1)"""
-    paging = soup.select_one('.cmt_paging')
-    if not paging:
-        return 1
-    numbers = [int(n) for n in re.findall(r'viewComments\((\d+)', str(paging))]
-    current = paging.select_one('em')
+def _comment_pages(pagination):
+    """댓글 페이지 번호 줄(HTML)에 보이는 가장 큰 페이지 번호 (페이지가 하나면 1)"""
+    numbers = [int(n) for n in re.findall(r'viewComments\((\d+)', pagination or '')]
+    current = re.search(r'<em>(\d+)</em>', pagination or '')
     if current:
-        numbers.append(parse_count(current.get_text()))
+        numbers.append(int(current.group(1)))
     return max(numbers or [1])
 
-def _read_older_comment_pages(driver, soup, post_id, seen):
-    """댓글이 여러 페이지면 글을 열 때 1페이지(최신 댓글)만 보이므로, 2페이지부터 오래된 쪽 페이지를 열어
-    오래된 댓글부터 순서대로 반환. COMMENT_PAGE_LIMIT를 넘는 오래된 페이지는 읽지 않음.
-    여기서 처음 읽은 댓글은 other_page 표시 (storage._upsert_post 참고)"""
-    last = min(_comment_pages(soup), COMMENT_PAGE_LIMIT)
+
+def _fetch_comment_page(client, gallery, no, esno, page, referer):
+    res = client.post(COMMENT_URL, data={
+        'id': gallery, 'no': no, 'cmt_id': gallery, 'cmt_no': no, 'focus_cno': '', 'focus_pno': '',
+        'e_s_n_o': esno, 'comment_page': page, 'sort': 'D', 'prevCnt': '', 'board_type': '', '_GALLTYPE_': 'G',
+    }, headers={'X-Requested-With': 'XMLHttpRequest', 'Referer': referer, 'Origin': BASE_URL,
+                'Accept': 'application/json, text/javascript, */*; q=0.01'})
+    if res.status_code != 200:
+        raise Exception(f"댓글 {page}페이지 응답 {res.status_code}")
+    try:
+        return res.json()
+    except ValueError:
+        raise Exception(f"댓글 {page}페이지가 JSON이 아님")
+
+
+def _read_comments(client, gallery, no, esno, referer, post_id, all_pages):
+    """댓글 1페이지(가장 최근)와, all_pages면 2페이지부터 오래된 쪽 페이지까지. 오래된 댓글부터 순서대로.
+    COMMENT_PAGE_LIMIT를 넘는 오래된 페이지는 읽지 않음. 2페이지부터 읽은 댓글은 other_page 표시 (storage._upsert_post 참고)"""
+    first = _fetch_comment_page(client, gallery, no, esno, 1, referer)
+    seen = set()
+
+    def parse(data):
+        out = []
+        for item in data.get('comments') or []:
+            key = item.get('no')
+            if key in seen:
+                continue
+            seen.add(key)
+            c = _comment(item)
+            if c:
+                out.append(c)
+        return out
+
+    comments = parse(first)
+    total = parse_count(first.get('total_cnt'))
+    if not all_pages:
+        return comments, total
+    last = min(_comment_pages(first.get('pagination')), COMMENT_PAGE_LIMIT)
     pages = []
     page = 2
     while page <= last:
-        # 페이지 번호 링크와 같은 함수를 불러 댓글 목록만 바꿈 (주소로는 댓글 페이지를 열 수 없음)
-        driver.execute_script("viewComments(arguments[0], 'D', false)", page)
-        try:
-            WebDriverWait(driver, 5).until(
-                lambda d: [e.text.strip() for e in d.find_elements(By.CSS_SELECTOR, '.cmt_paging em')][:1] == [str(page)])
-        except Exception:
-            # 일부 페이지만 저장하면 빠진 댓글이 다음에 새 댓글로 잡히므로 이번 갱신은 실패로 처리 (다음 주기에 재시도)
-            raise Exception(f"댓글 {page}페이지가 열리지 않음")
-        time.sleep(random.uniform(0.5, 1.2))
-        page_soup = BeautifulSoup(driver.page_source, 'html.parser')
-        _, page_comments = _parse_comments(page_soup, seen)
-        pages.append([dict(c, other_page=True) for c in page_comments])
+        _pause()
+        # 일부 페이지만 저장하면 빠진 댓글이 다음에 새 댓글로 잡히므로 실패하면 이번 갱신은 실패로 (다음 주기에 재시도)
+        data = _fetch_comment_page(client, gallery, no, esno, page, referer)
+        pages.append([dict(c, other_page=True) for c in parse(data)])
         # 페이지 번호 줄은 10개씩 보이므로 넘어갈 때마다 끝 페이지를 다시 셈
-        last = min(max(last, _comment_pages(page_soup)), COMMENT_PAGE_LIMIT)
+        last = min(max(last, _comment_pages(data.get('pagination'))), COMMENT_PAGE_LIMIT)
         page += 1
     if pages:
         log_msg(f"[수집] 상세 #{post_id}: 댓글 1~{len(pages) + 1}페이지 읽음", "DEBUG")
-    return [c for page_comments in reversed(pages) for c in page_comments]
+    return [c for page_comments in reversed(pages) for c in page_comments] + comments, total
 
-def _save_body_images(driver, post_id):
-    """본문 이미지를 크롬이 받은 파일 그대로 꺼내(CDP Page.getResourceContent) 저장. {본문 img 순번: 대시보드 주소}.
-    디시 페이지가 정상적으로 받은 파일만 쓰며 따로 요청하지 않음. 실패한 이미지는 빠짐 (원문 링크로 대체됨)"""
+
+# ==========================================
+# 본문 이미지
+# ==========================================
+def _image_url(img):
+    src = img.get('src') or ''
+    real = img.get('data-original') or ''
+    if real and ('lazy' in (img.get('class') or []) or LAZY_PLACEHOLDER in src):
+        src = real
+    if src.startswith('//'):
+        src = 'https:' + src
+    return '' if not src.startswith('http') or LAZY_PLACEHOLDER in src else src
+
+
+def _save_body_images(client, content_area, post_id, referer):
+    """본문 이미지를 디시 글 화면에서 연 것처럼 받아 저장. {본문 img 순번: 대시보드 주소}. 받지 못한 것은 빠짐 (원문 링크로)"""
     saved = {}
-    lazy = 0
-    try:
-        lazy = driver.execute_script(LOAD_LAZY_IMAGES_JS) or 0
-    except Exception as e:
-        log_msg(f"[수집] #{post_id} 지연 로딩 이미지 불러오기 실패: {short_err(e)}", "DEBUG")
-    try:
-        # 열린 직후에는 아직 받는 중일 수 있어 본문 이미지가 다 받아질 때까지 잠시 기다림
-        wait = min(IMAGE_WAIT_MAX, IMAGE_WAIT_SECONDS + IMAGE_WAIT_PER_IMAGE * lazy)
-        WebDriverWait(driver, wait).until(lambda d: d.execute_script(
-            "return [...document.querySelectorAll('.write_div img')].every(i => i.complete)"))
-    except Exception:
-        pass
-    try:
-        urls = driver.execute_script(
-            "return [...document.querySelectorAll('.write_div img')].map(i => i.complete && i.naturalWidth ? (i.currentSrc || i.src) : '')")
-        urls = ['' if LAZY_PLACEHOLDER in (url or '') else url for url in urls]
-        frame_id = driver.execute_cdp_cmd('Page.getFrameTree', {})['frameTree']['frame']['id']
-    except Exception as e:
-        log_msg(f"[수집] #{post_id} 이미지 목록 확인 실패: {short_err(e)}", "DEBUG")
-        return saved
     clear_post_images(post_id)
-    for index, url in enumerate(urls[:MAX_IMAGES_PER_POST]):
+    for index, img in enumerate(content_area.select('img')[:MAX_IMAGES_PER_POST]):
+        url = _image_url(img)
         if not url:
             continue
         try:
-            resource = driver.execute_cdp_cmd('Page.getResourceContent', {'frameId': frame_id, 'url': url})
-            data = base64.b64decode(resource['content']) if resource.get('base64Encoded') else resource['content'].encode('latin-1')
-            path = save_post_image(post_id, index, data)
+            res = client.get(url, headers={'Referer': referer, 'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'},
+                             timeout=IMAGE_TIMEOUT)
+            if res.status_code != 200:
+                raise Exception(f"응답 {res.status_code}")
+            path = save_post_image(post_id, index, res.content)
             if path:
                 saved[index] = path
         except Exception as e:
             log_msg(f"[수집] #{post_id} 이미지 {index + 1} 저장 실패: {short_err(e)}", "DEBUG")
     return saved
 
-def scrape_post_detail(driver, post_info, all_comment_pages=True):
+
+def scrape_post_detail(client, post_info, all_comment_pages=True):
     link = post_info['link']
     post_id = post_info['id']
-    try:
-        # 페이지 로드 실패는 호출한 쪽(메인 루프)에서 키워드 정보와 함께 한 번만 기록
-        _open(driver, link, '.write_div, .derror, body')
-        if _is_deleted_page(driver):
-            return None
-        # 댓글은 페이지가 열린 뒤 따로 불러오므로 댓글 수가 있으면 목록이 채워질 때까지 잠시 기다림
-        try:
-            WebDriverWait(driver, 4).until(lambda d: d.find_elements(By.CSS_SELECTOR, '.cmt_list > li')
-                                           or '댓글 0' in (d.find_element(By.CSS_SELECTOR, '.gall_comment').text or ''))
-        except Exception:
-            pass
-    except UnexpectedAlertPresentException as alert_ex:
-        # 삭제된 글 등은 안내 창(alert)을 띄우기도 함
-        if any(word in (alert_ex.alert_text or '') for word in ('삭제', '존재하지')):
-            return None
-        raise
-
-    page_source = driver.page_source
-    soup = BeautifulSoup(page_source, 'html.parser')
+    # 페이지 로드 실패는 호출한 쪽(메인 루프)에서 키워드 정보와 함께 한 번만 기록
+    res = _open(client, link)
+    if _is_deleted_page(res):
+        return None
+    soup = BeautifulSoup(res.text, 'html.parser')
     content_area = soup.select_one('.write_div')
     if not content_area:
-        if _is_deleted_page(driver):
-            return None
-        raise Exception("본문(.write_div) 없음 - 일시적 로드 실패 추정")
+        raise Exception(f"본문(.write_div) 없음 - 일시적 로드 실패 추정 (응답 {res.status_code})")
+    gallery = dc_gallery_from_link(link) or ''
+    no = re.search(r'[?&]no=(\d+)', link)
+    esno_tag = soup.select_one('#e_s_n_o')
 
     title_tag = soup.select_one('.title_subject')
     date_tag = soup.select_one('.gall_date')
     views_tag = soup.select_one('.gall_count')
     votes_tag = soup.select_one('.up_num')
     comment_tag = soup.select_one('.gall_comment')
+    writer_tag = soup.select_one('.gall_writer')
 
-    # 본문 이미지는 다른 사이트(이 대시보드)에서는 열리지 않으므로, 크롬이 받은 파일을 꺼내 저장한 이미지로 바꿈.
-    # 꺼내지 못한 이미지는 원문으로 가는 안내 링크로 (본문 img 순서는 페이지와 page_source가 같음)
-    saved = _save_body_images(driver, post_id)
+    # 디시 움짤(MP4 <video data-src=GIF 주소>): 디시 화면은 MP4를 못 틀면 GIF 그림으로 바꿔 보여 줌(change_gif).
+    # 이 대시보드에서는 디시 MP4가 열리지 않으므로 처음부터 GIF 그림으로 받아 저장 (크기가 커 못 받으면 원문 링크로)
+    for clip in content_area.select('video[data-src]'):
+        gif = soup.new_tag('img', src=clip['data-src'])
+        clip.replace_with(gif)
+    # 본문 이미지는 다른 사이트(이 대시보드)에서는 열리지 않으므로 받아 저장한 이미지로 바꿈. 못 받은 것은 원문 링크로
+    saved = _save_body_images(client, content_area, post_id, res.url)
     img_count = 0
     for index, img in enumerate(content_area.select('img')):
         img_count += 1
@@ -322,20 +362,24 @@ def scrape_post_detail(driver, post_info, all_comment_pages=True):
             a_tag['style'] = LINK_STYLE
 
     paragraphs = content_lines(content_area)
-    seen = set()
-    pinned, comments = _parse_comments(soup, seen)
-    if all_comment_pages:
-        comments = _read_older_comment_pages(driver, soup, post_id, seen) + comments
-    comments = pinned + comments
+    comments, total = [], 0
+    comment_count = parse_count(comment_tag.get_text()) if comment_tag else 0
+    if gallery and no and esno_tag and (comment_count or not comment_tag):
+        comments, total = _read_comments(client, gallery, no.group(1), esno_tag.get('value') or '', res.url, post_id, all_comment_pages)
 
     log_msg(f"[수집] 상세 #{post_id}: 이미지 {img_count}(저장 {len(saved)}), 동영상 {len(video_list)}, 댓글 {len(comments)}", "DEBUG")
     return {
         'id': post_id,
         'title': ' '.join(title_tag.get_text().split()) if title_tag else post_info['title'],
-        'author': _writer(soup.select_one('.gall_writer')) if soup.select_one('.gall_writer') else post_info['author'],
+        'author': _writer(writer_tag) if writer_tag else post_info['author'],
         'date': (date_tag.get('title') or date_tag.get_text(strip=True)) if date_tag else post_info['date'],
         'views': str(parse_count(views_tag.get_text())) if views_tag else '0',
         'votes': str(parse_count(votes_tag.get_text())) if votes_tag else '0',
-        'comment_count': str(parse_count(comment_tag.get_text())) if comment_tag else str(len(comments)),
+        'comment_count': str(comment_count) if comment_tag else str(total or len(comments)),
         'link': link, 'content': paragraphs, 'videos': video_list, 'comments': comments
     }
+
+
+def dc_gallery_from_link(link):
+    m = re.search(r'[?&]id=([^&#]+)', link or '')
+    return m.group(1) if m else None

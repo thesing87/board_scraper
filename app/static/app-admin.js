@@ -639,7 +639,7 @@ function renderRuntimeStatus(s) {
             ? `${hm(c.finished_at)} (${agoText(c.finished_at, s.now)}) · ${c.seconds}초 · 새 글 ${c.new}, 갱신 ${c.updated}, 오류 ${c.errors}`
             : '아직 없음 (시작 직후)'),
         row('실행', s.started_at ? `${hm(s.started_at)}부터 (${agoText(s.started_at, s.now)}) · 주기 ${s.cycles}회` : '-'),
-        row('크롬', s.chrome_started_at ? `${hm(s.chrome_started_at)} 시작 · 재시작 ${s.chrome_restarts}회` : '-'),
+        row('수집 연결', s.chrome_started_at ? `${hm(s.chrome_started_at)} 시작 · 갱신 ${s.chrome_restarts}회` : '-'),
         row('DB 백업', s.last_backup ? `${esc(s.last_backup.file)} (${hm(s.last_backup.at)})` : '오늘 백업 있음 또는 아직 안 함'),
         row('오래된 글 정리', s.last_prune ? `${s.last_prune.deleted}건 정리 (${hm(s.last_prune.at)})` : '-')
     ];

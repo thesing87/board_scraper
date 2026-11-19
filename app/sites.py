@@ -55,7 +55,7 @@ def site_enabled(site):
     return site == DCINSIDE
 
 
-# 사이트별 수집기. 셀레늄을 쓰는 모듈이라 웹서버 등 수집하지 않는 쪽에서는 불러오지 않도록 함수 안에서 가져옴.
+# 사이트별 수집기. 수집하지 않는 쪽(웹서버 등)에서는 불러오지 않도록 함수 안에서 가져옴.
 # 수집기가 없는 사이트면 요청을 보내기 전에 막음
 def _collector(site):
     if not site_enabled(site):

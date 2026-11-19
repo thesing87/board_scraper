@@ -5,12 +5,6 @@ import re
 import threading
 import traceback
 from datetime import date, datetime, timedelta
-import urllib3
-from selenium.webdriver import Chrome
-from selenium.common.exceptions import WebDriverException
-from selenium.webdriver.remote.command import Command
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
 
 from config import (
     log_msg,
@@ -29,6 +23,7 @@ from config import (
     RUN_WEB_SERVER,
     IS_LINUX
 )
+import dcinside
 from storage import (
     init_db,
     load_keywords,
@@ -103,9 +98,6 @@ DELETION_CHECKS_PER_KEYWORD = 3
 REJECTED_KEEP_PER_KEYWORD = 300
 # 알림을 보내지 않은 새 글을 다른 키워드에서 알림 보낼 수 있게 기억하는 시간 (하루 한 번 정리)
 UNALERTED_KEEP_HOURS = 24
-# 페이지가 이 시간(초) 안에 열리지 않으면 포기. 크롬 기본값(300초)이 셀레늄의 응답 대기 한도(120초)보다 길어,
-# NAS가 느려지면 페이지마다 응답 대기 한도를 다 채우고서야 실패했음 (한 번에 2분씩, 연달아 몇 번)
-PAGE_LOAD_TIMEOUT = 30
 # 키워드 목록 감시 범위를 벗어난 보관한 글을 한 주기에 다시 여는 최대 개수 (SAVED_CHECK_MINUTES마다 한 번씩 돌아가며)
 SAVED_CHECKS_PER_CYCLE = 3
 # 한 주기에 보내는 인기 글 알림 최대 개수 (남은 글은 다음 주기에)
@@ -124,72 +116,18 @@ try:
 except Exception:
     pass
 
-# 이미지는 받지 않아 메모리·전송량을 아끼되, 디시 페이지에서만 받게 해서 디시 수집기가 크롬이 받은 본문 이미지 파일을
-# 꺼내 저장할 수 있게 함 (images.py). 크롬의 사이트별 이미지 설정을 써서 다른 사이트의 이미지는 아예 요청하지 않음.
-# (주소를 막는 방식은 이미지 '불러오기 실패'가 되어, 에펨코리아 페이지가 이미지콘을 '삭제된 이미지콘' 그림으로 바꿔 버림)
-IMAGE_PREFS = {
-    'profile.default_content_setting_values.images': 2,
-    'profile.content_settings.exceptions.images': {'[*.]dcinside.com,*': {'setting': 1}},
-}
-
-class ChromeHungError(WebDriverException):
-    """크롬이 이미 응답하지 않는 것으로 확인되어 명령을 보내지 않음"""
-
-class HungGuard:
-    """크롬이 명령에 응답하지 않으면(셀레늄 응답 대기 시간 초과) hung으로 표시하고, 그 뒤 명령은 기다리지 않고 바로 실패시킴.
-    한 번 멈춘 크롬은 다음 명령에서도 대개 또 멈춰 명령마다 2분씩 날렸음. 메인 루프가 키워드마다 확인해 크롬을 새로 띄움
-    (종료 명령은 그대로 보내 크롬을 닫게 함)"""
-    hung = False
-
-    def execute(self, driver_command, params=None):
-        if self.hung and driver_command != Command.QUIT:
-            raise ChromeHungError('크롬이 응답하지 않아 다시 띄울 때까지 명령을 보내지 않음')
-        try:
-            return super().execute(driver_command, params)
-        except urllib3.exceptions.TimeoutError:
-            self.hung = True
-            raise
-
-class CollectorChrome(HungGuard, Chrome):
-    pass
-
+# 수집은 크롬 없이 HTTP 요청으로 (dcinside.DcClient). 예전에는 크롬(셀레늄)을 띄웠는데 NAS(메모리 1.8GB)에서
+# CPU·메모리를 가장 많이 써 스왑으로 NAS 전체가 느려지고 'Timed out receiving message from renderer'로 목록을 자주 못 읽었음.
+# 아래 함수 이름(driver)은 예전 그대로 두고, 넘기는 것은 요청 연결(client)
 def create_driver():
-    options = Options()
-    options.page_load_strategy = 'eager'
-    options.add_experimental_option('prefs', IMAGE_PREFS)
-    # 메모리를 덜 쓰도록 수집에 필요 없는 기능은 끔 (NAS 메모리가 1.8GB라 크롬이 커지면 스왑으로 전체가 느려짐)
-    for arg in ('--disable-extensions', '--disable-background-networking', '--disable-component-update',
-                '--disable-sync', '--disable-default-apps', '--mute-audio', '--renderer-process-limit=2',
-                '--disable-features=Translate,OptimizationHints,MediaRouter,AutofillServerCommunication'):
-        options.add_argument(arg)
-    services = Service()
-    if IS_LINUX:
-        options.add_argument('--headless=new')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--disable-gpu')
-
-    driver = CollectorChrome(options=options, service=services)
-    driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
-    # 크롬 개발자 도구(CDP): 받은 파일 꺼내기(Page.getResourceContent)에 씀
-    driver.execute_cdp_cmd('Page.enable', {})
+    client = dcinside.create_client()
     runtime_status.update(chrome_started_at=runtime_status.now())
-    log_msg(f"[시스템] 크롬 드라이버 준비 완료{' (headless)' if IS_LINUX else ''}")
-    return driver
+    log_msg("[시스템] 수집 연결 준비 완료 (크롬 없이 HTTP 요청)")
+    return client
 
 def ensure_driver_alive(driver):
-    """크롬 프로세스가 죽었으면(OOM 등) 드라이버를 새로 생성하여 반환"""
-    try:
-        driver.execute_script("return 1")
-        return driver
-    except Exception as health_err:
-        log_msg(f"[시스템] 크롬 응답 없음 → 재시작: {short_err(health_err)}", "WARN")
-    runtime_status.increment('chrome_restarts')
-    try:
-        driver.quit()
-    except Exception:
-        pass
-    return create_driver()
+    """HTTP 연결은 죽지 않으므로 그대로 (크롬을 쓸 때는 죽었으면 새로 띄웠음)"""
+    return driver
 
 def wait_text(seconds):
     """대기 시간을 '6시간 0분', '4분 0초'처럼"""
@@ -345,37 +283,22 @@ def send_daily_digests():
         log_msg(f"[요약] {group['name']} 하루 요약 {'발송' if sent else '발송 실패'} (새 글 {total}개 중 {len(posts)}개)")
 
 def restart_if_hung(driver):
-    """크롬이 응답하지 않는 것으로 표시됐으면 바로 새로 띄움 (다음 주기까지 기다리지 않고 다음 키워드부터 새 크롬으로)"""
-    if not getattr(driver, 'hung', False):
-        return driver
-    log_msg("[시스템] 크롬이 응답하지 않아 바로 다시 띄움", "WARN")
-    runtime_status.increment('chrome_restarts')
-    try:
-        driver.quit()
-    except Exception:
-        pass
-    return create_driver()
+    """크롬을 쓸 때 멈춘 크롬을 바로 새로 띄우던 자리. HTTP 연결은 멈추지 않아 그대로"""
+    return driver
 
 def restart_driver(driver):
-    """오래 띄워 둔 크롬은 메모리가 계속 불어나므로 주기적으로 새로 띄움"""
+    """정기적으로 연결을 새로 (쿠키·연결을 비움)"""
     try:
-        driver.quit()
+        driver.close()
     except Exception:
         pass
     runtime_status.increment('chrome_restarts')
-    log_msg(f"[시스템] 크롬 정기 재시작 ({CHROME_RESTART_CYCLES}주기마다, 메모리 정리)", "DEBUG")
+    log_msg(f"[시스템] 수집 연결 정기 갱신 ({CHROME_RESTART_CYCLES}주기마다)", "DEBUG")
     return create_driver()
 
 def release_chrome_memory(driver):
-    """주기가 끝나 쉬는 동안 크롬이 붙잡고 있는 메모리를 돌려줌. 같은 탭에서 페이지를 계속 열면 렌더러가 지난 페이지와
-    캐시를 쌓아 두어 주기마다 커지고(24페이지마다 약 +100MB), NAS가 스왑을 쓰면서 대시보드까지 함께 멈춤.
-    빈 페이지로 옮긴 뒤 메모리 부족 신호를 보내면 크롬이 캐시·지난 페이지를 버리고 큰 렌더러도 내려놓음"""
-    try:
-        driver.get('about:blank')
-        driver.execute_cdp_cmd('Memory.simulatePressureNotification', {'level': 'critical'})
-        driver.execute_cdp_cmd('HeapProfiler.collectGarbage', {})
-    except Exception as e:
-        log_msg(f"[시스템] 크롬 메모리 정리 실패: {short_err(e)}", "DEBUG")
+    """크롬을 쓸 때 쉬는 동안 크롬 메모리를 돌려주던 자리. HTTP 연결은 붙잡는 메모리가 없어 할 일 없음"""
+    return None
 
 def refetch_blocked_imagecon_posts(driver):
     """이미지 주소 차단 때문에 이미지콘이 '삭제됨' 그림으로 저장된 글을 다시 수집 (기동 시 1회, storage.posts_with_blocked_imagecons)"""
@@ -547,7 +470,7 @@ def main():
     try:
         driver = create_driver()
     except Exception as chrome_err:
-        log_msg(f"[시스템] 크롬 드라이버 시작 실패로 종료: {short_err(chrome_err)}", "CRITICAL")
+        log_msg(f"[시스템] 수집 연결 준비 실패로 종료: {short_err(chrome_err)}", "CRITICAL")
         sys.exit(1)
 
     # DB 초기화(최초 1회 기존 JSON 데이터 이전 포함). 대시보드는 웹서버가 DB에서 직접 조회하여 제공
@@ -588,7 +511,7 @@ def main():
         # 차단 의심을 텔레그램으로 알린 사이트 (알렸을 때만 복구도 알림)
         block_alerted = set()
         next_wait = CHECK_INTERVAL
-        # 크롬을 마지막으로 띄운 뒤 지난 주기 수, 유지 관리(백업·정리)를 마지막으로 한 날짜
+        # 수집 연결을 마지막으로 새로 만든 뒤 지난 주기 수, 유지 관리(백업·정리)를 마지막으로 한 날짜
         cycles_since_chrome = 0
         maintenance_date = None
         # 지난 주기의 수집 대상 키워드 (기동 후 첫 주기는 비교할 기록이 없어 None)와, 일시정지를 풀어 다시 수집하는 키워드.
@@ -611,7 +534,7 @@ def main():
                     cycles_since_chrome = 0
                 driver = ensure_driver_alive(driver)
             except Exception as restart_err:
-                log_msg(f"[시스템] 크롬 재시작 실패, 다음 주기에 재시도: {short_err(restart_err)}", "ERROR")
+                log_msg(f"[시스템] 수집 연결 갱신 실패, 다음 주기에 재시도: {short_err(restart_err)}", "ERROR")
                 continue
             # 지난번에 텔레그램에 연결하지 못해 대기열에 넣어 둔 알림을 먼저 다시 보냄
             try:

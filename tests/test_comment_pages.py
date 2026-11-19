@@ -1,5 +1,5 @@
 """댓글이 여러 페이지인 글: 모든 페이지를 읽어 합치고, 앞 페이지에 달린 새 답글도 새 댓글로 잡는지.
-디시인사이드는 1페이지(최신)가 보이는 실제 사이트 동작을 가짜 크롬으로 흉내냄"""
+디시인사이드 댓글 API(1페이지가 최신)를 가짜 연결로 흉내냄"""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import ROOT
@@ -11,40 +11,40 @@ time.sleep = lambda *_: None   # 페이지 사이 대기 생략
 from bs4 import BeautifulSoup
 import dcinside, storage
 
-class Element:
-    def __init__(self, text=''): self.text = text
+# --- 2) 디시인사이드 댓글 API: 1페이지가 최신, 페이지 번호 줄은 일부만 보임(2페이지를 열면 3·4페이지 번호가 보임),
+#        COMMENT_PAGE_LIMIT까지만, 오래된 댓글부터 순서대로, 2페이지부터 읽은 댓글은 other_page
+def item(no, nick, text, depth='0'):
+    return {'no': str(no), 'name': nick, 'ip': '', 'reg_date': '11.02 10:00:00', 'depth': depth, 'memo': text}
 
-# --- 2) 디시인사이드: 1페이지(최신)가 첫 화면, 이미지 댓글 상자는 페이지마다 반복, 페이지 번호 줄은 일부만 보임
-def dc_comment(no, nick, text, prefix='comment_li'):
-    return (f'<li id="{prefix}_{no}" class="ub-content"><div class="cmt_info"><span class="gall_writer" data-nick="{nick}"></span>'
-            f'<p class="usertxt">{text}</p><span class="date_time">11.02 10:00:00</span></div></li>')
-
-def dc_page(current, last_link, comments):
+def page(current, last_link, items):
     links = ''.join(f"<a href=\"javascript:viewComments({p},'D',true)\">{p}</a>" if p != current else f'<em>{p}</em>'
                     for p in range(1, last_link + 1))
-    pinned = f'<div class="comment_box img_comment_box"><ul class="cmt_list">{dc_comment(99, "짤", "이미지", "img_comment_li")}</ul></div>'
-    return f'{pinned}<div class="comment_box"><ul class="cmt_list">{"".join(comments)}</ul></div><div class="cmt_paging">{links}</div>'
+    return {'total_cnt': 40, 'pagination': links, 'comments': items}
 
-# 2페이지까지만 번호가 보이다가 2페이지를 열면 3·4페이지 번호가 보임
-DC_PAGES = {2: dc_page(2, 4, [dc_comment(20, 'p2', '둘')]), 3: dc_page(3, 4, [dc_comment(30, 'p3', '셋')])}
+DC_PAGES = {1: page(1, 2, [item(10, 'p1', '하나'), item(11, 'p1답', '답', '1')]),
+            2: page(2, 4, [item(20, 'p2', '둘'), item(10, 'p1', '하나')]),     # 겹친 댓글은 한 번만
+            3: page(3, 4, [item(30, 'p3', '셋')])}
 
-class DcDriver:
-    def __init__(self): self.calls, self.page_source, self.current = [], '', 1
-    def execute_script(self, script, page):
-        self.calls.append(page)
-        self.current, self.page_source = page, DC_PAGES[page]
-    def find_elements(self, by, css): return [Element(str(self.current))]
+class Res:
+    status_code = 200
+    def __init__(self, data): self.data = data
+    def json(self): return self.data
 
-first_screen = BeautifulSoup(dc_page(1, 2, [dc_comment(10, 'p1', '하나')]), 'html.parser')
-seen = set()
-pinned, newest = dcinside._parse_comments(first_screen, seen)
-assert [c['author'] for c in pinned] == ['짤'] and [c['author'] for c in newest] == ['p1']
-driver = DcDriver()
-older = dcinside._read_older_comment_pages(driver, first_screen, 'dc-x-1', seen)
-assert driver.calls == [2, 3], driver.calls   # COMMENT_PAGE_LIMIT=3이라 4페이지는 안 읽음
-assert [c['author'] for c in older] == ['p3', 'p2'], older   # 오래된 댓글부터, 이미지 댓글은 다시 넣지 않음
-assert all(c['other_page'] for c in older)
-assert dcinside._comment_pages(BeautifulSoup('<div>댓글 없음</div>', 'html.parser')) == 1
+class DcClient:
+    def __init__(self): self.pages = []
+    def post(self, url, data=None, headers=None, **kw):
+        self.pages.append(data['comment_page'])
+        return Res(DC_PAGES[data['comment_page']])
+
+client = DcClient()
+comments, total = dcinside._read_comments(client, 'car_new1', '1', 'esno', 'https://gall.dcinside.com/board/view/?id=car_new1&no=1', 'dc-x-1', True)
+assert client.pages == [1, 2, 3], client.pages      # COMMENT_PAGE_LIMIT=3이라 4페이지는 안 읽음
+assert [c['author'] for c in comments] == ['p3', 'p2', 'p1', 'p1답'], comments
+assert [bool(c.get('other_page')) for c in comments] == [True, True, False, False] and comments[3]['is_reply'] and total == 40
+# 첫 화면 댓글만 (삭제 여부 확인처럼 댓글이 필요 없을 때)
+client = DcClient()
+comments, _ = dcinside._read_comments(client, 'car_new1', '1', 'esno', 'x', 'dc-x-1', False)
+assert client.pages == [1] and [c['author'] for c in comments] == ['p1', 'p1답']
 print('DC PAGES OK')
 
 # --- 3) 저장: 첫 화면 페이지만 저장하던 글을 처음 모든 페이지로 읽으면 다른 페이지 댓글은 새 댓글 아님,

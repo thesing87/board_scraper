@@ -58,30 +58,120 @@ assert rows[1]['list_comment_count'] == 0
 assert dcinside.gallery_title('자동차 갤러리 - 커뮤니티 포털 디시인사이드') == '자동차 갤러리'
 print('LIST OK')
 
-# --- 4) 댓글: 댓글 뒤 형제 li의 .reply_list가 답글, 광고(dory·파워링크)는 빼고 디시콘은 표시만
-COMMENT_HTML = """
-<ul class="cmt_list">
-<li id="comment_li_1" class="ub-content"><div class="cmt_info">
-  <span class="gall_writer ub-writer" data-nick="ㅇㅇ" data-ip="58.29"></span>
-  <p class="usertxt ub-word">투싼 인스퍼레이션<br>살 바에는</p><span class="date_time">10.29 22:50:41</span></div></li>
-<li><div class="reply"><ul class="reply_list">
-  <li id="reply_li_2" class="ub-content"><div class="reply_info">
-    <span class="gall_writer ub-writer" data-nick="차갤러1" data-ip="223.39"></span>
-    <p class="usertxt ub-word">동의</p><span class="date_time">10.29 22:51:04</span></div></li>
-</ul></div></li>
-<li id="comment_li_0" class="ub-content dory"><div class="cmt_info">광고</div></li>
-<li class="power_link cmt_power_link">파워링크</li>
-<li id="comment_li_3" class="ub-content"><div class="cmt_info">
-  <span class="gall_writer ub-writer" data-nick="고닉" data-ip=""></span>
-  <img class="written_dccon" src="https://dcimg5.dcinside.com/dccon.php?no=1"><span class="date_time">10.29 23:05:49</span></div></li>
-</ul>"""
-pinned, comments = dcinside._parse_comments(BeautifulSoup(COMMENT_HTML, 'html.parser'), set())
-assert pinned == []
+# --- 4) 댓글(댓글 API JSON): depth 1이 답글, 광고(댓글돌이)·삭제된 댓글은 빼고 디시콘은 표시만, 유동 IP는 닉네임 뒤에
+items = [
+    {'no': '1', 'name': 'ㅇㅇ', 'ip': '58.29', 'reg_date': '10.29 22:50:41', 'depth': '0', 'del_yn': 'N', 'nicktype': '00',
+     'memo': '투싼 인스퍼레이션<br>살 바에는'},
+    {'no': '2', 'name': '차갤러1', 'ip': '223.39', 'reg_date': '10.29 22:51:04', 'depth': '1', 'c_no': '1', 'memo': '동의 &gt;&gt;'},
+    {'no': '0', 'name': '댓글돌이', 'nicktype': 'COMMENT_BOY', 'depth': '0', 'memo': '<div class="comment_dory">광고</div>'},
+    {'no': '4', 'name': 'ㅇㅇ', 'ip': '1.2', 'reg_date': '10.29 23:00:00', 'depth': '0', 'del_yn': 'Y', 'memo': '삭제된 댓글'},
+    {'no': '3', 'name': '고닉', 'user_id': 'someone', 'ip': '', 'reg_date': '10.29 23:05:49', 'depth': '0',
+     'memo': '<img class="written_dccon " src="https://dcimg5.dcinside.com/dccon.php?no=1">'},
+]
+comments = [c for c in (dcinside._comment(i) for i in items) if c]
 assert [(c['author'], c['is_reply'], c['depth']) for c in comments] == [
     ('ㅇㅇ(58.29)', False, 0), ('차갤러1(223.39)', True, 1), ('고닉', False, 0)], comments
 assert comments[0]['content'] == ['투싼 인스퍼레이션', '살 바에는'] and comments[0]['date'] == '10.29 22:50:41'
+assert comments[1]['content'] == ['동의 &gt;&gt;'], comments[1]
 assert comments[2]['content'] == ['(디시콘)']
+assert dcinside._comment_pages("<em>1</em><a href=\"javascript:viewComments(2,'D',true)\">2</a>") == 2
+assert dcinside._comment_pages('') == 1
 print('COMMENTS OK')
+
+# --- 4-1) 글 하나 읽기 (가짜 연결): 이미지는 디시 글 화면에서 연 것처럼(Referer) 받아 저장, 지연 로딩 이미지는 진짜 주소로,
+#          움짤(MP4)은 GIF 그림으로, 못 받은 이미지는 원문 링크, 댓글은 댓글 API로, 삭제된 글은 None, 목록이 아니면 차단 의심
+import scraper
+JPG = bytes([0xFF, 0xD8, 0xFF, 0xE0]) + b'1' * 50
+GIF = b'GIF89a' + b'2' * 50
+VIEW_HTML = """<html><head><title>싼타페 견적 - 자동차 갤러리</title></head><body>
+<input type="hidden" id="e_s_n_o" value="esno123">
+<span class="title_subject">싼타페  견적</span><span class="gall_writer" data-nick="차갤러" data-ip="175.117"></span>
+<span class="gall_date" title="2026-10-30 22:49:08">10.30</span><span class="gall_count">조회 41</span>
+<p class="up_num">3</p><span class="gall_comment">댓글 2</span>
+<div class="write_div"><p>견적 봤는데</p>
+<img src="https://dcimg6.dcinside.co.kr/viewimage.php?id=a&no=first">
+<img class="lazy" src="https://nstatic.dcinside.com/dc/w/images/gallview_loading_ori.gif" data-original="https://dcimg6.dcinside.co.kr/viewimage.php?id=a&no=lazy">
+<video autoplay loop muted data-src="https://dcimg6.dcinside.co.kr/viewimage.php?id=a&no=gif"><source src="https://dcimg6.dcinside.co.kr/viewimage.php?id=a&no=mp4"></video>
+<img src="https://dcimg6.dcinside.co.kr/viewimage.php?id=a&no=broken">
+</div></body></html>"""
+
+
+class Res:
+    def __init__(self, status=200, text='', content=b'', url='', data=None):
+        self.status_code, self.text, self.content, self.url, self._data, self.encoding = status, text, content, url, data, 'utf-8'
+
+    def json(self):
+        if self._data is None:
+            raise ValueError('not json')
+        return self._data
+
+
+class FakeClient:
+    def __init__(self, pages):
+        self.pages, self.gets, self.posts = pages, [], []
+
+    def get(self, url, headers=None, **kw):
+        self.gets.append((url, (headers or {}).get('Referer')))
+        status, body = self.pages.get(url, (404, b''))
+        if isinstance(body, bytes):
+            return Res(status, content=body, url=url)
+        final = 'https://gall.dcinside.com/derror/deleted/car_new1/0' if '/derror/deleted/' in body else url
+        return Res(status, text=body, url=final)
+
+    def post(self, url, data=None, headers=None, **kw):
+        self.posts.append((data, headers))
+        return Res(200, data={'total_cnt': 2, 'pagination': '<em>1</em>', 'comments': [
+            {'no': '11', 'name': 'ㅇㅇ', 'ip': '1.2', 'reg_date': '10.30 23:00:00', 'depth': '0', 'memo': '좋네'},
+            {'no': '12', 'name': '고닉', 'ip': '', 'reg_date': '10.30 23:01:00', 'depth': '1', 'memo': '답글'}]})
+
+
+dcinside.time.sleep = lambda *_: None
+VIEW = 'https://gall.dcinside.com/board/view/?id=car_new1&no=11561402'
+IMG = 'https://dcimg6.dcinside.co.kr/viewimage.php?id=a&no='
+INFO = {'id': 'dc-car_new1-11561402', 'link': VIEW, 'title': '', 'author': '', 'date': ''}
+fc = FakeClient({VIEW: (200, VIEW_HTML), IMG + 'first': (200, JPG), IMG + 'lazy': (200, JPG + b'x'), IMG + 'gif': (200, GIF),
+                 IMG + 'broken': (403, b'<html>forbidden</html>')})
+detail = dcinside.scrape_post_detail(fc, dict(INFO))
+assert (detail['title'], detail['author'], detail['date'], detail['views'], detail['votes'], detail['comment_count']) == (
+    '싼타페 견적', '차갤러(175.117)', '2026-10-30 22:49:08', '41', '3', '2'), detail
+html = ' '.join(detail['content'])
+assert html.count('/images/dc-car_new1-11561402/') == 3 and '.gif' in html, html          # 첫 이미지·지연 로딩·움짤(GIF)
+assert '[이미지 4 · 원문에서 보기]' in html and 'gallview_loading' not in html and detail['videos'] == [], html
+assert all(ref == VIEW for url, ref in fc.gets if url.startswith(IMG)), fc.gets       # 이미지는 글 화면에서 연 것처럼
+assert [c['author'] for c in detail['comments']] == ['ㅇㅇ(1.2)', '고닉'] and detail['comments'][1]['is_reply']
+data, headers = fc.posts[0]
+assert (data['id'], data['no'], data['e_s_n_o'], data['comment_page']) == ('car_new1', '11561402', 'esno123', 1)
+assert headers['X-Requested-With'] == 'XMLHttpRequest' and headers['Referer'] == VIEW
+# 댓글 0개면 댓글 API를 부르지 않음
+fc0 = FakeClient({VIEW: (200, VIEW_HTML.replace('댓글 2', '댓글 0')), IMG + 'first': (200, JPG)})
+assert dcinside.scrape_post_detail(fc0, dict(INFO))['comments'] == [] and fc0.posts == []
+# 삭제된 글
+gone = FakeClient({VIEW: (200, '<html><body>/derror/deleted/ 삭제된 게시물입니다</body></html>')})
+assert dcinside.scrape_post_detail(gone, dict(INFO)) is None
+# 목록: 정상 표면 글 목록, 표가 없으면(차단·점검 화면) 차단 의심
+LIST = dcinside.list_url('car_new1', '싼타페')
+ok = FakeClient({LIST: (200, LIST_HTML)})
+assert [r['id'] for r in dcinside.get_list_page_posts(ok, 'dc:car_new1', '싼타페')] == ['dc-car_new1-11561402', 'dc-car_new1-11561149']
+blocked = FakeClient({LIST: (403, '<html><title>접근 제한</title><body>잠시 후 다시</body></html>')})
+try:
+    dcinside.get_list_page_posts(blocked, 'dc:car_new1', '싼타페')
+    raise AssertionError('차단 화면을 목록으로 읽음')
+except scraper.BlockedError as e:
+    assert '403' in str(e) and '접근 제한' in str(e), e
+# 서버 오류(5xx)는 차단 의심이 아니라 일반 실패
+err = FakeClient({LIST: (502, 'bad gateway')})
+try:
+    dcinside.get_list_page_posts(err, 'dc:car_new1', '싼타페')
+    raise AssertionError('서버 오류를 그냥 넘김')
+except scraper.BlockedError:
+    raise AssertionError('서버 오류를 차단으로 봄')
+except Exception as e:
+    assert '502' in str(e), e
+# 새 갤러리 확인: 표가 있으면 창 제목에서 갤러리 이름
+LIST0 = dcinside.list_url('car_new1')
+chk = FakeClient({LIST0: (200, '<html><head><title>자동차 갤러리 - 커뮤니티 포털 디시인사이드</title></head><body>' + LIST_HTML + '</body></html>')})
+assert dcinside.check_board(chk, 'dc:car_new1') == (True, '자동차 갤러리')
+print('DC CLIENT OK')
 
 # --- 5) 여러 사이트의 키워드를 담은 게시판은 사이트가 'multi', 게시판 목록에 사이트 표시
 storage.init_db()
@@ -260,5 +350,8 @@ with storage._db() as _conn, _conn:
 assert [p['id'] for p in storage.posts_with_dc_loading_images()] == ['dc-car_new1-901']
 storage.mark_dc_loading_images_refetched()
 assert storage.posts_with_dc_loading_images() == []
-assert 'gallview_loading' in dcinside.LOAD_LAZY_IMAGES_JS and 'data-original' in dcinside.LOAD_LAZY_IMAGES_JS
+from bs4 import BeautifulSoup as _BS
+_lazy = _BS('<img class="lazy" src="https://x/gallview_loading_ori.gif" data-original="//dcimg6.dcinside.co.kr/viewimage.php?no=1">', 'html.parser').img
+assert dcinside._image_url(_lazy) == 'https://dcimg6.dcinside.co.kr/viewimage.php?no=1'
+assert dcinside._image_url(_BS('<img src="https://x/gallview_loading_ori.gif">', 'html.parser').img) == ''
 print('DC LAZY IMAGES OK')
