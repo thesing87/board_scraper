@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.4.1
+// @version      1.4.2
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -33,6 +33,8 @@
     const KEY_PWD = 'fm_admin_password';
     // 아직 서버에 못 보낸 '누른 시각' [{group_id, board, keyword, at}]: 누르면 기다리지 않고 바로 넘어가므로, 넘어가는 사이 끊긴 기록은 다음 화면에서 다시 보냄
     const KEY_PENDING = 'fm_bar_pending_opens';
+    // 아직 서버에 못 보낸 읽은 글 번호: 글을 누르면 바로 넘어가므로, 넘어가는 사이 끊긴 기록은 다음 화면에서 다시 보내고 받은 목록에도 반영
+    const KEY_PENDING_READS = 'fm_bar_pending_reads';
 
     // 응답 코드와 내용을 그대로 (실패 이유를 보여 줄 때)
     function requestRaw(method, path, body) {
@@ -553,16 +555,27 @@
         request('POST', '/api/fm-link', { action: 'read_all', board: link.board, keyword: link.keyword, max: top }).catch(() => {});
         markNewPosts();
     }
-    // 글 하나를 읽음으로: 그 글이 새 글인 모든 키워드에서 (같은 글이 여러 키워드에 걸려도 함께)
-    function markRead(no) {
+    // 글 하나를 읽음으로 표시 (목록 안에서만): 그 글이 새 글인 모든 키워드에서. 바뀌었으면 true
+    function applyRead(list, no) {
         let changed = false;
-        allLinks().forEach(({ l }) => {
+        list.forEach(g => g.links.forEach(l => {
             if (l.seen_max == null || no <= l.seen_max || (l.read_ids || []).includes(no)) return;
             l.read_ids = [...(l.read_ids || []), no];
             changed = true;
-        });
-        if (changed) { saveCache(); render(); }
-        request('POST', '/api/fm-link', { action: 'read', post: no }).catch(() => {});
+        }));
+        return changed;
+    }
+    // 읽음을 서버에 보냄. 보내기 전에 '보낼 기록'에 적어 두고, 보내지면 지움 (같은 글을 두 번 보내도 그대로)
+    function sendRead(no) {
+        return request('POST', '/api/fm-link', { action: 'read', post: no }).then(() => {
+            GM_setValue(KEY_PENDING_READS, GM_getValue(KEY_PENDING_READS, []).filter(x => x !== no));
+        }, () => {});
+    }
+    // 글 하나를 읽음으로: 그 글이 새 글인 모든 키워드에서 (같은 글이 여러 키워드에 걸려도 함께)
+    function markRead(no) {
+        GM_setValue(KEY_PENDING_READS, [...GM_getValue(KEY_PENDING_READS, []).filter(x => x !== no), no].slice(-200));
+        if (applyRead(groups, no)) { saveCache(); render(); }
+        sendRead(no);
     }
     // 검색 결과에서 글을 누르면(가운데 버튼·새 탭 포함) 읽음
     ['click', 'auxclick'].forEach(type => document.addEventListener(type, e => {
@@ -574,8 +587,8 @@
         const row = a.closest('.kmfm-new');
         if (row) { row.classList.remove('kmfm-new'); const tag = row.querySelector('.kmfm-tag'); if (tag) tag.remove(); }
     }, true));
-    // 다른 경로로 글을 열어도 읽음 (글 화면 주소의 번호)
-    const pagePost = !currentKeyword ? postNumber(location.pathname + location.search) : 0;
+    // 다른 경로로 글을 열어도 읽음 (글 화면 주소의 번호. 검색 결과에서 연 글은 주소에 검색어가 붙어 있어도)
+    const pagePost = postNumber(location.pathname + location.search) || Number(params.get('document_srl')) || 0;
     if (pagePost) markRead(pagePost);
 
     // 화면이 다 그려지고 키워드 목록이 있을 때 (처음 설치해 목록이 없으면 서버에서 받은 뒤). 새 목록을 받으면 다시 (다른 기기에서 읽은 글 반영)
@@ -588,24 +601,50 @@
     document.addEventListener('DOMContentLoaded', tryMark, { once: true });
     tryMark();
 
+    applyPending(groups);
     // 기억해 둔 목록이 있으면 바로 그리고, 서버의 새 목록이 다를 때만 다시 그림 (처음 설치했을 때만 받을 때까지 기다림)
     if (groups.length) render();
-    // 앞 화면에서 못 보낸 '누른 시각'을 다시 보냄
-    GM_getValue(KEY_PENDING, []).forEach(sendOpen);
-    request('GET', '/api/fm-links').then(data => {
-        const fresh = (data.groups || []).filter(g => g.links.length);
-        // 아직 서버에 닿지 않은 누른 시각은 받은 목록에도 반영 ('방금 전'이 예전 시각으로 돌아가지 않게)
+    // 아직 서버에 닿지 않은 누른 시각·읽음은 목록에도 반영 ('방금 전'이 예전 시각으로, 읽은 글이 다시 새 글로 돌아가지 않게)
+    function applyPending(list) {
         GM_getValue(KEY_PENDING, []).forEach(x => {
-            const g = fresh.find(f => f.id === x.group_id);
+            const g = list.find(f => f.id === x.group_id);
             const l = g && g.links.find(y => y.board === x.board && y.keyword === x.keyword);
             if (l && (!l.last_opened || l.last_opened < x.at)) l.last_opened = x.at;
         });
-        const json = JSON.stringify(fresh);
-        if (json === cachedJson && groups.length) return;
-        cachedJson = json;
-        GM_setValue(KEY_CACHE, json);
-        groups = fresh;
-        if (!groups.length) render('등록한 키워드가 없습니다');
-        else { render(); if (marked) markNewPosts(); else tryMark(); }
-    }, () => { if (!groups.length) render('키워드 모니터에 연결하지 못했습니다'); });
+        GM_getValue(KEY_PENDING_READS, []).forEach(no => applyRead(list, no));
+    }
+    // 앞 화면에서 못 보낸 기록을 다시 보냄
+    function flushPending() {
+        GM_getValue(KEY_PENDING, []).forEach(sendOpen);
+        GM_getValue(KEY_PENDING_READS, []).forEach(sendRead);
+    }
+    function refresh() {
+        request('GET', '/api/fm-links').then(data => {
+            const fresh = (data.groups || []).filter(g => g.links.length);
+            applyPending(fresh);
+            const json = JSON.stringify(fresh);
+            if (json === cachedJson && groups.length) return;
+            cachedJson = json;
+            GM_setValue(KEY_CACHE, json);
+            groups = fresh;
+            if (!groups.length) render('등록한 키워드가 없습니다');
+            else { render(); if (marked) markNewPosts(); else tryMark(); }
+        }, () => { if (!groups.length) render('키워드 모니터에 연결하지 못했습니다'); });
+    }
+    flushPending();
+    refresh();
+    // 뒤로 가기 등으로 브라우저가 앞 화면을 그대로 되살리면 스크립트가 다시 돌지 않으므로, 다른 화면에서 바뀐 목록(읽은 글 등)으로 다시 그림
+    window.addEventListener('pageshow', e => {
+        if (!e.persisted) return;
+        try {
+            const json = GM_getValue(KEY_CACHE, '');
+            if (json) { groups = JSON.parse(json); cachedJson = json; }
+        } catch (err) { /* 기억한 목록이 깨졌으면 서버에서 받은 것으로 */ }
+        applyPending(groups);
+        compact = false;
+        lastY = window.scrollY;
+        if (groups.length) { render(); if (marked) markNewPosts(); else tryMark(); }
+        flushPending();
+        refresh();
+    });
 })();
