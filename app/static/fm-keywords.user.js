@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.6.0
+// @version      1.7.0
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
     const SITE = '__SITE__';
-    const VERSION = '1.6.0';
+    const VERSION = '1.7.0';
     // 오류로 멈추면 키워드 모니터 서버 기록에 한 줄 남김 (화면마다 한 번, 원인을 찾으려고. 에펨코리아 화면 내용은 보내지 않음)
     let reported = false;
     function reportError(where, err) {
@@ -201,6 +201,20 @@
         .picker .to small { font-size: 11px; color: #993C1D; margin-left: 4px; }
         .picker .to:disabled { opacity: .5; cursor: default; }
         .picker .err { font-size: 12px; color: #A32D2D; }
+        /* 큰 다음 키워드 단추: 휴대폰은 아랫줄 오른쪽에 두 줄 높이로(엄지가 닿는 자리), PC는 윗줄 오른쪽 끝 */
+        .bottom.has-big { display: grid; grid-template-columns: minmax(0, 1fr) 64px; gap: 8px; align-items: stretch; }
+        .bottom .main { min-width: 0; }
+        .bignext { border: 0; border-radius: 12px; background: #993C1D; color: #fff; cursor: pointer; font: inherit; font-weight: 700;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 4px 6px; min-width: 0;
+            -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+        .bignext:active { background: #712B13; }
+        .bignext .arw { font-size: 24px; line-height: 1; }
+        .bignext .bn { font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .bignext .bp { font-size: 10px; font-weight: 400; color: #F5C4B3; font-variant-numeric: tabular-nums; }
+        .top .bignext { flex: 0 0 auto; align-self: stretch; flex-direction: row; gap: 7px; padding: 4px 14px; margin: -2px -6px -2px 2px; max-width: 220px; }
+        .top .bignext .arw { font-size: 22px; order: 3; }
+        .top .bignext .bn { font-size: 13px; }
+        .top .bignext .bp { font-size: 11px; }
         .knav { display: inline-flex; align-items: center; border: 1px solid #F0997B; border-radius: 8px; background: #fff; overflow: hidden; }
         .side .knav button { border: 0; border-radius: 0; background: none; color: #712B13; font-weight: 700; padding: 3px 8px; line-height: 1.2; }
         .side .knav button:hover { background: #FFF6F2; }
@@ -272,6 +286,15 @@
         return all[(i + delta + all.length) % all.length];
     }
     function goSeq(delta) { const t = seqTarget(delta); if (t) openLink(t.g, t.l); }
+    // 큰 다음 키워드 단추 (휴대폰 아랫줄, PC 윗줄에서. PC 얇은 줄에서는 작은 ‹ › 그대로)
+    const showBig = () => allLinks().length >= 2 && (MOBILE || !compact);
+    function bigNextHtml() {
+        if (!showBig()) return '';
+        const all = allLinks(), next = seqTarget(1);
+        const n = all.findIndex(x => x.l === next.l && x.g.id === next.g.id) + 1;
+        return `<button class="bignext" data-seq="1" title="다음 키워드: ${esc(next.g.name)} · ${esc(next.l.keyword)}${MOBILE ? '' : ' (단축키 .)'}" aria-label="다음 키워드 ${esc(next.l.keyword)}">
+            <span class="arw">›</span><span class="bn">${esc(next.l.keyword)}</span><span class="bp">${n}/${all.length}</span></button>`;
+    }
     function seqHtml() {
         const all = allLinks();
         if (all.length < 2) return '';
@@ -281,7 +304,7 @@
         return `<span class="knav" title="전체 키워드 차례대로">
             <button data-seq="-1" title="이전 키워드: ${esc(tip(prev, ','))}" aria-label="이전 키워드">‹</button>
             <span class="kpos">${i >= 0 ? `${i + 1}/${all.length}` : `–/${all.length}`}</span>
-            <button data-seq="1" title="다음 키워드: ${esc(tip(next, '.'))}" aria-label="다음 키워드">›</button></span>`;
+            ${showBig() ? '' : `<button data-seq="1" title="다음 키워드: ${esc(tip(next, '.'))}" aria-label="다음 키워드">›</button>`}</span>`;
     }
     function progressHtml() {
         const all = allLinks(), done = all.filter(x => openedToday(x.l)).length;
@@ -434,8 +457,9 @@
                 // 윗줄: 묶음 이름 (누르면 아랫줄이 그 묶음으로, 같은 것을 다시 누르면 아랫줄 접힘), 아랫줄: 고른 묶음의 키워드
                 const picked = groups.find(g => g.id === mobileGroupId());
                 const names = groups.map(g => `<button class="gp${picked === g ? ' on' : ''}" data-mgroup="${g.id}">${esc(g.name)}${groupUnread(g) ? `<span class="newg">새 ${groupUnread(g)}</span>` : `<span class="cnt">${g.links.length}</span>`}</button>`).join('');
-                html = `<div class="bar bottom"><div class="head"><span class="title">FM키워드</span>${side}</div>
-                    <div class="groups">${names}</div>${picked ? `<div class="chips">${picked.links.map(l => chipHtml(picked, l)).join('')}</div>` : ''}</div>`;
+                const big = bigNextHtml();
+                html = `<div class="bar bottom${big ? ' has-big' : ''}"><div class="main"><div class="head"><span class="title">FM키워드</span>${side}</div>
+                    <div class="groups">${names}</div>${picked ? `<div class="chips">${picked.links.map(l => chipHtml(picked, l)).join('')}</div>` : ''}</div>${big}</div>`;
             } else if (compact) {
                 // 얇은 줄: 묶음 이름만 (누르면 그 묶음을 펼친 원래 줄로)
                 const cur = currentGroup();
@@ -447,7 +471,7 @@
                 const boxes = groups.map(g => open.has(g.id)
                     ? `<span class="box open"><button class="gh" data-toggle="${g.id}" aria-expanded="true">▾ ${esc(g.name)}</button>${g.links.map(l => chipHtml(g, l)).join('')}</span>`
                     : `<span class="box"><button class="gh" data-toggle="${g.id}" aria-expanded="false">▸ ${esc(g.name)} ${countHtml(g)}</button></span>`).join('');
-                html = `<div class="bar top"><div class="head"><span class="title">FM키워드</span></div><div class="boxes">${boxes}</div>${side}</div>`;
+                html = `<div class="bar top"><div class="head"><span class="title">FM키워드</span></div><div class="boxes">${boxes}</div>${side}${bigNextHtml()}</div>`;
             }
         }
         if (!message && !folded && !(compact && !MOBILE) && canAdd()) html = html.replace(/<\/div>$/, pickerHtml() + '</div>');

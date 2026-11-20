@@ -29,7 +29,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 BASE = f'http://127.0.0.1:{port}'
 with urllib.request.urlopen(BASE + '/fm-keywords.user.js') as r:
     script = r.read().decode('utf-8')
-assert '// @version      1.6.0' in script
+assert '// @version      1.7.0' in script
 order = [(l['board'], l['keyword']) for g in web_server.json.loads(urllib.request.urlopen(BASE + '/api/fm-links').read())['groups'] for l in g['links']]
 assert len(order) == 3, order
 
@@ -85,6 +85,11 @@ try:
     page(search_query(*order[0]))
     assert pos() == '1/3', pos()
     assert '쏘렌토' in js(f"return {R}.querySelector('[data-seq=\"1\"]').title") and 'gpt' in js(f"return {R}.querySelector('[data-seq=\"-1\"]').title")
+    # PC: 다음 키워드는 윗줄 오른쪽 끝의 큰 단추 하나 (작은 ‹ 옆의 ›는 없음), 다음 키워드 이름·순번
+    big = js(f"""const b = {R}.querySelector('.bar.top .bignext'), r = b.getBoundingClientRect();
+                 return [b.textContent.replace(/\\s+/g, ' ').trim(), Math.round(innerWidth - r.right), Math.round(r.height),
+                         {R}.querySelectorAll('[data-seq=\"1\"]').length]""")
+    assert big[0].replace(' ', '') == '›쏘렌토2/3' and big[1] <= 12 and big[2] >= 30 and big[3] == 1, big
     js(f"{R}.querySelector('[data-seq=\"1\"]').click()")
     assert went_to(*order[1]), d.current_url
     # 두 번째(쏘렌토)에서 단축키 . → 다음 카드의 gpt, , → 투싼
@@ -116,6 +121,13 @@ try:
     page(search_query(*order[1]))
     assert js(f"return !!{R}.querySelector('.bar.bottom .knav')") and pos() == '2/3', pos()
     assert js("return document.documentElement.scrollWidth <= innerWidth")
+    # 휴대폰: 아랫줄 오른쪽에 두 줄 높이의 큰 다음 단추 (엄지가 닿는 자리)
+    big = js(f"""const b = {R}.querySelector('.bar.bottom.has-big .bignext'), r = b.getBoundingClientRect();
+                 return [b.textContent.replace(/\\s+/g, ' ').trim(), Math.round(innerWidth - r.right), Math.round(r.width), Math.round(r.height)]""")
+    assert big[0].replace(' ', '') == '›gpt3/3' and big[1] <= 14 and big[2] >= 56 and big[3] >= 56, big
+    js(f"{R}.querySelector('.bignext').click()")
+    assert went_to(*order[2]), d.current_url
+    page(search_query(*order[1]))
     js(f"{R}.querySelector('[data-seq=\"-1\"]').click()")
     assert went_to(*order[0]), d.current_url
     print('SEQ MOBILE OK')
