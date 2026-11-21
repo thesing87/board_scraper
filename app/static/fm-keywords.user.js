@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.7.0
+// @version      1.7.1
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
     const SITE = '__SITE__';
-    const VERSION = '1.7.0';
+    const VERSION = '1.7.1';
     // 오류로 멈추면 키워드 모니터 서버 기록에 한 줄 남김 (화면마다 한 번, 원인을 찾으려고. 에펨코리아 화면 내용은 보내지 않음)
     let reported = false;
     function reportError(where, err) {
@@ -215,6 +215,9 @@
         .top .bignext .arw { font-size: 22px; order: 3; }
         .top .bignext .bn { font-size: 13px; }
         .top .bignext .bp { font-size: 11px; }
+        /* 묶음 이름: 누르면 그 묶음의 첫 키워드로 (PC는 ▸·▾ 화살표만 펼치기·접기) */
+        .gname { cursor: pointer; border-radius: 4px; }
+        .gname:hover { text-decoration: underline; }
         .knav { display: inline-flex; align-items: center; border: 1px solid #F0997B; border-radius: 8px; background: #fff; overflow: hidden; }
         .side .knav button { border: 0; border-radius: 0; background: none; color: #712B13; font-weight: 700; padding: 3px 8px; line-height: 1.2; }
         .side .knav button:hover { background: #FFF6F2; }
@@ -463,14 +466,14 @@
             } else if (compact) {
                 // 얇은 줄: 묶음 이름만 (누르면 그 묶음을 펼친 원래 줄로)
                 const cur = currentGroup();
-                const names = groups.map(g => `<button class="gh${cur === g ? ' cur' : ''}" data-cgroup="${g.id}">▸ ${esc(g.name)}${groupUnread(g) ? '<span class="dot" title="안 읽은 새 글"></span>' : ''}</button>`).join('');
+                const names = groups.map(g => `<button class="gh${cur === g ? ' cur' : ''}" data-cgroup="${g.id}">▸ <span class="gname" data-gfirst="${g.id}" title="${esc(g.name)}의 첫 키워드로">${esc(g.name)}</span>${groupUnread(g) ? '<span class="dot" title="안 읽은 새 글"></span>' : ''}</button>`).join('');
                 html = `<div class="bar top compact"><span class="title">FM키워드</span><div class="names">${names}</div>${side}</div>`;
             } else {
                 // 묶음 상자: 접히면 이름·개수, 펼치면 그 자리에 키워드 칩 (여러 개 함께 펼침)
                 const open = openIds();
                 const boxes = groups.map(g => open.has(g.id)
-                    ? `<span class="box open"><button class="gh" data-toggle="${g.id}" aria-expanded="true">▾ ${esc(g.name)}</button>${g.links.map(l => chipHtml(g, l)).join('')}</span>`
-                    : `<span class="box"><button class="gh" data-toggle="${g.id}" aria-expanded="false">▸ ${esc(g.name)} ${countHtml(g)}</button></span>`).join('');
+                    ? `<span class="box open"><button class="gh" data-toggle="${g.id}" aria-expanded="true">▾ <span class="gname" data-gfirst="${g.id}" title="${esc(g.name)}의 첫 키워드로">${esc(g.name)}</span></button>${g.links.map(l => chipHtml(g, l)).join('')}</span>`
+                    : `<span class="box"><button class="gh" data-toggle="${g.id}" aria-expanded="false">▸ <span class="gname" data-gfirst="${g.id}" title="${esc(g.name)}의 첫 키워드로">${esc(g.name)}</span> ${countHtml(g)}</button></span>`).join('');
                 html = `<div class="bar top"><div class="head"><span class="title">FM키워드</span></div><div class="boxes">${boxes}</div>${side}${bigNextHtml()}</div>`;
             }
         }
@@ -505,6 +508,13 @@
         GM_setValue(KEY_PENDING, [...GM_getValue(KEY_PENDING, []).filter(x => pendingKey(x) !== pendingKey(item)), item].slice(-50));
         sendOpen(item);
         location.href = searchUrl(link.board, link.keyword);
+    }
+    // 묶음의 첫 키워드로 (키워드가 없으면 false)
+    function openFirst(groupId) {
+        const g = groups.find(x => x.id === groupId);
+        if (!g || !g.links.length) return false;
+        openLink(g, g.links[0]);
+        return true;
     }
     function goNext() { const next = nextLink(); if (next) openLink(next.g, next.l); }
 
@@ -544,6 +554,9 @@
         if (e.target.closest('[data-addclose]')) { addOpen = false; render(); return; }
         const addto = e.target.closest('[data-addto]');
         if (addto) { addTo(Number(addto.dataset.addto)); return; }
+        // 묶음 이름: 그 묶음의 첫 키워드로 (PC. 화살표·숫자 쪽을 누르면 아래처럼 펼치기·접기)
+        const gfirst = e.target.closest('[data-gfirst]');
+        if (gfirst && openFirst(Number(gfirst.dataset.gfirst))) return;
         const toggle = e.target.closest('[data-toggle]');
         if (toggle) {
             // 다른 묶음을 펼치면 펼쳐져 있던 묶음은 접힘, 펼친 묶음을 다시 누르면 모두 접힘
@@ -566,6 +579,8 @@
         const mgroup = e.target.closest('[data-mgroup]');
         if (mgroup) {
             const id = Number(mgroup.dataset.mgroup);
+            // 휴대폰: 다른 묶음을 누르면 그 묶음의 첫 키워드로. 지금 보는 검색이 든 묶음을 누르면 아랫줄 접기·펴기
+            if (!(currentGroup() && currentGroup().id === id) && openFirst(id)) return;
             const shown = mobileGroupId();
             mobileTouched = true;
             GM_setValue(KEY_MOBILE, shown === id ? 0 : id);

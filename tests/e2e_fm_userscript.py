@@ -148,15 +148,21 @@ try:
     assert rect[0] == 0 and rect[1] > 40, rect
     got = chips(d)
     assert [c[0] for c in got] == ['테슬라', '모델y'] and got[1][1], got
-    # 윗줄 묶음 이름: 누르면 아랫줄이 그 묶음으로, 같은 것을 다시 누르면 아랫줄 접힘
+    # 윗줄 묶음 이름: 지금 보는 검색이 든 묶음(테슬라)을 누르면 아랫줄 접힘·펼침
     names = lambda: d.execute_script("return [...document.getElementById('keyword-monitor-fm-bar').shadowRoot.querySelectorAll('.gp')].map(b => [b.textContent.trim(), b.classList.contains('on')])")
     assert names() == [['테슬라2', True], ['AI1', False]], names()
-    d.execute_script("arguments[0].click()", bar(d, f'[data-mgroup="{ai}"]')); time.sleep(0.2)
-    assert [c[0] for c in chips(d)] == ['gpt'] and names()[1][1]
-    d.execute_script("arguments[0].click()", bar(d, f'[data-mgroup="{ai}"]')); time.sleep(0.2)
+    d.execute_script("arguments[0].click()", bar(d, f'[data-mgroup="{tesla}"]')); time.sleep(0.2)
     assert chips(d) == [] and not any(n[1] for n in names())
     d.execute_script("arguments[0].click()", bar(d, f'[data-mgroup="{tesla}"]')); time.sleep(0.2)
     assert len(chips(d)) == 2
+    # 다른 묶음(AI)을 누르면 그 묶음의 첫 키워드(gpt)로 바로 (1.7.1)
+    d.execute_script("arguments[0].click()", bar(d, f'[data-mgroup="{ai}"]'))
+    for _ in range(20):
+        if 'is_keyword=gpt' in d.current_url:
+            break
+        time.sleep(0.25)
+    assert 'is_keyword=gpt' in d.current_url, d.current_url
+    page(d, 'mid=car&search_keyword=%EB%AA%A8%EB%8D%B8y', tall=True)
     gone = lambda: d.execute_script("return arguments[0].classList.contains('gone')", bar(d, '.bar'))
     d.execute_script("window.scrollTo(0, 600)"); time.sleep(0.4)
     assert gone()
@@ -224,7 +230,10 @@ try:
     # 휴대폰: 뱃지는 칩 안쪽 (옆으로 밀리는 칩 줄에서 잘리지 않게)
     d.set_window_size(390, 844); time.sleep(0.3)
     page(d, 'mid=car&search_keyword=x')
-    d.execute_script("arguments[0].click()", bar(d, f'[data-mgroup="{tesla}"]')) if not bar(d, f'.gp.on[data-mgroup="{tesla}"]') else None
+    # 아랫줄을 테슬라 묶음으로 (다른 묶음 이름을 누르면 그 묶음의 첫 키워드로 넘어가므로 기억해 둔 값으로 고름)
+    if not bar(d, f'.gp.on[data-mgroup="{tesla}"]'):
+        d.execute_script("localStorage.setItem('gm_fm_bar_mobile_group', JSON.stringify(arguments[0]))", tesla)
+        page(d, 'mid=car&search_keyword=x')
     time.sleep(0.2)
     pos = d.execute_script("const b = document.getElementById('keyword-monitor-fm-bar').shadowRoot.querySelector('a.chip .newb'); const c = b.closest('a').getBoundingClientRect(), r = b.getBoundingClientRect();"
                            " return [getComputedStyle(b).position, r.top >= c.top, r.right <= c.right, b.textContent]")

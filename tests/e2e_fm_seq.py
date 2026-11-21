@@ -29,7 +29,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 BASE = f'http://127.0.0.1:{port}'
 with urllib.request.urlopen(BASE + '/fm-keywords.user.js') as r:
     script = r.read().decode('utf-8')
-assert '// @version      1.7.0' in script
+assert '// @version      1.7.1' in script
 order = [(l['board'], l['keyword']) for g in web_server.json.loads(urllib.request.urlopen(BASE + '/api/fm-links').read())['groups'] for l in g['links']]
 assert len(order) == 3, order
 
@@ -114,6 +114,13 @@ try:
     assert pos() == '–/3', pos()
     js("document.dispatchEvent(new KeyboardEvent('keydown', {key: ',', bubbles: true}))")
     assert went_to(*order[2]), d.current_url
+    # 묶음 이름(1.7.1): 이름을 누르면 그 묶음의 첫 키워드로, ▸ 화살표 쪽은 펼치기·접기 (이동 없음)
+    page(search_query(*order[2]))                              # gpt 보는 중: AI 묶음이 펼쳐져 있음
+    js(f"{R}.querySelector('.box:not(.open) .gname').click()")  # 접힌 자동차 묶음의 이름
+    assert went_to(*order[0]), d.current_url
+    page(search_query(*order[2]))
+    js(f"{R}.querySelector('.box:not(.open) [data-toggle]').click()"); time.sleep(.3)
+    assert d.current_url.startswith(BASE) and js(f"return {R}.querySelector('.box.open .gname').textContent") == '자동차'
     print('SEQ PC OK')
 
     # 휴대폰: 아랫줄에도 ‹ n/전체 ›
