@@ -15,6 +15,7 @@ for name in [k for k in os.environ if k.startswith('KEYWORDS_')]:
     os.environ[name] = ''
 import storage, web_server, videos
 from selenium.webdriver import Chrome
+from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 
 os.makedirs(os.path.join(VIDEOS, '드라마', '1부'))
@@ -204,6 +205,31 @@ try:
     assert '02화' in js("return document.getElementById('next-btn').textContent")
     js("document.getElementById('next-btn').click()"); time.sleep(2.5)
     assert js("return document.getElementById('player-title').textContent") == '02화'
+    # 영상 위 양옆 이전·다음 버튼: 이름이 아래에, 첫 영상에서는 이전이 꺼짐, Shift+→로 다음 영상
+    assert js("return document.getElementById('prev-name').textContent") == '이전 · 01화'
+    assert '01화' in js("return document.getElementById('prev-btn').title")
+    js("document.getElementById('prev-btn').click()"); time.sleep(2.5)
+    assert js("return document.getElementById('player-title').textContent") == '01화'
+    assert js("return [document.getElementById('prev-btn').disabled, document.getElementById('next-nav-btn').disabled]") == [True, False]
+    js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight', shiftKey: true}))"); time.sleep(2.5)
+    assert js("return document.getElementById('player-title').textContent") == '02화'
+    # 재생 중 3초 넘게 가만히 있으면 위쪽 줄·이전·다음이 숨고, 일시정지하면 다시 보임
+    js("document.getElementById('video').play()"); time.sleep(4)
+    assert not js("return document.getElementById('player').classList.contains('ui-on')"), js("return document.getElementById('video').paused")
+    assert js("return getComputedStyle(document.querySelector('.p-side.is-next')).opacity") == '0'
+    js("document.getElementById('video').pause()"); time.sleep(4)
+    assert js("return document.getElementById('player').classList.contains('ui-on')")
+    # 전체화면은 재생 화면 전체(이전·다음 버튼 포함), 다음 영상으로 넘어가도 전체화면 그대로
+    d.find_element(By.ID, 'fs-btn').click(); time.sleep(1)
+    assert js("return document.fullscreenElement && document.fullscreenElement.id") == 'player'
+    assert js("return document.getElementById('player').classList.contains('is-fs')")
+    nxt = js("return document.getElementById('next-name').textContent").split(' · ')[1]
+    d.find_element(By.ID, 'next-nav-btn').click(); time.sleep(2.5)
+    assert js("return document.getElementById('player-title').textContent") == nxt
+    assert js("return document.fullscreenElement && document.fullscreenElement.id") == 'player'
+    js("document.getElementById('video').pause()"); time.sleep(.5)
+    d.find_element(By.ID, 'fs-btn').click(); time.sleep(1)
+    assert js("return document.fullscreenElement") is None and not js("return document.getElementById('player').classList.contains('is-fs')")
     # 소리 크기·음소거는 모든 영상에 같고 저장됨 (다음 영상·새로 열어도 그대로)
     js("const v = document.getElementById('video'); v.volume = 0.35; v.muted = true"); time.sleep(.5)
     d.get(BASE + '/videos/#v=' + q('드라마/01화.mp4')); time.sleep(2.5)

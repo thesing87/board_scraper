@@ -77,10 +77,21 @@
             <!-- 재생 정보: 끊길 때 원인(네트워크인지 기기 성능인지)을 보려고 (videos.js renderStats) -->
             <button type="button" class="p-btn" id="stats-btn" aria-label="재생 정보" aria-pressed="false" title="재생 정보"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.01"></path></svg></button>
             <a class="p-btn" id="player-download" aria-label="내려받기" title="내려받기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg></a>
+            <!-- 전체화면: 영상만이 아니라 재생 화면 전체를 키움 → 전체화면에서도 이전·다음 버튼이 보임 (videos.js toggleFullscreen) -->
+            <button type="button" class="p-btn" id="fs-btn" aria-label="전체화면" title="전체화면"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path class="fs-on" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path><path class="fs-off" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"></path></svg></button>
         </div>
         <div class="player-stage">
-            <video id="video" controls playsinline preload="metadata"></video>
+            <video id="video" controls controlslist="nofullscreen" playsinline preload="metadata"></video>
             <div class="player-msg" id="player-msg" hidden></div>
+            <!-- 같은 폴더의 이전·다음 영상: 영상 위 양옆, 누르거나 마우스를 움직이면 떴다가 3초 뒤 사라짐 (videos.js updateNavButtons·showUi, 단축키 Shift+← / Shift+→) -->
+            <div class="p-side is-prev">
+                <button type="button" class="p-side-btn" id="prev-btn" aria-label="이전 영상" title="이전 영상" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5v14"></path><path d="M18 6l-9 6 9 6z" fill="currentColor"></path></svg></button>
+                <span class="p-side-name" id="prev-name"></span>
+            </div>
+            <div class="p-side is-next">
+                <button type="button" class="p-side-btn" id="next-nav-btn" aria-label="다음 영상" title="다음 영상" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 5v14"></path><path d="M6 6l9 6-9 6z" fill="currentColor"></path></svg></button>
+                <span class="p-side-name" id="next-name"></span>
+            </div>
             <div class="stats" id="stats" hidden aria-live="off">
                 <div class="stats-verdict" id="stats-verdict"></div>
                 <dl>

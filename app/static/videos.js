@@ -17,6 +17,8 @@
     const PREP_NOTICE_MS = 1500;
     // 재생 시작 뒤 이만큼 지나 다음 영상 미리 고치기 (처음 받는 데이터와 디스크를 다투지 않게)
     const NEXT_PREPARE_DELAY_MS = 15000;
+    // 위쪽 줄·이전·다음 버튼이 떠 있는 시간 (누르거나 마우스를 움직인 뒤)
+    const UI_HIDE_MS = 3000;
     const STATS_KEY = 'videos_stats_open';
     // 소리 크기·음소거: 모든 영상에 같은 값을 쓰고 이 기기에 저장 (다음 영상·다시 열어도 그대로)
     const VOLUME_KEY = 'videos_volume';
@@ -465,6 +467,75 @@
         return i >= 0 ? currentList.slice(i + 1).find(v => v.playable) : null;
     }
 
+    function prevVideo() {
+        const i = currentList.findIndex(v => v.path === player.path);
+        return i > 0 ? currentList.slice(0, i).reverse().find(v => v.playable) : null;
+    }
+
+    // 영상 위 양옆의 이전·다음 버튼: 같은 폴더에서 재생할 수 있는 앞·뒤 영상 (없으면 흐리게, 이름은 버튼 아래)
+    function updateNavButtons() {
+        [['prev-btn', 'prev-name', prevVideo(), '이전'], ['next-nav-btn', 'next-name', nextVideo(), '다음']].forEach(([id, nameId, v, label]) => {
+            const btn = $(id);
+            btn.disabled = !v;
+            btn.dataset.path = v ? v.path : '';
+            btn.title = v ? `${label} 영상: ${v.name}` : `${label} 영상 없음`;
+            $(nameId).textContent = v ? `${label} · ${v.name}` : '';
+        });
+    }
+
+    // 위쪽 줄·이전·다음은 누르거나 마우스를 움직이면 떴다가 UI_HIDE_MS 뒤 사라짐 (일시정지 중·버튼 위에 마우스가 있으면 그대로)
+    function showUi() {
+        $('player').classList.add('ui-on');
+        clearTimeout(player.uiTimer);
+        player.uiTimer = setTimeout(hideUi, UI_HIDE_MS);
+    }
+    function hideUi() {
+        if (video.paused || $('player').hidden) return;
+        if ($('player').querySelector('.player-top:hover, .p-side:hover')) { player.uiTimer = setTimeout(hideUi, UI_HIDE_MS); return; }
+        $('player').classList.remove('ui-on');
+    }
+    $('player').addEventListener('pointermove', e => { if (e.pointerType === 'mouse') showUi(); });
+    $('player').addEventListener('pointerdown', showUi);
+    video.addEventListener('play', showUi);
+    video.addEventListener('pause', showUi);
+
+    // 전체화면은 재생 화면 전체를 키움 (영상만 키우면 그 위에 이전·다음 버튼을 못 올림)
+    // 아이폰은 요소 전체화면이 없어 아이폰 재생기로 엶 (그때는 이전·다음 버튼 없음)
+    const fullscreenEl = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+    function toggleFullscreen() {
+        const el = $('player');
+        if (fullscreenEl()) {
+            const exit = document.exitFullscreen || document.webkitExitFullscreen;
+            if (exit) Promise.resolve(exit.call(document)).catch(() => {});
+            return;
+        }
+        const req = el.requestFullscreen || el.webkitRequestFullscreen;
+        if (req) {
+            Promise.resolve(req.call(el)).then(() => {
+                // 휴대폰: 가로 영상이면 화면을 가로로 (못 하는 기기는 그냥 둠)
+                if (video.videoWidth > video.videoHeight && screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+            }).catch(() => {});
+        } else if (video.webkitEnterFullscreen) {
+            video.webkitEnterFullscreen();
+        }
+    }
+    function onFullscreenChange() {
+        const on = fullscreenEl() === $('player');
+        $('player').classList.toggle('is-fs', on);
+        $('fs-btn').setAttribute('aria-label', on ? '전체화면 끝내기' : '전체화면');
+        $('fs-btn').title = on ? '전체화면 끝내기' : '전체화면';
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    $('fs-btn').addEventListener('click', toggleFullscreen);
+    video.addEventListener('dblclick', e => { if (e.target === video) toggleFullscreen(); });
+
+    function goTo(path) {
+        if (path) location.replace(videoHref(path));
+    }
+    $('prev-btn').addEventListener('click', () => goTo($('prev-btn').dataset.path));
+    $('next-nav-btn').addEventListener('click', () => goTo($('next-nav-btn').dataset.path));
+
     function showMessage(html) {
         $('player-msg').innerHTML = html;
         $('player-msg').hidden = false;
@@ -492,7 +563,9 @@
         $('player-msg').hidden = true;
         $('resume').hidden = true;
         $('player-next').hidden = true;
+        updateNavButtons();
         $('player').hidden = false;
+        showUi();
         document.body.classList.add('is-playing');
         video.innerHTML = '';
         if (info && info.subtitle) {
@@ -670,6 +743,8 @@
         $('player-msg').classList.remove('is-convert');
         clearInterval(stats.timer);
         $('player').hidden = true;
+        clearTimeout(player.uiTimer);
+        if (fullscreenEl()) toggleFullscreen();
         document.body.classList.remove('is-playing');
     }
 
@@ -682,6 +757,11 @@
     document.addEventListener('keydown', e => {
         if ($('player').hidden) return;
         if (e.key === 'Escape' && !document.fullscreenElement) closePlayer();
+        // Shift+← / Shift+→: 이전·다음 영상 (화살표만 누르면 브라우저가 앞뒤로 건너뜀)
+        if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+            const btn = $(e.key === 'ArrowLeft' ? 'prev-btn' : 'next-nav-btn');
+            if (!btn.disabled) { e.preventDefault(); goTo(btn.dataset.path); }
+        }
     });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveProgress(true); });
     window.addEventListener('pagehide', () => saveProgress(true));
