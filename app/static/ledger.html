@@ -122,6 +122,7 @@
             </div>
 
             <div class="grid">
+                <div class="col">
                 <section class="sec">
                     <div class="sec-head plain"><span>분석</span>
                         <div class="seg small" id="ana-seg"><button type="button" data-ana="expense">지출</button><button type="button" data-ana="income">수입</button></div></div>
@@ -130,6 +131,28 @@
                         <div id="legend"></div>
                     </div>
                 </section>
+                <!-- 합계: 일별(달력, 날짜를 누르면 그날 기록)·월별(올해 달마다, 달을 누르면 그 달) -->
+                <section class="sec totals" id="totals">
+                    <div class="sec-head plain"><span>합계</span>
+                        <div class="seg small left" id="tot-seg"><button type="button" data-tot="day">일별</button><button type="button" data-tot="month">월별</button></div>
+                        <span class="year-nav" id="year-nav" hidden><button type="button" class="icon sm" id="y-prev" aria-label="이전 해">‹</button><span id="y-label"></span><button type="button" class="icon sm" id="y-next" aria-label="다음 해">›</button></span>
+                    </div>
+                    <div id="tot-day">
+                        <div class="cal" id="cal"></div>
+                        <p class="hint cal-hint">날짜를 누르면 그날 기록만 보여요 · 막대 길이는 그날 지출</p>
+                    </div>
+                    <div id="tot-month" class="sec-body" hidden>
+                        <div class="ymet">
+                            <div><span id="y-in-label">올해 수입</span><b class="plus" id="y-in">–</b></div>
+                            <div><span>올해 지출</span><b class="minus" id="y-ex">–</b></div>
+                            <div><span>올해 합계</span><b id="y-net">–</b></div>
+                        </div>
+                        <svg id="mbars" width="100%" height="176" viewBox="0 0 360 176" role="img" aria-label="달마다 수입과 지출 막대"></svg>
+                        <p class="hint"><span class="key in"></span>수입 <span class="key ex"></span>지출 · 달을 누르면 그 달로</p>
+                        <table class="mt"><thead><tr><th>달</th><th>수입</th><th>지출</th><th>합계</th></tr></thead><tbody id="mtable"></tbody></table>
+                    </div>
+                </section>
+                </div>
                 <section class="sec">
                     <div class="sec-head plain"><span>기록</span><span class="sec-note" id="count"></span></div>
                     <div id="list"></div>

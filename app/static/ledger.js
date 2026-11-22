@@ -31,6 +31,8 @@
         me: null, data: null, mode: 'month', day: new Date(), who: 0,
         // kind: 입력 중인 쪽(expense·income), sels: 쪽마다 고른 분류, type: 기록 거르기(all·expense·income), ana: 분석할 쪽
         kind: 'expense', sels: { expense: null, income: null }, type: 'all', ana: 'expense',
+        // 합계 구역: totView(day: 이 달 달력·month: 올해 달마다), year·yearData(서버의 올해 합계)
+        totView: 'day', year: new Date().getFullYear(), yearData: null,
         catEditing: false, popFor: null, addColor: null, editId: null, ddIndex: -1,
     };
 
@@ -134,6 +136,7 @@
         if (status === 401) { showAuth('login'); return; }
         if (status !== 200) { $('entry-msg').textContent = '불러오지 못했어요. 잠시 뒤 다시 해 주세요.'; return; }
         st.data = data;
+        if (st.totView === 'month') loadYear();
         for (const kind of ['expense', 'income']) {
             const list = data.categories.filter(c => c.kind === kind);
             if (!list.some(c => c.id === st.sels[kind])) st.sels[kind] = list.length ? list[0].id : null;
@@ -174,6 +177,7 @@
         renderCats();
         renderFilter();
         renderSummary();
+        renderTotals();
     }
 
     function renderEntryHead() {
@@ -291,6 +295,114 @@
         $('donut').innerHTML = svg;
     }
 
+    const MEMO_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 12h6M9 16h4"></path></svg>';
+    const signed = n => `<span class="${n < 0 ? 'minus' : n > 0 ? 'plus' : ''}">${n < 0 ? '−' : n > 0 ? '+' : ''}${won(Math.abs(n))}</span>`;
+    // 이름표: 사람 색 동그라미 첫 글자 + 이름
+    function whoTag(id) {
+        const [bg, fg] = AVATAR[memberIndex(id) % AVATAR.length];
+        return `<span class="who-tag" style="background:${bg};color:${fg}">${avatarOf(id, nameOf(id))}${esc(nameOf(id))}</span>`;
+    }
+
+    // ==========================================
+    // 합계: 일별(이 달 달력)·월별(올해 달마다). 사람 거르기를 따름
+    // ==========================================
+    const shortWon = n => n >= 10000 ? `${(Math.round(n / 1000) / 10).toLocaleString('ko-KR')}만` : Math.round(n).toLocaleString('ko-KR');
+    function renderTotals() {
+        $('tot-seg').querySelectorAll('[data-tot]').forEach(b => b.classList.toggle('on', b.dataset.tot === st.totView));
+        $('tot-day').hidden = st.totView !== 'day';
+        $('tot-month').hidden = st.totView !== 'month';
+        $('year-nav').hidden = st.totView !== 'month';
+        if (st.totView === 'day') renderCalendar(); else renderYear();
+    }
+    function renderCalendar() {
+        const y = st.day.getFullYear(), m = st.day.getMonth();
+        const first = new Date(y, m, 1).getDay(), days = new Date(y, m + 1, 0).getDate();
+        const sums = {};
+        st.data.entries.filter(e => !st.who || e.user_id === st.who).forEach(e => {
+            const s = sums[e.used_on] || (sums[e.used_on] = { in: 0, ex: 0 });
+            s[kindOf(e) === 'income' ? 'in' : 'ex'] += e.amount;
+        });
+        const maxEx = Math.max(1, ...Object.values(sums).map(s => s.ex));
+        const today = ymd(new Date()), selected = st.mode === 'day' ? ymd(st.day) : '';
+        let html = '일월화수목금토'.split('').map((w, i) => `<span class="wk${i ? '' : ' sun'}">${w}</span>`).join('');
+        for (let i = 0; i < first; i++) html += '<span class="dc blank"></span>';
+        for (let d = 1; d <= days; d++) {
+            const key = `${y}-${pad(m + 1)}-${pad(d)}`, s = sums[key] || { in: 0, ex: 0 };
+            const cls = ['dc', s.in || s.ex ? '' : 'none', key === today ? 'today' : '', key === selected ? 'sel' : ''].filter(Boolean).join(' ');
+            html += `<button type="button" class="${cls}" data-day="${key}" title="${m + 1}월 ${d}일${s.in ? ` 수입 ${won(s.in)}` : ''}${s.ex ? ` 지출 ${won(s.ex)}` : ''}">
+                <span class="n">${d}</span>${s.in ? `<span class="v plus">+${shortWon(s.in)}</span>` : ''}${s.ex ? `<span class="v minus">−${shortWon(s.ex)}</span>` : ''}
+                ${s.ex ? `<span class="heat" style="width:${Math.max(12, Math.round(s.ex / maxEx * 100))}%"></span>` : ''}</button>`;
+        }
+        $('cal').innerHTML = html;
+    }
+    async function loadYear() {
+        const year = st.year;
+        const { status, data } = await get(`/api/ledger/year?year=${year}`);
+        if (status !== 200 || year !== st.year) return;
+        st.yearData = data;
+        if (st.totView === 'month') renderYear();
+    }
+    function renderYear() {
+        $('y-label').textContent = `${st.year}년`;
+        const yd = st.yearData && st.yearData.year === st.year ? st.yearData : null;
+        const months = Array.from({ length: 12 }, () => ({ in: 0, ex: 0 }));
+        if (yd) yd.totals.filter(t => !st.who || t.user_id === st.who).forEach(t => {
+            months[+t.month.slice(5, 7) - 1][t.kind === 'income' ? 'in' : 'ex'] += t.total;
+        });
+        const yIn = months.reduce((s, x) => s + x.in, 0), yEx = months.reduce((s, x) => s + x.ex, 0);
+        $('y-in-label').textContent = `${st.year === new Date().getFullYear() ? '올해' : `${st.year}년`} 수입${st.who ? ` · ${nameOf(st.who)}` : ''}`;
+        $('y-in').textContent = `+${won(yIn)}`;
+        $('y-ex').textContent = `−${won(yEx)}`;
+        $('y-net').innerHTML = signed(yIn - yEx);
+        const curM = st.day.getFullYear() === st.year ? st.day.getMonth() : -1;
+        const max = Math.max(1, ...months.map(x => Math.max(x.in, x.ex)));
+        const W = 360, H = 148, gw = W / 12;
+        let svg = '';
+        months.forEach((x, i) => {
+            const gx = i * gw, hi = x.in / max * (H - 8), he = x.ex / max * (H - 8);
+            if (i === curM) svg += `<rect x="${gx + 1}" y="0" width="${gw - 2}" height="${H + 4}" rx="4" fill="#FAEEDA"/>`;
+            svg += `<g data-month="${i + 1}"><rect x="${gx}" y="0" width="${gw}" height="${H + 26}" fill="transparent"/>`
+                + (x.in ? `<rect x="${gx + gw * 0.18}" y="${H - hi}" width="${gw * 0.3}" height="${hi}" rx="2" fill="#378ADD"><title>${i + 1}월 수입 ${won(x.in)}</title></rect>` : '')
+                + (x.ex ? `<rect x="${gx + gw * 0.52}" y="${H - he}" width="${gw * 0.3}" height="${he}" rx="2" fill="#D85A30"><title>${i + 1}월 지출 ${won(x.ex)}</title></rect>` : '')
+                + `<text x="${gx + gw / 2}" y="${H + 18}" text-anchor="middle" font-size="11" fill="${i === curM ? '#111827' : '#5F6673'}" font-weight="${i === curM ? 700 : 400}">${i + 1}월</text></g>`;
+        });
+        $('mbars').innerHTML = svg;
+        let rows = '';
+        months.forEach((x, i) => {
+            if (!x.in && !x.ex) return;
+            rows += `<tr class="row${i === curM ? ' cur' : ''}" data-month="${i + 1}"><td>${i + 1}월</td><td class="plus">+${won(x.in)}</td><td class="minus">−${won(x.ex)}</td><td>${signed(x.in - x.ex)}</td></tr>`;
+        });
+        rows += `<tr class="sum"><td>${st.year === new Date().getFullYear() ? '올해' : `${st.year}년`}</td><td class="plus">+${won(yIn)}</td><td class="minus">−${won(yEx)}</td><td>${signed(yIn - yEx)}</td></tr>`;
+        $('mtable').innerHTML = yd ? rows : '<tr><td colspan="4" class="hint">불러오는 중</td></tr>';
+    }
+    $('tot-seg').addEventListener('click', e => {
+        const b = e.target.closest('[data-tot]');
+        if (!b || b.dataset.tot === st.totView) return;
+        st.totView = b.dataset.tot;
+        if (st.totView === 'month') { st.year = st.day.getFullYear(); loadYear(); }
+        renderTotals();
+    });
+    $('y-prev').addEventListener('click', () => { st.year--; st.yearData = null; renderYear(); loadYear(); });
+    $('y-next').addEventListener('click', () => { st.year++; st.yearData = null; renderYear(); loadYear(); });
+    // 달력의 날짜: 그날 기록만 (다시 누르면 이 달 전체)
+    $('cal').addEventListener('click', e => {
+        const b = e.target.closest('[data-day]');
+        if (!b) return;
+        if (st.mode === 'day' && ymd(st.day) === b.dataset.day) { st.mode = 'month'; }
+        else { st.mode = 'day'; const [y, m, d] = b.dataset.day.split('-').map(Number); st.day = new Date(y, m - 1, d); }
+        render();
+    });
+    // 월별의 달: 그 달을 월별로 보고 합계는 그 달 달력으로
+    function openMonth(month) {
+        const before = ym(st.day);
+        st.day = new Date(st.year, month - 1, 1);
+        st.mode = 'month';
+        st.totView = 'day';
+        if (ym(st.day) !== before) load(); else render();
+    }
+    $('mbars').addEventListener('click', e => { const g = e.target.closest('[data-month]'); if (g) openMonth(Number(g.dataset.month)); });
+    $('mtable').addEventListener('click', e => { const r = e.target.closest('[data-month]'); if (r) openMonth(Number(r.dataset.month)); });
+
     function canEdit(e) { return st.me && (st.me.admin || e.user_id === st.me.id); }
     function renderList(list) {
         $('count').textContent = `${list.length}건`;
@@ -300,14 +412,14 @@
             const items = list.filter(e => e.used_on === day);
             const dayIn = items.filter(e => kindOf(e) === 'income').reduce((t, e) => t + e.amount, 0);
             const dayEx = items.filter(e => kindOf(e) === 'expense').reduce((t, e) => t + e.amount, 0);
-            const sums = [dayIn ? `<span class="plus">+${won(dayIn)}</span>` : '', dayEx ? `<span class="minus">−${won(dayEx)}</span>` : ''].filter(Boolean).join(' · ');
-            const head = `<div class="dayh"><span>${+day.slice(5, 7)}월 ${+day.slice(8)}일</span><span>${sums}</span></div>`;
+            const net = dayIn - dayEx;
+            const head = `<div class="dayh"><b>${+day.slice(5, 7)}월 ${+day.slice(8)}일</b>${dayIn ? `<span>수입 <span class="plus">+${won(dayIn)}</span></span>` : ''}`
+                + `${dayEx ? `<span>지출 <span class="minus">−${won(dayEx)}</span></span>` : ''}<span class="net">합계 ${signed(net)}</span></div>`;
             return head + items.map(e => {
                 const c = catOf(e.category_id), mine = canEdit(e), income = c.kind === 'income';
                 return `<button type="button" class="it${mine ? ' mine' : ''}${st.editId === e.id ? ' editing' : ''}" data-entry="${e.id}"${mine ? ' title="눌러서 고치기"' : ' tabindex="-1"'}>
-                    ${avatarOf(e.user_id, nameOf(e.user_id))}
-                    <span class="txt"><span class="cat" style="color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}${income ? ' <span class="in-tag">수입</span>' : ''}</span>
-                    <span class="sub">${esc(nameOf(e.user_id))}${e.memo ? ` · ${esc(e.memo)}` : ''}</span></span>
+                    <span class="txt"><span class="line1"><span class="cat" style="color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span>${income ? '<span class="in-tag">수입</span>' : ''}${whoTag(e.user_id)}</span>
+                    ${e.memo ? `<span class="memo">${MEMO_ICON}<span>${esc(e.memo)}</span></span>` : ''}</span>
                     <span class="amt${income ? ' plus' : ''}">${income ? '+' : ''}${won(e.amount)}</span></button>`;
             }).join('');
         }).join('');

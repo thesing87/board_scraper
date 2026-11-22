@@ -138,6 +138,29 @@ try:
     click('#list [data-entry]'); time.sleep(.3)
     assert txt('entry-title') == '기록 고치기' and js("return document.getElementById('entry').classList.contains('income')")
     click('#edit-cancel'); click('#kind-expense'); time.sleep(.2)
+    # 기록 줄: 이름은 이름표, 메모는 아래 줄에 따로, 날짜 머리줄에 수입·지출·합계
+    row = js("const b = [...document.querySelectorAll('#list [data-entry]')].find(x => x.textContent.includes('사료')); return [b.querySelector('.who-tag').textContent.trim(), b.querySelector('.memo').textContent.trim()]")
+    assert row == ['임임기범', '사료'], row
+    head = js("return document.querySelector('#list .dayh').textContent.replace(/\\s+/g, ' ').trim()")
+    assert '수입 +3,200,000원' in head and '지출 −57,000원' in head and '합계 +3,143,000원' in head, head
+    # 합계(일별 달력): 오늘 칸에 수입·지출, 누르면 그날 기록만, 다시 누르면 이 달
+    cell = js(f"return document.querySelector('#cal [data-day=\"{TODAY}\"]').textContent.replace(/\\s+/g, ' ').trim()")
+    assert '+320만' in cell and '−5.7만' in cell, cell
+    click(f'#cal [data-day="{TODAY}"]'); time.sleep(.3)
+    assert '이날' in txt('m-ex-label') and js(f"return document.querySelector('#cal [data-day=\"{TODAY}\"]').classList.contains('sel')")
+    click(f'#cal [data-day="{TODAY}"]'); time.sleep(.3)
+    assert '이 달' in txt('m-ex-label')
+    # 합계(월별): 올해 수입·지출·합계, 달마다 표, 달을 누르면 그 달로
+    click('#tot-seg [data-tot="month"]'); time.sleep(1.2)
+    assert vis('tot-month') and not vis('tot-day') and txt('y-in') == '+3,200,000원' and txt('y-ex') == '−57,000원'
+    month_no = int(TODAY[5:7])
+    assert js(f"return document.querySelector('#mtable tr.cur').textContent.replace(/\\s+/g, ' ').trim()").startswith(f'{month_no}월'), txt('mtable')
+    assert '+3,143,000원' in js("return document.querySelector('#mtable tr.sum').textContent")
+    click('#y-prev'); time.sleep(1)
+    assert txt('y-in') == '+0원' and '–' not in txt('y-label')
+    click('#y-next'); time.sleep(1)
+    js("document.querySelector('#mtable tr.cur').click()"); time.sleep(1)
+    assert vis('tot-day') and '이 달' in txt('m-ex-label')
     print('INCOME OK')
 
     # ---- 내 기록 고치기·지우기

@@ -1243,6 +1243,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_data(200, {'user': user})
         elif pure_path == '/api/ledger/state':
             self._send_data(200, {'user': user, **ledger.state(query.get('month', [''])[0])})
+        elif pure_path == '/api/ledger/year':
+            self._send_data(200, ledger.year_totals(query.get('year', [''])[0]))
         elif pure_path == '/api/ledger/admin' and user['admin']:
             self._send_data(200, ledger.people())
         else:

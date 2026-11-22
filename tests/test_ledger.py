@@ -109,6 +109,13 @@ st = call('/api/ledger/state?month=2026-11', cookie=user)[1]
 assert [e['id'] for e in st['entries']] == [e2, e1] and {m['name'] for m in st['members']} == {'임기범', '지은'}
 assert st['memos'][:2] == [{'memo': '스타벅스', 'category_id': cafe}, {'memo': '이마트 장보기', 'category_id': food}], st['memos']
 assert [e['id'] for e in call('/api/ledger/state?month=2026-10', cookie=admin)[1]['entries']] == [e3]
+# 올해 달마다 합계: 달·사람·지출/수입마다
+yt = call('/api/ledger/year?year=2026', cookie=user)[1]
+admin_id = next(m['id'] for m in st['members'] if m['admin'])
+assert yt['year'] == 2026 and sorted((t['month'], t['user_id'], t['kind'], t['total']) for t in yt['totals']) == sorted([
+    ('2026-10', jieun, 'expense', 3000), ('2026-11', jieun, 'expense', 5600), ('2026-11', admin_id, 'expense', 42000)]), yt
+assert call('/api/ledger/year?year=2025', cookie=user)[1]['totals'] == [] and call('/api/ledger/year?year=abc', cookie=user)[1]['year'] >= 2026
+assert call('/api/ledger/year?year=2026')[0] == 401
 assert call('/api/ledger/entry', {'action': 'edit', 'id': e1, 'amount': 1, 'used_on': '2026-11-22', 'category_id': food}, cookie=user)[1]['message'] == '❌ 내가 쓴 기록만 고칠 수 있어요.'
 assert call('/api/ledger/entry', {'action': 'edit', 'id': e2, 'amount': 6100, 'used_on': '2026-11-21', 'category_id': pet, 'memo': ' 간식  '}, cookie=user)[0] == 200
 assert call('/api/ledger/entry', {'action': 'delete', 'id': e2}, cookie=admin)[0] == 200   # 관리자는 남의 기록도

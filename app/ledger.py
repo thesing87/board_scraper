@@ -232,6 +232,22 @@ def state(month):
             'memos': [{'memo': r['memo'], 'category_id': r['category_id']} for r in memos]}
 
 
+def year_totals(year):
+    """그해 달마다·사람마다·지출/수입마다 합계 [{month: 'YYYY-MM', user_id, kind, total}] (월별 합계 화면, 거르기는 화면에서)"""
+    try:
+        year = int(year)
+    except (TypeError, ValueError):
+        year = date.today().year
+    if not 2000 <= year <= 2100:
+        year = date.today().year
+    with _db() as conn:
+        rows = conn.execute("""SELECT substr(e.used_on, 1, 7) AS month, e.user_id, c.kind, SUM(e.amount) AS total
+                               FROM ledger_entries e JOIN ledger_categories c ON c.id = e.category_id
+                               WHERE e.used_on >= ? AND e.used_on < ? GROUP BY month, e.user_id, c.kind ORDER BY month""",
+                            (f'{year}-01-01', f'{year + 1}-01-01')).fetchall()
+    return {'year': year, 'totals': [dict(r) for r in rows]}
+
+
 def _entry_values(amount, used_on, category_id, memo, conn):
     if type(amount) is not int or not 0 < amount < AMOUNT_MAX:
         raise LedgerError('금액을 넣어 주세요.')
