@@ -28,7 +28,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 BASE = f'http://127.0.0.1:{port}'
 with urllib.request.urlopen(BASE + '/fm-keywords.user.js') as r:
     script = r.read().decode('utf-8')
-assert '// @version      1.7.1' in script
+assert '// @version      1.7.2' in script
 
 SHIM = """
 const realMatch = window.matchMedia.bind(window);

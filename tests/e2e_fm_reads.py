@@ -32,7 +32,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 BASE = f'http://127.0.0.1:{port}'
 with urllib.request.urlopen(BASE + '/fm-keywords.user.js') as r:
     script = r.read().decode('utf-8')
-assert '// @version      1.7.1' in script
+assert '// @version      1.7.2' in script
 
 SHIM = """
 const realMatch = window.matchMedia.bind(window);
@@ -96,6 +96,28 @@ try:
        "localStorage.setItem('gm_fm_bar_cache', JSON.stringify(JSON.stringify(c)))" % (BASE_NO + 3))
     js("window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))"); time.sleep(1)
     assert badge() == '', badge()
+    # 4) 1.7.2: 찾아 둔 새 글이 검색 결과 번호 범위 안에서 빠졌으면(지워짐·검색에서 빠짐) 읽은 것으로 ('새 1'이 영영 남지 않게)
+    storage.fm_seen_init('car', '쏘렌토', BASE_NO + 100)
+    storage.fm_seen_found('car', '쏘렌토', [BASE_NO + 101, BASE_NO + 102, BASE_NO + 103])
+    def sorento_read():
+        with storage._db() as conn:
+            return json.loads(conn.execute("SELECT read_ids FROM fm_seen WHERE board = 'car' AND keyword = '쏘렌토'").fetchone()[0])
+    def result_page(query, numbers):
+        for _ in range(3):
+            d.get(BASE + '/api/fm-links?' + query); time.sleep(0.5)
+            if d.current_url.startswith(BASE):
+                break
+        rows = ''.join(f'<tr><td class="title"><a class="hx" href="/{BASE_NO + n}">글 {n}</a></td></tr>' for n in numbers)
+        js("document.body.innerHTML = arguments[0]", f'<table class="bd_lst"><tbody>{rows}</tbody></table>')
+        js(SHIM + script); time.sleep(1.5)
+    q = urllib.parse.quote('쏘렌토')
+    # 글 화면 아래 붙은 목록(검색 결과가 아님)에서는 빠진 글을 읽음으로 치지 않음
+    result_page(f'mid=car&search_target=title_content&search_keyword={q}&document_srl={BASE_NO + 103}', [103, 99])
+    assert sorento_read() == [BASE_NO + 103], sorento_read()
+    # 검색 결과: 102는 범위(99~103) 안인데 빠짐 → 읽음, 화면에 있는 101은 그대로 새 글
+    result_page(f'mid=car&search_target=title_content&search_keyword={q}', [103, 101, 99])
+    assert sorted(sorento_read()) == [BASE_NO + 102, BASE_NO + 103], sorento_read()
+    assert js("return [...document.querySelectorAll('.kmfm-new a.hx')].map(a => a.getAttribute('href'))") == [f'/{BASE_NO + 101}']
     severe = [m['message'][:200] for m in d.get_log('browser') if m['level'] == 'SEVERE' and 'fm-link' not in m['message'] and 'fmkorea' not in m['message'] and 'favicon' not in m['message']]
     assert not severe, severe
 finally:

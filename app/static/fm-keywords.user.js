@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.7.1
+// @version      1.7.2
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
     const SITE = '__SITE__';
-    const VERSION = '1.7.1';
+    const VERSION = '1.7.2';
     // 오류로 멈추면 키워드 모니터 서버 기록에 한 줄 남김 (화면마다 한 번, 원인을 찾으려고. 에펨코리아 화면 내용은 보내지 않음)
     let reported = false;
     function reportError(where, err) {
@@ -683,6 +683,15 @@
                 // 다른 기기가 먼저 정한 기준이 있으면 그것을 따름
                 if (data.seen_max !== link.seen_max) { link.seen_max = data.seen_max; link.read_ids = data.read_ids; saveCache(); markNewPosts(); }
             }, () => {});
+        }
+        // 찾아 둔 새 글이 지금 검색 결과의 번호 범위 안에 있는데 목록에서 빠졌으면(지워졌거나 제목·내용이 바뀌어 검색에서 빠짐)
+        // 열어 볼 수가 없어 '새 1'로 계속 남으므로 읽은 것으로 침 (글 화면 아래 붙은 목록은 검색 결과가 아니라서 검색 결과 화면에서만)
+        if (!pagePostNo && rows.length >= 2) {
+            const onPage = new Set(rows.map(x => x.no));
+            const lo = Math.min(...onPage), hi = Math.max(...onPage);
+            const already = new Set(link.read_ids || []);
+            (link.found_ids || []).filter(no => no > link.seen_max && no > lo && no < hi && !onPage.has(no) && !already.has(no))
+                .forEach(no => markRead(no));
         }
         const read = new Set(link.read_ids || []);
         const since = rows.filter(x => x.no > link.seen_max);
