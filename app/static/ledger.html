@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>가계부</title>
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231D9E75'/%3E%3Crect x='7' y='10' width='18' height='13' rx='3' fill='none' stroke='white' stroke-width='2.4'/%3E%3Ccircle cx='20' cy='16.5' r='1.6' fill='white'/%3E%3C/svg%3E">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <meta name="theme-color" content="#F4F5F7">
+    <link rel="stylesheet" href="/ledger.css">
+    <link rel="stylesheet" href="/nav.css">
+    <script src="/nav.js" defer></script>
+    <script src="/ledger.js" defer></script>
+</head>
+<body>
+    <!-- 가계부: 관리자가 허락한 사람끼리 지출을 함께 기록하고 보기 (ledger.py). 공유 버튼은 두지 않음 -->
+    <header class="site-top" data-no-share>
+        <div class="site-top-row">
+            <div class="site-top-brand">
+                <span class="site-top-mark" style="background:#1D9E75" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="3"></rect><path d="M3 10h13a2 2 0 0 1 0 4h-1"></path></svg></span>
+                <h1>가계부</h1>
+            </div>
+            <div class="site-top-tools">
+                <span class="who-me" id="who-me" hidden></span>
+                <button type="button" class="tool" id="logout" hidden>로그아웃</button>
+            </div>
+        </div>
+        <nav class="site-nav" data-current="ledger"></nav>
+    </header>
+
+    <main class="page">
+        <!-- 로그인 · 처음 쓰는 사람(가입 요청) -->
+        <section class="sec auth" id="auth" hidden>
+            <div class="tabs" role="tablist">
+                <button type="button" role="tab" id="tab-login" aria-selected="true">로그인</button>
+                <button type="button" role="tab" id="tab-signup" aria-selected="false">처음이에요</button>
+            </div>
+            <form id="login-form" autocomplete="on">
+                <input id="login-name" name="username" autocomplete="username" placeholder="이름" maxlength="20">
+                <input id="login-pw" type="password" autocomplete="current-password" placeholder="비밀번호">
+                <button type="submit" class="primary">로그인</button>
+                <p class="hint">관리자는 관리자 이름과 관리자 암호로 로그인해요.</p>
+            </form>
+            <form id="signup-form" hidden>
+                <input id="su-name" autocomplete="username" placeholder="쓸 이름 (예: 홍길동)" maxlength="20">
+                <input id="su-pw" type="password" autocomplete="new-password" placeholder="비밀번호 (4자 이상)">
+                <input id="su-pw2" type="password" autocomplete="new-password" placeholder="비밀번호 확인">
+                <button type="submit" class="primary">가입 요청 보내기</button>
+                <p class="hint">관리자가 허락하면 가계부를 쓸 수 있어요.</p>
+            </form>
+            <p class="msg" id="auth-msg" role="alert"></p>
+        </section>
+
+        <div id="app" hidden>
+            <!-- 관리자만: 가입 요청 허락·거절, 허락 취소 -->
+            <details class="sec admin" id="admin" hidden>
+                <summary><span>사용자 허락</span><span class="badge" id="pending-count" hidden></span></summary>
+                <div class="admin-body">
+                    <p class="label">허락을 기다리는 사람</p>
+                    <div id="pending"></div>
+                    <p class="label">가계부를 함께 쓰는 사람</p>
+                    <div id="members"></div>
+                </div>
+            </details>
+
+            <div class="metrics">
+                <div class="metric"><span id="m1-label">이번 달 지출</span><b id="m1">–</b></div>
+                <div class="metric"><span>기록</span><b id="m2">–</b></div>
+                <div class="metric"><span>가장 많이 쓴 곳</span><b id="m3">–</b></div>
+            </div>
+
+            <!-- 입력 (기록을 누르면 고치기) -->
+            <section class="sec entry" id="entry">
+                <div class="sec-head"><span id="entry-title">지출 입력</span><span class="sec-note" id="entry-note"></span></div>
+                <div class="sec-body">
+                    <div class="row2">
+                        <input id="amount" inputmode="numeric" placeholder="금액 (원)" class="amount" autocomplete="off">
+                        <input id="used-on" type="date">
+                    </div>
+                    <div class="cat-head"><span id="cat-hint">소비형태 — 누르면 선택, 없으면 추가</span><button type="button" class="small" id="cat-edit">색·이름 편집</button></div>
+                    <div class="cats" id="cats"></div>
+                    <div class="addbox" id="addbox" hidden>
+                        <div class="add-row"><input id="new-name" placeholder="새 소비형태 이름 (예: 반려동물)" maxlength="12"><span class="hint">미리보기</span><span class="chip" id="new-preview"></span></div>
+                        <p class="hint">색을 골라 주세요</p>
+                        <div class="pal" id="add-pal"></div>
+                        <label class="custom"><input type="color" id="add-custom" value="#5B8DEF"> 원하는 색 직접 고르기</label>
+                        <div class="add-row"><button type="button" class="primary" id="add-ok">추가하고 선택</button><button type="button" id="add-cancel">취소</button><span class="msg" id="add-msg"></span></div>
+                    </div>
+                    <div class="memo-row">
+                        <div class="memo-wrap">
+                            <input id="memo" placeholder="메모 — 누르면 최근 메모" maxlength="60" autocomplete="off">
+                            <div class="dd" id="memo-dd" hidden></div>
+                        </div>
+                        <button type="button" class="save" id="save">입력</button>
+                    </div>
+                    <div class="edit-row" id="edit-row" hidden>
+                        <button type="button" id="edit-cancel">고치기 취소</button>
+                        <button type="button" class="danger" id="edit-delete">이 기록 지우기</button>
+                    </div>
+                    <p class="msg" id="entry-msg" role="alert"></p>
+                </div>
+            </section>
+
+            <!-- 거르기: 일별·월별, 기간, 누구의 소비인지 -->
+            <div class="filter">
+                <div class="seg"><button type="button" id="mode-day">일별</button><button type="button" id="mode-month">월별</button></div>
+                <div class="period">
+                    <button type="button" class="icon" id="prev" aria-label="이전">‹</button>
+                    <span id="period"></span>
+                    <button type="button" class="icon" id="next" aria-label="다음">›</button>
+                </div>
+                <div class="people" id="people"></div>
+            </div>
+
+            <div class="grid">
+                <section class="sec">
+                    <div class="sec-head plain"><span>소비형태 분석</span></div>
+                    <div class="sec-body chart">
+                        <svg id="donut" width="170" height="170" viewBox="0 0 170 170" role="img" aria-label="소비형태별 원형 그래프"></svg>
+                        <div id="legend"></div>
+                    </div>
+                </section>
+                <section class="sec">
+                    <div class="sec-head plain"><span>기록</span><span class="sec-note" id="count"></span></div>
+                    <div id="list"></div>
+                </section>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

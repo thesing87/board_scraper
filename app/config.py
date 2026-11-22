@@ -84,6 +84,8 @@ TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 # 미설정 또는 기본 예시값이면 관리 API가 비활성화됨 (web_server.py 참고)
 ADMIN_PASSWORD = (os.environ.get('ADMIN_PASSWORD') or '').strip()
+# 가계부(/ledger/)에서 관리자 암호로 로그인한 사람의 이름 (가입 요청을 허락하는 사람)
+LEDGER_ADMIN_NAME = (os.environ.get('LEDGER_ADMIN_NAME') or '임기범').strip()
 INSECURE_ADMIN_PASSWORDS = {'', 'admin1234'}
 # 대시보드 앞에 역방향 프록시(DSM)가 있을 때 1: 프록시가 넘겨 준 실제 접속자 IP(X-Real-IP·X-Forwarded-For)로 암호 실패 잠금.
 # Docker 포트 연결을 거치면 모든 접속이 같은 내부 IP로 보여 한 명이 틀려도 모두가 잠기므로 필요.

@@ -85,6 +85,7 @@ import videos
 import video_fix
 import video_convert
 import system_status
+import ledger
 import apt_trades
 from card_store import (
     card_benefits,
@@ -181,6 +182,10 @@ STATIC_FILES = {
     '/comics/': ('comics.html', 'text/html; charset=utf-8'),
     '/comics.js': ('comics.js', 'application/javascript; charset=utf-8'),
     '/comics.css': ('comics.css', 'text/css; charset=utf-8'),
+    # 가계부 (여럿이 함께 쓰는 지출 기록, 관리자가 허락한 사람만)
+    '/ledger/': ('ledger.html', 'text/html; charset=utf-8'),
+    '/ledger.js': ('ledger.js', 'application/javascript; charset=utf-8'),
+    '/ledger.css': ('ledger.css', 'text/css; charset=utf-8'),
     # 모든 페이지 공통 바로가기 메뉴
     '/nav.js': ('nav.js', 'application/javascript; charset=utf-8'),
     '/nav.css': ('nav.css', 'text/css; charset=utf-8'),
@@ -509,6 +514,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._handle_comics_get(pure_path, query)
             elif pure_path.startswith('/api/videos/'):
                 self._handle_videos_get(pure_path, query)
+            elif pure_path.startswith('/api/ledger/'):
+                self._handle_ledger_get(pure_path, query)
             elif pure_path.startswith(IMAGE_URL_PREFIX):
                 self._serve_image(pure_path[len(IMAGE_URL_PREFIX):])
             elif pure_path == '/api/fm-links':
@@ -647,6 +654,10 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/videos/progress': ('_handle_videos_progress', '동영상 이어 보기 저장'),
         '/api/videos/convert': ('_handle_videos_convert', '동영상 변환 처리'),
         '/api/system': ('_handle_system', 'NAS 상태 조회'),
+        '/api/ledger/session': ('_handle_ledger_session', '가계부 로그인 처리'),
+        '/api/ledger/entry': ('_handle_ledger_entry', '가계부 기록 처리'),
+        '/api/ledger/category': ('_handle_ledger_category', '가계부 소비형태 처리'),
+        '/api/ledger/admin': ('_handle_ledger_admin', '가계부 사용자 허락 처리'),
     }
 
     def do_POST(self):
@@ -1185,6 +1196,147 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             # 건너뛰기·창 닫기로 브라우저가 받던 요청을 끊은 것 (정상)
             pass
+
+    # ==========================================
+    # 가계부 (ledger.py): 이름·비밀번호로 로그인하면 가계부 API에만 쓰는 쿠키. 관리자는 관리자 암호(또는 로그인 키)로
+    # ==========================================
+    LEDGER_COOKIE = 'ledger_session'
+    LEDGER_COOKIE_AGE = 180 * 24 * 3600
+
+    def _ledger_token(self):
+        try:
+            morsel = SimpleCookie(self.headers.get('Cookie') or '').get(self.LEDGER_COOKIE)
+        except CookieError:
+            return ''
+        return morsel.value if morsel else ''
+
+    def _ledger_cookie(self, value, max_age):
+        return f"{self.LEDGER_COOKIE}={value}; Path=/api/ledger/; Max-Age={max_age}; HttpOnly; SameSite=Strict"
+
+    def _ledger_user(self):
+        """로그인한 사람. 없으면 401로 답하고 None"""
+        user = ledger.user_for_token(self._ledger_token())
+        if not user:
+            self._send_json(401, False, '❌ 로그인이 필요합니다.')
+        return user
+
+    def _ledger_reply(self, fn):
+        """ledger 함수를 부르고 거절 이유(LedgerError)는 400으로"""
+        try:
+            result = fn()
+        except ledger.LedgerError as e:
+            self._send_json(400, False, f'❌ {e}')
+            return
+        self._send_data(200, {'success': True, **(result or {})})
+
+    @staticmethod
+    def _ledger_admin_password(password):
+        given = password.strip().encode('utf-8')
+        return bool(ADMIN_PASSWORD) and (hmac.compare_digest(given, ADMIN_PASSWORD.encode('utf-8'))
+                                         or hmac.compare_digest(given, ADMIN_TOKEN.encode('utf-8')))
+
+    def _handle_ledger_get(self, pure_path, query):
+        user = self._ledger_user()
+        if not user:
+            return
+        if pure_path == '/api/ledger/me':
+            self._send_data(200, {'user': user})
+        elif pure_path == '/api/ledger/state':
+            self._send_data(200, {'user': user, **ledger.state(query.get('month', [''])[0])})
+        elif pure_path == '/api/ledger/admin' and user['admin']:
+            self._send_data(200, ledger.people())
+        else:
+            self._send_json(404, False, '❌ 없는 요청입니다.')
+
+    def _handle_ledger_session(self):
+        """{action: login|signup|logout, name, password}"""
+        action = self._body.get('action')
+        ip = client_ip(self.client_address[0], self.headers)
+        if action == 'logout':
+            ledger.logout(self._ledger_token())
+            body = json.dumps({'success': True}).encode('utf-8')
+            self._send_body(200, body, 'application/json; charset=utf-8', {'Set-Cookie': self._ledger_cookie('', 0)})
+            return
+        if action not in ('login', 'signup'):
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        if _is_locked_out(ip):
+            self._send_json(429, False, '❌ 로그인 실패가 반복되어 잠시 막혔어요. 10분 뒤에 다시 해 주세요.')
+            return
+        name, password = self._body.get('name'), self._body.get('password')
+        if action == 'signup':
+            if isinstance(name, str) and ' '.join(name.split()) == ledger.LEDGER_ADMIN_NAME:
+                self._send_json(400, False, '❌ 이미 있는 이름이에요. 다른 이름을 써 주세요.')
+                return
+            try:
+                ledger.signup(name, password)
+            except ledger.LedgerError as e:
+                self._send_json(400, False, f'❌ {e}')
+                return
+            log_msg(f"[가계부] 가입 요청: {' '.join(str(name).split())}")
+            self._send_json(200, True, '가입 요청을 보냈어요. 관리자가 허락하면 로그인할 수 있어요.')
+            return
+        try:
+            token, user = ledger.login(name, password, self._ledger_admin_password)
+        except ledger.LedgerError as e:
+            if str(e) == 'pending':
+                self._send_json(403, False, '❌ 아직 관리자가 허락하지 않았어요.')
+                return
+            _record_auth_failure(ip)
+            log_msg(f"[API] 가계부 로그인 실패: {ip}", "WARN")
+            self._send_json(401, False, '❌ 이름 또는 비밀번호가 맞지 않아요.')
+            return
+        _clear_auth_failures(ip)
+        body = json.dumps({'success': True, 'user': user}, ensure_ascii=False).encode('utf-8')
+        self._send_body(200, body, 'application/json; charset=utf-8', {'Set-Cookie': self._ledger_cookie(token, self.LEDGER_COOKIE_AGE)})
+
+    def _handle_ledger_entry(self):
+        """{action: add|edit|delete, id, amount, used_on, category_id, memo}"""
+        user = self._ledger_user()
+        if not user:
+            return
+        b, action = self._body, self._body.get('action')
+        if action == 'add':
+            self._ledger_reply(lambda: {'id': ledger.add_entry(user, b.get('amount'), b.get('used_on'), b.get('category_id'), b.get('memo'))})
+        elif action == 'edit' and type(b.get('id')) is int:
+            self._ledger_reply(lambda: ledger.edit_entry(user, b['id'], b.get('amount'), b.get('used_on'), b.get('category_id'), b.get('memo')))
+        elif action == 'delete' and type(b.get('id')) is int:
+            self._ledger_reply(lambda: ledger.delete_entry(user, b['id']))
+        else:
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+
+    def _handle_ledger_category(self):
+        """{action: add|edit|delete, id, name, color} (소비형태는 로그인한 사람 누구나)"""
+        if not self._ledger_user():
+            return
+        b, action = self._body, self._body.get('action')
+        if action == 'add':
+            self._ledger_reply(lambda: {'id': ledger.add_category(b.get('name'), b.get('color'))})
+        elif action == 'edit' and type(b.get('id')) is int:
+            self._ledger_reply(lambda: ledger.edit_category(b['id'], b.get('name'), b.get('color')))
+        elif action == 'delete' and type(b.get('id')) is int:
+            self._ledger_reply(lambda: ledger.delete_category(b['id']))
+        else:
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+
+    def _handle_ledger_admin(self):
+        """관리자만: {action: approve|reject|revoke, user_id}"""
+        user = self._ledger_user()
+        if not user:
+            return
+        if not user['admin']:
+            self._send_json(403, False, '❌ 관리자만 할 수 있어요.')
+            return
+        action, target = self._body.get('action'), self._body.get('user_id')
+        fn = {'approve': ledger.approve, 'reject': ledger.reject, 'revoke': ledger.revoke}.get(action)
+        if not fn or type(target) is not int:
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        def run():
+            fn(target)
+            log_msg(f"[가계부] 관리자 {action}: 사용자 #{target}")
+            return ledger.people()
+        self._ledger_reply(run)
 
     def _handle_system(self):
         """대시보드 'NAS 상태' 카드 (관리자 전용): CPU·메모리·디스크·컨테이너·동영상 변환"""

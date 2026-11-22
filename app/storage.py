@@ -277,6 +277,46 @@ def _create_schema(conn):
             updated_at TEXT NOT NULL
         );
 
+        -- 가계부(/ledger/, ledger.py): 쓰는 사람·로그인·소비형태·지출 기록
+        -- 사람: 관리자(is_admin=1, 관리자 암호로 로그인)와 가입 요청한 사람(pending → 관리자가 허락하면 approved)
+        CREATE TABLE IF NOT EXISTS ledger_users (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL UNIQUE,
+            pw_hash     TEXT,
+            salt        TEXT,
+            is_admin    INTEGER NOT NULL DEFAULT 0,
+            status      TEXT NOT NULL DEFAULT 'pending',
+            created_at  TEXT NOT NULL,
+            approved_at TEXT
+        );
+        -- 로그인한 기기 (쿠키 값의 sha256만 저장)
+        CREATE TABLE IF NOT EXISTS ledger_sessions (
+            token_hash TEXT PRIMARY KEY,
+            user_id    INTEGER NOT NULL REFERENCES ledger_users(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL,
+            last_seen  TEXT NOT NULL
+        );
+        -- 소비형태: 모두가 함께 씀, 색은 사람이 고름 (#RRGGBB)
+        CREATE TABLE IF NOT EXISTS ledger_categories (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT NOT NULL UNIQUE,
+            color      TEXT NOT NULL,
+            position   INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+        -- 지출 기록 (used_on: YYYY-MM-DD, amount: 원)
+        CREATE TABLE IF NOT EXISTS ledger_entries (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER NOT NULL REFERENCES ledger_users(id),
+            amount      INTEGER NOT NULL,
+            used_on     TEXT NOT NULL,
+            category_id INTEGER NOT NULL REFERENCES ledger_categories(id),
+            memo        TEXT NOT NULL DEFAULT '',
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ledger_entries_used_on ON ledger_entries(used_on);
+
         CREATE TABLE IF NOT EXISTS comic_progress (
             path       TEXT PRIMARY KEY,
             page       INTEGER NOT NULL,
