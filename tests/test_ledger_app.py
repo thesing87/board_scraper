@@ -57,6 +57,7 @@ req('/api/ledger/admin', json.dumps({'action': 'approve', 'user_id': jieun}).enc
 user = login('지은', 'pw12')
 
 # ---- 처음엔 없음, 받기 404
+assert json.loads(req('/api/ledger/app', cookie=user)[1])['app'] is None
 assert json.loads(req('/api/ledger/inbox', cookie=user)[1])['app'] is None
 assert req('/api/ledger/app.apk', cookie=user)[0] == 404
 
@@ -82,6 +83,9 @@ code, body, h = req('/api/ledger/app.apk', cookie=user)
 assert code == 200 and body == APK and h['Content-Type'] == 'application/vnd.android.package-archive', h
 assert "filename*=UTF-8''" + urllib.parse.quote('YeYe가계부-1.0.apk') in h['Content-Disposition'], h['Content-Disposition']
 assert req('/api/ledger/app.apk')[0] == 401                      # 로그인 없으면 못 받음
+# 앱이 연결 전에 가계부 로그인(쿠키)으로 새 버전 확인
+assert req('/api/ledger/app')[0] == 401
+assert json.loads(req('/api/ledger/app', cookie=user)[1])['app'] == {k: info[k] for k in ('versionCode', 'versionName', 'size', 'sha256')}
 
 # ---- 앱이 연결 주소(키)로 새 버전 확인·받기 (쿠키 없이)
 hook = json.loads(req('/api/ledger/hook-key', json.dumps({'action': 'create'}).encode(), user)[1])['url'][len(BASE):]

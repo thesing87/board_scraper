@@ -41,6 +41,8 @@ final class Updater {
     private Updater() { }
 
     private static final long AUTO_CHECK_MS = 10 * 60 * 1000L;
+    /** 연결 전이고 가계부에 로그인하지 않아 확인하지 못함 (로그인하면 바로 다시 확인) */
+    static final String NEED_LOGIN = "가계부에 로그인하면 새 버전을 확인해요";
     private static long lastAuto;
 
     /** 앱을 열 때 자동 확인할 차례인지 (10분에 한 번 — 확인 창을 닫고 돌아왔을 때 또 묻지 않게). force: 설치 허용을 켜고 돌아온 때 */
@@ -85,13 +87,28 @@ final class Updater {
 
     private static void run(Context c, boolean auto, Listener l) throws Exception {
         Store s = new Store(c);
-        String base = s.url();
-        if (base.isEmpty()) {
-            l.onStatus("연결 주소를 넣으면 새 버전을 확인해요", false);
-            return;
+        // 연결 주소가 있으면 그 키로, 없으면 앱 안 가계부 로그인(쿠키)으로 확인
+        String infoUrl, apkUrl, cookie = null;
+        String hook = s.url();
+        if (!hook.isEmpty()) {
+            infoUrl = hook + "/app";
+            apkUrl = hook + "/app.apk";
+        } else {
+            String origin = Store.origin(s.site());
+            if (origin.isEmpty()) {
+                l.onStatus("가계부 주소를 넣으면 새 버전을 확인해요", false);
+                return;
+            }
+            cookie = android.webkit.CookieManager.getInstance().getCookie(origin + "/api/ledger/");
+            if (cookie == null || !cookie.contains("ledger_session=")) {
+                l.onStatus(NEED_LOGIN, false);
+                return;
+            }
+            infoUrl = origin + "/api/ledger/app";
+            apkUrl = origin + "/api/ledger/app.apk";
         }
         l.onStatus("새 버전 확인 중…", false);
-        JSONObject reply = new JSONObject(get(base + "/app"));
+        JSONObject reply = new JSONObject(get(infoUrl, cookie));
         JSONObject app = reply.optJSONObject("app");
         long own = ownVersion(c);
         if (app == null || app.optLong("versionCode") <= own) {
@@ -102,7 +119,7 @@ final class Updater {
         File apk = new File(c.getCacheDir(), "update.apk");
         if (!(apk.isFile() && sha.equals(sha256(apk)))) {
             l.onStatus("새 버전 " + name + " 받는 중…", false);
-            download(base + "/app.apk", apk, app.optLong("size"));
+            download(apkUrl, apk, app.optLong("size"), cookie);
             if (!sha.equals(sha256(apk))) {
                 apk.delete();
                 l.onStatus("새 버전 " + name + "을 받았는데 파일이 맞지 않아요. 다시 시도해 주세요", false);
@@ -142,8 +159,9 @@ final class Updater {
     }
 
     // ---------- 받기
-    private static String get(String url) throws Exception {
+    private static String get(String url, String cookie) throws Exception {
         HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
+        if (cookie != null) con.setRequestProperty("Cookie", cookie);
         try {
             con.setConnectTimeout(10000);
             con.setReadTimeout(15000);
@@ -160,8 +178,9 @@ final class Updater {
         }
     }
 
-    private static void download(String url, File to, long size) throws Exception {
+    private static void download(String url, File to, long size, String cookie) throws Exception {
         HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
+        if (cookie != null) con.setRequestProperty("Cookie", cookie);
         File tmp = new File(to.getPath() + ".part");
         try {
             con.setConnectTimeout(10000);

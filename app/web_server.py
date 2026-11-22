@@ -1272,6 +1272,10 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         elif pure_path == '/api/ledger/inbox':
             self._send_data(200, {'items': ledger.inbox(user), 'rules': ledger.rules(), 'hook': ledger.hook_info(user),
                                   'hook_base': self._site_base() + self.LEDGER_HOOK_PREFIX, 'app': ledger_app.info()})
+        elif pure_path == '/api/ledger/app':
+            # 앱이 연결 주소 없이 가계부 로그인만으로 새 버전을 확인할 때
+            app = ledger_app.info()
+            self._send_data(200, {'app': {k: app[k] for k in ('versionCode', 'versionName', 'size', 'sha256')} if app else None})
         elif pure_path == '/api/ledger/app.apk':
             app = ledger_app.info()
             if not app:

@@ -281,6 +281,14 @@ try:
     assert '이 휴대폰 앱(1.2)' in txt('app-connect-state') and txt('app-connect-btn') == '다시 연결'
     with urllib.request.urlopen(urllib.request.Request(got[0], data='[삼성카드] 승인 3,300원 앱연결'.encode(), method='POST', headers={'Content-Type': 'text/plain'})) as r:
         assert r.status == 200                                          # 앱에 넣은 새 주소로 받아짐
+    # ---- 앱의 뒤로가기(window.ledgerBack): 열린 것을 하나씩 닫고, 닫을 게 없으면 false
+    js("document.getElementById('auto').open = true")
+    click('#cat-edit'); time.sleep(.2)
+    assert js('return window.ledgerBack()') is True and txt('cat-edit') == '색·이름 편집'          # 편집 모드 끝
+    assert js('return window.ledgerBack()') is True and not js("return document.getElementById('auto').open")
+    if js("return !document.getElementById('admin').hidden && document.getElementById('admin').open"):
+        assert js('return window.ledgerBack()') is True
+    assert js('return window.ledgerBack()') is False
     print('AUTO OK')
 
     # ---- 휴대폰: 넘침 없음

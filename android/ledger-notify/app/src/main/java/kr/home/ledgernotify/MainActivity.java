@@ -79,13 +79,7 @@ public class MainActivity extends Activity {
             pageOrigin = Store.origin(site);
             web.loadUrl(site);
         }
-        if (Updater.autoDue(updateNeedsPermission)) {
-            Updater.check(this, true, (text, needPermission) -> ui.post(() -> {
-                updateText = text;
-                updateNeedsPermission = needPermission;
-                showBanner();
-            }));
-        }
+        if (Updater.autoDue(updateNeedsPermission)) checkUpdate(true);
         showBanner();
     }
 
@@ -96,10 +90,37 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().flush();   // 가계부 로그인 쿠키를 바로 저장
     }
 
+    /**
+     * 뒤로가기: 가계부 페이지에 열린 것(색 고르기·메모 목록·고치기·펼친 칸)이 있으면 그것부터 닫고,
+     * 없으면 '한 번 더 누르면 종료' 안내 → 2초 안에 한 번 더 누르면 앱을 뒤로 보냄 (다시 열면 보던 화면 그대로)
+     */
+    private long backAt;
+
     @Override
     public void onBackPressed() {
-        if (web.canGoBack()) web.goBack();
-        else super.onBackPressed();
+        web.evaluateJavascript("(window.ledgerBack && window.ledgerBack()) ? 'closed' : ''", r -> {
+            if (r != null && r.contains("closed")) return;
+            if (web.canGoBack()) {
+                web.goBack();
+                return;
+            }
+            long now = System.currentTimeMillis();
+            if (now - backAt < 2000) {
+                backAt = 0;
+                moveTaskToBack(true);
+            } else {
+                backAt = now;
+                Toast.makeText(this, "뒤로 버튼을 한 번 더 누르면 종료돼요", Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private void checkUpdate(boolean auto) {
+        Updater.check(this, auto, (text, needPermission) -> ui.post(() -> {
+            updateText = text;
+            updateNeedsPermission = needPermission;
+            showBanner();
+        }));
     }
 
     // ==========================================
@@ -152,11 +173,7 @@ public class MainActivity extends Activity {
             if (url.contains("/api/ledger/app.apk")) {
                 // 앱 안에서는 받지 않고 바로 새 버전 확인·설치
                 toast("새 버전을 확인할게요");
-                Updater.check(this, false, (text, needPermission) -> ui.post(() -> {
-                    updateText = text;
-                    updateNeedsPermission = needPermission;
-                    showBanner();
-                }));
+                checkUpdate(false);
             } else {
                 openOutside(Uri.parse(url));
             }
@@ -309,6 +326,18 @@ public class MainActivity extends Activity {
                 toast("이 앱에 연결했어요 — 이제 결제 알림이 확인 대기함으로 가요");
             });
             return true;
+        }
+
+        /** 가계부에 로그인됨: 로그인 전이라 새 버전을 확인하지 못했으면 바로 다시 */
+        @JavascriptInterface
+        public void loggedIn() {
+            if (!fromLedger()) return;
+            ui.post(() -> {
+                if (Updater.NEED_LOGIN.equals(updateText)) {
+                    updateText = "";
+                    checkUpdate(true);
+                }
+            });
         }
 
         @JavascriptInterface

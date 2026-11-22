@@ -120,6 +120,8 @@
         if (user.admin) loadPeople();
         load();
         loadInbox();
+        // 앱 안이면 로그인됐다고 알림 (연결 전에도 로그인으로 새 버전을 확인)
+        try { if (window.LedgerApp && window.LedgerApp.loggedIn) window.LedgerApp.loggedIn(); } catch (e) { /* 예전 앱 */ }
     }
 
     async function boot() {
@@ -889,6 +891,19 @@
         $('app-upload').disabled = true;
         renderApp(data.app);
     });
+    // ---- 앱의 뒤로가기: 열려 있는 것을 하나 닫으면 true (닫을 게 없으면 false → 앱이 '한 번 더 누르면 종료' 안내)
+    window.ledgerBack = () => {
+        if (!$('memo-dd').hidden) { $('memo-dd').hidden = true; return true; }
+        if (st.popFor != null) { st.popFor = null; renderCats(); return true; }
+        if (!$('addbox').hidden) { $('addbox').hidden = true; return true; }
+        if (st.catEditing) { st.catEditing = false; renderCats(); return true; }
+        if (st.editItem != null) { st.editItem = null; renderInbox(); return true; }
+        if (st.editId != null) { $('edit-cancel').click(); return true; }
+        for (const id of ['auto', 'admin']) {
+            if (!$(id).hidden && $(id).open) { $(id).open = false; return true; }
+        }
+        return false;
+    };
     // 다른 화면에 갔다 오면(휴대폰에서 결제 뒤 열었을 때 등) 대기함을 새로
     document.addEventListener('visibilitychange', () => { if (!document.hidden && st.me) loadInbox(); });
     setInterval(() => { if (!document.hidden && st.me) loadInbox(); }, 60000);
