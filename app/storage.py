@@ -296,15 +296,16 @@ def _create_schema(conn):
             created_at TEXT NOT NULL,
             last_seen  TEXT NOT NULL
         );
-        -- 소비형태: 모두가 함께 씀, 색은 사람이 고름 (#RRGGBB)
+        -- 분류(지출의 소비형태·수입의 종류): 모두가 함께 씀, 색은 사람이 고름 (#RRGGBB), kind: expense·income
         CREATE TABLE IF NOT EXISTS ledger_categories (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             name       TEXT NOT NULL UNIQUE,
             color      TEXT NOT NULL,
+            kind       TEXT NOT NULL DEFAULT 'expense',
             position   INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL
         );
-        -- 지출 기록 (used_on: YYYY-MM-DD, amount: 원)
+        -- 지출·수입 기록 (used_on: YYYY-MM-DD, amount: 원). 지출인지 수입인지는 분류(category)의 kind
         CREATE TABLE IF NOT EXISTS ledger_entries (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id     INTEGER NOT NULL REFERENCES ledger_users(id),
@@ -451,6 +452,10 @@ def _migrate_legacy_files(conn):
 
 def _add_missing_columns(conn):
     """이미 만들어진 DB에 나중에 추가된 컬럼을 보충"""
+    if 'kind' not in {row['name'] for row in conn.execute("PRAGMA table_info(ledger_categories)")}:
+        # 가계부 수입: 그전까지의 분류는 모두 지출
+        conn.execute("ALTER TABLE ledger_categories ADD COLUMN kind TEXT NOT NULL DEFAULT 'expense'")
+        log_msg("[DB] ledger_categories.kind 컬럼 추가")
     if 'found_ids' not in {row['name'] for row in conn.execute("PRAGMA table_info(fm_seen)")}:
         conn.execute("ALTER TABLE fm_seen ADD COLUMN found_ids TEXT NOT NULL DEFAULT '[]'")
         log_msg("[DB] fm_seen.found_ids 컬럼 추가")

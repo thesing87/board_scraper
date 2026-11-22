@@ -4,7 +4,8 @@
   가입 요청은 관리자가 허락해야(approved) 로그인할 수 있고, 허락받은 사람은 가계부만 씀 (다른 관리 기능은 관리자 암호가 필요)
 - 로그인하면 쿠키 값(무작위)을 주고 DB에는 그 sha256만 둠. 허락을 취소하면 그 사람의 로그인도 모두 끊음
 - 기록은 로그인한 사람 모두가 함께 봄. 고치기·지우기는 쓴 사람과 관리자만
-- 소비형태는 모두가 함께 쓰고, 색은 사람이 직접 고름. 기록에 쓰인 소비형태는 지우지 못함
+- 분류(지출의 소비형태·수입의 종류)는 모두가 함께 쓰고, 색은 사람이 직접 고름. 기록에 쓰인 분류는 지우지 못함.
+  기록이 지출인지 수입인지는 그 분류의 kind(expense·income)로 정함
 """
 import hashlib
 import hmac
@@ -26,9 +27,11 @@ PBKDF2_ROUNDS = 120_000
 COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
 DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
 MONTH_RE = re.compile(r'^\d{4}-\d{2}$')
-# 처음 한 번 넣는 소비형태 (색은 나중에 바꿀 수 있음)
+KINDS = ('expense', 'income')
+# 처음 한 번 넣는 분류 (색은 나중에 바꿀 수 있음)
 DEFAULT_CATEGORIES = [('식비', '#D85A30'), ('카페', '#EF9F27'), ('교통', '#378ADD'), ('생활', '#1D9E75'),
                       ('쇼핑', '#D4537E'), ('의료', '#534AB7')]
+DEFAULT_INCOME_CATEGORIES = [('급여', '#185FA5'), ('부수입', '#2BA7B8'), ('용돈', '#9B5DE5'), ('이자·환급', '#639922')]
 
 
 class LedgerError(ValueError):
@@ -60,12 +63,17 @@ def _ensure_admin(conn):
 
 
 def _seed_categories(conn):
-    if _get_meta(conn, 'ledger_categories_seeded'):
-        return
     now = _now()
-    conn.executemany("INSERT OR IGNORE INTO ledger_categories(name, color, position, created_at) VALUES(?, ?, ?, ?)",
-                     [(n, c, i, now) for i, (n, c) in enumerate(DEFAULT_CATEGORIES)])
-    _set_meta(conn, 'ledger_categories_seeded', 1)
+    if not _get_meta(conn, 'ledger_categories_seeded'):
+        conn.executemany("INSERT OR IGNORE INTO ledger_categories(name, color, kind, position, created_at) VALUES(?, ?, 'expense', ?, ?)",
+                         [(n, c, i, now) for i, (n, c) in enumerate(DEFAULT_CATEGORIES)])
+        _set_meta(conn, 'ledger_categories_seeded', 1)
+    # 수입은 나중에 생겨, 이미 쓰던 가계부에도 한 번만 넣음 (지운 수입 종류가 되살아나지 않게)
+    if not _get_meta(conn, 'ledger_income_seeded'):
+        base = conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM ledger_categories").fetchone()[0]
+        conn.executemany("INSERT OR IGNORE INTO ledger_categories(name, color, kind, position, created_at) VALUES(?, ?, 'income', ?, ?)",
+                         [(n, c, base + i, now) for i, (n, c) in enumerate(DEFAULT_INCOME_CATEGORIES)])
+        _set_meta(conn, 'ledger_income_seeded', 1)
 
 
 def _clean_name(name):
@@ -211,7 +219,7 @@ def state(month):
         _seed_categories(conn)
         entries = conn.execute("""SELECT id, user_id, amount, used_on, category_id, memo, created_at FROM ledger_entries
                                   WHERE used_on >= ? AND used_on < ? ORDER BY used_on DESC, id DESC""", (start, end)).fetchall()
-        cats = conn.execute("SELECT id, name, color FROM ledger_categories ORDER BY position, id").fetchall()
+        cats = conn.execute("SELECT id, name, color, kind FROM ledger_categories ORDER BY position, id").fetchall()
         members = conn.execute("""SELECT id, name, is_admin FROM ledger_users
                                   WHERE status = 'approved' OR id IN (SELECT DISTINCT user_id FROM ledger_entries)
                                   ORDER BY is_admin DESC, id""").fetchall()
@@ -272,20 +280,22 @@ def delete_entry(user, entry_id):
 def _category_values(name, color):
     name = ' '.join(str(name or '').split())
     if not name or len(name) > CATEGORY_NAME_MAX:
-        raise LedgerError(f'소비형태 이름은 1~{CATEGORY_NAME_MAX}자로 넣어 주세요.')
+        raise LedgerError(f'이름은 1~{CATEGORY_NAME_MAX}자로 넣어 주세요.')
     if not isinstance(color, str) or not COLOR_RE.fullmatch(color):
         raise LedgerError('색을 골라 주세요.')
     return name, color.upper()
 
 
-def add_category(name, color):
+def add_category(name, color, kind='expense'):
     name, color = _category_values(name, color)
+    if kind not in KINDS:
+        raise LedgerError('지출인지 수입인지 골라 주세요.')
     with _db() as conn, conn:
         if conn.execute("SELECT 1 FROM ledger_categories WHERE name = ?", (name,)).fetchone():
-            raise LedgerError('이미 있는 소비형태예요.')
+            raise LedgerError('이미 있는 이름이에요.')
         position = conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM ledger_categories").fetchone()[0]
-        return conn.execute("INSERT INTO ledger_categories(name, color, position, created_at) VALUES(?, ?, ?, ?)",
-                            (name, color, position, _now())).lastrowid
+        return conn.execute("INSERT INTO ledger_categories(name, color, kind, position, created_at) VALUES(?, ?, ?, ?, ?)",
+                            (name, color, kind, position, _now())).lastrowid
 
 
 def edit_category(category_id, name, color):
@@ -295,7 +305,7 @@ def edit_category(category_id, name, color):
         if not conn.execute("SELECT 1 FROM ledger_categories WHERE id = ?", (category_id,)).fetchone():
             raise LedgerError('없는 소비형태예요.')
         if conn.execute("SELECT 1 FROM ledger_categories WHERE name = ? AND id != ?", (name, category_id)).fetchone():
-            raise LedgerError('이미 있는 소비형태예요.')
+            raise LedgerError('이미 있는 이름이에요.')
         conn.execute("UPDATE ledger_categories SET name = ?, color = ? WHERE id = ?", (name, color, category_id))
 
 

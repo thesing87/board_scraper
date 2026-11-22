@@ -66,15 +66,21 @@
             </details>
 
             <div class="metrics">
-                <div class="metric"><span id="m1-label">이번 달 지출</span><b id="m1">–</b></div>
+                <div class="metric"><span id="m-in-label">이 달 수입</span><b class="plus" id="m-in">–</b></div>
+                <div class="metric"><span id="m-ex-label">이 달 지출</span><b class="minus" id="m-ex">–</b></div>
+                <div class="metric"><span>남은 돈 (수입−지출)</span><b id="m-left">–</b></div>
                 <div class="metric"><span>기록</span><b id="m2">–</b></div>
-                <div class="metric"><span>가장 많이 쓴 곳</span><b id="m3">–</b></div>
             </div>
 
             <!-- 입력 (기록을 누르면 고치기) -->
             <section class="sec entry" id="entry">
                 <div class="sec-head"><span id="entry-title">지출 입력</span><span class="sec-note" id="entry-note"></span></div>
                 <div class="sec-body">
+                    <!-- 지출·수입 고르기 (고른 쪽에 따라 입력 칸 색과 분류가 바뀜) -->
+                    <div class="kind" role="radiogroup" aria-label="지출 또는 수입">
+                        <button type="button" class="ex" id="kind-expense" role="radio">− 지출</button>
+                        <button type="button" class="in" id="kind-income" role="radio">＋ 수입</button>
+                    </div>
                     <div class="row2">
                         <input id="amount" inputmode="numeric" placeholder="금액 (원)" class="amount" autocomplete="off">
                         <input id="used-on" type="date">
@@ -111,12 +117,14 @@
                     <span id="period"></span>
                     <button type="button" class="icon" id="next" aria-label="다음">›</button>
                 </div>
+                <div class="seg" id="type-seg"><button type="button" data-type="all">모두</button><button type="button" data-type="expense">지출만</button><button type="button" data-type="income">수입만</button></div>
                 <div class="people" id="people"></div>
             </div>
 
             <div class="grid">
                 <section class="sec">
-                    <div class="sec-head plain"><span>소비형태 분석</span></div>
+                    <div class="sec-head plain"><span>분석</span>
+                        <div class="seg small" id="ana-seg"><button type="button" data-ana="expense">지출</button><button type="button" data-ana="income">수입</button></div></div>
                     <div class="sec-body chart">
                         <svg id="donut" width="170" height="170" viewBox="0 0 170 170" role="img" aria-label="소비형태별 원형 그래프"></svg>
                         <div id="legend"></div>

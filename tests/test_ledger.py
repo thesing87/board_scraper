@@ -79,7 +79,13 @@ web_server._clear_auth_failures('127.0.0.1')
 
 # ---- 소비형태: 처음 6개, 누구나 추가(색 필수)·바꾸기
 st = call('/api/ledger/state?month=2026-11', cookie=user)[1]
-assert [c['name'] for c in st['categories']] == ['식비', '카페', '교통', '생활', '쇼핑', '의료'] and st['month'] == '2026-11'
+assert [c['name'] for c in st['categories'] if c['kind'] == 'expense'] == ['식비', '카페', '교통', '생활', '쇼핑', '의료'] and st['month'] == '2026-11'
+assert [c['name'] for c in st['categories'] if c['kind'] == 'income'] == ['급여', '부수입', '용돈', '이자·환급']
+# 수입 종류 추가 (kind), 잘못된 kind는 거절
+assert call('/api/ledger/category', {'action': 'add', 'name': '상여', 'color': '#185FA5', 'kind': 'bonus'}, cookie=user)[0] == 400
+code, data, _ = call('/api/ledger/category', {'action': 'add', 'name': '상여', 'color': '#185FA5', 'kind': 'income'}, cookie=user)
+assert code == 200 and next(c for c in call('/api/ledger/state', cookie=user)[1]['categories'] if c['id'] == data['id'])['kind'] == 'income'
+assert call('/api/ledger/category', {'action': 'delete', 'id': data['id']}, cookie=user)[0] == 200
 assert call('/api/ledger/category', {'action': 'add', 'name': '반려동물'}, cookie=user)[1]['message'] == '❌ 색을 골라 주세요.'
 assert call('/api/ledger/category', {'action': 'add', 'name': '식비', 'color': '#112233'}, cookie=user)[0] == 400
 code, data, _ = call('/api/ledger/category', {'action': 'add', 'name': '반려동물', 'color': '#2ba7b8'}, cookie=user)
@@ -129,5 +135,14 @@ web_server._clear_auth_failures('127.0.0.1')
 codes = [login('임기범', f'x{i}')[0] for i in range(6)]
 assert codes[-1] == 429, codes
 web_server._clear_auth_failures('127.0.0.1')
+# ---- 예전 가계부 DB(분류에 kind 칸 없음): 칸을 더하고 예전 분류는 모두 지출, 수입 종류는 한 번만 들어감
+import sqlite3
+old = sqlite3.connect(':memory:')
+old.row_factory = sqlite3.Row
+old.execute("CREATE TABLE ledger_categories (id INTEGER PRIMARY KEY, name TEXT UNIQUE, color TEXT, position INTEGER, created_at TEXT)")
+old.execute("INSERT INTO ledger_categories(name, color, position, created_at) VALUES('식비', '#D85A30', 0, 't')")
+storage._create_schema(old)            # 나머지 표는 지금 구조로 (ledger_categories는 이미 있어 그대로)
+storage._add_missing_columns(old)
+assert [tuple(r) for r in old.execute("SELECT name, kind FROM ledger_categories")] == [('식비', 'expense')]
 srv.shutdown()
 print('LEDGER API OK')

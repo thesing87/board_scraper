@@ -1306,12 +1306,12 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_json(400, False, '❌ 잘못된 요청입니다.')
 
     def _handle_ledger_category(self):
-        """{action: add|edit|delete, id, name, color} (소비형태는 로그인한 사람 누구나)"""
+        """{action: add|edit|delete, id, name, color, kind(add: expense·income)} (분류는 로그인한 사람 누구나)"""
         if not self._ledger_user():
             return
         b, action = self._body, self._body.get('action')
         if action == 'add':
-            self._ledger_reply(lambda: {'id': ledger.add_category(b.get('name'), b.get('color'))})
+            self._ledger_reply(lambda: {'id': ledger.add_category(b.get('name'), b.get('color'), b.get('kind') or 'expense')})
         elif action == 'edit' and type(b.get('id')) is int:
             self._ledger_reply(lambda: ledger.edit_category(b['id'], b.get('name'), b.get('color')))
         elif action == 'delete' and type(b.get('id')) is int:

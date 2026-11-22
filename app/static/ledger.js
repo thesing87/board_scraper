@@ -28,7 +28,9 @@
     const chipBg = h => mix(h, true, 0.84), chipFg = h => mix(h, false, 0.45);
 
     const st = {
-        me: null, data: null, mode: 'month', day: new Date(), who: 0, sel: null,
+        me: null, data: null, mode: 'month', day: new Date(), who: 0,
+        // kind: 입력 중인 쪽(expense·income), sels: 쪽마다 고른 분류, type: 기록 거르기(all·expense·income), ana: 분석할 쪽
+        kind: 'expense', sels: { expense: null, income: null }, type: 'all', ana: 'expense',
         catEditing: false, popFor: null, addColor: null, editId: null, ddIndex: -1,
     };
 
@@ -132,7 +134,10 @@
         if (status === 401) { showAuth('login'); return; }
         if (status !== 200) { $('entry-msg').textContent = '불러오지 못했어요. 잠시 뒤 다시 해 주세요.'; return; }
         st.data = data;
-        if (!data.categories.some(c => c.id === st.sel)) st.sel = data.categories.length ? data.categories[0].id : null;
+        for (const kind of ['expense', 'income']) {
+            const list = data.categories.filter(c => c.kind === kind);
+            if (!list.some(c => c.id === st.sels[kind])) st.sels[kind] = list.length ? list[0].id : null;
+        }
         render();
     }
 
@@ -149,6 +154,9 @@
         const letter = [...((name || '?').trim() || '?')][0];   // 이름 첫 글자 (이모지 등 두 칸짜리 글자도 한 글자로)
         return `<span class="av" style="background:${bg};color:${fg}">${esc(letter)}</span>`;
     }
+    const selected = () => st.sels[st.kind];
+    const kindCats = () => st.data.categories.filter(c => c.kind === st.kind);
+    const kindOf = e => catOf(e.category_id).kind || 'expense';
     const nameOf = id => ((st.data.members.find(m => m.id === id) || {}).name || '알 수 없음');
     const catOf = id => (st.data.categories.find(c => c.id === id) || { name: '알 수 없음', color: '#888780' });
 
@@ -156,7 +164,9 @@
     // 화면 그리기
     // ==========================================
     function inPeriod(e) { return st.mode === 'day' ? e.used_on === ymd(st.day) : e.used_on.slice(0, 7) === ym(st.day); }
-    function shown() { return st.data.entries.filter(e => inPeriod(e) && (!st.who || e.user_id === st.who)); }
+    // 기간·사람으로 거른 기록 (요약·분석은 이것으로), 기록 목록은 여기에 지출·수입 거르기까지
+    function scoped() { return st.data.entries.filter(e => inPeriod(e) && (!st.who || e.user_id === st.who)); }
+    function shown() { return scoped().filter(e => st.type === 'all' || kindOf(e) === st.type); }
 
     function render() {
         if (st.me) $('who-me').innerHTML = `${avatarOf(st.me.id, st.me.name)}<span>${esc(st.me.name)}</span>`;
@@ -167,9 +177,14 @@
     }
 
     function renderEntryHead() {
-        const editing = st.editId != null;
+        const editing = st.editId != null, income = st.kind === 'income';
         $('entry').classList.toggle('editing', editing);
-        $('entry-title').textContent = editing ? '기록 고치기' : '지출 입력';
+        $('entry').classList.toggle('income', income);
+        $('kind-expense').classList.toggle('on', !income);
+        $('kind-income').classList.toggle('on', income);
+        $('kind-expense').setAttribute('aria-checked', String(!income));
+        $('kind-income').setAttribute('aria-checked', String(income));
+        $('entry-title').textContent = editing ? '기록 고치기' : income ? '수입 입력' : '지출 입력';
         $('entry-note').textContent = editing ? '고친 뒤 저장을 누르세요' : `${st.me.name} 이름으로 기록돼요`;
         $('save').textContent = editing ? '저장' : '입력';
         $('edit-row').hidden = !editing;
@@ -179,11 +194,12 @@
         return `<span class="dot" style="background:${c.color}"></span>${esc(c.name)}${extra || ''}`;
     }
     function renderCats() {
-        const cats = st.data.categories;
+        const cats = kindCats();
+        const word = st.kind === 'income' ? '수입 종류' : '소비형태';
         $('cats').classList.toggle('editing', st.catEditing);
-        $('cat-hint').textContent = st.catEditing ? '바꿀 소비형태를 누르세요' : '소비형태 — 누르면 선택, 없으면 추가';
+        $('cat-hint').textContent = st.catEditing ? `바꿀 ${word}를 누르세요` : `${word} — 누르면 선택, 없으면 추가`;
         $('cat-edit').textContent = st.catEditing ? '편집 끝' : '색·이름 편집';
-        $('cats').innerHTML = cats.map(c => `<span class="chip${!st.catEditing && c.id === st.sel ? ' on' : ''}" data-cat="${c.id}" role="button" tabindex="0"
+        $('cats').innerHTML = cats.map(c => `<span class="chip${!st.catEditing && c.id === selected() ? ' on' : ''}" data-cat="${c.id}" role="button" tabindex="0"
                 style="background:${chipBg(c.color)};color:${chipFg(c.color)}">${chipHtml(c)}${st.popFor === c.id ? popHtml(c) : ''}</span>`).join('')
             + (st.catEditing ? '' : '<span class="chip add" id="cat-add" role="button" tabindex="0">＋ 추가</span>');
     }
@@ -216,6 +232,8 @@
     function renderFilter() {
         $('mode-day').classList.toggle('on', st.mode === 'day');
         $('mode-month').classList.toggle('on', st.mode === 'month');
+        $('type-seg').querySelectorAll('[data-type]').forEach(b => b.classList.toggle('on', b.dataset.type === st.type));
+        $('ana-seg').querySelectorAll('[data-ana]').forEach(b => b.classList.toggle('on', b.dataset.ana === st.ana));
         const d = st.day;
         $('period').textContent = st.mode === 'day'
             ? `${d.getMonth() + 1}월 ${d.getDate()}일 (${'일월화수목금토'[d.getDay()]})`
@@ -227,22 +245,29 @@
     }
 
     function renderSummary() {
-        const list = shown();
+        const scope = scoped(), list = shown();
+        const sumOf = kind => scope.filter(e => kindOf(e) === kind).reduce((t, e) => t + e.amount, 0);
+        const inSum = sumOf('income'), exSum = sumOf('expense'), left = inSum - exSum;
+        const whoName = st.who ? nameOf(st.who) : '';
+        const when = `${st.mode === 'day' ? '이날' : '이 달'}`;
+        $('m-in-label').textContent = `${when} 수입${whoName ? ` · ${whoName}` : ''}`;
+        $('m-ex-label').textContent = `${when} 지출${whoName ? ` · ${whoName}` : ''}`;
+        $('m-in').textContent = `+${won(inSum)}`;
+        $('m-ex').textContent = `−${won(exSum)}`;
+        $('m-left').textContent = `${left < 0 ? '−' : ''}${won(Math.abs(left))}`;
+        $('m-left').className = left < 0 ? 'minus' : left > 0 ? 'plus' : '';
+        $('m2').textContent = `${list.length}건`;
+        // 분석: 고른 쪽(지출·수입)의 분류별 합계
         const sums = new Map();
-        list.forEach(e => sums.set(e.category_id, (sums.get(e.category_id) || 0) + e.amount));
+        scope.filter(e => kindOf(e) === st.ana).forEach(e => sums.set(e.category_id, (sums.get(e.category_id) || 0) + e.amount));
         const parts = [...sums.entries()].sort((a, b) => b[1] - a[1]);
         const total = parts.reduce((t, p) => t + p[1], 0);
-        const whoName = st.who ? nameOf(st.who) : '';
-        $('m1-label').textContent = `${st.mode === 'day' ? '이날' : '이 달'} 지출${whoName ? ` · ${whoName}` : ''}`;
-        $('m1').textContent = won(total);
-        $('m2').textContent = `${list.length}건`;
-        $('m3').textContent = parts.length ? `${catOf(parts[0][0]).name} ${Math.round(parts[0][1] / total * 100)}%` : '–';
-        renderDonut(parts, total, whoName);
+        renderDonut(parts, total, whoName ? `${whoName} ${st.ana === 'income' ? '수입' : '지출'}` : st.ana === 'income' ? '수입' : '지출');
         $('legend').innerHTML = parts.length ? parts.map(([id, v]) => {
             const c = catOf(id), pct = Math.round(v / total * 100);
             return `<div class="lg"><div class="lg-top"><span class="dot" style="background:${c.color}"></span><span class="n">${esc(c.name)}</span>
                 <span class="p">${pct}%</span><span class="w">${won(v)}</span></div><div class="lg-bar"><i style="width:${pct}%;background:${c.color}"></i></div></div>`;
-        }).join('') : '<p class="empty">이 기간에는 기록이 없어요</p>';
+        }).join('') : `<p class="empty">이 기간에는 ${st.ana === 'income' ? '수입' : '지출'} 기록이 없어요</p>`;
         renderList(list);
     }
 
@@ -273,14 +298,17 @@
         const days = [...new Set(list.map(e => e.used_on))];
         $('list').innerHTML = days.map(day => {
             const items = list.filter(e => e.used_on === day);
-            const head = `<div class="dayh"><span>${+day.slice(5, 7)}월 ${+day.slice(8)}일</span><span>${won(items.reduce((t, e) => t + e.amount, 0))}</span></div>`;
+            const dayIn = items.filter(e => kindOf(e) === 'income').reduce((t, e) => t + e.amount, 0);
+            const dayEx = items.filter(e => kindOf(e) === 'expense').reduce((t, e) => t + e.amount, 0);
+            const sums = [dayIn ? `<span class="plus">+${won(dayIn)}</span>` : '', dayEx ? `<span class="minus">−${won(dayEx)}</span>` : ''].filter(Boolean).join(' · ');
+            const head = `<div class="dayh"><span>${+day.slice(5, 7)}월 ${+day.slice(8)}일</span><span>${sums}</span></div>`;
             return head + items.map(e => {
-                const c = catOf(e.category_id), mine = canEdit(e);
+                const c = catOf(e.category_id), mine = canEdit(e), income = c.kind === 'income';
                 return `<button type="button" class="it${mine ? ' mine' : ''}${st.editId === e.id ? ' editing' : ''}" data-entry="${e.id}"${mine ? ' title="눌러서 고치기"' : ' tabindex="-1"'}>
                     ${avatarOf(e.user_id, nameOf(e.user_id))}
-                    <span class="txt"><span class="cat" style="color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span>
+                    <span class="txt"><span class="cat" style="color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}${income ? ' <span class="in-tag">수입</span>' : ''}</span>
                     <span class="sub">${esc(nameOf(e.user_id))}${e.memo ? ` · ${esc(e.memo)}` : ''}</span></span>
-                    <span class="amt">${won(e.amount)}</span></button>`;
+                    <span class="amt${income ? ' plus' : ''}">${income ? '+' : ''}${won(e.amount)}</span></button>`;
             }).join('');
         }).join('');
     }
@@ -305,8 +333,8 @@
     $('save').addEventListener('click', async () => {
         const amount = amountValue();
         if (!amount) { $('entry-msg').textContent = '금액을 넣어 주세요.'; $('amount').focus(); return; }
-        if (st.sel == null) { $('entry-msg').textContent = '소비형태를 골라 주세요.'; return; }
-        const body = { amount, used_on: $('used-on').value || ymd(new Date()), category_id: st.sel, memo: $('memo').value.trim() };
+        if (selected() == null) { $('entry-msg').textContent = st.kind === 'income' ? '수입 종류를 골라 주세요.' : '소비형태를 골라 주세요.'; return; }
+        const body = { amount, used_on: $('used-on').value || ymd(new Date()), category_id: selected(), memo: $('memo').value.trim() };
         const editing = st.editId != null;
         $('save').disabled = true;
         const { status, data } = await post('/api/ledger/entry', editing ? { action: 'edit', id: st.editId, ...body } : { action: 'add', ...body });
@@ -321,7 +349,8 @@
 
     function startEdit(entry) {
         st.editId = entry.id;
-        st.sel = entry.category_id;
+        st.kind = kindOf(entry);
+        st.sels[st.kind] = entry.category_id;
         st.catEditing = false; st.popFor = null;
         $('addbox').hidden = true;
         $('amount').value = entry.amount.toLocaleString('ko-KR');
@@ -365,9 +394,9 @@
         const name = $('new-name').value.trim();
         if (!name) { $('add-msg').textContent = '이름을 넣어 주세요.'; return; }
         if (!st.addColor) { $('add-msg').textContent = '색을 골라 주세요.'; return; }
-        const { status, data } = await post('/api/ledger/category', { action: 'add', name, color: st.addColor });
+        const { status, data } = await post('/api/ledger/category', { action: 'add', name, color: st.addColor, kind: st.kind });
         if (status !== 200) { $('add-msg').textContent = msgOf(data); return; }
-        st.sel = data.id;
+        st.sels[st.kind] = data.id;
         $('addbox').hidden = true;
         load();
     });
@@ -405,7 +434,7 @@
         if (!chip) return;
         const id = Number(chip.dataset.cat);
         if (st.catEditing) { st.popFor = st.popFor === id ? null : id; renderCats(); const n = $('pop-name'); if (n) n.focus(); return; }
-        st.sel = id;
+        st.sels[st.kind] = id;
         $('addbox').hidden = true;
         renderCats();
     });
@@ -435,7 +464,9 @@
     // ==========================================
     function memoMatches() {
         const q = $('memo').value.trim();
-        return ((st.data && st.data.memos) || []).filter(m => !q || m.memo.includes(q)).filter(m => m.memo !== q).slice(0, 6);
+        // 지금 고른 쪽(지출·수입)에서 쓴 메모만
+        return ((st.data && st.data.memos) || []).filter(m => catOf(m.category_id).kind === st.kind)
+            .filter(m => !q || m.memo.includes(q)).filter(m => m.memo !== q).slice(0, 6);
     }
     function renderMemoDd() {
         const list = memoMatches();
@@ -451,7 +482,7 @@
         const m = memoMatches()[i];
         if (!m) return;
         $('memo').value = m.memo;
-        if (st.data.categories.some(c => c.id === m.category_id)) { st.sel = m.category_id; renderCats(); }
+        if (st.data.categories.some(c => c.id === m.category_id)) { st.sels[st.kind] = m.category_id; renderCats(); }
         $('memo-dd').hidden = true;
         st.ddIndex = -1;
     }
@@ -490,6 +521,19 @@
         render();
     });
     $('mode-month').addEventListener('click', () => { st.mode = 'month'; render(); });
+    function setKind(kind) {
+        if (st.kind === kind) return;
+        st.kind = kind;
+        st.catEditing = false; st.popFor = null;
+        $('addbox').hidden = true;
+        $('memo-dd').hidden = true;
+        render();
+        $('amount').focus();
+    }
+    $('kind-expense').addEventListener('click', () => setKind('expense'));
+    $('kind-income').addEventListener('click', () => setKind('income'));
+    $('type-seg').addEventListener('click', e => { const b = e.target.closest('[data-type]'); if (b) { st.type = b.dataset.type; render(); } });
+    $('ana-seg').addEventListener('click', e => { const b = e.target.closest('[data-ana]'); if (b) { st.ana = b.dataset.ana; render(); } });
     $('people').addEventListener('click', e => {
         const b = e.target.closest('[data-who]');
         if (b) { st.who = Number(b.dataset.who); render(); }

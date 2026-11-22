@@ -76,7 +76,7 @@ try:
     click('#save'); time.sleep(1.2)
     e = entries()
     assert len(e) == 1 and e[0]['amount'] == 42000 and e[0]['memo'] == '이마트 장보기' and e[0]['used_on'] == TODAY
-    assert txt('m1') == '42,000원' and txt('m2') == '1건' and txt('m3') == '식비 100%'
+    assert txt('m-ex') == '−42,000원' and txt('m2') == '1건' and txt('m-in') == '+0원' and txt('m-left') == '−42,000원'
     # 금액 없이 입력하면 안내
     click('#save'); time.sleep(.3)
     assert txt('entry-msg') == '금액을 넣어 주세요.'
@@ -91,7 +91,7 @@ try:
     assert js("return document.querySelector('#cats .chip.on').textContent.trim()") == '반려동물'
     typ('amount', '15000'); typ('memo', '사료')
     click('#save'); time.sleep(1.2)
-    assert txt('m1') == '57,000원' and txt('m2') == '2건'
+    assert txt('m-ex') == '−57,000원' and txt('m2') == '2건'
     # 원형 그래프: 소비형태가 둘이면 조각 둘, 범례에 비율
     assert js("return document.querySelectorAll('#donut path').length") == 2
     assert '74%' in txt('legend') and '26%' in txt('legend'), txt('legend')
@@ -112,14 +112,43 @@ try:
     typ('memo', '')
     print('ENTRY OK')
 
+    # ---- 수입: 고르면 입력 칸이 파랗게, 수입 종류만, 요약·기록·분석에 수입
+    click('#kind-income')
+    assert js("return document.getElementById('entry').classList.contains('income')") and txt('entry-title') == '수입 입력'
+    assert js("return [...document.querySelectorAll('#cats [data-cat]')].map(c => c.textContent.trim())") == ['급여', '부수입', '용돈', '이자·환급']
+    js("document.getElementById('memo').focus()"); time.sleep(.3)
+    assert not vis('memo-dd')                                   # 수입 쪽 메모는 아직 없음
+    typ('amount', '3200000'); typ('memo', '11월 월급')
+    click('#save'); time.sleep(1.2)
+    assert txt('m-in') == '+3,200,000원' and txt('m-ex') == '−57,000원' and txt('m-left') == '3,143,000원'
+    assert js("return document.getElementById('m-left').className") == 'plus'
+    first = js("return document.querySelector('#list [data-entry]').textContent.replace(/\\s+/g, ' ')")
+    assert '급여' in first and '수입' in first and '+3,200,000원' in first, first
+    assert '+3,200,000원' in txt('list') and '−57,000원' in txt('list')      # 날짜 머리줄: 수입·지출
+    # 기록 거르기: 수입만
+    click('#type-seg [data-type="income"]'); time.sleep(.3)
+    assert txt('count') == '1건' and txt('m-ex') == '−57,000원'          # 요약은 그대로
+    click('#type-seg [data-type="all"]')
+    # 분석: 수입
+    click('#ana-seg [data-ana="income"]'); time.sleep(.3)
+    assert '급여' in txt('legend') and '100%' in txt('legend') and '식비' not in txt('legend')
+    click('#ana-seg [data-ana="expense"]')
+    # 수입 기록을 누르면 수입 쪽으로 고치기
+    click('#kind-expense'); time.sleep(.2)
+    click('#list [data-entry]'); time.sleep(.3)
+    assert txt('entry-title') == '기록 고치기' and js("return document.getElementById('entry').classList.contains('income')")
+    click('#edit-cancel'); click('#kind-expense'); time.sleep(.2)
+    print('INCOME OK')
+
     # ---- 내 기록 고치기·지우기
-    click('#list [data-entry]')            # 가장 최근(사료 15,000원)
+    pick = "[...document.querySelectorAll('#list [data-entry]')].find(b => b.textContent.includes('사료')).click()"
+    js(pick)                               # 사료 15,000원
     assert vis('edit-row') and txt('entry-title') == '기록 고치기' and js("return document.getElementById('amount').value") == '15,000'
     typ('amount', '16000'); click('#save'); time.sleep(1.2)
-    assert [x['amount'] for x in entries()] == [42000, 16000] and not vis('edit-row')
-    click('#list [data-entry]')
+    assert [x['amount'] for x in entries()] == [42000, 16000, 3200000] and not vis('edit-row')
+    js(pick)
     js("window.confirm = () => true"); click('#edit-delete'); time.sleep(1.2)
-    assert [x['amount'] for x in entries()] == [42000]
+    assert [x['amount'] for x in entries()] == [42000, 3200000]
     print('EDIT OK')
 
     # ---- 지은으로 로그인: 관리자 칸 없음, 남의 기록은 못 고침, 거르기
@@ -134,15 +163,15 @@ try:
     assert not vis('edit-row')
     typ('amount', '5600'); typ('memo', '스타벅스'); click('#cats [data-cat]:nth-child(2)')   # 카페
     click('#save'); time.sleep(1.2)
-    assert txt('m2') == '2건'
+    assert txt('m2') == '3건'
     # 사람 거르기: 지은만
     jieun = js("return [...document.querySelectorAll('#people [data-who]')].find(b => b.textContent.includes('지은')).dataset.who")
     click(f'#people [data-who="{jieun}"]'); time.sleep(.3)
-    assert txt('m1').startswith('5,600원') and '지은' in txt('m1-label') and txt('count') == '1건'
+    assert txt('m-ex') == '−5,600원' and '지은' in txt('m-ex-label') and txt('count') == '1건'
     click('#people [data-who="0"]')
     # 일별: 오늘 기록, 하루 앞으로 가면 없음
     click('#mode-day'); time.sleep(.3)
-    assert txt('m2') == '2건' and '이날' in txt('m1-label')
+    assert txt('m2') == '3건' and '이날' in txt('m-ex-label')
     click('#prev'); time.sleep(1)
     assert txt('m2') == '0건' and '기록이 없어요' in txt('list')
     click('#mode-month'); time.sleep(.3)
