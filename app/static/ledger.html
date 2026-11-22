@@ -65,6 +65,15 @@
                 </div>
             </details>
 
+            <!-- 결제 알림 자동 기록: 휴대폰에서 받은 결제를 확정 전까지 쌓아 둠 (ledger.py inbox) -->
+            <section class="sec inbox" id="inbox-sec" hidden>
+                <div class="sec-head"><span>확인 대기함</span><span class="badge warm" id="inbox-count"></span>
+                    <span class="sec-note">휴대폰 결제 알림에서 읽음 · 확정하면 기록돼요</span></div>
+                <div id="inbox"></div>
+                <div class="inbox-foot"><button type="button" class="primary small" id="inbox-all">모두 확정</button><span class="hint">분류가 정해진 결제와 지울 기록을 찾은 취소만</span>
+                    <span class="msg" id="inbox-msg"></span></div>
+            </section>
+
             <div class="metrics">
                 <div class="metric"><span id="m-in-label">이 달 수입</span><b class="plus" id="m-in">–</b></div>
                 <div class="metric"><span id="m-ex-label">이 달 지출</span><b class="minus" id="m-ex">–</b></div>
@@ -120,6 +129,33 @@
                 <div class="seg" id="type-seg"><button type="button" data-type="all">모두</button><button type="button" data-type="expense">지출만</button><button type="button" data-type="income">수입만</button></div>
                 <div class="people" id="people"></div>
             </div>
+
+            <!-- 결제 알림 자동 기록 설정: 내 휴대폰 연결(개인 연결 주소)·가게 이름 규칙 -->
+            <details class="sec auto" id="auto">
+                <summary><span>결제 알림 자동 기록</span><span class="sec-note" id="auto-note"></span></summary>
+                <div class="auto-body">
+                    <div class="auto-col">
+                        <p class="label">내 휴대폰 연결</p>
+                        <p class="hint">휴대폰의 결제 알림을 아래 연결 주소로 보내면 내 이름으로 확인 대기함에 쌓여요. 주소는 다른 사람에게 보여 주지 마세요.</p>
+                        <div class="hook-url" id="hook-url-box" hidden><input id="hook-url" readonly aria-label="연결 주소"><button type="button" class="small" id="hook-copy">복사</button></div>
+                        <p class="hint" id="hook-state"></p>
+                        <div class="row-btns"><button type="button" class="small" id="hook-create">연결 주소 만들기</button><button type="button" class="small" id="hook-test">시험 알림 보내기</button></div>
+                        <ol class="steps">
+                            <li><b>매크로드로이드</b> 앱 설치 → 새 매크로</li>
+                            <li>트리거: <b>알림</b> → 알림 받음 → 카드사 앱·문자 앱 고르기 (내용에 "승인" 포함으로 걸러도 좋아요)</li>
+                            <li>동작: <b>HTTP 요청</b> → 방식 POST, 주소는 위 연결 주소, 본문은 <code>[notification]</code> (알림 내용)</li>
+                            <li>카드 결제를 하거나 위 '시험 알림 보내기'로 대기함에 뜨는지 확인</li>
+                        </ol>
+                        <p class="hint">집 밖에서도 보내려면 이 페이지를 바깥 주소(DDNS)로 연 뒤 연결 주소를 만드세요.</p>
+                    </div>
+                    <div class="auto-col">
+                        <p class="label">가게 이름 규칙 (모두 함께 씀)</p>
+                        <div id="rules"></div>
+                        <div class="rule-add"><input id="rule-pattern" placeholder="가게 이름에 든 글자 (예: 스타벅스)" maxlength="20"><select id="rule-cat" aria-label="분류"></select><button type="button" class="small" id="rule-add">추가</button></div>
+                        <p class="msg" id="rule-msg"></p>
+                    </div>
+                </div>
+            </details>
 
             <div class="grid">
                 <div class="col">

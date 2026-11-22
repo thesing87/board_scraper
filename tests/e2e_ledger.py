@@ -203,6 +203,58 @@ try:
     assert 'ledger' in navs() and 'card' not in navs()
     print('MEMBER OK')
 
+    # ---- 결제 알림 자동 기록: 연결 주소 만들기 → 알림 받기 → 대기함에서 분류 고르기 → 규칙 → 확정·취소
+    d.get(BASE + '/ledger/'); time.sleep(2)
+    assert not vis('inbox-sec') and '아직 연결 주소' in txt('hook-state')
+    js("document.getElementById('auto').open = true")
+    js("window.confirm = () => true")
+    click('#hook-create'); time.sleep(1)
+    url = js("return document.getElementById('hook-url').value")
+    assert vis('hook-url-box') and url.startswith(BASE + '/api/ledger/hook/') and '한 번만' in txt('hook-state')
+    md = f'{date.today().month}/{date.today().day}'
+    import urllib.request
+    def send(text):
+        with urllib.request.urlopen(urllib.request.Request(url, data=text.encode(), method='POST', headers={'Content-Type': 'text/plain'})) as r:
+            return r.status
+    assert send(f'[삼성카드] 지*님 {md} 12:41 4,800원 일시불 블루보틀 성수점') == 200
+    js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)
+    assert vis('inbox-sec') and txt('inbox-count') == '1' and '블루보틀 성수점' in txt('inbox') and '규칙에 없는 가게' in txt('inbox')
+    assert js("return document.querySelector('#inbox [data-ib-ok]').disabled")
+    cafe = js("return [...document.querySelectorAll('#inbox [data-ib-cat]')].find(c => c.textContent.includes('카페')).dataset.ibCat")
+    click(f'#inbox [data-ib-cat="{cafe}"]'); time.sleep(1)
+    assert not js("return document.querySelector('#inbox [data-ib-ok]').disabled")
+    rule_btn = js("return document.querySelector('#inbox [data-ib-rule]').textContent")
+    assert '"블루보틀"는 늘 카페로' in rule_btn, rule_btn
+    click('#inbox [data-ib-rule]'); time.sleep(1)
+    assert '"블루보틀"이 든 가게' in txt('rules') and '규칙 "블루보틀" → 카페' in txt('inbox')
+    # 금액 고치기
+    click('#inbox [data-ib-edit]'); time.sleep(.3)
+    typ('ib-amount', '5300'); click('#inbox [data-ib-save]'); time.sleep(1)
+    assert '5,300원' in txt('inbox')
+    before = len(entries())
+    click('#inbox [data-ib-ok]'); time.sleep(1.5)
+    assert not vis('inbox-sec') and len(entries()) == before + 1 and entries()[-1]['memo'] == '블루보틀 성수점' and entries()[-1]['amount'] == 5300
+    assert '블루보틀 성수점' in txt('list')
+    # 다음 알림은 규칙으로 바로 분류 → 모두 확정
+    assert send(f'[삼성카드] {md} 15:00 6,100원 일시불 블루보틀 한남점') == 200
+    js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)
+    assert '규칙 "블루보틀" → 카페' in txt('inbox')
+    click('#inbox-all'); time.sleep(1.5)
+    assert not vis('inbox-sec') and entries()[-1]['amount'] == 6100
+    # 취소 알림: 맞는 기록을 찾아 지움
+    assert send(f'[삼성카드] 승인취소 6,100원 블루보틀 한남점 {md} 15:10') == 200
+    js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)
+    assert '같은 결제를 찾았어요' in txt('inbox') and '취소 확정' in txt('inbox')
+    n = len(entries())
+    click('#inbox [data-ib-ok]'); time.sleep(1.5)
+    assert len(entries()) == n - 1 and not vis('inbox-sec')
+    # 시험 알림 → 버리기
+    click('#hook-test'); time.sleep(1.2)
+    assert vis('inbox-sec') and '1,000원' in txt('inbox') and '마지막으로 받은 알림' in txt('hook-state')
+    click('#inbox [data-ib-del]'); time.sleep(1)
+    assert not vis('inbox-sec')
+    print('AUTO OK')
+
     # ---- 휴대폰: 넘침 없음
     d.set_window_size(390, 844); time.sleep(.3)
     d.get(BASE + '/ledger/'); time.sleep(2)

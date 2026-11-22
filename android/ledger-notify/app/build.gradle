@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+}
+
+// 서명: keystore.properties(git에 안 올림)가 있으면 그 키로, 없으면 디버그 키로.
+// 같은 키로 서명해야 새 버전을 지우지 않고 덮어 설치할 수 있음
+def keyProps = new Properties()
+def keyFile = rootProject.file('keystore.properties')
+if (keyFile.exists()) keyFile.withInputStream { keyProps.load(it) }
+
+android {
+    namespace 'kr.home.ledgernotify'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'kr.home.ledgernotify'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    signingConfigs {
+        if (keyFile.exists()) {
+            release {
+                storeFile rootProject.file(keyProps['storeFile'])
+                storePassword keyProps['storePassword']
+                keyAlias keyProps['keyAlias']
+                keyPassword keyProps['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig keyFile.exists() ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}

@@ -317,6 +317,34 @@ def _create_schema(conn):
             updated_at  TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_ledger_entries_used_on ON ledger_entries(used_on);
+        -- 가계부 자동 기록: 사람마다 휴대폰 결제 알림을 보낼 연결 키(sha256만), 받은 결제를 확정 전까지 쌓는 대기함, 가게 이름 → 분류 규칙
+        CREATE TABLE IF NOT EXISTS ledger_hook_keys (
+            user_id     INTEGER PRIMARY KEY REFERENCES ledger_users(id) ON DELETE CASCADE,
+            key_hash    TEXT NOT NULL UNIQUE,
+            hint        TEXT NOT NULL DEFAULT '',
+            created_at  TEXT NOT NULL,
+            last_used   TEXT,
+            last_status TEXT
+        );
+        CREATE TABLE IF NOT EXISTS ledger_inbox (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER NOT NULL REFERENCES ledger_users(id) ON DELETE CASCADE,
+            raw         TEXT NOT NULL,
+            amount      INTEGER NOT NULL,
+            merchant    TEXT NOT NULL DEFAULT '',
+            card        TEXT NOT NULL DEFAULT '',
+            used_on     TEXT NOT NULL,
+            used_time   TEXT NOT NULL DEFAULT '',
+            is_cancel   INTEGER NOT NULL DEFAULT 0,
+            category_id INTEGER REFERENCES ledger_categories(id) ON DELETE SET NULL,
+            created_at  TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ledger_rules (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern     TEXT NOT NULL UNIQUE,
+            category_id INTEGER NOT NULL REFERENCES ledger_categories(id) ON DELETE CASCADE,
+            created_at  TEXT NOT NULL
+        );
 
         CREATE TABLE IF NOT EXISTS comic_progress (
             path       TEXT PRIMARY KEY,

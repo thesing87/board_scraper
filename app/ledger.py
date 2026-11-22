@@ -331,3 +331,213 @@ def delete_category(category_id):
             raise LedgerError('기록에 쓰인 소비형태는 지울 수 없어요.')
         if not conn.execute("DELETE FROM ledger_categories WHERE id = ?", (category_id,)).rowcount:
             raise LedgerError('없는 소비형태예요.')
+
+
+# ==========================================
+# 자동 기록: 휴대폰 결제 알림 → 확인 대기함 → 확정하면 기록 (ledger_parse.py가 알림 글을 읽음)
+# 휴대폰(매크로드로이드 등)은 사람마다 받은 연결 주소(/api/ledger/hook/<키>)로 알림 글을 보냄
+# ==========================================
+HOOK_MAX_PER_HOUR = 120
+HOOK_DUPLICATE_MINUTES = 10
+CANCEL_MATCH_DAYS = 60
+RULE_PATTERN_MAX = 20
+TEST_NOTICE = '[삼성카드] 테스트 승인 1,000원 일시불 {date} {time} 가계부 연결 시험'
+
+
+def create_hook_key(user):
+    """새 연결 키 (예전 키는 더 못 씀). 키 글자는 이때 한 번만 돌려줌"""
+    key = secrets.token_urlsafe(24)
+    with _db() as conn, conn:
+        conn.execute("""INSERT INTO ledger_hook_keys(user_id, key_hash, hint, created_at) VALUES(?, ?, ?, ?)
+                        ON CONFLICT(user_id) DO UPDATE SET key_hash = excluded.key_hash, hint = excluded.hint,
+                        created_at = excluded.created_at, last_used = NULL, last_status = NULL""",
+                     (user['id'], _token_hash(key), key[-4:], _now()))
+    return key
+
+
+def hook_info(user):
+    with _db() as conn:
+        row = conn.execute("SELECT hint, created_at, last_used, last_status FROM ledger_hook_keys WHERE user_id = ?", (user['id'],)).fetchone()
+    return dict(row) if row else None
+
+
+def _rule_category(conn, merchant):
+    from ledger_parse import rule_key
+    key = rule_key(merchant)
+    if not key:
+        return None
+    for r in conn.execute("SELECT pattern, category_id FROM ledger_rules ORDER BY length(pattern) DESC, id"):
+        if rule_key(r['pattern']) and rule_key(r['pattern']) in key:
+            return r['category_id']
+    return None
+
+
+def _store_notice(conn, user_id, text, parsed):
+    category = None if parsed['cancel'] else _rule_category(conn, parsed['merchant'])
+    return conn.execute("""INSERT INTO ledger_inbox(user_id, raw, amount, merchant, card, used_on, used_time, is_cancel, category_id, created_at)
+                           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (user_id, text[:500], parsed['amount'], parsed['merchant'], parsed['card'], parsed['used_on'],
+                         parsed['time'], 1 if parsed['cancel'] else 0, category, _now())).lastrowid
+
+
+def receive_hook(key, text):
+    """연결 키로 온 알림 글. 결과: 'saved'·'ignored'(결제 알림 아님)·'duplicate'·'too_many', 모르는 키면 None"""
+    from ledger_parse import parse
+    if not key or len(key) > 100:
+        return None
+    with _db() as conn, conn:
+        row = conn.execute("""SELECT k.user_id FROM ledger_hook_keys k JOIN ledger_users u ON u.id = k.user_id
+                              WHERE k.key_hash = ? AND u.status = 'approved'""", (_token_hash(key),)).fetchone()
+        if not row:
+            return None
+        user_id, now = row['user_id'], _now()
+        text = str(text or '').strip()
+        parsed = parse(text)
+        if not parsed:
+            result = 'ignored'
+        elif conn.execute("SELECT 1 FROM ledger_inbox WHERE user_id = ? AND raw = ? AND created_at >= datetime(?, ?)",
+                          (user_id, text[:500], now, f'-{HOOK_DUPLICATE_MINUTES} minutes')).fetchone():
+            result = 'duplicate'
+        elif conn.execute("SELECT COUNT(*) FROM ledger_inbox WHERE user_id = ? AND created_at >= datetime(?, '-1 hour')",
+                          (user_id, now)).fetchone()[0] >= HOOK_MAX_PER_HOUR:
+            result = 'too_many'
+        else:
+            _store_notice(conn, user_id, text, parsed)
+            result = 'saved'
+        conn.execute("UPDATE ledger_hook_keys SET last_used = ?, last_status = ? WHERE user_id = ?", (now, result, user_id))
+        return result
+
+
+def send_test_notice(user):
+    """'시험 알림 보내기': 연결 주소로 온 것처럼 대기함에 시험 결제 하나"""
+    from ledger_parse import parse
+    now = _now()
+    text = TEST_NOTICE.format(date=f'{int(now[5:7])}/{int(now[8:10])}', time=now[11:16])
+    with _db() as conn, conn:
+        _store_notice(conn, user['id'], text, parse(text))
+
+
+def _cancel_match(conn, item):
+    """취소 알림과 맞는 기록: 같은 사람·같은 금액·같은 가게, 취소일 이전 CANCEL_MATCH_DAYS일 안에서 가장 최근"""
+    from ledger_parse import rule_key
+    rows = conn.execute("""SELECT id, used_on, memo FROM ledger_entries WHERE user_id = ? AND amount = ? AND used_on <= ?
+                           AND used_on >= date(?, ?) ORDER BY used_on DESC, id DESC""",
+                        (item['user_id'], item['amount'], item['used_on'], item['used_on'], f'-{CANCEL_MATCH_DAYS} days')).fetchall()
+    key = rule_key(item['merchant'])
+    for r in rows:
+        memo = rule_key(r['memo'])
+        if not key or not memo or key in memo or memo in key:
+            return {'id': r['id'], 'used_on': r['used_on']}
+    return None
+
+
+def inbox(user):
+    """내 확인 대기함 (최근 순). 취소 알림은 지울 기록을 찾아 붙임"""
+    with _db() as conn:
+        rows = conn.execute("SELECT * FROM ledger_inbox WHERE user_id = ? ORDER BY used_on DESC, used_time DESC, id DESC", (user['id'],)).fetchall()
+        items = []
+        for r in rows:
+            item = {k: r[k] for k in ('id', 'raw', 'amount', 'merchant', 'card', 'used_on', 'used_time', 'category_id', 'created_at')}
+            item['cancel'] = bool(r['is_cancel'])
+            if item['cancel']:
+                item['match'] = _cancel_match(conn, r)
+            items.append(item)
+    return items
+
+
+def rules():
+    with _db() as conn:
+        return [dict(r) for r in conn.execute("SELECT id, pattern, category_id FROM ledger_rules ORDER BY pattern")]
+
+
+def _own_item(conn, user, item_id):
+    row = conn.execute("SELECT * FROM ledger_inbox WHERE id = ?", (item_id,)).fetchone()
+    if not row or row['user_id'] != user['id']:
+        raise LedgerError('없는 알림이에요.')
+    return row
+
+
+def update_item(user, item_id, category_id=None, amount=None, merchant=None, used_on=None):
+    """확정 전에 분류·금액·가게·날짜 고치기 (보낸 것만)"""
+    with _db() as conn, conn:
+        row = _own_item(conn, user, item_id)
+        amount = row['amount'] if amount is None else amount
+        used_on = row['used_on'] if used_on is None else used_on
+        merchant = row['merchant'] if merchant is None else ' '.join(str(merchant).split())[:MEMO_MAX]
+        category_id = row['category_id'] if category_id is None else category_id
+        if type(amount) is not int or not 0 < amount < AMOUNT_MAX:
+            raise LedgerError('금액을 넣어 주세요.')
+        try:
+            if not DATE_RE.fullmatch(str(used_on)):
+                raise ValueError
+            date.fromisoformat(used_on)
+        except ValueError:
+            raise LedgerError('날짜가 올바르지 않아요.')
+        if category_id is not None and not conn.execute("SELECT 1 FROM ledger_categories WHERE id = ?", (category_id,)).fetchone():
+            raise LedgerError('없는 분류예요.')
+        conn.execute("UPDATE ledger_inbox SET amount = ?, merchant = ?, used_on = ?, category_id = ? WHERE id = ?",
+                     (amount, merchant, used_on, category_id, item_id))
+
+
+def _confirm_row(conn, row):
+    if row['is_cancel']:
+        match = _cancel_match(conn, row)
+        if match:
+            conn.execute("DELETE FROM ledger_entries WHERE id = ?", (match['id'],))
+    else:
+        if row['category_id'] is None:
+            raise LedgerError('분류를 골라 주세요.')
+        now = _now()
+        conn.execute("""INSERT INTO ledger_entries(user_id, amount, used_on, category_id, memo, created_at, updated_at)
+                        VALUES(?, ?, ?, ?, ?, ?, ?)""", (row['user_id'], row['amount'], row['used_on'], row['category_id'],
+                                                        row['merchant'][:MEMO_MAX], now, now))
+    conn.execute("DELETE FROM ledger_inbox WHERE id = ?", (row['id'],))
+
+
+def confirm_item(user, item_id):
+    """확정: 결제는 기록으로(메모는 가게 이름), 취소는 맞는 기록을 지움"""
+    with _db() as conn, conn:
+        _confirm_row(conn, _own_item(conn, user, item_id))
+
+
+def confirm_all(user):
+    """분류가 정해진 결제와 지울 기록을 찾은 취소를 한꺼번에 확정. 확정한 수"""
+    done = 0
+    with _db() as conn, conn:
+        for row in conn.execute("SELECT * FROM ledger_inbox WHERE user_id = ?", (user['id'],)).fetchall():
+            if (row['is_cancel'] and _cancel_match(conn, row)) or (not row['is_cancel'] and row['category_id'] is not None):
+                _confirm_row(conn, row)
+                done += 1
+    return done
+
+
+def discard_item(user, item_id):
+    with _db() as conn, conn:
+        _own_item(conn, user, item_id)
+        conn.execute("DELETE FROM ledger_inbox WHERE id = ?", (item_id,))
+
+
+def add_rule(pattern, category_id):
+    """가게 이름 규칙. 넣으면 대기함에서 아직 분류가 없는 결제에도 바로 적용"""
+    from ledger_parse import rule_key
+    pattern = ' '.join(str(pattern or '').split())[:RULE_PATTERN_MAX]
+    if len(rule_key(pattern)) < 2:
+        raise LedgerError('가게 이름에 든 글자를 두 글자 이상 넣어 주세요.')
+    with _db() as conn, conn:
+        if type(category_id) is not int or not conn.execute("SELECT 1 FROM ledger_categories WHERE id = ?", (category_id,)).fetchone():
+            raise LedgerError('분류를 골라 주세요.')
+        same = [r['id'] for r in conn.execute("SELECT id, pattern FROM ledger_rules") if rule_key(r['pattern']) == rule_key(pattern)]
+        if same:
+            conn.execute("UPDATE ledger_rules SET category_id = ? WHERE id = ?", (category_id, same[0]))
+        else:
+            conn.execute("INSERT INTO ledger_rules(pattern, category_id, created_at) VALUES(?, ?, ?)", (pattern, category_id, _now()))
+        for r in conn.execute("SELECT id, merchant FROM ledger_inbox WHERE category_id IS NULL AND is_cancel = 0").fetchall():
+            found = _rule_category(conn, r['merchant'])
+            if found:
+                conn.execute("UPDATE ledger_inbox SET category_id = ? WHERE id = ?", (found, r['id']))
+
+
+def delete_rule(rule_id):
+    with _db() as conn, conn:
+        if not conn.execute("DELETE FROM ledger_rules WHERE id = ?", (rule_id,)).rowcount:
+            raise LedgerError('없는 규칙이에요.')

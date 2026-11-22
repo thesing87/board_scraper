@@ -33,6 +33,8 @@
         kind: 'expense', sels: { expense: null, income: null }, type: 'all', ana: 'expense',
         // 합계 구역: totView(day: 이 달 달력·month: 올해 달마다), year·yearData(서버의 올해 합계)
         totView: 'day', year: new Date().getFullYear(), yearData: null,
+        // 자동 기록: 확인 대기함·가게 규칙·내 연결 상태, 대기함에서 고치는 중인 알림
+        inbox: [], rules: [], hook: null, hookBase: '', editItem: null,
         catEditing: false, popFor: null, addColor: null, editId: null, ddIndex: -1,
     };
 
@@ -117,6 +119,7 @@
         $('admin').hidden = !user.admin;
         if (user.admin) loadPeople();
         load();
+        loadInbox();
     }
 
     async function boot() {
@@ -137,6 +140,7 @@
         if (status !== 200) { $('entry-msg').textContent = '불러오지 못했어요. 잠시 뒤 다시 해 주세요.'; return; }
         st.data = data;
         if (st.totView === 'month') loadYear();
+        renderAuto();
         for (const kind of ['expense', 'income']) {
             const list = data.categories.filter(c => c.kind === kind);
             if (!list.some(c => c.id === st.sels[kind])) st.sels[kind] = list.length ? list[0].id : null;
@@ -688,6 +692,149 @@
         renderPeople(data);
         load();
     });
+
+    // ==========================================
+    // 결제 알림 자동 기록: 확인 대기함·내 휴대폰 연결·가게 이름 규칙
+    // ==========================================
+    async function loadInbox() {
+        const { status, data } = await get('/api/ledger/inbox');
+        if (status !== 200) return;
+        st.inbox = data.items; st.rules = data.rules; st.hook = data.hook; st.hookBase = data.hook_base;
+        renderInbox(); renderAuto();
+    }
+    function applyInbox(data) {
+        if (data.items) st.inbox = data.items;
+        if (data.rules) st.rules = data.rules;
+        renderInbox(); renderAuto();
+    }
+    const expenseCats = () => (st.data ? st.data.categories.filter(c => c.kind !== 'income') : []);
+    function ruleFor(merchant) {
+        const key = (merchant || '').replace(/\(주\)|㈜|주식회사|\s+/g, '').toLowerCase();
+        return st.rules.find(r => key.includes(r.pattern.replace(/\s+/g, '').toLowerCase()));
+    }
+    function suggestPattern(merchant) {
+        const words = (merchant || '').replace(/\(주\)|㈜|주식회사/g, '').trim().split(/\s+/);
+        if (words.length >= 2 && /(점|지점|역점|센터)$/.test(words[words.length - 1])) words.pop();
+        return (words[0] && words[0].length >= 2 ? words[0] : words.join(' ')).slice(0, 20);
+    }
+    function renderInbox() {
+        const items = st.inbox || [];
+        $('inbox-sec').hidden = !items.length;
+        $('inbox-count').textContent = items.length;
+        if (!items.length || !st.data) return;
+        $('inbox').innerHTML = items.map(x => {
+            const day = `${+x.used_on.slice(5, 7)}/${+x.used_on.slice(8)}`;
+            const rule = !x.cancel && ruleFor(x.merchant);
+            let note;
+            if (x.cancel) note = x.match ? `<span class="note bad">결제 취소 · ${+x.match.used_on.slice(5, 7)}/${+x.match.used_on.slice(8)}의 같은 결제를 찾았어요 — 확정하면 그 기록을 지워요</span>`
+                : '<span class="note bad">결제 취소 · 맞는 기록을 찾지 못했어요 — 확정하면 이 알림만 지워요</span>';
+            else if (x.category_id == null) note = '<span class="note">규칙에 없는 가게 — 분류를 골라 주세요</span>';
+            else note = `<span class="note">${rule && rule.category_id === x.category_id ? `규칙 "${esc(rule.pattern)}" → ` : ''}${esc(catOf(x.category_id).name)}</span>`;
+            const chips = x.cancel ? '' : `<div class="cats">${expenseCats().map(c => `<span class="chip${c.id === x.category_id ? ' on' : ''}" data-ib-cat="${c.id}" data-ib="${x.id}"
+                style="background:${chipBg(c.color)};color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span>`).join(' ')}</div>`;
+            const edit = st.editItem === x.id ? `<div class="edit"><input id="ib-amount" inputmode="numeric" value="${x.amount.toLocaleString('ko-KR')}" aria-label="금액">
+                <input id="ib-merchant" value="${esc(x.merchant)}" maxlength="60" aria-label="가게"><input id="ib-date" type="date" value="${x.used_on}" aria-label="날짜"></div>` : '';
+            const canRule = !x.cancel && x.category_id != null && x.merchant && !(rule && rule.category_id === x.category_id);
+            return `<div class="ib" data-item="${x.id}"><div class="body">
+                <div class="top"><span class="amt${x.cancel ? ' cancel' : ''}">${x.cancel ? '취소 ' : ''}${won(x.amount)}</span><span class="shop">${esc(x.merchant || '가게 이름 없음')}</span>
+                <span class="meta">· ${esc(x.card || '카드')} · ${day} ${esc(x.used_time)}</span></div>
+                ${note}${chips}${edit}<span class="raw">${esc(x.raw)}</span>
+                <div class="btns">${st.editItem === x.id ? '<button type="button" class="primary" data-ib-save>고친 것 저장</button><button type="button" data-ib-edit>그만 고치기</button>'
+                    : `<button type="button" class="primary" data-ib-ok${!x.cancel && x.category_id == null ? ' disabled' : ''}>${x.cancel ? '취소 확정' : '확정'}</button>
+                    ${x.cancel ? '' : '<button type="button" data-ib-edit>금액·가게 고치기</button>'}
+                    ${canRule ? `<button type="button" data-ib-rule>"${esc(suggestPattern(x.merchant))}"는 늘 ${esc(catOf(x.category_id).name)}로</button>` : ''}
+                    <button type="button" data-ib-del>버리기</button>`}</div></div></div>`;
+        }).join('');
+    }
+    async function inboxPost(body) {
+        $('inbox-msg').textContent = '';
+        const { status, data } = await post('/api/ledger/inbox', body);
+        if (status !== 200) { $('inbox-msg').textContent = msgOf(data); return null; }
+        applyInbox(data);
+        return data;
+    }
+    $('inbox').addEventListener('click', async e => {
+        const box = e.target.closest('[data-item]');
+        if (!box) return;
+        const id = Number(box.dataset.item), item = st.inbox.find(x => x.id === id);
+        const chip = e.target.closest('[data-ib-cat]');
+        if (chip) { await inboxPost({ action: 'update', id, category_id: Number(chip.dataset.ibCat) }); return; }
+        if (e.target.closest('[data-ib-edit]')) { st.editItem = st.editItem === id ? null : id; renderInbox(); return; }
+        if (e.target.closest('[data-ib-save]')) {
+            const amount = parseInt(($('ib-amount').value || '').replace(/[^0-9]/g, ''), 10) || 0;
+            if (await inboxPost({ action: 'update', id, amount, merchant: $('ib-merchant').value, used_on: $('ib-date').value })) { st.editItem = null; renderInbox(); }
+            return;
+        }
+        if (e.target.closest('[data-ib-ok]')) { if (await inboxPost({ action: 'confirm', id })) load(); return; }
+        if (e.target.closest('[data-ib-del]')) { await inboxPost({ action: 'discard', id }); return; }
+        if (e.target.closest('[data-ib-rule]')) {
+            const { status, data } = await post('/api/ledger/rule', { action: 'add', pattern: suggestPattern(item.merchant), category_id: item.category_id });
+            if (status !== 200) { $('inbox-msg').textContent = msgOf(data); return; }
+            applyInbox(data);
+        }
+    });
+    $('inbox').addEventListener('input', e => {
+        if (e.target.id !== 'ib-amount') return;
+        const v = e.target.value.replace(/[^0-9]/g, '').slice(0, 10);
+        e.target.value = v ? Number(v).toLocaleString('ko-KR') : '';
+    });
+    $('inbox-all').addEventListener('click', async () => {
+        const data = await inboxPost({ action: 'confirm_all' });
+        if (data) { $('inbox-msg').textContent = data.confirmed ? '' : '확정할 수 있는 결제가 없어요 (분류를 먼저 골라 주세요)'; load(); }
+    });
+
+    function renderAuto() {
+        if (!st.data) return;
+        const h = st.hook;
+        const statusText = { saved: '정상', ignored: '결제 알림이 아니라 넘김', duplicate: '같은 알림이 또 와서 넘김', too_many: '너무 많이 와서 넘김' };
+        $('hook-state').textContent = !h ? '아직 연결 주소를 만들지 않았어요.'
+            : `연결 주소 만든 때 ${h.created_at.slice(5, 16)} (…${h.hint}) · ${h.last_used ? `마지막으로 받은 알림 ${h.last_used.slice(5, 16)} · ${statusText[h.last_status] || h.last_status}` : '아직 받은 알림 없음'}`;
+        $('hook-create').textContent = h ? '연결 주소 새로 만들기' : '연결 주소 만들기';
+        $('auto-note').textContent = h ? (h.last_used ? `마지막 알림 ${h.last_used.slice(5, 16)}` : '연결 주소 만듦') : '휴대폰 결제 알림을 가계부로';
+        const cats = expenseCats();
+        const cur = $('rule-cat').value;
+        $('rule-cat').innerHTML = cats.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+        if (cats.some(c => String(c.id) === cur)) $('rule-cat').value = cur;
+        $('rules').innerHTML = st.rules.length ? st.rules.map(r => {
+            const c = catOf(r.category_id);
+            return `<div class="rule"><span class="p">"${esc(r.pattern)}"이 든 가게</span><span>→</span><span class="chip" style="cursor:default;background:${chipBg(c.color)};color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span>
+                <button type="button" class="small" data-rule-del="${r.id}">지우기</button></div>`;
+        }).join('') : '<p class="hint">아직 규칙이 없어요. 대기함에서 "○○는 늘 ○○로"를 누르거나 아래에서 추가하세요.</p>';
+    }
+    $('hook-create').addEventListener('click', async () => {
+        if (st.hook && !window.confirm('새로 만들면 지금 연결 주소는 더 못 써요. 휴대폰 설정도 새 주소로 바꿔야 해요. 만들까요?')) return;
+        const { status, data } = await post('/api/ledger/hook-key', { action: 'create' });
+        if (status !== 200) { $('hook-state').textContent = msgOf(data); return; }
+        st.hook = data.hook;
+        $('hook-url').value = data.url;
+        $('hook-url-box').hidden = false;
+        renderAuto();
+        $('hook-state').textContent = '이 주소는 지금 한 번만 보여요. 복사해서 휴대폰 설정에 넣으세요.';
+    });
+    $('hook-copy').addEventListener('click', async () => {
+        $('hook-url').select();
+        try { await navigator.clipboard.writeText($('hook-url').value); $('hook-copy').textContent = '복사됨'; }
+        catch (e) { document.execCommand && document.execCommand('copy'); $('hook-copy').textContent = '복사됨'; }
+        setTimeout(() => { $('hook-copy').textContent = '복사'; }, 1500);
+    });
+    $('hook-test').addEventListener('click', async () => { if (await inboxPost({ action: 'test' })) $('inbox-sec').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    $('rule-add').addEventListener('click', async () => {
+        const pattern = $('rule-pattern').value.trim();
+        $('rule-msg').textContent = '';
+        const { status, data } = await post('/api/ledger/rule', { action: 'add', pattern, category_id: Number($('rule-cat').value) });
+        if (status !== 200) { $('rule-msg').textContent = msgOf(data); return; }
+        $('rule-pattern').value = '';
+        applyInbox(data);
+    });
+    $('rules').addEventListener('click', async e => {
+        const b = e.target.closest('[data-rule-del]');
+        if (!b) return;
+        const { status, data } = await post('/api/ledger/rule', { action: 'delete', id: Number(b.dataset.ruleDel) });
+        if (status === 200) applyInbox(data);
+    });
+    // 다른 화면에 갔다 오면(휴대폰에서 결제 뒤 열었을 때 등) 대기함을 새로
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && st.me) loadInbox(); });
+    setInterval(() => { if (!document.hidden && st.me) loadInbox(); }, 60000);
 
     boot();
 })();

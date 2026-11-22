@@ -658,11 +658,24 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/ledger/entry': ('_handle_ledger_entry', '가계부 기록 처리'),
         '/api/ledger/category': ('_handle_ledger_category', '가계부 소비형태 처리'),
         '/api/ledger/admin': ('_handle_ledger_admin', '가계부 사용자 허락 처리'),
+        '/api/ledger/inbox': ('_handle_ledger_inbox', '가계부 확인 대기함 처리'),
+        '/api/ledger/rule': ('_handle_ledger_rule', '가계부 가게 규칙 처리'),
+        '/api/ledger/hook-key': ('_handle_ledger_hook_key', '가계부 연결 키 처리'),
     }
 
     def do_POST(self):
         pure_path = self.path.split('?')[0]
         log_msg(f"[API] POST {pure_path} ({client_ip(self.client_address[0], self.headers)})", "DEBUG")
+        # 휴대폰(매크로드로이드 등)이 보내는 결제 알림: 본문이 JSON이 아닐 수 있어 따로 받음
+        if pure_path.startswith(self.LEDGER_HOOK_PREFIX):
+            try:
+                self._handle_ledger_hook(pure_path[len(self.LEDGER_HOOK_PREFIX):])
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass
+            except Exception as e:
+                log_msg(f"[API] 가계부 알림 받기 오류: {short_err(e)}", "ERROR")
+                self._send_json(500, False, '❌ 처리하지 못했습니다.')
+            return
         handler, label = self.POST_HANDLERS.get(pure_path, (None, None))
         if handler is None:
             self.send_response(404)
@@ -1243,6 +1256,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_data(200, {'user': user})
         elif pure_path == '/api/ledger/state':
             self._send_data(200, {'user': user, **ledger.state(query.get('month', [''])[0])})
+        elif pure_path == '/api/ledger/inbox':
+            self._send_data(200, {'items': ledger.inbox(user), 'rules': ledger.rules(), 'hook': ledger.hook_info(user),
+                                  'hook_base': self._site_base() + self.LEDGER_HOOK_PREFIX})
         elif pure_path == '/api/ledger/year':
             self._send_data(200, ledger.year_totals(query.get('year', [''])[0]))
         elif pure_path == '/api/ledger/admin' and user['admin']:
@@ -1320,6 +1336,89 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._ledger_reply(lambda: ledger.delete_category(b['id']))
         else:
             self._send_json(400, False, '❌ 잘못된 요청입니다.')
+
+    # ---------- 자동 기록 (휴대폰 결제 알림) ----------
+    LEDGER_HOOK_PREFIX = '/api/ledger/hook/'
+    LEDGER_HOOK_MAX_BYTES = 4096
+
+    def _handle_ledger_hook(self, key):
+        """연결 주소로 온 알림 글 (쿠키 없이 주소의 키로 사람을 알아봄). 본문: 글 그대로, {"text": 글} JSON, text=글 폼 모두 받음"""
+        ip = client_ip(self.client_address[0], self.headers)
+        if _is_locked_out(ip):
+            self._send_json(429, False, '❌ 잠시 뒤에 다시 보내 주세요.')
+            return
+        length = int(self.headers.get('Content-Length') or 0)
+        if length > self.LEDGER_HOOK_MAX_BYTES:
+            self._send_json(413, False, '❌ 알림 글이 너무 깁니다.')
+            return
+        raw = self.rfile.read(length).decode('utf-8', 'replace') if length > 0 else ''
+        text = raw
+        try:
+            body = json.loads(raw) if raw.lstrip().startswith('{') else None
+            if isinstance(body, dict):
+                text = str(body.get('text') or body.get('message') or '')
+        except ValueError:
+            pass
+        if text.startswith('text=') and 'application/x-www-form-urlencoded' in (self.headers.get('Content-Type') or ''):
+            text = parse_qs(text).get('text', [''])[0]
+        result = ledger.receive_hook(key.strip('/'), text)
+        if result is None:
+            _record_auth_failure(ip)
+            log_msg(f"[가계부] 모르는 연결 키로 알림: {ip}", "WARN")
+            self._send_json(404, False, '❌ 연결 키가 맞지 않습니다.')
+            return
+        log_msg(f"[가계부] 결제 알림 받음: {result}", "DEBUG")
+        self._send_data(200, {'success': True, 'result': result})
+
+    def _handle_ledger_inbox(self):
+        """{action: update|confirm|confirm_all|discard|test, id, category_id, amount, merchant, used_on}"""
+        user = self._ledger_user()
+        if not user:
+            return
+        b, action, item = self._body, self._body.get('action'), self._body.get('id')
+        def done(extra=None):
+            return {**(extra or {}), 'items': ledger.inbox(user), 'rules': ledger.rules()}
+        if action == 'confirm_all':
+            self._ledger_reply(lambda: done({'confirmed': ledger.confirm_all(user)}))
+        elif action == 'test':
+            self._ledger_reply(lambda: (ledger.send_test_notice(user), done())[1])
+        elif action in ('update', 'confirm', 'discard') and type(item) is int:
+            def run():
+                if action == 'update' or any(k in b for k in ('category_id', 'amount', 'merchant', 'used_on')):
+                    ledger.update_item(user, item, b.get('category_id'), b.get('amount'), b.get('merchant'), b.get('used_on'))
+                if action == 'confirm':
+                    ledger.confirm_item(user, item)
+                elif action == 'discard':
+                    ledger.discard_item(user, item)
+                return done()
+            self._ledger_reply(run)
+        else:
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+
+    def _handle_ledger_rule(self):
+        """가게 이름 규칙 {action: add|delete, pattern, category_id, id} (로그인한 사람 누구나)"""
+        user = self._ledger_user()
+        if not user:
+            return
+        b, action = self._body, self._body.get('action')
+        if action == 'add':
+            self._ledger_reply(lambda: (ledger.add_rule(b.get('pattern'), b.get('category_id')), {'items': ledger.inbox(user), 'rules': ledger.rules()})[1])
+        elif action == 'delete' and type(b.get('id')) is int:
+            self._ledger_reply(lambda: (ledger.delete_rule(b['id']), {'rules': ledger.rules()})[1])
+        else:
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+
+    def _handle_ledger_hook_key(self):
+        """내 연결 키 새로 만들기 (예전 키는 더 못 씀). 키가 든 주소는 이 답에서만 한 번 보여 줌"""
+        user = self._ledger_user()
+        if not user:
+            return
+        if self._body.get('action') != 'create':
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        key = ledger.create_hook_key(user)
+        log_msg(f"[가계부] 연결 키 새로 만듦: {user['name']}")
+        self._send_data(200, {'success': True, 'url': self._site_base() + self.LEDGER_HOOK_PREFIX + key, 'hook': ledger.hook_info(user)})
 
     def _handle_ledger_admin(self):
         """관리자만: {action: approve|reject|revoke, user_id}"""

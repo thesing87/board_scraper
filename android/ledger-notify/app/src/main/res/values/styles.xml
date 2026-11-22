@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 가계부 화면과 같은 초록 -->
+    <color name="green">#0F6E56</color>
+    <color name="green_soft">#E1F5EE</color>
+    <color name="text">#1F2328</color>
+    <color name="muted">#6B7280</color>
+    <color name="bad">#C0392B</color>
+    <color name="bg">#F6F7F5</color>
+    <color name="card">#FFFFFF</color>
+
+    <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/green</item>
+        <item name="android:colorPrimaryDark">@color/green</item>
+        <item name="android:colorAccent">@color/green</item>
+        <item name="android:statusBarColor">@color/green</item>
+        <item name="android:windowBackground">@color/bg</item>
+    </style>
+</resources>

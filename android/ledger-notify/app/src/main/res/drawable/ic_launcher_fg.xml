@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 영수증 모양 (안쪽 66dp 안에) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36,30h36v48l-6,-4 -6,4 -6,-4 -6,4 -6,-4 -6,4z" />
+    <path
+        android:fillColor="#0F6E56"
+        android:pathData="M42,40h24v4h-24zM42,49h24v4h-24zM42,58h14v4h-14z" />
+</vector>

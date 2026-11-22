@@ -1,0 +1,7 @@
+.gradle/
+build/
+local.properties
+# 서명 키와 그 암호 (git에 올리지 않음 — 잃어버리면 앱을 지우고 다시 설치해야 함)
+keystore.properties
+*.jks
+*.keystore
