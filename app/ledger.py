@@ -380,6 +380,15 @@ def _store_notice(conn, user_id, text, parsed):
                          parsed['time'], 1 if parsed['cancel'] else 0, category, _now())).lastrowid
 
 
+def hook_key_valid(key):
+    """허락받은 사람의 연결 키인지 (앱이 새 버전을 확인·받을 때)"""
+    if not key or len(key) > 100:
+        return False
+    with _db() as conn:
+        return conn.execute("""SELECT 1 FROM ledger_hook_keys k JOIN ledger_users u ON u.id = k.user_id
+                               WHERE k.key_hash = ? AND u.status = 'approved'""", (_token_hash(key),)).fetchone() is not None
+
+
 def receive_hook(key, text):
     """연결 키로 온 알림 글. 결과: 'saved'·'ignored'(결제 알림 아님)·'duplicate'·'too_many', 모르는 키면 None"""
     from ledger_parse import parse

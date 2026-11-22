@@ -47,8 +47,10 @@ public class MainActivity extends Activity {
         @Override public void run() { refresh(); ui.postDelayed(this, 2000); }
     };
 
-    private TextView accessState, batteryState, waitState, urlState;
-    private Button accessBtn, restrictBtn, batteryBtn, retryBtn;
+    private TextView accessState, batteryState, waitState, urlState, updateState;
+    private Button accessBtn, restrictBtn, batteryBtn, retryBtn, installAllowBtn;
+    private String updateText = "";
+    private boolean updateNeedsPermission;
     private EditText urlInput;
     private Switch enabledSwitch;
     private LinearLayout appsBox, logBox;
@@ -69,6 +71,24 @@ public class MainActivity extends Activity {
         enabledSwitch.setChecked(store.enabled());
         shownLogs = shownApps = "";
         ui.post(tick);
+        // 앱을 열면 새 버전 확인 (10분에 한 번 — 확인 창을 닫고 돌아왔을 때 또 묻지 않게).
+        // '이 앱의 설치 허용'을 켜러 갔다 돌아온 때는 바로 이어서 설치
+        long now = System.currentTimeMillis();
+        if (updateNeedsPermission || now - lastAutoCheck > AUTO_CHECK_MS) {
+            lastAutoCheck = now;
+            checkUpdate(true);
+        }
+    }
+
+    private static final long AUTO_CHECK_MS = 10 * 60 * 1000L;
+    private static long lastAutoCheck;
+
+    private void checkUpdate(boolean auto) {
+        Updater.check(this, auto, (text, needPermission) -> ui.post(() -> {
+            updateText = text;
+            updateNeedsPermission = needPermission;
+            refresh();
+        }));
     }
 
     @Override
@@ -89,6 +109,17 @@ public class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title);
         root.addView(text("카드 결제 알림을 가계부의 확인 대기함으로 보내요. 결제 알림처럼 보이는 글만 보내고, 다른 알림은 휴대폰 밖으로 나가지 않아요.", 13, R.color.muted), gap(4));
+
+        // ---- 앱 버전·업데이트
+        LinearLayout ver = card(root, "앱 버전 " + Updater.ownVersionName(this));
+        updateState = text("", 13, R.color.muted);
+        ver.addView(updateState);
+        LinearLayout vrow = new LinearLayout(this);
+        vrow.addView(button("새 버전 확인", v -> checkUpdate(false)), weight());
+        installAllowBtn = button("이 앱의 설치 허용", v -> startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:" + getPackageName()))));
+        vrow.addView(installAllowBtn, weight());
+        ver.addView(vrow, gap(6));
 
         // ---- 1. 권한
         LinearLayout perm = card(root, "1. 알림 읽기 권한");
@@ -171,6 +202,10 @@ public class MainActivity extends Activity {
         int waiting = store.waiting();
         waitState.setText(waiting == 0 ? "보내지 못한 알림 없음" : "보내지 못해 기다리는 알림 " + waiting + "개 (인터넷이 되면 다시 보내요)");
         retryBtn.setVisibility(waiting == 0 ? View.GONE : View.VISIBLE);
+
+        String msg = store.updateMessage();
+        updateState.setText(msg.isEmpty() ? updateText : msg + (updateText.isEmpty() ? "" : "\n" + updateText));
+        installAllowBtn.setVisibility(updateNeedsPermission && !getPackageManager().canRequestPackageInstalls() ? View.VISIBLE : View.GONE);
 
         String appsNow = store.apps().toString();
         if (!appsNow.equals(shownApps)) { shownApps = appsNow; drawApps(); }

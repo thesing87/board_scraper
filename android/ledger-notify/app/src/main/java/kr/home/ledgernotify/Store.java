@@ -30,6 +30,12 @@ final class Store {
     boolean enabled() { return p.getBoolean("enabled", true); }
     void setEnabled(boolean on) { p.edit().putBoolean("enabled", on).apply(); }
 
+    // ---------- 업데이트: 설치 결과 글, 확인 창을 취소한 때
+    String updateMessage() { return p.getString("update_msg", ""); }
+    void setUpdateMessage(String m) { p.edit().putString("update_msg", m).commit(); }
+    long updateDeclinedAt() { return p.getLong("update_declined", 0); }
+    void setUpdateDeclinedAt(long t) { p.edit().putLong("update_declined", t).commit(); }
+
     // ---------- 알림을 보낸 앱 (앱마다 끌 수 있음). {pkg: {label, on, last}}
     JSONObject apps() { return obj("apps"); }
 

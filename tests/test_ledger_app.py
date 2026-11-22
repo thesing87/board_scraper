@@ -83,11 +83,24 @@ assert code == 200 and body == APK and h['Content-Type'] == 'application/vnd.and
 assert "filename*=UTF-8''ledger-notify-1.0.apk" in h['Content-Disposition'], h['Content-Disposition']
 assert req('/api/ledger/app.apk')[0] == 401                      # 로그인 없으면 못 받음
 
+# ---- 앱이 연결 주소(키)로 새 버전 확인·받기 (쿠키 없이)
+hook = json.loads(req('/api/ledger/hook-key', json.dumps({'action': 'create'}).encode(), user)[1])['url'][len(BASE):]
+code, body, _ = req(hook + '/app')
+assert code == 200 and json.loads(body)['app'] == {k: info[k] for k in ('versionCode', 'versionName', 'size', 'sha256')}, body
+code, body, h = req(hook + '/app.apk')
+assert code == 200 and body == APK and 'ledger-notify-1.0.apk' in h['Content-Disposition']
+assert req(hook + '/other')[0] == 404 and req('/api/ledger/hook/wrongkey/app')[0] == 404
+web_server._clear_auth_failures('127.0.0.1')
+
 # ---- 같은 버전은 다시 올릴 수 있고, 낮은 버전은 거절
 assert upload(APK, admin)[0] == 200
 with open(ledger_app.INFO_FILE, 'w', encoding='utf-8') as f:
     json.dump({**info, 'versionCode': 5, 'versionName': '1.4'}, f)
 code, data = upload(APK, admin)
 assert code == 400 and '낮은 버전' in data['message'], data
+# 허락을 취소하면 연결 키로도 못 받음
+req('/api/ledger/admin', json.dumps({'action': 'revoke', 'user_id': jieun}).encode(), admin)
+assert req(hook + '/app')[0] == 404
+web_server._clear_auth_failures('127.0.0.1')
 srv.shutdown()
 print('ledger app OK')

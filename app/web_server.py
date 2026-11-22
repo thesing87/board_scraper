@@ -515,6 +515,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 self._handle_comics_get(pure_path, query)
             elif pure_path.startswith('/api/videos/'):
                 self._handle_videos_get(pure_path, query)
+            elif pure_path.startswith(self.LEDGER_HOOK_PREFIX):
+                self._handle_ledger_hook_get(pure_path[len(self.LEDGER_HOOK_PREFIX):])
             elif pure_path.startswith('/api/ledger/'):
                 self._handle_ledger_get(pure_path, query)
             elif pure_path.startswith(IMAGE_URL_PREFIX):
@@ -1387,6 +1389,31 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             return
         log_msg(f"[가계부] 결제 알림 받음: {result}", "DEBUG")
         self._send_data(200, {'success': True, 'result': result})
+
+    def _handle_ledger_hook_get(self, rest):
+        """가계부 알림 앱이 연결 주소로 새 버전을 확인·받음 (쿠키 없이 주소의 키로):
+        <키>/app → 올라간 앱 정보 {app: {versionCode, versionName, size, sha256} 또는 null}, <키>/app.apk → 파일"""
+        ip = client_ip(self.client_address[0], self.headers)
+        key, _, what = rest.partition('/')
+        if what not in ('app', 'app.apk'):
+            self.send_response(404)
+            self.end_headers()
+            return
+        if _is_locked_out(ip):
+            self._send_json(429, False, '❌ 잠시 뒤에 다시 시도해 주세요.')
+            return
+        if not ledger.hook_key_valid(key):
+            _record_auth_failure(ip)
+            self._send_json(404, False, '❌ 연결 키가 맞지 않습니다.')
+            return
+        app = ledger_app.info()
+        if what == 'app':
+            self._send_data(200, {'app': {k: app[k] for k in ('versionCode', 'versionName', 'size', 'sha256')} if app else None})
+        elif not app:
+            self._send_json(404, False, '❌ 올라간 앱이 없습니다.')
+        else:
+            self._stream_file(ledger_app.APK_FILE, 'application/vnd.android.package-archive', download=True,
+                              filename=ledger_app.download_name(app))
 
     def _handle_ledger_app_upload(self):
         """관리자가 가계부 알림 앱(APK) 파일을 올림. 본문은 파일 그대로 (application/octet-stream)"""

@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- '배터리 사용 제한 없음' 요청 창을 띄우기 위해 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 새 버전 자동 업데이트 (가계부에 올라간 앱을 받아 설치) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- 집 NAS를 http 주소로 쓰는 경우가 있어 평문 연결도 허용 -->
     <application
@@ -36,6 +38,11 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!-- 업데이트 설치 결과 (확인 창 띄우기) -->
+        <receiver
+            android:name=".InstallReceiver"
+            android:exported="false" />
 
         <!-- 인터넷이 끊겨 못 보낸 알림을 연결되면 다시 보냄 -->
         <service
