@@ -61,6 +61,7 @@ try:
     js("localStorage.setItem('admin_token', arguments[0])", web_server.ADMIN_TOKEN)
     d.get(BASE + '/ledger/'); time.sleep(2)
     assert vis('app') and not vis('auth') and '임기범' in txt('who-me')
+    assert js("return document.querySelector('#who-me .av').textContent") == '임'      # 아이콘은 이름 첫 글자
     assert vis('admin') and txt('pending-count') == '1' and js("return document.getElementById('admin').open")
     click('[data-admin="approve"]'); time.sleep(1)
     assert '기다리는 사람 없음' in txt('pending') and '지은' in txt('members')

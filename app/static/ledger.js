@@ -146,7 +146,7 @@
     }
     function avatarOf(id, name) {
         const [bg, fg] = AVATAR[memberIndex(id) % AVATAR.length];
-        const letter = (name || '?').trim().slice(-1);
+        const letter = [...((name || '?').trim() || '?')][0];   // 이름 첫 글자 (이모지 등 두 칸짜리 글자도 한 글자로)
         return `<span class="av" style="background:${bg};color:${fg}">${esc(letter)}</span>`;
     }
     const nameOf = id => ((st.data.members.find(m => m.id === id) || {}).name || '알 수 없음');
