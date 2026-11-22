@@ -217,6 +217,7 @@ try:
     # ---- 결제 알림 자동 기록: 연결 주소 만들기 → 알림 받기 → 대기함에서 분류 고르기 → 규칙 → 확정·취소
     d.get(BASE + '/ledger/'); time.sleep(2)
     assert not vis('inbox-sec') and '아직 연결 주소' in txt('hook-state')
+    assert not js("return document.documentElement.classList.contains('in-app')")   # 브라우저에서는 앱 연결 버튼 없음
     # 관리자가 올린 앱을 받을 수 있음 (받기 버튼 → 같은 파일)
     assert js("return !document.getElementById('app-get').hidden") and not vis('admin')
     size = js("return fetch('/api/ledger/app.apk', {credentials: 'same-origin'}).then(r => r.status === 200 ? r.arrayBuffer() : null).then(b => b && b.byteLength)")
@@ -268,6 +269,17 @@ try:
     assert vis('inbox-sec') and '1,000원' in txt('inbox') and '마지막으로 받은 알림' in txt('hook-state')
     click('#inbox [data-ib-del]'); time.sleep(1)
     assert not vis('inbox-sec')
+    # ---- 가계부 알림 앱 안에서 열었을 때 (앱이 넣는 window.LedgerApp 흉내): 앱 받기 안내는 숨고 '이 휴대폰 앱에 연결' → 새 연결 주소를 앱에 넣음
+    d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source': "window.__got = []; window.confirm = () => true; window.LedgerApp = {version: () => '1.2', connected: () => window.__got.length > 0, connect: u => { window.__got.push(u); return true; }, openSettings: () => {}};"})
+    d.get(BASE + '/ledger/'); time.sleep(2)
+    assert js("return document.documentElement.classList.contains('in-app')") and js("return document.getElementById('auto').open")
+    assert vis('app-connect') and not vis('app-get') and '아직 연결되지' in txt('app-connect-state'), txt('app-connect-state')
+    click('#app-connect-btn'); time.sleep(1.2)
+    got = js('return window.__got')
+    assert len(got) == 1 and got[0].startswith(BASE + '/api/ledger/hook/'), got
+    assert '이 휴대폰 앱(1.2)' in txt('app-connect-state') and txt('app-connect-btn') == '다시 연결'
+    with urllib.request.urlopen(urllib.request.Request(got[0], data='[삼성카드] 승인 3,300원 앱연결'.encode(), method='POST', headers={'Content-Type': 'text/plain'})) as r:
+        assert r.status == 200                                          # 앱에 넣은 새 주소로 받아짐
     print('AUTO OK')
 
     # ---- 휴대폰: 넘침 없음

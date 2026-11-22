@@ -21,12 +21,20 @@
 
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 설정: 가계부 주소·권한·연결 주소·앱별 끄기·최근 보낸 알림 -->
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:label="가계부 알림 설정"
+            android:parentActivityName=".MainActivity" />
 
         <!-- 알림 읽기: 설정 > 알림 읽기 권한에서 켜야 동작 -->
         <service

@@ -40,6 +40,17 @@ final class Updater {
 
     private Updater() { }
 
+    private static final long AUTO_CHECK_MS = 10 * 60 * 1000L;
+    private static long lastAuto;
+
+    /** 앱을 열 때 자동 확인할 차례인지 (10분에 한 번 — 확인 창을 닫고 돌아왔을 때 또 묻지 않게). force: 설치 허용을 켜고 돌아온 때 */
+    static synchronized boolean autoDue(boolean force) {
+        long now = System.currentTimeMillis();
+        if (!force && now - lastAuto < AUTO_CHECK_MS) return false;
+        lastAuto = now;
+        return true;
+    }
+
     static long ownVersion(Context c) {
         try {
             PackageInfo pi = c.getPackageManager().getPackageInfo(c.getPackageName(), 0);

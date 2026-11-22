@@ -144,16 +144,18 @@
                         <p class="hint">휴대폰의 결제 알림을 아래 연결 주소로 보내면 내 이름으로 확인 대기함에 쌓여요. 주소는 다른 사람에게 보여 주지 마세요.</p>
                         <div class="hook-url" id="hook-url-box" hidden><input id="hook-url" readonly aria-label="연결 주소"><button type="button" class="small" id="hook-copy">복사</button></div>
                         <p class="hint" id="hook-state"></p>
+                        <!-- 가계부 알림 앱 안에서 열었을 때만: 연결 주소를 만들어 앱에 바로 넣음 -->
+                        <div class="app-connect app-only" id="app-connect"><button type="button" class="primary" id="app-connect-btn">이 휴대폰 앱에 연결</button><span class="hint" id="app-connect-state"></span></div>
                         <div class="row-btns"><button type="button" class="small" id="hook-create">연결 주소 만들기</button><button type="button" class="small" id="hook-test">시험 알림 보내기</button></div>
-                        <div class="app-get" id="app-get" hidden><a class="app-btn" id="app-link" href="/api/ledger/app.apk">가계부 알림 앱 받기</a><span class="hint" id="app-info"></span></div>
-                        <p class="hint" id="app-none">관리자가 '가계부 알림' 앱 파일을 올리면 여기서 받을 수 있어요.</p>
-                        <ol class="steps">
+                        <div class="app-get outside-only" id="app-get" hidden><a class="app-btn" id="app-link" href="/api/ledger/app.apk">가계부 알림 앱 받기</a><span class="hint" id="app-info"></span></div>
+                        <p class="hint outside-only" id="app-none">관리자가 '가계부 알림' 앱 파일을 올리면 여기서 받을 수 있어요.</p>
+                        <ol class="steps outside-only">
                             <li>휴대폰에서 <b>가계부 알림 앱 받기</b> → 설치 ('출처를 알 수 없는 앱' 허용)</li>
                             <li>앱에서 <b>알림 읽기 권한</b> 켜기 — 회색이면 앱 정보 → ⋮ → '제한된 설정 허용' 뒤 다시</li>
                             <li>위 연결 주소를 복사해 앱의 <b>붙여넣기</b></li>
                             <li>앱의 <b>시험 알림 보내기</b> → 이 페이지 확인 대기함에 뜨면 끝</li>
                         </ol>
-                        <details class="alt"><summary>앱 대신 매크로드로이드로</summary>
+                        <details class="alt outside-only"><summary>앱 대신 매크로드로이드로</summary>
                         <ol class="steps">
                             <li><b>매크로드로이드</b> 앱 설치 → 새 매크로</li>
                             <li>트리거: <b>알림</b> → 알림 받음 → 카드사 앱·문자 앱 고르기 (내용에 "승인" 포함으로 걸러도 좋아요)</li>

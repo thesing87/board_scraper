@@ -28,6 +28,35 @@ final class Store {
     String url() { return p.getString("url", ""); }
     void setUrl(String u) { p.edit().putString("url", u).apply(); }
     boolean enabled() { return p.getBoolean("enabled", true); }
+
+    /** 앱 화면에 띄울 가계부 주소 (https://집주소/ledger/). 따로 넣지 않았으면 연결 주소에서 만듦 */
+    String site() {
+        String s = p.getString("site", "");
+        if (!s.isEmpty()) return s;
+        String u = url();
+        int i = u.indexOf("/api/ledger/hook/");
+        return i > 0 ? u.substring(0, i) + "/ledger/" : "";
+    }
+    void setSite(String s) { p.edit().putString("site", s).apply(); }
+
+    /** 주소 고르기: 'nas.example.com:8443' → https://nas.example.com:8443/ledger/, 주소 끝에 /ledger/를 붙임 */
+    static String normalizeSite(String raw) {
+        String s = raw == null ? "" : raw.trim();
+        if (s.isEmpty()) return "";
+        if (!s.startsWith("http://") && !s.startsWith("https://")) s = "https://" + s;
+        int path = s.indexOf('/', s.indexOf("://") + 3);
+        String origin = path < 0 ? s : s.substring(0, path);
+        return origin + "/ledger/";
+    }
+
+    /** 주소의 앞부분 (https://집주소:포트) */
+    static String origin(String url) {
+        if (url == null) return "";
+        int scheme = url.indexOf("://");
+        if (scheme < 0) return "";
+        int path = url.indexOf('/', scheme + 3);
+        return (path < 0 ? url : url.substring(0, path)).toLowerCase(java.util.Locale.ROOT);
+    }
     void setEnabled(boolean on) { p.edit().putBoolean("enabled", on).apply(); }
 
     // ---------- 업데이트: 설치 결과 글, 확인 창을 취소한 때

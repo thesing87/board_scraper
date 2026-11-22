@@ -101,6 +101,12 @@ button:disabled { opacity: .6; cursor: default; }
 .app-up { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
 .app-up input[type=file] { font-size: 12.5px; max-width: 100%; }
 
+/* 가계부 알림 앱 안에서 열었을 때 (html.in-app): 앱 받기·설치 안내는 숨기고 '이 휴대폰 앱에 연결'을 보임 */
+.app-only { display: none; }
+.in-app .app-only { display: flex; }
+.in-app .outside-only { display: none !important; }
+.app-connect { align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+
 /* 요약 */
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
 .plus { color: #185FA5 !important; }

@@ -699,6 +699,8 @@
         if (status !== 200) return;
         st.inbox = data.items; st.rules = data.rules; st.hook = data.hook; st.hookBase = data.hook_base;
         renderApp(data.app);
+        // 앱 안에서 처음 열었는데 연결 전이면 연결 칸을 펼쳐 둠
+        if (inApp && !st.autoOpened && !appConnected()) { st.autoOpened = true; $('auto').open = true; }
         renderInbox(); renderAuto();
     }
     function applyInbox(data) {
@@ -782,8 +784,35 @@
         if (data) { $('inbox-msg').textContent = data.confirmed ? '' : '확정할 수 있는 결제가 없어요 (분류를 먼저 골라 주세요)'; load(); }
     });
 
+    // ---- 가계부 알림 앱 안에서 열었을 때 (앱이 window.LedgerApp을 넣어 줌)
+    const inApp = !!window.LedgerApp;
+    if (inApp) document.documentElement.classList.add('in-app');
+    const appConnected = () => { try { return !!window.LedgerApp.connected(); } catch (e) { return false; } };
+    function renderAppConnect() {
+        if (!inApp) return;
+        const on = appConnected();
+        let ver = '';
+        try { ver = window.LedgerApp.version(); } catch (e) { /* 예전 앱 */ }
+        $('app-connect-state').textContent = on ? `✓ 이 휴대폰 앱(${ver})이 결제 알림을 보내고 있어요` : '이 휴대폰 앱은 아직 연결되지 않았어요';
+        $('app-connect-btn').textContent = on ? '다시 연결' : '이 휴대폰 앱에 연결';
+        $('app-connect-btn').className = on ? 'small' : 'primary';
+    }
+    $('app-connect-btn').addEventListener('click', async () => {
+        if (st.hook && !window.confirm('새 연결 주소를 만들어 이 앱에 넣어요. 예전 연결 주소(다른 휴대폰·매크로드로이드)는 더 못 써요. 할까요?')) return;
+        $('app-connect-btn').disabled = true;
+        const { status, data } = await post('/api/ledger/hook-key', { action: 'create' });
+        $('app-connect-btn').disabled = false;
+        if (status !== 200) { $('app-connect-state').textContent = msgOf(data); return; }
+        st.hook = data.hook;
+        let ok = false;
+        try { ok = window.LedgerApp.connect(data.url); } catch (e) { /* 예전 앱 */ }
+        renderAuto();
+        if (!ok) $('app-connect-state').textContent = '앱에 넣지 못했어요 — 앱의 설정에서 가계부 주소를 확인해 주세요';
+    });
+
     function renderAuto() {
         if (!st.data) return;
+        renderAppConnect();
         const h = st.hook;
         const statusText = { saved: '정상', ignored: '결제 알림이 아니라 넘김', duplicate: '같은 알림이 또 와서 넘김', too_many: '너무 많이 와서 넘김' };
         $('hook-state').textContent = !h ? '아직 연결 주소를 만들지 않았어요.'
