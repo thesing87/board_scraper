@@ -784,7 +784,7 @@
         if (data) { $('inbox-msg').textContent = data.confirmed ? '' : '확정할 수 있는 결제가 없어요 (분류를 먼저 골라 주세요)'; load(); }
     });
 
-    // ---- 가계부 알림 앱 안에서 열었을 때 (앱이 window.LedgerApp을 넣어 줌)
+    // ---- YeYe가계부 앱 안에서 열었을 때 (앱이 window.LedgerApp을 넣어 줌)
     const inApp = !!window.LedgerApp;
     if (inApp) document.documentElement.classList.add('in-app');
     const appConnected = () => { try { return !!window.LedgerApp.connected(); } catch (e) { return false; } };
@@ -860,7 +860,7 @@
         const { status, data } = await post('/api/ledger/rule', { action: 'delete', id: Number(b.dataset.ruleDel) });
         if (status === 200) applyInbox(data);
     });
-    // ---- 가계부 알림 앱: 모두 받기, 관리자는 올리기
+    // ---- YeYe가계부 앱: 모두 받기, 관리자는 올리기
     const kb = n => n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`;
     function renderApp(app) {
         $('app-get').hidden = !app;

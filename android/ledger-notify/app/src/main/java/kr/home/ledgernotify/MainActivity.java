@@ -116,7 +116,7 @@ public class MainActivity extends Activity {
         bar.setBackgroundColor(getColor(R.color.green));
         bar.setPadding(dp(16), 0, dp(4), 0);
         TextView title = new TextView(this);
-        title.setText("가계부");
+        title.setText("YeYe가계부");
         title.setTextColor(0xFFFFFFFF);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
         title.setTypeface(Typeface.DEFAULT_BOLD);
@@ -198,6 +198,12 @@ public class MainActivity extends Activity {
         return Store.origin(u.toString()).equals(Store.origin(loadedSite));
     }
 
+    /** 가계부 페이지와 가계부 API(받기 등)만 */
+    private static boolean inLedger(Uri u) {
+        String path = u.getPath() == null ? "" : u.getPath();
+        return path.equals("/ledger") || path.startsWith("/ledger/") || path.startsWith("/api/ledger/");
+    }
+
     private void openOutside(Uri u) {
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, u));
@@ -210,9 +216,16 @@ public class MainActivity extends Activity {
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
             Uri u = req.getUrl();
-            if (sameSite(u)) return false;
-            openOutside(u);
-            return true;
+            if (!sameSite(u)) {
+                openOutside(u);
+                return true;
+            }
+            // 앱에서는 가계부만: 같은 사이트라도 /ledger/ 밖(대시보드·동영상 등)으로는 가지 않음
+            if (!inLedger(u)) {
+                toast("앱에서는 가계부만 볼 수 있어요");
+                return true;
+            }
+            return false;
         }
 
         @Override

@@ -1,9 +1,9 @@
-"""가계부 알림 앱 파일(ledger_app.py): 관리자만 APK를 올림 → APK 안에서 패키지·버전을 읽어 확인(다른 앱·APK 아닌 파일·낮은 버전은 거절)
+"""YeYe가계부 앱 파일(ledger_app.py): 관리자만 APK를 올림 → APK 안에서 패키지·버전을 읽어 확인(다른 앱·APK 아닌 파일·낮은 버전은 거절)
 → 가계부에 로그인한 사람은 누구나 받음(파일 이름에 버전), 로그인 없으면 못 받음"""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common  # noqa: F401  (경로)
-import tempfile, threading, socket, json, io, zipfile, urllib.request, urllib.error
+import tempfile, threading, socket, json, io, zipfile, urllib.request, urllib.error, urllib.parse
 os.environ.update(OUTPUT_DIR=tempfile.mkdtemp(), LOG_LEVEL='CRITICAL', ADMIN_PASSWORD='Secr3t!', TELEGRAM_TOKEN='', LEDGER_ADMIN_NAME='임기범')
 for name in [k for k in os.environ if k.startswith('KEYWORDS_')]:
     os.environ[name] = ''
@@ -80,7 +80,7 @@ info = json.loads(req('/api/ledger/inbox', cookie=user)[1])['app']
 assert info['versionCode'] == 1 and len(info['sha256']) == 64, info
 code, body, h = req('/api/ledger/app.apk', cookie=user)
 assert code == 200 and body == APK and h['Content-Type'] == 'application/vnd.android.package-archive', h
-assert "filename*=UTF-8''ledger-notify-1.0.apk" in h['Content-Disposition'], h['Content-Disposition']
+assert "filename*=UTF-8''" + urllib.parse.quote('YeYe가계부-1.0.apk') in h['Content-Disposition'], h['Content-Disposition']
 assert req('/api/ledger/app.apk')[0] == 401                      # 로그인 없으면 못 받음
 
 # ---- 앱이 연결 주소(키)로 새 버전 확인·받기 (쿠키 없이)
@@ -88,7 +88,7 @@ hook = json.loads(req('/api/ledger/hook-key', json.dumps({'action': 'create'}).e
 code, body, _ = req(hook + '/app')
 assert code == 200 and json.loads(body)['app'] == {k: info[k] for k in ('versionCode', 'versionName', 'size', 'sha256')}, body
 code, body, h = req(hook + '/app.apk')
-assert code == 200 and body == APK and 'ledger-notify-1.0.apk' in h['Content-Disposition']
+assert code == 200 and body == APK and urllib.parse.quote('YeYe가계부-1.0.apk') in h['Content-Disposition']
 assert req(hook + '/other')[0] == 404 and req('/api/ledger/hook/wrongkey/app')[0] == 404
 web_server._clear_auth_failures('127.0.0.1')
 

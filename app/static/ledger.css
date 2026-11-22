@@ -105,6 +105,8 @@ button:disabled { opacity: .6; cursor: default; }
 .app-only { display: none; }
 .in-app .app-only { display: flex; }
 .in-app .outside-only { display: none !important; }
+/* 앱에서는 가계부만: 다른 탭으로 가는 사이트 메뉴 줄을 숨김 (앱도 /ledger/ 밖으로는 가지 않음) */
+.in-app .site-nav { display: none !important; }
 .app-connect { align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
 
 /* 요약 */

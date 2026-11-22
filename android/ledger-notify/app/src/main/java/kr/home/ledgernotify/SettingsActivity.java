@@ -98,7 +98,7 @@ public class SettingsActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(16), dp(16), dp(16), dp(24));
 
-        TextView title = text("가계부 알림 설정", 22, R.color.text);
+        TextView title = text("YeYe가계부 설정", 22, R.color.text);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title);
         root.addView(text("카드 결제 알림을 가계부의 확인 대기함으로 보내요. 결제 알림처럼 보이는 글만 보내고, 다른 알림은 휴대폰 밖으로 나가지 않아요.", 13, R.color.muted), gap(4));
@@ -137,7 +137,7 @@ public class SettingsActivity extends Activity {
         perm.addView(accessState);
         accessBtn = button("알림 읽기 권한 열기", v -> startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));
         perm.addView(accessBtn, gap(8));
-        perm.addView(text("목록에서 '가계부 알림'이 회색이라 켤 수 없으면: 아래 '앱 정보 열기' → 오른쪽 위 ⋮ → '제한된 설정 허용' 뒤 다시 켜세요.", 12, R.color.muted), gap(8));
+        perm.addView(text("목록에서 'YeYe가계부'가 회색이라 켤 수 없으면: 아래 '앱 정보 열기' → 오른쪽 위 ⋮ → '제한된 설정 허용' 뒤 다시 켜세요.", 12, R.color.muted), gap(8));
         restrictBtn = button("앱 정보 열기", v -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))));
         perm.addView(restrictBtn, gap(6));
         batteryState = text("", 14, R.color.text);
@@ -296,7 +296,7 @@ public class SettingsActivity extends Activity {
             return;
         }
         String now = new SimpleDateFormat("M/d HH:mm", Locale.KOREA).format(new Date());
-        Sender.sendTest(this, "[가계부 알림 앱] 시험 승인 1,000원 일시불 " + now + " 앱 연결 시험", () -> ui.post(() -> {
+        Sender.sendTest(this, "[YeYe가계부 앱] 시험 승인 1,000원 일시불 " + now + " 앱 연결 시험", () -> ui.post(() -> {
             refresh();
             toast("보냈어요 — 아래 '최근 보낸 알림'과 가계부 확인 대기함을 보세요");
         }));

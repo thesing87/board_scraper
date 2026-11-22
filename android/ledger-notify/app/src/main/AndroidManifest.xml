@@ -33,7 +33,7 @@
         <activity
             android:name=".SettingsActivity"
             android:exported="false"
-            android:label="가계부 알림 설정"
+            android:label="YeYe가계부 설정"
             android:parentActivityName=".MainActivity" />
 
         <!-- 알림 읽기: 설정 > 알림 읽기 권한에서 켜야 동작 -->

@@ -269,11 +269,12 @@ try:
     assert vis('inbox-sec') and '1,000원' in txt('inbox') and '마지막으로 받은 알림' in txt('hook-state')
     click('#inbox [data-ib-del]'); time.sleep(1)
     assert not vis('inbox-sec')
-    # ---- 가계부 알림 앱 안에서 열었을 때 (앱이 넣는 window.LedgerApp 흉내): 앱 받기 안내는 숨고 '이 휴대폰 앱에 연결' → 새 연결 주소를 앱에 넣음
+    # ---- YeYe가계부 앱 안에서 열었을 때 (앱이 넣는 window.LedgerApp 흉내): 앱 받기 안내는 숨고 '이 휴대폰 앱에 연결' → 새 연결 주소를 앱에 넣음
     d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source': "window.__got = []; window.confirm = () => true; window.LedgerApp = {version: () => '1.2', connected: () => window.__got.length > 0, connect: u => { window.__got.push(u); return true; }, openSettings: () => {}};"})
     d.get(BASE + '/ledger/'); time.sleep(2)
     assert js("return document.documentElement.classList.contains('in-app')") and js("return document.getElementById('auto').open")
     assert vis('app-connect') and not vis('app-get') and '아직 연결되지' in txt('app-connect-state'), txt('app-connect-state')
+    assert not js("const n = document.querySelector('.site-nav'); return !!n && n.offsetHeight > 0")   # 앱에서는 메뉴 줄(다른 탭) 없음
     click('#app-connect-btn'); time.sleep(1.2)
     got = js('return window.__got')
     assert len(got) == 1 and got[0].startswith(BASE + '/api/ledger/hook/'), got
