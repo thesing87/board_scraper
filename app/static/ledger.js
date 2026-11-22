@@ -299,12 +299,10 @@
         $('donut').innerHTML = svg;
     }
 
-    const MEMO_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 12h6M9 16h4"></path></svg>';
     const signed = n => `<span class="${n < 0 ? 'minus' : n > 0 ? 'plus' : ''}">${n < 0 ? '−' : n > 0 ? '+' : ''}${won(Math.abs(n))}</span>`;
-    // 이름표: 사람 색 동그라미 첫 글자 + 이름
+    // 이름: 작은 사람 색 동그라미 첫 글자 + 이름 (기록 줄 아래쪽 작은 줄)
     function whoTag(id) {
-        const [bg, fg] = AVATAR[memberIndex(id) % AVATAR.length];
-        return `<span class="who-tag" style="background:${bg};color:${fg}">${avatarOf(id, nameOf(id))}${esc(nameOf(id))}</span>`;
+        return `<span class="who-tag">${avatarOf(id, nameOf(id))}${esc(nameOf(id))}</span>`;
     }
 
     // ==========================================
@@ -422,8 +420,8 @@
             return head + items.map(e => {
                 const c = catOf(e.category_id), mine = canEdit(e), income = c.kind === 'income';
                 return `<button type="button" class="it${mine ? ' mine' : ''}${st.editId === e.id ? ' editing' : ''}" data-entry="${e.id}"${mine ? ' title="눌러서 고치기"' : ' tabindex="-1"'}>
-                    <span class="txt"><span class="line1"><span class="cat" style="color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span>${income ? '<span class="in-tag">수입</span>' : ''}${whoTag(e.user_id)}</span>
-                    ${e.memo ? `<span class="memo">${MEMO_ICON}<span>${esc(e.memo)}</span></span>` : ''}</span>
+                    <span class="txt"><span class="memo${e.memo ? '' : ' no-memo'}">${esc(e.memo || c.name)}</span>
+                    <span class="line2"><span class="cat" style="color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span>${income ? '<span class="in-tag">수입</span>' : ''}<span class="sep">·</span>${whoTag(e.user_id)}</span></span>
                     <span class="amt${income ? ' plus' : ''}">${income ? '+' : ''}${won(e.amount)}</span></button>`;
             }).join('');
         }).join('');

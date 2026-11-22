@@ -149,9 +149,9 @@ try:
     click('#list [data-entry]'); time.sleep(.3)
     assert txt('entry-title') == '기록 고치기' and js("return document.getElementById('entry').classList.contains('income')")
     click('#edit-cancel'); click('#kind-expense'); time.sleep(.2)
-    # 기록 줄: 이름은 이름표, 메모는 아래 줄에 따로, 날짜 머리줄에 수입·지출·합계
-    row = js("const b = [...document.querySelectorAll('#list [data-entry]')].find(x => x.textContent.includes('사료')); return [b.querySelector('.who-tag').textContent.trim(), b.querySelector('.memo').textContent.trim()]")
-    assert row == ['임임기범', '사료'], row
+    # 기록 줄: 메모가 첫 줄(크게), 분류·이름은 아래 작은 줄, 메모가 없으면 첫 줄에 분류 이름(흐리게), 날짜 머리줄에 수입·지출·합계
+    row = js("const b = [...document.querySelectorAll('#list [data-entry]')].find(x => x.textContent.includes('사료')); return [b.querySelector('.memo').textContent.trim(), b.querySelector('.line2 .who-tag').textContent.trim(), b.querySelector('.memo').offsetTop < b.querySelector('.line2').offsetTop, parseFloat(getComputedStyle(b.querySelector('.memo')).fontSize) > parseFloat(getComputedStyle(b.querySelector('.who-tag')).fontSize)]")
+    assert row == ['사료', '임임기범', True, True], row
     head = js("return document.querySelector('#list .dayh').textContent.replace(/\\s+/g, ' ').trim()")
     assert '수입 +3,200,000원' in head and '지출 −57,000원' in head and '합계 +3,143,000원' in head, head
     # 합계(일별 달력): 오늘 칸에 수입·지출, 누르면 그날 기록만, 다시 누르면 이 달

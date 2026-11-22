@@ -225,14 +225,14 @@ button:disabled { opacity: .6; cursor: default; }
 .it.mine:hover { background: #FAFBFC; }
 .it.editing { background: #FFF8EC; }
 .it .txt { flex: 1; min-width: 0; }
-.it .line1 { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.it .cat { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; }
-/* 이름: 사람 색 이름표, 메모: 아래 줄에 따로 */
-.who-tag { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px 1px 2px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
-.who-tag .av { width: 17px; height: 17px; font-size: 10px; }
-.it .memo { display: flex; align-items: center; gap: 4px; margin-top: 3px; font-size: 12.5px; color: var(--muted); overflow: hidden; }
-.it .memo svg { flex: 0 0 auto; width: 13px; height: 13px; }
-.it .memo span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 기록 줄: 메모가 첫 줄(크게), 분류·이름은 아래 작은 줄. 메모가 없으면 첫 줄에 분류 이름을 흐리게 */
+.it .memo { display: block; font-size: 15px; font-weight: 600; color: var(--text); line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.it .memo.no-memo { color: var(--faint); font-weight: 500; }
+.it .line2 { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 2px; font-size: 12px; color: var(--muted); }
+.it .cat { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+.it .sep { color: var(--faint); }
+.who-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; color: var(--muted); }
+.who-tag .av { width: 14px; height: 14px; font-size: 8.5px; }
 .it .amt { font-weight: 700; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 640px) {
