@@ -86,6 +86,7 @@ import video_fix
 import video_convert
 import system_status
 import ledger
+import ledger_app
 import apt_trades
 from card_store import (
     card_benefits,
@@ -667,6 +668,16 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         pure_path = self.path.split('?')[0]
         log_msg(f"[API] POST {pure_path} ({client_ip(self.client_address[0], self.headers)})", "DEBUG")
         # 휴대폰(매크로드로이드 등)이 보내는 결제 알림: 본문이 JSON이 아닐 수 있어 따로 받음
+        # 가계부 알림 앱(APK) 올리기: 본문이 파일 그대로라 JSON으로 읽지 않음
+        if pure_path == '/api/ledger/app-upload':
+            try:
+                self._handle_ledger_app_upload()
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass
+            except Exception as e:
+                log_msg(f"[API] 가계부 앱 올리기 오류: {short_err(e)}", "ERROR")
+                self._send_json(500, False, '❌ 처리하지 못했습니다.')
+            return
         if pure_path.startswith(self.LEDGER_HOOK_PREFIX):
             try:
                 self._handle_ledger_hook(pure_path[len(self.LEDGER_HOOK_PREFIX):])
@@ -1156,7 +1167,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    def _stream_file(self, full, content_type, download=False, layout=None):
+    def _stream_file(self, full, content_type, download=False, layout=None, filename=None):
         """큰 파일을 조금씩 보냄. Range 요청이면 그 부분만 (영상의 원하는 위치로 바로 건너뛰기)
         layout: (전체 크기, [(원본 시작, 길이) 또는 bytes, ...]) — 원본 일부와 고친 조각을 이어 붙인 가상의 파일"""
         size, parts = layout if layout else (os.path.getsize(full), [(0, os.path.getsize(full))])
@@ -1185,7 +1196,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         if status == 206:
             self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
         if download:
-            self.send_header('Content-Disposition', f"attachment; filename*=UTF-8''{quote(os.path.basename(full))}")
+            self.send_header('Content-Disposition', f"attachment; filename*=UTF-8''{quote(filename or os.path.basename(full))}")
         self.end_headers()
         try:
             with open(full, 'rb') as f:
@@ -1258,7 +1269,14 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_data(200, {'user': user, **ledger.state(query.get('month', [''])[0])})
         elif pure_path == '/api/ledger/inbox':
             self._send_data(200, {'items': ledger.inbox(user), 'rules': ledger.rules(), 'hook': ledger.hook_info(user),
-                                  'hook_base': self._site_base() + self.LEDGER_HOOK_PREFIX})
+                                  'hook_base': self._site_base() + self.LEDGER_HOOK_PREFIX, 'app': ledger_app.info()})
+        elif pure_path == '/api/ledger/app.apk':
+            app = ledger_app.info()
+            if not app:
+                self._send_json(404, False, '❌ 올라간 앱이 없습니다.')
+                return
+            self._stream_file(ledger_app.APK_FILE, 'application/vnd.android.package-archive', download=True,
+                              filename=ledger_app.download_name(app))
         elif pure_path == '/api/ledger/year':
             self._send_data(200, ledger.year_totals(query.get('year', [''])[0]))
         elif pure_path == '/api/ledger/admin' and user['admin']:
@@ -1369,6 +1387,36 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             return
         log_msg(f"[가계부] 결제 알림 받음: {result}", "DEBUG")
         self._send_data(200, {'success': True, 'result': result})
+
+    def _handle_ledger_app_upload(self):
+        """관리자가 가계부 알림 앱(APK) 파일을 올림. 본문은 파일 그대로 (application/octet-stream)"""
+        user = self._ledger_user()
+        if not user:
+            return
+        if not user['admin']:
+            self._send_json(403, False, '❌ 관리자만 올릴 수 있습니다.')
+            return
+        length = int(self.headers.get('Content-Length') or 0)
+        if length <= 0 or length > ledger_app.MAX_BYTES:
+            self._send_json(413, False, f'❌ 파일은 {ledger_app.MAX_BYTES // 1024 // 1024}MB까지 올릴 수 있습니다.')
+            return
+        chunks, left = [], length
+        while left > 0:
+            chunk = self.rfile.read(min(self.STREAM_CHUNK, left))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            left -= len(chunk)
+        if left:
+            self._send_json(400, False, '❌ 파일을 끝까지 받지 못했습니다.')
+            return
+        try:
+            app = ledger_app.save(b''.join(chunks), user['name'])
+        except ledger_app.AppFileError as e:
+            self._send_json(400, False, f'❌ {e}')
+            return
+        log_msg(f"[가계부] 앱 파일 올림: {app['versionName']}({app['versionCode']}) {app['size']}바이트 by {user['name']}")
+        self._send_data(200, {'success': True, 'app': app})
 
     def _handle_ledger_inbox(self):
         """{action: update|confirm|confirm_all|discard|test, id, category_id, amount, merchant, used_on}"""

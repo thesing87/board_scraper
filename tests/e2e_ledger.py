@@ -66,6 +66,17 @@ try:
     click('[data-admin="approve"]'); time.sleep(1)
     assert '기다리는 사람 없음' in txt('pending') and '지은' in txt('members')
     assert 'ledger' in navs()
+    # 앱 파일 올리기 (관리자 칸): 고르기 전엔 버튼 꺼짐, APK가 아니면 거절, 올리면 받기 버튼
+    assert '아직 올린 앱이 없어요' in txt('app-admin-state') and js("return document.getElementById('app-upload').disabled")
+    assert js("return document.getElementById('app-get').hidden && !document.getElementById('app-none').hidden")
+    bad = os.path.join(tempfile.mkdtemp(), 'x.apk'); open(bad, 'wb').write(b'not apk')
+    d.find_element('id', 'app-file').send_keys(bad); time.sleep(.2)
+    click('#app-upload'); time.sleep(1)
+    assert '(APK) 파일이 아니에요' in txt('app-msg'), txt('app-msg')
+    d.find_element('id', 'app-file').send_keys(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures', 'ledger-notify-1.0.apk')); time.sleep(.2)
+    click('#app-upload'); time.sleep(1.5)
+    assert '올렸어요: 1.0' in txt('app-msg') and '1.0 · 24KB' in txt('app-admin-state') and '임기범' in txt('app-admin-state'), txt('app-admin-state')
+    assert '1.0 · 24KB' in txt('app-info') and js("return document.getElementById('app-link').getAttribute('href')") == '/api/ledger/app.apk'
     print('ADMIN OK')
 
     # ---- 입력: 금액(쉼표), 소비형태, 메모
@@ -206,6 +217,10 @@ try:
     # ---- 결제 알림 자동 기록: 연결 주소 만들기 → 알림 받기 → 대기함에서 분류 고르기 → 규칙 → 확정·취소
     d.get(BASE + '/ledger/'); time.sleep(2)
     assert not vis('inbox-sec') and '아직 연결 주소' in txt('hook-state')
+    # 관리자가 올린 앱을 받을 수 있음 (받기 버튼 → 같은 파일)
+    assert js("return !document.getElementById('app-get').hidden") and not vis('admin')
+    size = js("return fetch('/api/ledger/app.apk', {credentials: 'same-origin'}).then(r => r.status === 200 ? r.arrayBuffer() : null).then(b => b && b.byteLength)")
+    assert size == os.path.getsize(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures', 'ledger-notify-1.0.apk')), size
     js("document.getElementById('auto').open = true")
     js("window.confirm = () => true")
     click('#hook-create'); time.sleep(1)
