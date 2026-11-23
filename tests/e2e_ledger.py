@@ -202,7 +202,12 @@ try:
     jieun = js("return [...document.querySelectorAll('#people [data-who]')].find(b => b.textContent.includes('지은')).dataset.who")
     click(f'#people [data-who="{jieun}"]'); time.sleep(.3)
     assert txt('m-ex') == '−5,600원' and '지은' in txt('m-ex-label') and txt('count') == '1건'
-    click('#people [data-who="0"]')
+    click('#people [data-who="0"]'); time.sleep(.3)
+    # 기록 칸은 쓴 사람의 색 (프로필 동그라미의 연한 색 + 왼쪽 띠), 사람마다 다름
+    rows = js("return [...document.querySelectorAll('#list .it')].map(b => [b.textContent.includes('지은'), getComputedStyle(b).backgroundColor, getComputedStyle(b).boxShadow])")
+    colors = {who: bg for who, bg, _ in rows}
+    assert len(colors) == 2 and all(bg != 'rgba(0, 0, 0, 0)' for bg in colors.values()) and 'inset' in rows[0][2], rows
+    assert all(colors[who] == bg for who, bg, _ in rows), rows
     # 일별: 오늘 기록, 하루 앞으로 가면 없음
     click('#mode-day'); time.sleep(.3)
     assert txt('m2') == '3건' and '이날' in txt('m-ex-label')

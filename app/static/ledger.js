@@ -158,6 +158,13 @@
         const i = list.findIndex(m => m.id === id);
         return i < 0 ? id : i;
     }
+    // 기록 칸의 사람 색: AVATAR와 같은 순서로 [왼쪽 띠, 글자, 둘째 줄 글자] (칸 바탕은 AVATAR의 연한 색)
+    const USER_TINT = [['#7F77DD', '#26215C', '#534AB7'], ['#1D9E75', '#04342C', '#0F6E56'], ['#BA7517', '#412402', '#854F0B'], ['#378ADD', '#042C53', '#185FA5'],
+        ['#D4537E', '#4B1528', '#993556'], ['#639922', '#173404', '#3B6D11'], ['#D85A30', '#4A1B0C', '#993C1D']];
+    function userTint(id) {
+        const i = memberIndex(id) % AVATAR.length, [band, ink, sub] = USER_TINT[i];
+        return `--u-bg:${AVATAR[i][0]};--u-band:${band};--u-ink:${ink};--u-sub:${sub}`;
+    }
     function avatarOf(id, name) {
         const [bg, fg] = AVATAR[memberIndex(id) % AVATAR.length];
         const letter = [...((name || '?').trim() || '?')][0];   // 이름 첫 글자 (이모지 등 두 칸짜리 글자도 한 글자로)
@@ -421,7 +428,8 @@
                 + `${dayEx ? `<span>지출 <span class="minus">−${won(dayEx)}</span></span>` : ''}<span class="net">합계 ${signed(net)}</span></div>`;
             return head + items.map(e => {
                 const c = catOf(e.category_id), mine = canEdit(e), income = c.kind === 'income';
-                return `<button type="button" class="it${mine ? ' mine' : ''}${st.editId === e.id ? ' editing' : ''}" data-entry="${e.id}"${mine ? ' title="눌러서 고치기"' : ' tabindex="-1"'}>
+                // 칸 전체를 쓴 사람의 색으로 (왼쪽에 같은 계열 진한 띠)
+                return `<button type="button" class="it u${mine ? ' mine' : ''}${st.editId === e.id ? ' editing' : ''}" data-entry="${e.id}" style="${userTint(e.user_id)}"${mine ? ' title="눌러서 고치기"' : ' tabindex="-1"'}>
                     <span class="txt"><span class="memo${e.memo ? '' : ' no-memo'}">${esc(e.memo || c.name)}</span>
                     <span class="line2"><span class="cat" style="color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span>${income ? '<span class="in-tag">수입</span>' : ''}<span class="sep">·</span>${whoTag(e.user_id)}</span></span>
                     <span class="amt${income ? ' plus' : ''}">${income ? '+' : ''}${won(e.amount)}</span></button>`;
