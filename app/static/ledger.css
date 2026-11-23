@@ -194,6 +194,18 @@ button:disabled { opacity: .6; cursor: default; }
 
 /* 분석·합계·기록 */
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; align-items: start; }
+/* 접는 칸 (지출 입력·분석과 달력·기록): 머리 줄을 누르면 펼침/접힘, 늘 접힌 채로 시작 */
+.fold { margin-bottom: 12px; }
+.fold > summary { cursor: pointer; list-style: none; user-select: none; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: '▸'; color: var(--muted); }
+.fold[open] > summary::before { content: '▾'; }
+.fold:not([open]) > summary { border-radius: 13px; }
+.fold[open] > summary { border-bottom: 1px solid var(--divider); }
+.fold-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.fold-grid > .sec { border: 0; border-radius: 0; }
+.fold-grid > .sec + .sec { border-top: 1px solid var(--divider); }
+@media (min-width: 641px) { .fold-grid > .sec + .sec { border-top: 0; border-left: 1px solid var(--divider); } }
 .col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .seg.small.left { margin-left: 4px; }
 .year-nav { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -253,7 +265,7 @@ button:disabled { opacity: .6; cursor: default; }
 .who-tag .av { width: 14px; height: 14px; font-size: 8.5px; }
 .it .amt { font-weight: 700; font-variant-numeric: tabular-nums; }
 /* 기록 목록 맨 위 합계 띠 (수입·지출·합계) */
-.list-sum { display: grid; margin: 0 14px 10px; border-radius: 10px; background: var(--soft); overflow: hidden; }
+.list-sum { display: grid; margin: 10px 14px; border-radius: 10px; background: var(--soft); overflow: hidden; }
 .list-sum > div { padding: 8px 10px; font-size: 12px; color: var(--muted); min-width: 0; }
 .list-sum > div + div { border-left: 1px solid #fff; }
 .list-sum b { display: block; margin-top: 2px; font-size: 15px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

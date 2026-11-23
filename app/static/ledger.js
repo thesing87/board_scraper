@@ -280,6 +280,8 @@
         scope.filter(e => kindOf(e) === st.ana).forEach(e => sums.set(e.category_id, (sums.get(e.category_id) || 0) + e.amount));
         const parts = [...sums.entries()].sort((a, b) => b[1] - a[1]);
         const total = parts.reduce((t, p) => t + p[1], 0);
+        // 접힌 '분석 · 달력' 줄의 요약: 가장 많은 소비형태
+        $('ana-note').textContent = parts.length ? `가장 많음: ${catOf(parts[0][0]).name} ${Math.round(parts[0][1] / total * 100)}%` : '';
         renderDonut(parts, total, whoName ? `${whoName} ${st.ana === 'income' ? '수입' : '지출'}` : st.ana === 'income' ? '수입' : '지출');
         $('legend').innerHTML = parts.length ? parts.map(([id, v]) => {
             const c = catOf(id), pct = Math.round(v / total * 100);
@@ -403,6 +405,7 @@
         if (st.mode === 'day' && ymd(st.day) === b.dataset.day) { st.mode = 'month'; }
         else { st.mode = 'day'; const [y, m, d] = b.dataset.day.split('-').map(Number); st.day = new Date(y, m - 1, d); }
         render();
+        $('list-fold').open = true;   // 그날 기록이 보이게
     });
     // 월별의 달: 그 달을 월별로 보고 합계는 그 달 달력으로
     function openMonth(month) {
@@ -417,8 +420,7 @@
 
     function canEdit(e) { return st.me && (st.me.admin || e.user_id === st.me.id); }
     function renderList(list) {
-        $('count').textContent = `${list.length}건`;
-        if (!list.length) { $('list').innerHTML = '<p class="empty">이 기간에는 기록이 없어요</p>'; return; }
+        if (!list.length) { $('count').textContent = '0건'; $('list').innerHTML = '<p class="empty">이 기간에는 기록이 없어요</p>'; return; }
         const days = [...new Set(list.map(e => e.used_on))];
         // 맨 위 합계 띠: 목록과 같은 거르기(기간·사람·종류)로 수입·지출·합계 ('지출만'·'수입만'이면 그쪽 칸만)
         const when = st.mode === 'day' ? `${st.day.getMonth() + 1}월 ${st.day.getDate()}일` : `${st.day.getMonth() + 1}월`;
@@ -428,6 +430,7 @@
         if (st.type !== 'expense') cells.push(`<div>${when} 수입<b class="plus">+${won(sumIn)}</b></div>`);
         if (st.type !== 'income') cells.push(`<div>${when} 지출<b class="minus">−${won(sumEx)}</b></div>`);
         if (st.type === 'all') cells.push(`<div>합계<b class="${sumIn - sumEx < 0 ? 'minus' : sumIn - sumEx > 0 ? 'plus' : ''}">${signed(sumIn - sumEx)}</b></div>`);
+        $('count').innerHTML = `${list.length}건 · ${signed(st.type === 'expense' ? -sumEx : sumIn - sumEx)}`;   // 접힌 줄에도 보이게
         const band = `<div class="list-sum" style="grid-template-columns:repeat(${cells.length}, minmax(0, 1fr))">${cells.join('')}</div>`;
         $('list').innerHTML = band + days.map(day => {
             const items = list.filter(e => e.used_on === day);
@@ -492,6 +495,7 @@
         $('memo').value = entry.memo || '';
         $('entry-msg').textContent = '';
         render();
+        $('entry').open = true;   // 접혀 있으면 펼쳐서 고치기
         $('entry').scrollIntoView({ block: 'start', behavior: 'smooth' });
     }
     $('edit-cancel').addEventListener('click', () => { clearForm(); $('used-on').value = ymd(new Date()); render(); });

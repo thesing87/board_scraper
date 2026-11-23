@@ -34,6 +34,9 @@ def typ(i, v):
     js("const e = document.getElementById(arguments[0]); e.value = arguments[1]; e.dispatchEvent(new Event('input', {bubbles: true}))", i, v)
 def click(sel):
     js("document.querySelector(arguments[0]).click()", sel)
+def open_all():
+    # 지출 입력·분석과 달력·기록은 접는 칸이고 늘 접힌 채로 시작 → 시험에서는 모두 펼쳐 둠
+    js("['entry', 'ana-fold', 'list-fold'].forEach(i => document.getElementById(i).open = true)")
 def entries():
     with storage._db() as conn:
         return [dict(r) for r in conn.execute("SELECT * FROM ledger_entries ORDER BY id")]
@@ -61,6 +64,14 @@ try:
     js("localStorage.setItem('admin_token', arguments[0])", web_server.ADMIN_TOKEN)
     d.get(BASE + '/ledger/'); time.sleep(2)
     assert vis('app') and not vis('auth') and '임기범' in txt('who-me')
+    # 화면 맨 위는 결제 알림 자동 기록, 지출 입력·분석과 달력·기록은 접힌 채로 시작 (머리 줄은 보임)
+    assert js("return document.querySelector('#app > details, #app > section').id") == 'auto'
+    assert js("return ['entry', 'ana-fold', 'list-fold'].map(i => document.getElementById(i).open)") == [False, False, False]
+    seen = lambda i: js(f"return document.getElementById('{i}').checkVisibility()")
+    assert seen('entry-title') and not seen('amount') and not seen('list') and not seen('cal'), [seen(i) for i in ('entry-title', 'amount', 'list', 'cal')]
+    click('#entry > summary'); time.sleep(.2)
+    assert seen('amount')
+    open_all()
     assert js("return document.querySelector('#who-me .av').textContent") == '임'      # 아이콘은 이름 첫 글자
     assert vis('admin') and txt('pending-count') == '1' and js("return document.getElementById('admin').open")
     click('[data-admin="approve"]'); time.sleep(1)
@@ -138,7 +149,7 @@ try:
     assert '+3,200,000원' in txt('list') and '−57,000원' in txt('list')      # 날짜 머리줄: 수입·지출
     # 기록 거르기: 수입만
     click('#type-seg [data-type="income"]'); time.sleep(.3)
-    assert txt('count') == '1건' and txt('m-ex') == '−57,000원'          # 요약은 그대로
+    assert txt('count').startswith('1건 · ') and txt('m-ex') == '−57,000원'          # 요약은 그대로
     click('#type-seg [data-type="all"]')
     # 분석: 수입
     click('#ana-seg [data-ana="income"]'); time.sleep(.3)
@@ -176,7 +187,9 @@ try:
 
     # ---- 내 기록 고치기·지우기
     pick = "[...document.querySelectorAll('#list [data-entry]')].find(b => b.textContent.includes('사료')).click()"
+    js("document.getElementById('entry').open = false")
     js(pick)                               # 사료 15,000원
+    assert js("return document.getElementById('entry').open")
     assert vis('edit-row') and txt('entry-title') == '기록 고치기' and js("return document.getElementById('amount').value") == '15,000'
     typ('amount', '16000'); click('#save'); time.sleep(1.2)
     assert [x['amount'] for x in entries()] == [42000, 16000, 3200000] and not vis('edit-row')
@@ -206,7 +219,7 @@ try:
     # 사람 거르기: 지은만
     jieun = js("return [...document.querySelectorAll('#people [data-who]')].find(b => b.textContent.includes('지은')).dataset.who")
     click(f'#people [data-who="{jieun}"]'); time.sleep(.3)
-    assert txt('m-ex') == '−5,600원' and '지은' in txt('m-ex-label') and txt('count') == '1건'
+    assert txt('m-ex') == '−5,600원' and '지은' in txt('m-ex-label') and txt('count') == '1건 · −5,600원'
     click('#people [data-who="0"]'); time.sleep(.3)
     # 기록 칸은 쓴 사람의 색 (프로필 동그라미의 연한 색 + 왼쪽 띠), 사람마다 다름
     rows = js("return [...document.querySelectorAll('#list .it')].map(b => [b.textContent.includes('지은'), getComputedStyle(b).backgroundColor, getComputedStyle(b).boxShadow])")
@@ -234,7 +247,7 @@ try:
     print('MEMBER OK')
 
     # ---- 결제 알림 자동 기록: 연결 주소 만들기 → 알림 받기 → 대기함에서 분류 고르기 → 규칙 → 확정·취소
-    d.get(BASE + '/ledger/'); time.sleep(2)
+    d.get(BASE + '/ledger/'); time.sleep(2); open_all()
     assert not vis('inbox-sec') and '아직 연결 주소' in txt('hook-state')
     assert not js("return document.documentElement.classList.contains('in-app')")   # 브라우저에서는 앱 연결 버튼 없음
     # 관리자가 올린 앱을 받을 수 있음 (받기 버튼 → 같은 파일)
@@ -307,7 +320,7 @@ try:
     assert not vis('inbox-sec')
     # ---- YeYe가계부 앱 안에서 열었을 때 (앱이 넣는 window.LedgerApp 흉내): 앱 받기 안내는 숨고 '이 휴대폰 앱에 연결' → 새 연결 주소를 앱에 넣음
     d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source': "window.__got = []; window.confirm = () => true; window.LedgerApp = {version: () => '1.2', connected: () => window.__got.length > 0, connect: u => { window.__got.push(u); return true; }, openSettings: () => {}};"})
-    d.get(BASE + '/ledger/'); time.sleep(2)
+    d.get(BASE + '/ledger/'); time.sleep(2); open_all()
     assert js("return document.documentElement.classList.contains('in-app')") and js("return document.getElementById('auto').open")
     assert vis('app-connect') and not vis('app-get') and '아직 연결되지' in txt('app-connect-state'), txt('app-connect-state')
     assert not js("const n = document.querySelector('.site-nav'); return !!n && n.offsetHeight > 0")   # 앱에서는 메뉴 줄(다른 탭) 없음
@@ -329,7 +342,7 @@ try:
 
     # ---- 휴대폰: 넘침 없음
     d.set_window_size(390, 844); time.sleep(.3)
-    d.get(BASE + '/ledger/'); time.sleep(2)
+    d.get(BASE + '/ledger/'); time.sleep(2); open_all()
     assert vis('app') and js("return document.documentElement.scrollWidth <= innerWidth + 1")
     # 스크립트 오류 없음 (로그인 전 401·허락 전 403 같은 응답 코드 기록은 정상)
     logs = d.get_log('browser')
