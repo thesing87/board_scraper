@@ -148,6 +148,17 @@ assert dcinside.scrape_post_detail(fc0, dict(INFO))['comments'] == [] and fc0.po
 # 삭제된 글
 gone = FakeClient({VIEW: (200, '<html><body>/derror/deleted/ 삭제된 게시물입니다</body></html>')})
 assert dcinside.scrape_post_detail(gone, dict(INFO)) is None
+# 삭제된 글 (2026-11-20부터): 서버가 넘기지 않고 응답 404에 넘기는 스크립트만
+gone404 = FakeClient({VIEW: (404, '<script type="text/javascript">location.replace("/derror/deleted/car_new1/gallery/gallery/11561402");</script>')})
+gone404.get = lambda url, headers=None, **kw: Res(404, text=gone404.pages[url][1], url=url)
+assert dcinside.scrape_post_detail(gone404, dict(INFO)) is None
+# 삭제 안내 스크립트가 없는 404는 그대로 오류 (일시적 실패로 보고 다음에 다시)
+broken = FakeClient({VIEW: (404, '<html><body>Not Found</body></html>')})
+try:
+    dcinside.scrape_post_detail(broken, dict(INFO))
+    raise AssertionError('빈 404를 삭제로 봄')
+except Exception as e:
+    assert '.write_div' in str(e), e
 # 목록: 정상 표면 글 목록, 표가 없으면(차단·점검 화면) 차단 의심
 LIST = dcinside.list_url('car_new1', '싼타페')
 ok = FakeClient({LIST: (200, LIST_HTML)})

@@ -21,8 +21,11 @@ from sites import dc_gallery, dc_post_id
 
 BASE_URL = 'https://gall.dcinside.com'
 COMMENT_URL = BASE_URL + '/board/comment/'
-# 삭제됐거나 없는 글은 /derror/deleted/... 안내 페이지로 넘어감
+# 삭제됐거나 없는 글은 /derror/deleted/... 안내 페이지로 넘어감.
+# 2026-11-20부터는 서버가 바로 넘기지 않고, 응답 404에 그 주소로 넘기는 스크립트만 줌
+# (<script>location.replace("/derror/deleted/car_new1/gallery/gallery/11582043");</script>)
 DELETED_URL_MARK = '/derror/deleted/'
+DELETED_SCRIPT_RE = re.compile(r"""location\.(?:replace\(|href\s*=)\s*["'][^"']*/derror/deleted/""")
 DELETED_PAGE_PHRASES = ('삭제했거나 존재하지 않는', '삭제된 게시물', '존재하지 않는 게시물')
 # 이미지·동영상 대신 넣는 원문 링크 모양
 LINK_STYLE = "color: #1877f2; text-decoration: underline; font-weight: bold;"
@@ -177,7 +180,8 @@ def check_board(client, board):
 
 
 def _is_deleted_page(res):
-    return DELETED_URL_MARK in (res.url or '') or any(p in res.text for p in DELETED_PAGE_PHRASES)
+    return (DELETED_URL_MARK in (res.url or '') or DELETED_SCRIPT_RE.search(res.text) is not None
+            or any(p in res.text for p in DELETED_PAGE_PHRASES))
 
 
 # ==========================================
