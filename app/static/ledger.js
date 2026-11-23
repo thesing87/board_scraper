@@ -34,7 +34,7 @@
         // 합계 구역: totView(day: 이 달 달력·month: 올해 달마다), year·yearData(서버의 올해 합계)
         totView: 'day', year: new Date().getFullYear(), yearData: null,
         // 자동 기록: 확인 대기함·가게 규칙·내 연결 상태, 대기함에서 고치는 중인 알림
-        inbox: [], rules: [], hook: null, hookBase: '', editItem: null,
+        inbox: [], rules: [], hook: null, hookBase: '', ibDirty: {}, newCatFor: null, newCat: { name: '', color: null, msg: '' },
         catEditing: false, popFor: null, addColor: null, editId: null, ddIndex: -1,
     };
 
@@ -62,7 +62,8 @@
         st.me = null;
         storageSet(LEDGER_FLAG, '');
         $('app').hidden = true;
-        $('who-me').hidden = $('logout').hidden = true;
+        $('who-me').hidden = $('logout').hidden = $('set-open').hidden = true;
+        $('app').classList.remove('settings-open');
         $('auth').hidden = false;
         setTab(tab || 'login');
     }
@@ -116,7 +117,9 @@
         $('who-me').innerHTML = `${av}<span>${esc(user.name)}</span>`;
         $('who-me').hidden = $('logout').hidden = false;
         $('used-on').value = ymd(new Date());
-        $('admin').hidden = !user.admin;
+        $('set-open').hidden = false;
+        renderSetTabs();
+        if (location.hash === '#settings') showSettings(true);
         if (user.admin) loadPeople();
         load();
         loadInbox();
@@ -722,7 +725,8 @@
         const n = data.pending.length;
         $('pending-count').hidden = !n;
         $('pending-count').textContent = n;
-        if (n) $('admin').open = true;
+        $('set-dot').hidden = !n;
+        $('set-dot').textContent = n;
         $('pending').innerHTML = n ? data.pending.map(p => `<div class="person"><span class="name">${esc(p.name)} <span class="hint">· ${esc((p.requested_at || '').slice(5, 16))} 요청</span></span>
             <button type="button" class="small primary" data-admin="approve" data-uid="${p.id}">허락</button>
             <button type="button" class="small" data-admin="reject" data-uid="${p.id}">거절</button></div>`).join('')
@@ -751,8 +755,6 @@
         if (status !== 200) return;
         st.inbox = data.items; st.rules = data.rules; st.hook = data.hook; st.hookBase = data.hook_base; st.discarded = data.discarded || [];
         renderApp(data.app);
-        // 앱 안에서 처음 열었는데 연결 전이면 연결 칸을 펼쳐 둠
-        if (inApp && !st.autoOpened && !appConnected()) { st.autoOpened = true; $('auto').open = true; }
         renderInbox(); renderAuto();
     }
     function applyInbox(data) {
@@ -771,28 +773,27 @@
         if (words.length >= 2 && /(점|지점|역점|센터)$/.test(words[words.length - 1])) words.pop();
         return (words[0] && words[0].length >= 2 ? words[0] : words.join(' ')).slice(0, 20);
     }
-    // 버린 알림 (최근 30일, 최근 버린 순): '버린 알림 n ›'을 누르면 목록, 되살리면 대기함으로
+    // 버린 알림 (최근 30일, 최근 버린 순): 메인의 '버린 알림 n ›'을 누르면 설정 > 버린 알림, 되살리면 대기함으로
     function renderTrash() {
         const list = st.discarded || [];
         $('trash').hidden = !list.length;
-        if (!list.length) st.trashOpen = false;
-        $('trash-btn').textContent = `버린 알림 ${list.length} ${st.trashOpen ? '▴' : '›'}`;
-        $('trash-btn').setAttribute('aria-expanded', String(!!st.trashOpen));
-        $('trash-list').hidden = !st.trashOpen;
-        if (!st.trashOpen) return;
+        $('trash-btn').textContent = `버린 알림 ${list.length} ›`;
+        $('tab-trash-n').hidden = !list.length;
+        $('tab-trash-n').textContent = list.length;
+        if (!list.length) { $('trash-list').innerHTML = '<p class="none">버린 알림이 없어요.</p>'; return; }
         const ago = at => {
             const min = Math.max(0, Math.round((Date.now() - new Date(at.replace(' ', 'T'))) / 60000));
             return min < 1 ? '방금' : min < 60 ? `${min}분 전` : min < 1440 ? `${Math.floor(min / 60)}시간 전` : `${Math.floor(min / 1440)}일 전`;
         };
-        $('trash-list').innerHTML = '<div class="th">버린 알림 · 최근 30일 (지나면 저절로 지워져요)</div>' + list.map(x => `
+        $('trash-list').innerHTML = list.map(x => `
             <div class="tr"><div class="m"><b>${x.cancel ? '취소 ' : ''}${won(x.amount)}</b> ${esc(x.merchant || '가게 이름 없음')}
                 <small>${+x.used_on.slice(5, 7)}/${+x.used_on.slice(8)} ${esc(x.used_time)} · ${esc(x.card || '카드')} · ${ago(x.discarded_at)} 버림</small></div>
                 <button type="button" data-restore="${x.id}">되살리기</button></div>`).join('');
     }
-    $('trash-btn').addEventListener('click', () => { st.trashOpen = !st.trashOpen; renderTrash(); });
+    $('trash-btn').addEventListener('click', () => openSettings('trash'));
     $('trash-list').addEventListener('click', async e => {
         const b = e.target.closest('[data-restore]');
-        if (b && await inboxPost({ action: 'restore', id: Number(b.dataset.restore) })) $('inbox-sec').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        if (b) await inboxPost({ action: 'restore', id: Number(b.dataset.restore) });
     });
     // 버린 직후 5초 동안 '되돌리기'
     let undoTimer = null;
@@ -809,18 +810,42 @@
         await inboxPost({ action: 'restore', id: Number($('undo').dataset.id) });
     });
 
+    // 대기함 항목은 늘 고치는 모드: 금액·가게·날짜 칸이 열려 있고, 칸을 벗어나면 바로 저장, 확정하면 고친 값으로 기록.
+    // 아직 저장하지 않은 칸(st.ibDirty)은 1분마다 대기함을 새로 받아 다시 그려도 친 값 그대로.
+    // 분류 칩 끝의 '＋ 새 분류'로 그 항목 안에서 지출 분류를 만들고 바로 고름 (st.newCatFor)
+    const ibField = (id, f) => $(`ib-${f}-${id}`);
+    function ibValues(id) {
+        const a = ibField(id, 'amount');
+        if (!a) return null;
+        return { amount: parseInt((a.value || '').replace(/[^0-9]/g, ''), 10) || 0, merchant: ibField(id, 'merchant').value, used_on: ibField(id, 'date').value };
+    }
+    const ibChanged = (item, v) => !!v && (v.amount !== item.amount || v.merchant.trim().replace(/\s+/g, ' ') !== (item.merchant || '') || v.used_on !== item.used_on);
+    const markDirty = input => { const b = input.closest('[data-item]'); if (b) st.ibDirty[b.dataset.item] = true; };
+    function nbPreviewHtml() {
+        const c = st.newCat.color, name = esc(st.newCat.name.trim() || '새 분류');
+        return c ? `<span class="chip" style="cursor:default;background:${chipBg(c)};color:${chipFg(c)}"><span class="dot" style="background:${c}"></span>${name}</span>`
+            : `<span class="hint">색을 고르면 미리 보여요</span>`;
+    }
     function renderInbox() {
         renderTrash();
         const items = st.inbox || [];
-        // 고치는 중이면 친 값은 그대로 (1분마다 대기함을 새로 받아 다시 그려도)
-        const typed = st.editItem != null && $('ib-merchant') ? { amount: $('ib-amount').value, merchant: $('ib-merchant').value,
-            used_on: $('ib-date').value, focus: document.activeElement && document.activeElement.id } : null;
+        // 다시 그려도 그대로 둘 것: 저장 전인 칸 값, 새 분류 이름, 커서가 있던 칸
+        const typed = {};
+        items.forEach(x => {
+            if (st.ibDirty[x.id] && ibField(x.id, 'amount')) typed[x.id] = { amount: ibField(x.id, 'amount').value, merchant: ibField(x.id, 'merchant').value, used_on: ibField(x.id, 'date').value };
+        });
+        if (st.newCatFor != null && $('nb-name')) st.newCat.name = $('nb-name').value;
+        if (st.newCatFor != null && !items.some(x => x.id === st.newCatFor)) st.newCatFor = null;
+        const act = document.activeElement;
+        const focus = act && act.id && $('inbox').contains(act) ? act.id : '';
         $('inbox-sec').hidden = !items.length;
         $('inbox-count').textContent = items.length;
         if (!items.length || !st.data) return;
         $('inbox').innerHTML = items.map(x => {
             const day = `${+x.used_on.slice(5, 7)}/${+x.used_on.slice(8)}`;
-            const rule = !x.cancel && ruleFor(x.merchant);
+            const t = typed[x.id];
+            const shop = t ? t.merchant : x.merchant;
+            const rule = !x.cancel && ruleFor(shop);
             // 고른 분류가 없으면 지난 기록의 추천 (같은 가게로 가장 많이 쓴 분류, 그대로 확정하면 그 분류로)
             const sug = !x.cancel && x.category_id == null && x.suggest && catOf(x.suggest.category_id).id != null ? x.suggest : null;
             const cat = x.category_id != null ? x.category_id : sug ? sug.category_id : null;
@@ -830,28 +855,34 @@
             else if (sug) note = `<span class="note rec">지난 기록 '${esc(sug.memo)}' ${sug.count}번 → ${esc(catOf(sug.category_id).name)}</span>`;
             else if (x.category_id == null) note = '<span class="note">규칙에 없는 가게 — 분류를 골라 주세요</span>';
             else note = `<span class="note">${rule && rule.category_id === x.category_id ? `규칙 "${esc(rule.pattern)}" → ` : ''}${esc(catOf(x.category_id).name)}</span>`;
-            const chips = x.cancel ? '' : `<div class="cats">${expenseCats().map(c => `<span class="chip${c.id === cat ? ' on' : ''}" data-ib-cat="${c.id}" data-ib="${x.id}"
-                style="background:${chipBg(c.color)};color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span>`).join(' ')}</div>`;
+            // 취소 알림은 고칠 것이 없음: 금액·가게 한 줄만
+            const top = x.cancel ? `<div class="top"><span class="amt cancel">취소 ${won(x.amount)}</span><span class="shop">${esc(x.merchant || '가게 이름 없음')}</span>
+                <span class="meta">· ${esc(x.card || '카드')} · ${day} ${esc(x.used_time)}</span></div>`
+                : `<div class="top"><span class="meta">${esc(x.card || '카드')} · ${day} ${esc(x.used_time)}</span></div>`;
             // 금액·가게 칸 오른쪽 X: 한 번에 지우고 바로 입력 (글자가 있을 때만 보임). 휴대폰은 윗줄 금액·날짜, 아랫줄 가게 한 줄 전부
-            const t = typed && st.editItem === x.id ? typed : null;
-            const edit = st.editItem === x.id ? `<div class="edit">
-                <span class="clr-wrap e-amt"><input id="ib-amount" inputmode="numeric" value="${esc(t ? t.amount : x.amount.toLocaleString('ko-KR'))}" placeholder="금액" aria-label="금액">
-                    <button type="button" class="clr" data-clear="ib-amount" aria-label="금액 지우기">✕</button></span>
-                <span class="clr-wrap e-shop"><input id="ib-merchant" value="${esc(t ? t.merchant : x.merchant)}" maxlength="60" placeholder="가게 이름" aria-label="가게" autocomplete="off">
-                    <button type="button" class="clr" data-clear="ib-merchant" aria-label="가게 이름 지우기">✕</button><div class="dd" id="ib-dd" hidden></div></span>
-                <input id="ib-date" class="e-date" type="date" value="${esc(t ? t.used_on : x.used_on)}" aria-label="날짜"></div>` : '';
-            const canRule = !x.cancel && cat != null && x.merchant && !(rule && rule.category_id === cat);
+            const fields = x.cancel ? '' : `<div class="edit">
+                <span class="clr-wrap e-amt"><input id="ib-amount-${x.id}" data-f="amount" inputmode="numeric" value="${esc(t ? t.amount : x.amount.toLocaleString('ko-KR'))}" placeholder="금액" aria-label="금액">
+                    <button type="button" class="clr" data-clear="ib-amount-${x.id}" aria-label="금액 지우기">✕</button></span>
+                <span class="clr-wrap e-shop"><input id="ib-merchant-${x.id}" data-f="merchant" value="${esc(shop)}" maxlength="60" placeholder="가게 이름" aria-label="가게" autocomplete="off">
+                    <button type="button" class="clr" data-clear="ib-merchant-${x.id}" aria-label="가게 이름 지우기">✕</button><div class="dd" hidden></div></span>
+                <input id="ib-date-${x.id}" data-f="date" class="e-date" type="date" value="${esc(t ? t.used_on : x.used_on)}" aria-label="날짜"></div>`;
+            const chips = x.cancel ? '' : `<div class="cats">${expenseCats().map(c => `<span class="chip${c.id === cat ? ' on' : ''}" data-ib-cat="${c.id}"
+                style="background:${chipBg(c.color)};color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span>`).join(' ')}
+                <span class="chip add${st.newCatFor === x.id ? ' on' : ''}" data-nb-open role="button" tabindex="0">＋ 새 분류</span></div>`;
+            const newCat = st.newCatFor === x.id ? `<div class="nb">
+                <input id="nb-name" value="${esc(st.newCat.name)}" maxlength="12" placeholder="새 분류 이름 (예: 생활용품)" aria-label="새 분류 이름" autocomplete="off">
+                <div class="pal">${palHtml(st.newCat.color, 'data-nb-color')}</div>
+                <div class="nb-act"><button type="button" class="small primary" data-nb-save>만들고 고르기</button><button type="button" class="small" data-nb-cancel>취소</button>
+                    <span id="nb-prev">${nbPreviewHtml()}</span></div>
+                <p class="msg" id="nb-msg">${esc(st.newCat.msg || '')}</p></div>` : '';
+            const canRule = !x.cancel && cat != null && shop && !(rule && rule.category_id === cat);
             return `<div class="ib" data-item="${x.id}"><div class="body">
-                <div class="top"><span class="amt${x.cancel ? ' cancel' : ''}">${x.cancel ? '취소 ' : ''}${won(x.amount)}</span><span class="shop">${esc(x.merchant || '가게 이름 없음')}</span>
-                <span class="meta">· ${esc(x.card || '카드')} · ${day} ${esc(x.used_time)}</span></div>
-                ${note}${chips}${edit}<span class="raw">${esc(x.raw)}</span>
-                <div class="btns">${st.editItem === x.id ? '<button type="button" class="primary" data-ib-save>고친 것 저장</button><button type="button" data-ib-edit>그만 고치기</button>'
-                    : `<button type="button" class="primary" data-ib-ok${!x.cancel && cat == null ? ' disabled' : ''}>${x.cancel ? '취소 확정' : '확정'}</button>
-                    ${x.cancel ? '' : '<button type="button" data-ib-edit>금액·가게 고치기</button>'}
-                    ${canRule ? `<button type="button" data-ib-rule>"${esc(suggestPattern(x.merchant))}"는 늘 ${esc(catOf(cat).name)}로</button>` : ''}
-                    <button type="button" data-ib-del>버리기</button>`}</div></div></div>`;
+                ${top}${note}${fields}${chips}${newCat}<span class="raw">${esc(x.raw)}</span>
+                <div class="btns"><button type="button" class="primary" data-ib-ok${!x.cancel && cat == null ? ' disabled' : ''}>${x.cancel ? '취소 확정' : '확정'}</button>
+                    ${canRule ? `<button type="button" data-ib-rule>"${esc(suggestPattern(shop))}"는 늘 ${esc(catOf(cat).name)}로</button>` : ''}
+                    <button type="button" data-ib-del>버리기</button></div></div></div>`;
         }).join('');
-        if (typed && typed.focus && $(typed.focus)) $(typed.focus).focus();
+        if (focus && $(focus)) $(focus).focus();
     }
     async function inboxPost(body) {
         $('inbox-msg').textContent = '';
@@ -860,79 +891,122 @@
         applyInbox(data);
         return data;
     }
+    /** 칸을 벗어날 때: 바뀐 금액·가게·날짜를 바로 저장 (extra: 함께 바꿀 분류) */
+    async function saveIbFields(id, extra) {
+        const item = (st.inbox || []).find(x => x.id === id), v = ibValues(id);
+        if (!item || (!ibChanged(item, v) && !extra)) { delete st.ibDirty[id]; return; }
+        if (await inboxPost({ action: 'update', id, ...(ibChanged(item, v) ? v : {}), ...(extra || {}) })) delete st.ibDirty[id];
+    }
+    async function createIbCategory(id) {
+        const name = $('nb-name').value.trim();
+        st.newCat.name = name;
+        const msg = t => { st.newCat.msg = t; $('nb-msg').textContent = t; };
+        if (!name) return msg('이름을 넣어 주세요.');
+        if (!st.newCat.color) return msg('색을 골라 주세요.');
+        const { status, data } = await post('/api/ledger/category', { action: 'add', name, color: st.newCat.color, kind: 'expense' });
+        if (status !== 200) return msg(msgOf(data));
+        st.newCatFor = null;
+        await load();                                   // 새 분류를 받아 옴 (지출 입력·다른 항목에서도 바로)
+        await saveIbFields(id, { category_id: data.id });
+    }
     $('inbox').addEventListener('click', async e => {
         const clear = e.target.closest('[data-clear]');
         if (clear) {
             const input = $(clear.dataset.clear);
             input.value = '';
             input.focus();
-            if (input.id === 'ib-merchant') { st.ibDdQuiet = false; renderIbDd(); }
+            markDirty(input);
+            if (input.dataset.f === 'merchant') { st.ibDdQuiet = false; renderIbDd(input); }
             return;
         }
         const box = e.target.closest('[data-item]');
         if (!box) return;
         const id = Number(box.dataset.item), item = st.inbox.find(x => x.id === id);
-        const chip = e.target.closest('[data-ib-cat]');
-        if (chip) { await inboxPost({ action: 'update', id, category_id: Number(chip.dataset.ibCat) }); return; }
-        if (e.target.closest('[data-ib-edit]')) { st.editItem = st.editItem === id ? null : id; renderInbox(); return; }
-        if (e.target.closest('[data-ib-save]')) {
-            const amount = parseInt(($('ib-amount').value || '').replace(/[^0-9]/g, ''), 10) || 0;
-            if (await inboxPost({ action: 'update', id, amount, merchant: $('ib-merchant').value, used_on: $('ib-date').value })) { st.editItem = null; renderInbox(); }
+        if (!item) return;
+        const sw = e.target.closest('[data-nb-color]');
+        if (sw) { st.newCat.color = sw.dataset.nbColor; st.newCat.msg = ''; renderInbox(); return; }
+        if (e.target.closest('[data-nb-open]')) {
+            st.newCatFor = st.newCatFor === id ? null : id;
+            st.newCat = { name: '', color: null, msg: '' };
+            renderInbox();
+            if (st.newCatFor != null) $('nb-name').focus();
             return;
         }
-        if (e.target.closest('[data-ib-ok]')) { if (await inboxPost({ action: 'confirm', id })) load(); return; }
-        if (e.target.closest('[data-ib-del]')) { if (await inboxPost({ action: 'discard', id })) showUndo(item); return; }
+        if (e.target.closest('[data-nb-cancel]')) { st.newCatFor = null; renderInbox(); return; }
+        if (e.target.closest('[data-nb-save]')) { await createIbCategory(id); return; }
+        const chip = e.target.closest('[data-ib-cat]');
+        if (chip) { await saveIbFields(id, { category_id: Number(chip.dataset.ibCat) }); return; }
+        if (e.target.closest('[data-ib-ok]')) {
+            // 고친 금액·가게·날짜도 함께 (서버가 고친 뒤 확정)
+            const v = item.cancel ? null : ibValues(id);
+            if (await inboxPost({ action: 'confirm', id, ...(ibChanged(item, v) ? v : {}) })) { delete st.ibDirty[id]; load(); }
+            return;
+        }
+        if (e.target.closest('[data-ib-del]')) { if (await inboxPost({ action: 'discard', id })) { delete st.ibDirty[id]; showUndo(item); } return; }
         if (e.target.closest('[data-ib-rule]')) {
             const cat = item.category_id != null ? item.category_id : item.suggest && item.suggest.category_id;
-            const { status, data } = await post('/api/ledger/rule', { action: 'add', pattern: suggestPattern(item.merchant), category_id: cat });
+            const v = ibValues(id);
+            const { status, data } = await post('/api/ledger/rule', { action: 'add', pattern: suggestPattern(v ? v.merchant : item.merchant), category_id: cat });
             if (status !== 200) { $('inbox-msg').textContent = msgOf(data); return; }
             applyInbox(data);
         }
     });
+    // 칸을 벗어나면(또는 날짜를 고르면) 바로 저장
+    $('inbox').addEventListener('change', e => {
+        if (!e.target.dataset || !e.target.dataset.f) return;
+        saveIbFields(Number(e.target.closest('[data-item]').dataset.item));
+    });
     // 대기함 가게 칸 자동완성: 누르면 최근 메모, 치면 지난 메모 전체에서. 고르면 가게 이름이 그 메모로,
     // 분류를 아직 안 골랐으면(추천 포함) 그 메모의 지출 분류도 함께
     st.ibDdIndex = -1;
-    function renderIbDd() {
-        const input = $('ib-merchant'), dd = $('ib-dd');
-        if (!input || !dd) return;
-        const list = memoSearch(input.value, 'expense');
+    const isShop = el => !!el && !!el.dataset && el.dataset.f === 'merchant';
+    const ddOf = input => input.parentElement.querySelector('.dd');
+    function renderIbDd(input) {
+        if (!isShop(input)) return;
+        const dd = ddOf(input), list = memoSearch(input.value, 'expense');
         // 고른 직후(다시 그려 커서가 돌아와도)는 닫아 둠, 다시 치거나 누르면 열림
         if (!list.length || document.activeElement !== input || st.ibDdQuiet) { dd.hidden = true; return; }
         dd.innerHTML = (input.value.trim() ? '' : '<div class="dd-h">최근 메모</div>')
             + list.map((m, i) => memoItemHtml(m, input.value, `data-ibmemo="${i}"`, i === st.ibDdIndex)).join('');
         dd.hidden = false;
     }
-    async function useIbMemo(i) {
-        const input = $('ib-merchant'), m = memoSearch(input.value, 'expense')[i];
+    async function useIbMemo(i, input) {
+        const m = memoSearch(input.value, 'expense')[i];
         if (!m) return;
         input.value = m.memo;
-        $('ib-dd').hidden = true;
+        ddOf(input).hidden = true;
         st.ibDdIndex = -1;
         st.ibDdQuiet = true;
-        const item = (st.inbox || []).find(x => x.id === st.editItem);
-        if (item && !item.cancel && item.category_id == null && st.data.categories.some(c => c.id === m.category_id && c.kind === 'expense')) {
-            await inboxPost({ action: 'update', id: item.id, category_id: m.category_id });   // 친 가게 이름은 다시 그려도 그대로
-        }
+        markDirty(input);
+        const id = Number(input.closest('[data-item]').dataset.item), item = (st.inbox || []).find(x => x.id === id);
+        const useCat = item && !item.cancel && item.category_id == null && st.data.categories.some(c => c.id === m.category_id && c.kind === 'expense');
+        await saveIbFields(id, useCat ? { category_id: m.category_id } : null);
     }
-    $('inbox').addEventListener('focusin', e => { if (e.target.id === 'ib-merchant') { st.ibDdIndex = -1; renderIbDd(); } });
-    $('inbox').addEventListener('pointerdown', e => { if (e.target.id === 'ib-merchant') { st.ibDdQuiet = false; setTimeout(renderIbDd, 0); } });
-    $('inbox').addEventListener('focusout', e => { if (e.target.id === 'ib-merchant' && $('ib-dd')) $('ib-dd').hidden = true; });
+    $('inbox').addEventListener('focusin', e => { if (isShop(e.target)) { st.ibDdIndex = -1; renderIbDd(e.target); } });
+    $('inbox').addEventListener('pointerdown', e => { if (isShop(e.target)) { st.ibDdQuiet = false; const t = e.target; setTimeout(() => renderIbDd(t), 0); } });
+    $('inbox').addEventListener('focusout', e => { if (isShop(e.target)) ddOf(e.target).hidden = true; });
     $('inbox').addEventListener('keydown', e => {
-        if (e.target.id !== 'ib-merchant' || !$('ib-dd') || $('ib-dd').hidden) return;
+        if (e.target.id === 'nb-name' && e.key === 'Enter') { e.preventDefault(); createIbCategory(Number(e.target.closest('[data-item]').dataset.item)); return; }
+        if (!e.target.dataset || !e.target.dataset.f) return;
+        const open = isShop(e.target) && !ddOf(e.target).hidden;
+        if (!open) { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } return; }   // Enter: 칸을 벗어나 저장
         const n = memoSearch(e.target.value, 'expense').length;
-        if (e.key === 'ArrowDown' && n) { st.ibDdIndex = Math.min(n - 1, st.ibDdIndex + 1); renderIbDd(); e.preventDefault(); }
-        else if (e.key === 'ArrowUp' && n) { st.ibDdIndex = Math.max(0, st.ibDdIndex - 1); renderIbDd(); e.preventDefault(); }
-        else if (e.key === 'Enter' && st.ibDdIndex >= 0) { e.preventDefault(); useIbMemo(st.ibDdIndex); }
-        else if (e.key === 'Escape') { $('ib-dd').hidden = true; }
+        if (e.key === 'ArrowDown' && n) { st.ibDdIndex = Math.min(n - 1, st.ibDdIndex + 1); renderIbDd(e.target); e.preventDefault(); }
+        else if (e.key === 'ArrowUp' && n) { st.ibDdIndex = Math.max(0, st.ibDdIndex - 1); renderIbDd(e.target); e.preventDefault(); }
+        else if (e.key === 'Enter') { e.preventDefault(); if (st.ibDdIndex >= 0) useIbMemo(st.ibDdIndex, e.target); else { ddOf(e.target).hidden = true; e.target.blur(); } }
+        else if (e.key === 'Escape') { ddOf(e.target).hidden = true; }
     });
     // 누르는 순간 가게 칸에서 포커스가 빠져 목록이 닫히지 않게 mousedown에서 고름
     $('inbox').addEventListener('mousedown', e => {
         const b = e.target.closest('[data-ibmemo]');
-        if (b) { e.preventDefault(); useIbMemo(Number(b.dataset.ibmemo)); }
+        if (b) { e.preventDefault(); useIbMemo(Number(b.dataset.ibmemo), b.closest('.clr-wrap').querySelector('input')); }
     });
     $('inbox').addEventListener('input', e => {
-        if (e.target.id === 'ib-merchant') { st.ibDdIndex = -1; st.ibDdQuiet = false; renderIbDd(); return; }
-        if (e.target.id !== 'ib-amount') return;
+        if (e.target.id === 'nb-name') { st.newCat.name = e.target.value; st.newCat.msg = ''; $('nb-prev').innerHTML = nbPreviewHtml(); return; }
+        if (!e.target.dataset || !e.target.dataset.f) return;
+        markDirty(e.target);
+        if (isShop(e.target)) { st.ibDdIndex = -1; st.ibDdQuiet = false; renderIbDd(e.target); return; }
+        if (e.target.dataset.f !== 'amount') return;
         const v = e.target.value.replace(/[^0-9]/g, '').slice(0, 10);
         e.target.value = v ? Number(v).toLocaleString('ko-KR') : '';
     });
@@ -948,6 +1022,7 @@
     function renderAppConnect() {
         if (!inApp) return;
         const on = appConnected();
+        $('app-hint').hidden = on;
         let ver = '';
         try { ver = window.LedgerApp.version(); } catch (e) { /* 예전 앱 */ }
         $('app-connect-state').textContent = on ? `✓ 이 휴대폰 앱(${ver})이 결제 알림을 보내고 있어요` : '이 휴대폰 앱은 아직 연결되지 않았어요';
@@ -1002,7 +1077,11 @@
         catch (e) { document.execCommand && document.execCommand('copy'); $('hook-copy').textContent = '복사됨'; }
         setTimeout(() => { $('hook-copy').textContent = '복사'; }, 1500);
     });
-    $('hook-test').addEventListener('click', async () => { if (await inboxPost({ action: 'test' })) $('inbox-sec').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    $('hook-test').addEventListener('click', async () => {
+        if (!await inboxPost({ action: 'test' })) return;
+        closeSettings();
+        setTimeout(() => $('inbox-sec').scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    });
     $('rule-add').addEventListener('click', async () => {
         const pattern = $('rule-pattern').value.trim();
         $('rule-msg').textContent = '';
@@ -1048,18 +1127,64 @@
     });
     // ---- 앱의 뒤로가기: 열려 있는 것을 하나 닫으면 true (닫을 게 없으면 false → 앱이 '한 번 더 누르면 종료' 안내)
     window.ledgerBack = () => {
+        if ($('app').classList.contains('settings-open')) { closeSettings(); return true; }
         if (!$('mode-pop').hidden || !$('pick-pop').hidden) { closePops(); return true; }
         if (!$('memo-dd').hidden) { $('memo-dd').hidden = true; return true; }
         if (st.popFor != null) { st.popFor = null; renderCats(); return true; }
         if (!$('addbox').hidden) { $('addbox').hidden = true; return true; }
         if (st.catEditing) { st.catEditing = false; renderCats(); return true; }
-        if (st.editItem != null) { st.editItem = null; renderInbox(); return true; }
+        if (st.newCatFor != null) { st.newCatFor = null; renderInbox(); return true; }
         if (st.editId != null) { $('edit-cancel').click(); return true; }
-        for (const id of ['auto', 'admin']) {
-            if (!$(id).hidden && $(id).open) { $(id).open = false; return true; }
-        }
         return false;
     };
+    // ==========================================
+    // 설정 (머리줄 '설정' → 같은 페이지의 #settings): 결제 알림 연결 · 가게 규칙 · 버린 알림 · 사용자 허락 · 앱 파일(관리자)
+    // 주소에 #settings를 한 칸 넣어 두므로 브라우저·앱의 뒤로가기로 메인에 돌아옴
+    // ==========================================
+    function renderSetTabs() {
+        const admin = !!(st.me && st.me.admin);
+        if (!admin && ['users', 'appfile'].includes(st.setTab)) st.setTab = 'hook';
+        const tab = st.setTab || 'hook';
+        document.querySelectorAll('#set-view .set-tab').forEach(b => {
+            if (b.classList.contains('admin-only')) b.hidden = !admin;
+            b.classList.toggle('on', b.dataset.tab === tab);
+            b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+        });
+        document.querySelectorAll('#set-view .set-pane').forEach(p => { p.hidden = p.dataset.pane !== tab; });
+    }
+    function showSettings(on) {
+        $('app').classList.toggle('settings-open', on);
+        if (on) { renderSetTabs(); window.scrollTo(0, 0); }
+    }
+    function openSettings(tab) {
+        if (tab) st.setTab = tab;
+        if (location.hash !== '#settings') {
+            const s = history.state || {};
+            history.pushState({ ...s, navDepth: (s.navDepth || 0) + 1, ledgerSettings: 1 }, '', '#settings');
+        }
+        showSettings(true);
+    }
+    function closeSettings() {
+        if (location.hash === '#settings' && (history.state || {}).ledgerSettings) history.back();
+        else {
+            if (location.hash === '#settings') history.replaceState(history.state, '', location.pathname + location.search);
+            showSettings(false);
+        }
+    }
+    window.addEventListener('popstate', () => { if (st.me) showSettings(location.hash === '#settings'); });
+    $('set-open').addEventListener('click', () => {
+        // 허락을 기다리는 사람이 있으면 그 탭부터
+        openSettings(!$('set-dot').hidden ? 'users' : null);
+    });
+    $('set-back').addEventListener('click', closeSettings);
+    $('app-hint-btn').addEventListener('click', () => openSettings('hook'));
+    document.querySelector('#set-view .set-tabs').addEventListener('click', e => {
+        const b = e.target.closest('.set-tab');
+        if (!b) return;
+        st.setTab = b.dataset.tab;
+        renderSetTabs();
+    });
+
     // 다른 화면에 갔다 오면(휴대폰에서 결제 뒤 열었을 때 등) 대기함을 새로
     document.addEventListener('visibilitychange', () => { if (!document.hidden && st.me) loadInbox(); });
     setInterval(() => { if (!document.hidden && st.me) loadInbox(); }, 60000);

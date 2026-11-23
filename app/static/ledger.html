@@ -24,6 +24,7 @@
             </div>
             <div class="site-top-tools">
                 <span class="who-me" id="who-me" hidden></span>
+                <button type="button" class="tool set-btn" id="set-open" hidden>설정<span class="set-dot" id="set-dot" hidden></span></button>
                 <button type="button" class="tool" id="logout" hidden>로그아웃</button>
             </div>
         </div>
@@ -54,59 +55,8 @@
         </section>
 
         <div id="app" hidden>
-            <!-- 결제 알림 자동 기록 설정 (화면 맨 위): 내 휴대폰 연결(개인 연결 주소)·가게 이름 규칙 -->
-            <details class="sec auto" id="auto">
-                <summary><span>결제 알림 자동 기록</span><span class="sec-note" id="auto-note"></span></summary>
-                <div class="auto-body">
-                    <div class="auto-col">
-                        <p class="label">내 휴대폰 연결</p>
-                        <p class="hint">휴대폰의 결제 알림을 아래 연결 주소로 보내면 내 이름으로 확인 대기함에 쌓여요. 주소는 다른 사람에게 보여 주지 마세요.</p>
-                        <div class="hook-url" id="hook-url-box" hidden><input id="hook-url" readonly aria-label="연결 주소"><button type="button" class="small" id="hook-copy">복사</button></div>
-                        <p class="hint" id="hook-state"></p>
-                        <!-- YeYe가계부 앱 안에서 열었을 때만: 연결 주소를 만들어 앱에 바로 넣음 -->
-                        <div class="app-connect app-only" id="app-connect"><button type="button" class="primary" id="app-connect-btn">이 휴대폰 앱에 연결</button><span class="hint" id="app-connect-state"></span></div>
-                        <div class="row-btns"><button type="button" class="small" id="hook-create">연결 주소 만들기</button><button type="button" class="small" id="hook-test">시험 알림 보내기</button></div>
-                        <div class="app-get outside-only" id="app-get" hidden><a class="app-btn" id="app-link" href="/api/ledger/app.apk">YeYe가계부 앱 받기</a><span class="hint" id="app-info"></span></div>
-                        <p class="hint outside-only" id="app-none">관리자가 'YeYe가계부' 앱 파일을 올리면 여기서 받을 수 있어요.</p>
-                        <ol class="steps outside-only">
-                            <li>휴대폰에서 <b>YeYe가계부 앱 받기</b> → 설치 ('출처를 알 수 없는 앱' 허용)</li>
-                            <li>앱에서 <b>알림 읽기 권한</b> 켜기 — 회색이면 앱 정보 → ⋮ → '제한된 설정 허용' 뒤 다시</li>
-                            <li>위 연결 주소를 복사해 앱의 <b>붙여넣기</b></li>
-                            <li>앱의 <b>시험 알림 보내기</b> → 이 페이지 확인 대기함에 뜨면 끝</li>
-                        </ol>
-                        <details class="alt outside-only"><summary>앱 대신 매크로드로이드로</summary>
-                        <ol class="steps">
-                            <li><b>매크로드로이드</b> 앱 설치 → 새 매크로</li>
-                            <li>트리거: <b>알림</b> → 알림 받음 → 카드사 앱·문자 앱 고르기 (내용에 "승인" 포함으로 걸러도 좋아요)</li>
-                            <li>동작: <b>HTTP 요청</b> → 방식 POST, 주소는 위 연결 주소, 본문은 <code>[notification]</code> (알림 내용)</li>
-                            <li>카드 결제를 하거나 위 '시험 알림 보내기'로 대기함에 뜨는지 확인</li>
-                        </ol></details>
-                        <p class="hint">집 밖에서도 보내려면 이 페이지를 바깥 주소(DDNS)로 연 뒤 연결 주소를 만드세요.</p>
-                    </div>
-                    <div class="auto-col">
-                        <p class="label">가게 이름 규칙 (모두 함께 씀)</p>
-                        <div id="rules"></div>
-                        <div class="rule-add"><input id="rule-pattern" placeholder="가게 이름에 든 글자 (예: 스타벅스)" maxlength="20"><select id="rule-cat" aria-label="분류"></select><button type="button" class="small" id="rule-add">추가</button></div>
-                        <p class="msg" id="rule-msg"></p>
-                    </div>
-                </div>
-            </details>
-
-            <!-- 관리자만: 가입 요청 허락·거절, 허락 취소 -->
-            <details class="sec admin" id="admin" hidden>
-                <summary><span>사용자 허락</span><span class="badge" id="pending-count" hidden></span></summary>
-                <div class="admin-body">
-                    <p class="label">허락을 기다리는 사람</p>
-                    <div id="pending"></div>
-                    <p class="label">가계부를 함께 쓰는 사람</p>
-                    <div id="members"></div>
-                    <p class="label">YeYe가계부 앱 파일 (APK)</p>
-                    <p class="hint" id="app-admin-state"></p>
-                    <div class="app-up"><input type="file" id="app-file" accept=".apk,application/vnd.android.package-archive" aria-label="APK 파일">
-                        <button type="button" class="small primary" id="app-upload" disabled>올리기</button></div>
-                    <p class="msg" id="app-msg"></p>
-                </div>
-            </details>
+            <!-- 앱 안에서 열었는데 아직 연결 전이면: 한 줄 안내 (누르면 설정 > 결제 알림 연결) -->
+            <div class="app-hint" id="app-hint" hidden><span>이 휴대폰 앱이 아직 가계부에 연결되지 않았어요</span><button type="button" class="small primary" id="app-hint-btn">연결하기</button></div>
 
             <!-- 결제 알림 자동 기록: 휴대폰에서 받은 결제를 확정 전까지 쌓아 둠 (ledger.py inbox) -->
             <section class="sec inbox" id="inbox-sec" hidden>
@@ -116,10 +66,9 @@
                 <div class="inbox-foot"><button type="button" class="primary small" id="inbox-all">모두 확정</button><span class="hint">분류가 정해진 결제와 지울 기록을 찾은 취소만</span>
                     <span class="msg" id="inbox-msg"></span></div>
             </section>
-            <!-- 버린 알림 (최근 30일): 대기함이 비어 있어도 버린 것이 있으면 작게, 누르면 목록·되살리기 -->
+            <!-- 버린 알림 (최근 30일): 대기함이 비어 있어도 버린 것이 있으면 작게, 누르면 설정 > 버린 알림 -->
             <div class="trash" id="trash" hidden>
-                <button type="button" class="trash-btn" id="trash-btn" aria-expanded="false"></button>
-                <div class="trash-list" id="trash-list" hidden></div>
+                <button type="button" class="trash-btn" id="trash-btn"></button>
             </div>
             <!-- 버린 직후 5초: 되돌리기 -->
             <div class="undo" id="undo" hidden role="status"><span id="undo-msg"></span><button type="button" id="undo-btn">되돌리기</button></div>
@@ -229,6 +178,66 @@
                 <summary class="sec-head"><span>기록</span><span class="sec-note" id="count"></span></summary>
                 <div id="list"></div>
             </details>
+
+            <!-- 설정 (머리줄 '설정' → #settings, 뒤로가기로 메인): 결제 알림 연결 · 가게 규칙 · 버린 알림 · 사용자 허락 · 앱 파일(관리자) -->
+            <div class="set-view" id="set-view">
+                <div class="set-head"><button type="button" class="set-back" id="set-back" aria-label="가계부로 돌아가기">←</button><span>설정</span></div>
+                <div class="set-tabs" role="tablist">
+                    <button type="button" class="set-tab" role="tab" data-tab="hook">결제 알림 연결</button>
+                    <button type="button" class="set-tab" role="tab" data-tab="rules">가게 규칙</button>
+                    <button type="button" class="set-tab" role="tab" data-tab="trash">버린 알림<span class="tab-n" id="tab-trash-n" hidden></span></button>
+                    <button type="button" class="set-tab admin-only" role="tab" data-tab="users" hidden>사용자 허락<span class="tab-n warm" id="pending-count" hidden></span></button>
+                    <button type="button" class="set-tab admin-only" role="tab" data-tab="appfile" hidden>앱 파일</button>
+                </div>
+                <section class="sec set-pane" data-pane="hook" id="auto">
+                    <p class="label">내 휴대폰 연결 <span class="sec-note" id="auto-note"></span></p>
+                    <p class="hint">휴대폰의 결제 알림을 아래 연결 주소로 보내면 내 이름으로 확인 대기함에 쌓여요. 주소는 다른 사람에게 보여 주지 마세요.</p>
+                    <div class="hook-url" id="hook-url-box" hidden><input id="hook-url" readonly aria-label="연결 주소"><button type="button" class="small" id="hook-copy">복사</button></div>
+                    <p class="hint" id="hook-state"></p>
+                    <!-- YeYe가계부 앱 안에서 열었을 때만: 연결 주소를 만들어 앱에 바로 넣음 -->
+                    <div class="app-connect app-only" id="app-connect"><button type="button" class="primary" id="app-connect-btn">이 휴대폰 앱에 연결</button><span class="hint" id="app-connect-state"></span></div>
+                    <div class="row-btns"><button type="button" class="small" id="hook-create">연결 주소 만들기</button><button type="button" class="small" id="hook-test">시험 알림 보내기</button></div>
+                    <div class="app-get outside-only" id="app-get" hidden><a class="app-btn" id="app-link" href="/api/ledger/app.apk">YeYe가계부 앱 받기</a><span class="hint" id="app-info"></span></div>
+                    <p class="hint outside-only" id="app-none">관리자가 'YeYe가계부' 앱 파일을 올리면 여기서 받을 수 있어요.</p>
+                    <ol class="steps outside-only">
+                        <li>휴대폰에서 <b>YeYe가계부 앱 받기</b> → 설치 ('출처를 알 수 없는 앱' 허용)</li>
+                        <li>앱에서 <b>알림 읽기 권한</b> 켜기 — 회색이면 앱 정보 → ⋮ → '제한된 설정 허용' 뒤 다시</li>
+                        <li>위 연결 주소를 복사해 앱의 <b>붙여넣기</b></li>
+                        <li>앱의 <b>시험 알림 보내기</b> → 이 페이지 확인 대기함에 뜨면 끝</li>
+                    </ol>
+                    <details class="alt outside-only"><summary>앱 대신 매크로드로이드로</summary>
+                    <ol class="steps">
+                        <li><b>매크로드로이드</b> 앱 설치 → 새 매크로</li>
+                        <li>트리거: <b>알림</b> → 알림 받음 → 카드사 앱·문자 앱 고르기 (내용에 "승인" 포함으로 걸러도 좋아요)</li>
+                        <li>동작: <b>HTTP 요청</b> → 방식 POST, 주소는 위 연결 주소, 본문은 <code>[notification]</code> (알림 내용)</li>
+                        <li>카드 결제를 하거나 위 '시험 알림 보내기'로 대기함에 뜨는지 확인</li>
+                    </ol></details>
+                    <p class="hint">집 밖에서도 보내려면 이 페이지를 바깥 주소(DDNS)로 연 뒤 연결 주소를 만드세요.</p>
+                </section>
+                <section class="sec set-pane" data-pane="rules" hidden>
+                    <p class="hint">가게 이름에 이 글자가 들어 있으면 확인 대기함에서 분류를 미리 골라 둬요. 규칙은 모두 함께 써요.</p>
+                    <div id="rules"></div>
+                    <div class="rule-add"><input id="rule-pattern" placeholder="가게 이름에 든 글자 (예: 스타벅스)" maxlength="20"><select id="rule-cat" aria-label="분류"></select><button type="button" class="small" id="rule-add">추가</button></div>
+                    <p class="msg" id="rule-msg"></p>
+                </section>
+                <section class="sec set-pane" data-pane="trash" hidden>
+                    <p class="hint">버린 알림은 30일 동안 여기 있다가 저절로 지워져요. 되살리면 확인 대기함으로 돌아가요.</p>
+                    <div class="trash-list" id="trash-list"></div>
+                </section>
+                <section class="sec set-pane admin-only" data-pane="users" id="admin" hidden>
+                    <p class="label">허락을 기다리는 사람</p>
+                    <div id="pending"></div>
+                    <p class="label">가계부를 함께 쓰는 사람</p>
+                    <div id="members"></div>
+                </section>
+                <section class="sec set-pane admin-only" data-pane="appfile" hidden>
+                    <p class="hint">빌드한 YeYe가계부 APK를 올리면 가계부를 쓰는 사람 모두가 받고, 앱은 열 때 저절로 새 버전으로 바뀌어요.</p>
+                    <p class="hint" id="app-admin-state"></p>
+                    <div class="app-up"><input type="file" id="app-file" accept=".apk,application/vnd.android.package-archive" aria-label="APK 파일">
+                        <button type="button" class="small primary" id="app-upload" disabled>올리기</button></div>
+                    <p class="msg" id="app-msg"></p>
+                </section>
+            </div>
         </div>
     </main>
 </body>

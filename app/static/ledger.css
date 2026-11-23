@@ -39,12 +39,7 @@ button:disabled { opacity: .6; cursor: default; }
 .auth form { display: flex; flex-direction: column; gap: 8px; }
 
 /* 관리자 */
-.admin { margin-bottom: 12px; border-color: #AFA9EC; }
-.admin summary { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; font-weight: 700; color: #3C3489; background: #EEEDFE; border-radius: 13px; list-style: none; }
-.admin[open] summary { border-radius: 13px 13px 0 0; }
-.admin summary::-webkit-details-marker { display: none; }
 .badge { background: #534AB7; color: #fff; font-size: 11px; border-radius: 999px; padding: 1px 7px; }
-.admin-body { padding: 4px 14px 12px; }
 .person { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--divider); font-size: 13px; }
 .person:last-child { border-bottom: 0; }
 .person .name { flex: 1; min-width: 0; }
@@ -67,6 +62,14 @@ button:disabled { opacity: .6; cursor: default; }
 .ib .note.bad { color: var(--bad); }
 .ib .note.rec { color: #0F6E56; }
 .ib .cats { margin: 6px 0 0; }
+/* 대기함 항목 안에서 새 분류 만들기 (분류 칩 끝 '＋ 새 분류') */
+.ib .nb { margin-top: 8px; padding: 10px; border: 1px dashed #B6BBC4; border-radius: 10px; background: var(--surface); }
+.ib .nb input { width: 100%; height: 34px; font-size: 13px; }
+.ib .nb .pal { margin: 8px 0; }
+.ib .nb-act { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ib .nb .msg { margin: 6px 0 0; }
+.ib .nb .msg:empty { display: none; }
+.ib .edit { margin-bottom: 2px; }
 .ib .chip { padding: 3px 9px; font-size: 12px; }
 .ib .raw { display: block; margin-top: 6px; padding: 4px 7px; border-radius: 6px; background: var(--soft); font-size: 11.5px; color: var(--faint); white-space: pre-wrap; word-break: break-all; }
 .ib .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
@@ -88,7 +91,8 @@ button:disabled { opacity: .6; cursor: default; }
 .trash { margin: -6px 0 12px; }
 .trash-btn { display: block; margin-left: auto; height: auto; padding: 2px 4px; border: 0; background: none; font-size: 12.5px; color: var(--muted); }
 .trash-btn:hover { color: var(--text); }
-.trash-list { margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.trash-list { margin-top: 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.trash-list .none { padding: 14px; font-size: 13px; color: var(--muted); }
 .trash-list .th { padding: 8px 14px; font-size: 12px; font-weight: 700; color: var(--muted); background: var(--soft); }
 .trash-list .tr { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-top: 1px solid var(--divider); }
 .trash-list .tr .m { flex: 1; min-width: 0; font-size: 13px; }
@@ -100,13 +104,6 @@ button:disabled { opacity: .6; cursor: default; }
 .undo[hidden] { display: none; }
 .undo span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .undo button { flex: 0 0 auto; border: 0; background: none; color: #85B7EB; font-weight: 700; padding: 0; height: auto; }
-.auto { margin-bottom: 12px; }
-.auto > summary { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; font-weight: 700; list-style: none; }
-.auto > summary::-webkit-details-marker { display: none; }
-.auto > summary::before { content: '▸'; color: var(--muted); }
-.auto[open] > summary::before { content: '▾'; }
-.auto-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; padding: 0 14px 14px; }
-.auto-col { min-width: 0; }
 .hook-url { display: flex; gap: 6px; margin: 6px 0; }
 .hook-url input { flex: 1; font-size: 12px; font-family: ui-monospace, Consolas, monospace; }
 .row-btns { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
@@ -135,6 +132,29 @@ button:disabled { opacity: .6; cursor: default; }
 /* 앱에서는 가계부만: 다른 탭으로 가는 사이트 메뉴 줄을 숨김 (앱도 /ledger/ 밖으로는 가지 않음) */
 .in-app .site-nav { display: none !important; }
 .app-connect { align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+
+/* 설정 (머리줄 '설정' → #settings): 메인 칸들은 숨기고 설정만. 탭 5개 (휴대폰은 옆으로 밀기) */
+.set-btn { position: relative; }
+.set-dot { position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #D85A30; color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
+.set-dot[hidden] { display: none; }
+#app.settings-open > :not(#set-view):not(#undo) { display: none !important; }
+#app:not(.settings-open) > #set-view { display: none; }
+.set-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 18px; font-weight: 700; }
+.set-back { width: 36px; padding: 0; font-size: 18px; }
+.set-tabs { display: flex; gap: 6px; overflow-x: auto; margin: 0 -16px 12px; padding: 0 16px 4px; scrollbar-width: none; }
+.set-tabs::-webkit-scrollbar { display: none; }
+.set-tab { flex: 0 0 auto; height: 34px; padding: 0 14px; border-radius: 999px; font-size: 13px; }
+.set-tab.on { background: var(--green-bg); border-color: var(--green-line); color: var(--green-text); font-weight: 700; }
+.set-tab[hidden] { display: none; }
+.tab-n { display: inline-block; margin-left: 5px; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--soft); color: var(--muted); font-size: 11px; line-height: 18px; }
+.tab-n.warm { background: #D85A30; color: #fff; }
+.tab-n[hidden] { display: none; }
+.set-pane { padding: 12px 14px 14px; }
+.set-pane[hidden] { display: none; }
+.set-pane > .label:first-child { margin-top: 0; }
+.app-hint { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 9px 12px; border: 1px solid #FAC775; border-radius: 12px; background: #FAEEDA; color: #633806; font-size: 13px; }
+.app-hint[hidden] { display: none; }
+.app-hint span { flex: 1; min-width: 0; }
 
 /* 요약 */
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }

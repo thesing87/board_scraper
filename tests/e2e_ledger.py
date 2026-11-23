@@ -69,8 +69,9 @@ try:
     js("localStorage.setItem('admin_token', arguments[0])", web_server.ADMIN_TOKEN)
     d.get(BASE + '/ledger/'); time.sleep(2)
     assert vis('app') and not vis('auth') and '임기범' in txt('who-me')
-    # 화면 맨 위는 결제 알림 자동 기록, 지출 입력·분석과 달력·기록은 접힌 채로 시작 (머리 줄은 보임)
-    assert js("return document.querySelector('#app > details, #app > section').id") == 'auto'
+    # 메인에는 매일 쓰는 것만: 결제 알림 연결·사용자 허락·버린 알림 목록은 머리줄 '설정' 화면에 (처음엔 닫힘).
+    # 지출 입력·분석과 달력·기록은 접힌 채로 시작 (머리 줄은 보임)
+    assert vis('set-open') and not vis('set-view') and not vis('auto') and not vis('admin')
     assert js("return ['entry', 'ana-fold', 'list-fold'].map(i => document.getElementById(i).open)") == [False, False, False]
     # 순서: 지출 입력 → 거르기 → 수입·지출·남은 돈·기록 칸 → 분석·달력 → 기록
     order = js("return [...document.querySelectorAll('#entry, #app .filter, #app .metrics, #ana-fold, #list-fold')].map(e => e.id || e.className)")
@@ -83,11 +84,16 @@ try:
     assert seen('amount')
     open_all()
     assert js("return document.querySelector('#who-me .av').textContent") == '임'      # 아이콘은 이름 첫 글자
-    assert vis('admin') and txt('pending-count') == '1' and js("return document.getElementById('admin').open")
+    assert txt('set-dot') == '1' and not vis('admin')               # 허락을 기다리는 사람: 머리줄 '설정'에 숫자 점
+    click('#set-open'); time.sleep(.3)                                  # → 설정, 사용자 허락 탭부터
+    assert vis('set-view') and vis('admin') and txt('pending-count') == '1' and js("return location.hash") == '#settings'
+    assert not vis('entry') and not vis('inbox-sec')                    # 설정에서는 메인 칸이 숨음
     click('[data-admin="approve"]'); time.sleep(1)
-    assert '기다리는 사람 없음' in txt('pending') and '지은' in txt('members')
+    assert '기다리는 사람 없음' in txt('pending') and '지은' in txt('members') and not vis('set-dot')
     assert 'ledger' in navs()
-    # 앱 파일 올리기 (관리자 칸): 고르기 전엔 버튼 꺼짐, APK가 아니면 거절, 올리면 받기 버튼
+    # 앱 파일 올리기 (설정 > 앱 파일): 고르기 전엔 버튼 꺼짐, APK가 아니면 거절, 올리면 받기 버튼
+    click('[data-tab="appfile"]'); time.sleep(.2)
+    assert vis('app-upload') and not vis('admin')
     assert '아직 올린 앱이 없어요' in txt('app-admin-state') and js("return document.getElementById('app-upload').disabled")
     assert js("return document.getElementById('app-get').hidden && !document.getElementById('app-none').hidden")
     bad = os.path.join(tempfile.mkdtemp(), 'x.apk'); open(bad, 'wb').write(b'not apk')
@@ -98,6 +104,8 @@ try:
     click('#app-upload'); time.sleep(1.5)
     assert '올렸어요: 1.0' in txt('app-msg') and '1.0 · 24KB' in txt('app-admin-state') and '임기범' in txt('app-admin-state'), txt('app-admin-state')
     assert '1.0 · 24KB' in txt('app-info') and js("return document.getElementById('app-link').getAttribute('href')") == '/api/ledger/app.apk'
+    click('#set-back'); time.sleep(.5)                                  # ← 또는 뒤로가기로 메인
+    assert not vis('set-view') and vis('set-open') and js("return location.hash") == ''
     print('ADMIN OK')
 
     # ---- 입력: 금액(쉼표), 소비형태, 메모
@@ -224,6 +232,7 @@ try:
     typ('login-name', '지은'); typ('login-pw', 'pw12')
     js("document.getElementById('login-form').requestSubmit()"); time.sleep(2)
     assert vis('app') and not vis('admin') and '지은' in txt('who-me')
+    assert js("return document.querySelector('[data-tab=users]').hidden && document.querySelector('[data-tab=appfile]').hidden")   # 관리자 탭 없음
     assert not js("return document.querySelector('#list [data-entry]').classList.contains('mine')")
     click('#list [data-entry]'); time.sleep(.3)
     assert not vis('edit-row')
@@ -278,11 +287,13 @@ try:
     assert js("return !document.getElementById('app-get').hidden") and not vis('admin')
     size = js("return fetch('/api/ledger/app.apk', {credentials: 'same-origin'}).then(r => r.status === 200 ? r.arrayBuffer() : null).then(b => b && b.byteLength)")
     assert size == os.path.getsize(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures', 'ledger-notify-1.0.apk')), size
-    js("document.getElementById('auto').open = true")
+    click('#set-open'); time.sleep(.3)                                  # 설정 > 결제 알림 연결 (첫 탭)
+    assert vis('auto') and not vis('admin')
     js("window.confirm = () => true")
     click('#hook-create'); time.sleep(1)
     url = js("return document.getElementById('hook-url').value")
     assert vis('hook-url-box') and url.startswith(BASE + '/api/ledger/hook/') and '한 번만' in txt('hook-state')
+    click('#set-back'); time.sleep(.4)
     md = f'{date.today().month}/{date.today().day}'
     import urllib.request
     def send(text):
@@ -306,43 +317,72 @@ try:
     assert '"블루보틀"는 늘 카페로' in rule_btn, rule_btn
     click('#inbox [data-ib-rule]'); time.sleep(1)
     assert '"블루보틀"이 든 가게' in txt('rules') and '규칙 "블루보틀" → 카페' in txt('inbox')
-    # 금액 고치기
-    click('#inbox [data-ib-edit]'); time.sleep(.3)
+    # 늘 고치는 모드: 금액·가게·날짜 칸이 처음부터 열려 있음 ('고치기' 버튼 없음). 칸 이름은 항목마다 (ib-amount-<id>)
+    iid = js("return document.querySelector('#inbox [data-item]').dataset.item")
+    A, M, D = f'ib-amount-{iid}', f'ib-merchant-{iid}', f'ib-date-{iid}'
+    DD = f'#inbox [data-item="{iid}"] .dd'
+    assert vis(A) and vis(M) and vis(D) and not js("return !!document.querySelector('#inbox [data-ib-edit], #inbox [data-ib-save]')")
+    def saved():
+        with storage._db() as conn:
+            r = conn.execute("SELECT amount, merchant, category_id FROM ledger_inbox WHERE id = ?", (int(iid),)).fetchone()
+            return dict(r)
     # 가게·금액 칸의 X: 한 번에 지우고 그 칸에 커서, 빈 칸이면 X 숨김. 1분마다 대기함을 새로 그려도 친 값은 그대로
     shown = lambda i: js(f"return getComputedStyle(document.querySelector('[data-clear=\"{i}\"]')).display !== 'none'")
-    assert shown('ib-merchant') and shown('ib-amount')
-    click('[data-clear="ib-merchant"]')
-    assert js("return document.getElementById('ib-merchant').value") == '' and js("return document.activeElement.id") == 'ib-merchant'
-    assert not shown('ib-merchant') and shown('ib-amount')
-    # 가게 칸을 비우면 '최근 메모', 치면 지난 메모 전체에서 자동완성 (맞는 글자는 노랗게), 고르면 가게 이름이 그 메모로
-    dd = lambda: js("const d = document.getElementById('ib-dd'); return d && !d.hidden ? [...d.querySelectorAll('[data-ibmemo] .m')].map(m => m.textContent) : null")
-    assert dd() and '이마트 장보기' in dd() and '최근 메모' in txt('ib-dd'), dd()
-    js("const i = document.getElementById('ib-merchant'); i.value = '장 보'; i.dispatchEvent(new Event('input', {bubbles: true}))"); time.sleep(.2)
+    assert shown(M) and shown(A)
+    click(f'[data-clear="{M}"]')
+    assert js(f"return document.getElementById('{M}').value") == '' and js("return document.activeElement.id") == M
+    assert not shown(M) and shown(A)
+    # 가게 칸을 비우면 '최근 메모', 치면 지난 메모 전체에서 자동완성 (맞는 글자는 노랗게), 고르면 가게 이름이 그 메모로 (바로 저장)
+    dd = lambda: js(f"const d = document.querySelector('{DD}'); return d && !d.hidden ? [...d.querySelectorAll('[data-ibmemo] .m')].map(m => m.textContent) : null")
+    assert dd() and '이마트 장보기' in dd() and '최근 메모' in js(f"return document.querySelector('{DD}').textContent"), dd()
+    js(f"const i = document.getElementById('{M}'); i.value = '장 보'; i.dispatchEvent(new Event('input', {{bubbles: true}}))"); time.sleep(.2)
     assert dd() == ['이마트 장보기'], dd()                                                      # 띄어쓰기 무시
-    js("const i = document.getElementById('ib-merchant'); i.value = '이마'; i.dispatchEvent(new Event('input', {bubbles: true}))"); time.sleep(.2)
-    assert dd()[0] == '이마트 장보기' and js("return document.querySelector('#ib-dd mark').textContent") == '이마', dd()
-    js("document.querySelector('#ib-dd [data-ibmemo]').dispatchEvent(new MouseEvent('mousedown', {bubbles: true}))"); time.sleep(.3)
-    assert js("return document.getElementById('ib-merchant').value") == '이마트 장보기' and not dd()
-    js("document.getElementById('ib-merchant').value = ''")
-    typ('ib-merchant', '블루')
+    js(f"const i = document.getElementById('{M}'); i.value = '이마'; i.dispatchEvent(new Event('input', {{bubbles: true}}))"); time.sleep(.2)
+    assert dd()[0] == '이마트 장보기' and js(f"return document.querySelector('{DD} mark').textContent") == '이마', dd()
+    js(f"document.querySelector('{DD} [data-ibmemo]').dispatchEvent(new MouseEvent('mousedown', {{bubbles: true}}))"); time.sleep(.8)
+    assert js(f"return document.getElementById('{M}').value") == '이마트 장보기' and not dd() and saved()['merchant'] == '이마트 장보기'
+    js(f"document.getElementById('{M}').value = ''")
+    typ(M, '블루')
     js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)
-    assert js("return document.getElementById('ib-merchant').value") == '블루' and js("return document.activeElement.id") == 'ib-merchant'
-    typ('ib-merchant', '블루보틀 성수점')
+    assert js(f"return document.getElementById('{M}').value") == '블루' and js("return document.activeElement.id") == M
+    typ(M, '블루보틀 성수점')
     # PC는 한 줄 세 칸, 휴대폰은 윗줄 금액·날짜·아랫줄 가게 한 줄 전부
     box = lambda c: js(f"const r = document.querySelector('#inbox .{c}').getBoundingClientRect(); return [Math.round(r.top), Math.round(r.width)]")
     assert box('e-shop')[0] == box('e-amt')[0] == box('e-date')[0], (box('e-amt'), box('e-shop'), box('e-date'))
     d.set_window_size(400, 860); time.sleep(.5)
     # 휴대폰 폭: 가계부 안의 글자 1px 작게 (위쪽 사이트 메뉴는 그대로)
     font = lambda sel: js(f"return getComputedStyle(document.querySelector('{sel}')).fontSize")
-    assert font('body') == '13px' and font('.metric b') == '15px' and font('#inbox .amt') == '14px', (font('body'), font('.metric b'), font('#inbox .amt'))
+    assert font('body') == '13px' and font('.metric b') == '15px', (font('body'), font('.metric b'))
     assert box('e-amt')[0] == box('e-date')[0] < box('e-shop')[0] and box('e-shop')[1] > 250, (box('e-amt'), box('e-shop'), box('e-date'))
     assert js("return document.documentElement.scrollWidth <= window.innerWidth")
     d.set_window_size(1280, 900); time.sleep(.5)
-    typ('ib-amount', '5300'); click('#inbox [data-ib-save]'); time.sleep(1)
-    assert '5,300원' in txt('inbox')
+    # 칸을 벗어나면 바로 저장 (가게·금액)
+    typ(A, '5300')
+    js(f"['{M}', '{A}'].forEach(i => document.getElementById(i).dispatchEvent(new Event('change', {{bubbles: true}})))"); time.sleep(1.2)
+    assert saved()['amount'] == 5300 and saved()['merchant'] == '블루보틀 성수점', saved()
+    assert js(f"return document.getElementById('{A}').value") == '5,300'
+    # 새 분류: 분류 칩 끝 '＋ 새 분류' → 이름·색 → 만들고 고르기 (이름·색이 없으면 못 만듦)
+    click(f'#inbox [data-item="{iid}"] [data-nb-open]'); time.sleep(.2)
+    assert vis('nb-name') and js("return document.activeElement.id") == 'nb-name'
+    click('[data-nb-save]'); time.sleep(.3)
+    assert '이름을 넣어 주세요' in txt('nb-msg')
+    typ('nb-name', '생활용품')
+    click('[data-nb-save]'); time.sleep(.3)
+    assert '색을 골라 주세요' in txt('nb-msg')
+    click('[data-nb-color]'); time.sleep(.2)
+    assert txt('nb-name') == '' and js("return document.getElementById('nb-name').value") == '생활용품' and '생활용품' in txt('nb-prev')
+    assert js('return window.ledgerBack()') is True and not js("return !!document.getElementById('nb-name')")   # 뒤로가기로 닫힘
+    click(f'#inbox [data-item="{iid}"] [data-nb-open]'); time.sleep(.2)
+    typ('nb-name', '생활용품'); click('[data-nb-color]'); click('[data-nb-save]'); time.sleep(1.8)
+    with storage._db() as conn:
+        newcat = conn.execute("SELECT id, kind FROM ledger_categories WHERE name = '생활용품'").fetchone()
+    assert newcat and newcat['kind'] == 'expense' and saved()['category_id'] == newcat['id'], saved()
+    assert not js("return !!document.getElementById('nb-name')") and js(f"return document.querySelector('#inbox [data-ib-cat=\"{newcat['id']}\"]').classList.contains('on')")
+    assert '생활용품' in js("return [...document.querySelectorAll('#cats .chip')].map(c => c.textContent).join()")   # 지출 입력에도 바로
+    # 확정: 고친 금액·가게와 새 분류로 기록
     before = len(entries())
     click('#inbox [data-ib-ok]'); time.sleep(1.5)
-    assert not vis('inbox-sec') and len(entries()) == before + 1 and entries()[-1]['memo'] == '블루보틀 성수점' and entries()[-1]['amount'] == 5300
+    assert not vis('inbox-sec') and len(entries()) == before + 1 and entries()[-1]['memo'] == '블루보틀 성수점' and entries()[-1]['amount'] == 5300 and entries()[-1]['category_id'] == newcat['id']
     assert '블루보틀 성수점' in txt('list')
     # 다음 알림은 규칙으로 바로 분류 → 모두 확정
     assert send(f'[삼성카드] {md} 15:00 6,100원 일시불 블루보틀 한남점') == 200
@@ -368,10 +408,12 @@ try:
     click('#undo-btn'); time.sleep(1)
     assert vis('inbox-sec') and '편의점' in txt('inbox') and not vis('undo') and not vis('trash')
     click('#inbox [data-ib-del]'); time.sleep(5.6)
-    assert not vis('undo') and vis('trash') and txt('trash-btn') == '버린 알림 1 ›' and not vis('trash-list')
-    click('#trash-btn'); time.sleep(.3)
-    assert vis('trash-list') and '편의점' in txt('trash-list') and '버림' in txt('trash-list')
+    assert not vis('undo') and vis('trash') and txt('trash-btn') == '버린 알림 1 ›' and txt('tab-trash-n') == '1' and not vis('trash-list')
+    click('#trash-btn'); time.sleep(.3)                                 # → 설정 > 버린 알림
+    assert vis('set-view') and vis('trash-list') and '편의점' in txt('trash-list') and '버림' in txt('trash-list')
     click('#trash-list [data-restore]'); time.sleep(1)
+    assert '버린 알림이 없어요' in txt('trash-list') and js("return document.getElementById('tab-trash-n').hidden")
+    click('#set-back'); time.sleep(.4)
     assert vis('inbox-sec') and '편의점' in txt('inbox') and not vis('trash')
     click('#inbox [data-ib-del]'); time.sleep(1)
     # 취소 알림: 맞는 기록을 찾아 지움
@@ -389,22 +431,21 @@ try:
     # ---- YeYe가계부 앱 안에서 열었을 때 (앱이 넣는 window.LedgerApp 흉내): 앱 받기 안내는 숨고 '이 휴대폰 앱에 연결' → 새 연결 주소를 앱에 넣음
     d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source': "window.__got = []; window.confirm = () => true; window.LedgerApp = {version: () => '1.2', connected: () => window.__got.length > 0, connect: u => { window.__got.push(u); return true; }, openSettings: () => {}};"})
     d.get(BASE + '/ledger/'); time.sleep(2); open_all()
-    assert js("return document.documentElement.classList.contains('in-app')") and js("return document.getElementById('auto').open")
+    assert js("return document.documentElement.classList.contains('in-app')") and vis('app-hint')   # 연결 전: 메인에 한 줄 안내
+    click('#app-hint-btn'); time.sleep(.3)                              # → 설정 > 결제 알림 연결
     assert vis('app-connect') and not vis('app-get') and '아직 연결되지' in txt('app-connect-state'), txt('app-connect-state')
     assert not js("const n = document.querySelector('.site-nav'); return !!n && n.offsetHeight > 0")   # 앱에서는 메뉴 줄(다른 탭) 없음
     click('#app-connect-btn'); time.sleep(1.2)
     got = js('return window.__got')
     assert len(got) == 1 and got[0].startswith(BASE + '/api/ledger/hook/'), got
-    assert '이 휴대폰 앱(1.2)' in txt('app-connect-state') and txt('app-connect-btn') == '다시 연결'
+    assert '이 휴대폰 앱(1.2)' in txt('app-connect-state') and txt('app-connect-btn') == '다시 연결' and js("return document.getElementById('app-hint').hidden")
     with urllib.request.urlopen(urllib.request.Request(got[0], data='[삼성카드] 승인 3,300원 앱연결'.encode(), method='POST', headers={'Content-Type': 'text/plain'})) as r:
         assert r.status == 200                                          # 앱에 넣은 새 주소로 받아짐
-    # ---- 앱의 뒤로가기(window.ledgerBack): 열린 것을 하나씩 닫고, 닫을 게 없으면 false
-    js("document.getElementById('auto').open = true")
+    # ---- 앱의 뒤로가기(window.ledgerBack): 설정이 열려 있으면 설정부터, 그다음 열린 것을 하나씩, 닫을 게 없으면 false
+    assert vis('set-view') and js('return window.ledgerBack()') is True; time.sleep(.5)
+    assert not vis('set-view') and js("return location.hash") == ''
     click('#cat-edit'); time.sleep(.2)
     assert js('return window.ledgerBack()') is True and txt('cat-edit') == '색·이름 편집'          # 편집 모드 끝
-    assert js('return window.ledgerBack()') is True and not js("return document.getElementById('auto').open")
-    if js("return !document.getElementById('admin').hidden && document.getElementById('admin').open"):
-        assert js('return window.ledgerBack()') is True
     assert js('return window.ledgerBack()') is False
     print('AUTO OK')
 
