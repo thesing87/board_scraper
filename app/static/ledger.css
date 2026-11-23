@@ -122,7 +122,7 @@ button:disabled { opacity: .6; cursor: default; }
 /* 요약 */
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
 .plus { color: #185FA5 !important; }
-.minus { color: #993C1D !important; }
+.minus { color: #A32D2D !important; }
 .metric { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; min-width: 0; font-size: 12px; color: var(--muted); }
 .metric b { display: block; margin-top: 2px; font-size: 19px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 
