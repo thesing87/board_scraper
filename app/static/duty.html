@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>근무표</title>
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23D4537E'/%3E%3Crect x='7' y='8.5' width='18' height='16' rx='2.5' fill='none' stroke='white' stroke-width='2.4'/%3E%3Cpath d='M7 14h18' stroke='white' stroke-width='2.4'/%3E%3C/svg%3E">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <meta name="theme-color" content="#F4F5F7">
+    <link rel="stylesheet" href="/duty.css">
+    <link rel="stylesheet" href="/nav.css">
+    <script src="/nav.js" defer></script>
+    <script src="/duty.js" defer></script>
+</head>
+<body>
+    <!-- 근무표: 가계부 계정으로 로그인, 허락받은 멤버 모두가 함께 넣고 고침 (duty.py) -->
+    <header class="site-top" data-no-share>
+        <div class="site-top-row">
+            <div class="site-top-brand">
+                <span class="site-top-mark" style="background:#D4537E" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="2"></rect><path d="M3.5 10h17M8 3v4M16 3v4"></path></svg></span>
+                <h1>근무표</h1>
+            </div>
+            <div class="site-top-tools">
+                <span class="who-me" id="who-me" hidden></span>
+                <button type="button" class="tool" id="set-open" hidden>설정</button>
+                <button type="button" class="tool" id="logout" hidden>로그아웃</button>
+            </div>
+        </div>
+        <nav class="site-nav" data-current="duty"></nav>
+    </header>
+
+    <main class="page">
+        <!-- 로그인 (가계부 계정 그대로). 가입은 가계부에서 -->
+        <section class="sec auth" id="auth" hidden>
+            <form id="login-form" autocomplete="on">
+                <b class="auth-title">가계부 계정으로 로그인</b>
+                <input id="login-name" name="username" autocomplete="username" placeholder="이름" maxlength="20">
+                <input id="login-pw" type="password" autocomplete="current-password" placeholder="비밀번호">
+                <button type="submit" class="primary">로그인</button>
+                <p class="hint">처음이면 <a href="/ledger/">가계부</a>에서 가입을 요청해 주세요. 관리자가 허락하면 근무표도 함께 쓸 수 있어요.</p>
+            </form>
+            <p class="msg" id="auth-msg" role="alert"></p>
+        </section>
+
+        <div id="app" hidden>
+            <!-- 메인: 사람 고르기 · 오늘 · 한 달 달력 · 근무 칠하기 · 최근 고친 것 -->
+            <div id="main-view">
+                <div class="people" id="people"></div>
+                <div class="add-person" id="add-person" hidden>
+                    <input id="ap-name" maxlength="20" placeholder="근무표 주인 이름 (예: 예예)">
+                    <button type="button" class="primary small" id="ap-save">더하기</button>
+                    <button type="button" class="small" id="ap-cancel">취소</button>
+                    <p class="msg" id="ap-msg"></p>
+                </div>
+
+                <section class="sec empty" id="no-person" hidden>
+                    <b>근무표를 만들 사람을 먼저 더해 주세요</b>
+                    <p class="hint">사람마다 근무표가 하나씩 생겨요. 멤버라면 누구나 넣고 고칠 수 있어요.</p>
+                    <button type="button" class="primary" id="first-person">＋ 사람 더하기</button>
+                </section>
+
+                <div id="roster" hidden>
+                    <section class="sec today" id="today"></section>
+
+                    <section class="sec cal-sec">
+                        <div class="cal-head">
+                            <button type="button" class="nav-btn" id="prev" aria-label="지난달">‹</button>
+                            <button type="button" class="month-btn" id="month-label"></button>
+                            <button type="button" class="nav-btn" id="next" aria-label="다음 달">›</button>
+                        </div>
+                        <div class="cal" id="cal"></div>
+                        <div class="counts" id="counts"></div>
+                    </section>
+
+                    <section class="sec brush-sec">
+                        <div class="brush-head"><span id="brush-hint">근무를 고르고 날짜를 누르면 들어가요</span><button type="button" class="link" id="undo" hidden>되돌리기</button></div>
+                        <div class="brush" id="brush"></div>
+                        <p class="msg" id="cal-msg" role="alert"></p>
+                    </section>
+
+                    <section class="sec changes-sec" id="changes-sec" hidden>
+                        <div class="sec-title">최근 고친 것</div>
+                        <div id="changes"></div>
+                    </section>
+                </div>
+            </div>
+
+            <!-- 설정 (#settings): 근무 종류 · 사람 -->
+            <div id="set-view" hidden>
+                <div class="set-top"><button type="button" class="tool" id="set-back">‹ 근무표</button><b>설정</b></div>
+                <section class="sec">
+                    <div class="sec-title">근무 종류 <span class="sub">모두 함께 써요</span></div>
+                    <div id="types"></div>
+                    <button type="button" class="small" id="type-add">＋ 근무 종류 더하기</button>
+                    <p class="msg" id="type-msg" role="alert"></p>
+                </section>
+                <section class="sec">
+                    <div class="sec-title">사람 <span class="sub">근무표 주인</span></div>
+                    <div id="people-edit"></div>
+                    <p class="msg" id="pe-msg" role="alert"></p>
+                </section>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

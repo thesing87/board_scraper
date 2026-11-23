@@ -87,6 +87,7 @@ import video_convert
 import system_status
 import ledger
 import ledger_app
+import duty
 import apt_trades
 from card_store import (
     card_benefits,
@@ -187,6 +188,10 @@ STATIC_FILES = {
     '/ledger/': ('ledger.html', 'text/html; charset=utf-8'),
     '/ledger.js': ('ledger.js', 'application/javascript; charset=utf-8'),
     '/ledger.css': ('ledger.css', 'text/css; charset=utf-8'),
+    # 근무표 (가계부 계정으로 로그인, 멤버 모두가 고침)
+    '/duty/': ('duty.html', 'text/html; charset=utf-8'),
+    '/duty.js': ('duty.js', 'application/javascript; charset=utf-8'),
+    '/duty.css': ('duty.css', 'text/css; charset=utf-8'),
     # 모든 페이지 공통 바로가기 메뉴
     '/nav.js': ('nav.js', 'application/javascript; charset=utf-8'),
     '/nav.css': ('nav.css', 'text/css; charset=utf-8'),
@@ -664,6 +669,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/ledger/inbox': ('_handle_ledger_inbox', '가계부 확인 대기함 처리'),
         '/api/ledger/rule': ('_handle_ledger_rule', '가계부 가게 규칙 처리'),
         '/api/ledger/hook-key': ('_handle_ledger_hook_key', '가계부 연결 키 처리'),
+        '/api/ledger/duty': ('_handle_duty', '근무표 처리'),
     }
 
     def do_POST(self):
@@ -1287,6 +1293,10 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_data(200, ledger.year_totals(query.get('year', [''])[0]))
         elif pure_path == '/api/ledger/admin' and user['admin']:
             self._send_data(200, ledger.people())
+        elif pure_path == '/api/ledger/duty':
+            # 근무표: 그 달(month)·고른 사람(person)의 근무와 사람들·근무 종류
+            person = query.get('person', [''])[0]
+            self._send_data(200, {'user': user, **duty.state(query.get('month', [''])[0], int(person) if person.isdigit() else None)})
         else:
             self._send_json(404, False, '❌ 없는 요청입니다.')
 
@@ -1502,6 +1512,35 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         key = ledger.create_hook_key(user)
         log_msg(f"[가계부] 연결 키 새로 만듦: {user['name']}")
         self._send_data(200, {'success': True, 'url': self._site_base() + self.LEDGER_HOOK_PREFIX + key, 'hook': ledger.hook_info(user)})
+
+    def _handle_duty(self):
+        """근무표 (duty.py, 멤버 누구나): {action: set, person_id, days: {날짜: 종류 id|null}}
+        · person-add|person-rename|person-delete {id, name} · type-add|type-edit|type-delete {id, code, name, start_time, end_time, color}"""
+        user = self._ledger_user()
+        if not user:
+            return
+        b, action = self._body, self._body.get('action')
+        has_id = type(b.get('id')) is int
+        type_args = lambda: (b.get('code'), b.get('name'), b.get('start_time'), b.get('end_time'), b.get('color'))
+        handlers = {
+            'set': (type(b.get('person_id')) is int, lambda: {'changed': duty.set_days(user, b['person_id'], b.get('days'))}),
+            'person-add': (True, lambda: {'id': duty.add_person(b.get('name'))}),
+            'person-rename': (has_id, lambda: duty.rename_person(b['id'], b.get('name'))),
+            'person-delete': (has_id, lambda: duty.delete_person(b['id'])),
+            'type-add': (True, lambda: {'id': duty.add_type(*type_args())}),
+            'type-edit': (has_id, lambda: duty.edit_type(b['id'], *type_args())),
+            'type-delete': (has_id, lambda: duty.delete_type(b['id'])),
+        }
+        ok, fn = handlers.get(action, (False, None))
+        if not ok:
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        try:
+            result = fn()
+        except duty.DutyError as e:
+            self._send_json(400, False, f'❌ {e}')
+            return
+        self._send_data(200, {'success': True, **(result or {})})
 
     def _handle_ledger_admin(self):
         """관리자만: {action: approve|reject|revoke, user_id}"""

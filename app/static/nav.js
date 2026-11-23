@@ -16,6 +16,8 @@
         { key: 'card', adminOnly: true, href: '/card/', label: '카드', short: '카드', color: '#534AB7', icon: '<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 10h18"></path>' },
         // 가계부: 관리자 기기와 가계부에 로그인한 기기(ledger.js가 localStorage ledger_user를 남김)에서만
         { key: 'ledger', ledger: true, href: '/ledger/', label: '가계부', short: '가계부', color: '#1D9E75', icon: '<rect x="3" y="6" width="18" height="13" rx="3"></rect><path d="M3 10h13a2 2 0 0 1 0 4h-1"></path>' },
+        // 근무표: 가계부와 같은 계정이라 가계부와 같은 기기에서만
+        { key: 'duty', ledger: true, href: '/duty/', label: '근무표', short: '근무표', color: '#D4537E', icon: '<rect x="3.5" y="5" width="17" height="15" rx="2"></rect><path d="M3.5 10h17M8 3v4M16 3v4"></path>' },
         { key: 'ev', href: '/ev/', label: '유지비', short: '유지비', color: '#0F6E56', icon: '<path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"></path>' },
         { key: 'games', href: '/games/', label: '게임', short: '게임', color: '#B45309', icon: '<rect x="2.5" y="7" width="19" height="11" rx="5.5"></rect><path d="M7 11v3M5.5 12.5h3M15.5 11.5h.01M17.5 13.8h.01"></path>' },
         { key: 'comics', adminOnly: true, href: '/comics/', label: '만화', short: '만화', color: '#BE185D', icon: '<path d="M3 5.5C5.5 4.5 8.5 4.5 12 6c3.5-1.5 6.5-1.5 9-.5v13c-2.5-1-5.5-1-9 .5-3.5-1.5-6.5-1.5-9-.5z"></path><path d="M12 6v13.5"></path>' },

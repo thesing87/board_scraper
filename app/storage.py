@@ -347,6 +347,42 @@ def _create_schema(conn):
             created_at  TEXT NOT NULL
         );
 
+        -- 근무표(/duty/, duty.py): 가계부 계정으로 로그인, 멤버 모두가 고침. 사람(근무표 주인)마다 날짜별 근무 하나
+        CREATE TABLE IF NOT EXISTS duty_people (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT NOT NULL UNIQUE,
+            position   INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+        -- 근무 종류 (모두 함께 씀): code는 달력에 보이는 짧은 글자(D·E·N·OFF), 시간은 HH:MM 또는 빈 값
+        CREATE TABLE IF NOT EXISTS duty_types (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            code       TEXT NOT NULL UNIQUE,
+            name       TEXT NOT NULL,
+            start_time TEXT NOT NULL DEFAULT '',
+            end_time   TEXT NOT NULL DEFAULT '',
+            color      TEXT NOT NULL,
+            position   INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS duty_days (
+            person_id  INTEGER NOT NULL REFERENCES duty_people(id) ON DELETE CASCADE,
+            day        TEXT NOT NULL,
+            type_id    INTEGER NOT NULL REFERENCES duty_types(id),
+            updated_by INTEGER REFERENCES ledger_users(id) ON DELETE SET NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (person_id, day)
+        );
+        -- 누가 언제 무엇을 바꿨는지 (type_id가 NULL이면 지움). 오래된 것은 저절로 지움
+        CREATE TABLE IF NOT EXISTS duty_changes (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            person_id  INTEGER NOT NULL REFERENCES duty_people(id) ON DELETE CASCADE,
+            day        TEXT NOT NULL,
+            type_id    INTEGER REFERENCES duty_types(id) ON DELETE SET NULL,
+            user_id    INTEGER REFERENCES ledger_users(id) ON DELETE SET NULL,
+            changed_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS comic_progress (
             path       TEXT PRIMARY KEY,
             page       INTEGER NOT NULL,
