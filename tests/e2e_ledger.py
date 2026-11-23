@@ -181,6 +181,11 @@ try:
     typ('amount', '16000'); click('#save'); time.sleep(1.2)
     assert [x['amount'] for x in entries()] == [42000, 16000, 3200000] and not vis('edit-row')
     js(pick)
+    # 지우기 확인 창에 지울 기록 내용 (날짜·메모·소비형태·금액·쓴 사람), 취소하면 그대로
+    js("window.__asked = []; window.confirm = m => { window.__asked.push(m); return false; }"); click('#edit-delete'); time.sleep(.5)
+    asked = js("return window.__asked[0]")
+    assert asked.startswith('이 기록을 지울까요?') and '사료' in asked and '−16,000원' in asked and '되돌릴 수 없어요' in asked, asked
+    assert len(entries()) == 3
     js("window.confirm = () => true"); click('#edit-delete'); time.sleep(1.2)
     assert [x['amount'] for x in entries()] == [42000, 3200000]
     print('EDIT OK')

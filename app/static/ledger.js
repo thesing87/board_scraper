@@ -487,7 +487,16 @@
     }
     $('edit-cancel').addEventListener('click', () => { clearForm(); $('used-on').value = ymd(new Date()); render(); });
     $('edit-delete').addEventListener('click', async () => {
-        if (st.editId == null || !window.confirm('이 기록을 지울까요?')) return;
+        if (st.editId == null) return;
+        // 지울 기록을 확인 창에 보여 줌: 날짜 · 메모(없으면 소비형태) / 소비형태 · 금액 · 쓴 사람
+        const e = st.data.entries.find(x => x.id === st.editId);
+        let detail = '';
+        if (e) {
+            const c = catOf(e.category_id), income = c.kind === 'income';
+            detail = `\n\n${+e.used_on.slice(5, 7)}월 ${+e.used_on.slice(8)}일 · ${e.memo || c.name}\n`
+                + `${c.name} · ${income ? '+' : '−'}${won(e.amount)} · ${nameOf(e.user_id)}\n\n지우면 되돌릴 수 없어요.`;
+        }
+        if (!window.confirm('이 기록을 지울까요?' + detail)) return;
         const { status, data } = await post('/api/ledger/entry', { action: 'delete', id: st.editId });
         if (status !== 200) { $('entry-msg').textContent = msgOf(data); return; }
         clearForm();
