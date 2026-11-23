@@ -245,6 +245,23 @@ try:
     assert '"블루보틀"이 든 가게' in txt('rules') and '규칙 "블루보틀" → 카페' in txt('inbox')
     # 금액 고치기
     click('#inbox [data-ib-edit]'); time.sleep(.3)
+    # 가게·금액 칸의 X: 한 번에 지우고 그 칸에 커서, 빈 칸이면 X 숨김. 1분마다 대기함을 새로 그려도 친 값은 그대로
+    shown = lambda i: js(f"return getComputedStyle(document.querySelector('[data-clear=\"{i}\"]')).display !== 'none'")
+    assert shown('ib-merchant') and shown('ib-amount')
+    click('[data-clear="ib-merchant"]')
+    assert js("return document.getElementById('ib-merchant').value") == '' and js("return document.activeElement.id") == 'ib-merchant'
+    assert not shown('ib-merchant') and shown('ib-amount')
+    typ('ib-merchant', '블루')
+    js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)
+    assert js("return document.getElementById('ib-merchant').value") == '블루' and js("return document.activeElement.id") == 'ib-merchant'
+    typ('ib-merchant', '블루보틀 성수점')
+    # PC는 한 줄 세 칸, 휴대폰은 윗줄 금액·날짜·아랫줄 가게 한 줄 전부
+    box = lambda c: js(f"const r = document.querySelector('#inbox .{c}').getBoundingClientRect(); return [Math.round(r.top), Math.round(r.width)]")
+    assert box('e-shop')[0] == box('e-amt')[0] == box('e-date')[0], (box('e-amt'), box('e-shop'), box('e-date'))
+    d.set_window_size(400, 860); time.sleep(.5)
+    assert box('e-amt')[0] == box('e-date')[0] < box('e-shop')[0] and box('e-shop')[1] > 250, (box('e-amt'), box('e-shop'), box('e-date'))
+    assert js("return document.documentElement.scrollWidth <= window.innerWidth")
+    d.set_window_size(1280, 900); time.sleep(.5)
     typ('ib-amount', '5300'); click('#inbox [data-ib-save]'); time.sleep(1)
     assert '5,300원' in txt('inbox')
     before = len(entries())

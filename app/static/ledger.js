@@ -722,6 +722,9 @@
     }
     function renderInbox() {
         const items = st.inbox || [];
+        // 고치는 중이면 친 값은 그대로 (1분마다 대기함을 새로 받아 다시 그려도)
+        const typed = st.editItem != null && $('ib-merchant') ? { amount: $('ib-amount').value, merchant: $('ib-merchant').value,
+            used_on: $('ib-date').value, focus: document.activeElement && document.activeElement.id } : null;
         $('inbox-sec').hidden = !items.length;
         $('inbox-count').textContent = items.length;
         if (!items.length || !st.data) return;
@@ -735,8 +738,14 @@
             else note = `<span class="note">${rule && rule.category_id === x.category_id ? `규칙 "${esc(rule.pattern)}" → ` : ''}${esc(catOf(x.category_id).name)}</span>`;
             const chips = x.cancel ? '' : `<div class="cats">${expenseCats().map(c => `<span class="chip${c.id === x.category_id ? ' on' : ''}" data-ib-cat="${c.id}" data-ib="${x.id}"
                 style="background:${chipBg(c.color)};color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span>`).join(' ')}</div>`;
-            const edit = st.editItem === x.id ? `<div class="edit"><input id="ib-amount" inputmode="numeric" value="${x.amount.toLocaleString('ko-KR')}" aria-label="금액">
-                <input id="ib-merchant" value="${esc(x.merchant)}" maxlength="60" aria-label="가게"><input id="ib-date" type="date" value="${x.used_on}" aria-label="날짜"></div>` : '';
+            // 금액·가게 칸 오른쪽 X: 한 번에 지우고 바로 입력 (글자가 있을 때만 보임). 휴대폰은 윗줄 금액·날짜, 아랫줄 가게 한 줄 전부
+            const t = typed && st.editItem === x.id ? typed : null;
+            const edit = st.editItem === x.id ? `<div class="edit">
+                <span class="clr-wrap e-amt"><input id="ib-amount" inputmode="numeric" value="${esc(t ? t.amount : x.amount.toLocaleString('ko-KR'))}" placeholder="금액" aria-label="금액">
+                    <button type="button" class="clr" data-clear="ib-amount" aria-label="금액 지우기">✕</button></span>
+                <span class="clr-wrap e-shop"><input id="ib-merchant" value="${esc(t ? t.merchant : x.merchant)}" maxlength="60" placeholder="가게 이름" aria-label="가게">
+                    <button type="button" class="clr" data-clear="ib-merchant" aria-label="가게 이름 지우기">✕</button></span>
+                <input id="ib-date" class="e-date" type="date" value="${esc(t ? t.used_on : x.used_on)}" aria-label="날짜"></div>` : '';
             const canRule = !x.cancel && x.category_id != null && x.merchant && !(rule && rule.category_id === x.category_id);
             return `<div class="ib" data-item="${x.id}"><div class="body">
                 <div class="top"><span class="amt${x.cancel ? ' cancel' : ''}">${x.cancel ? '취소 ' : ''}${won(x.amount)}</span><span class="shop">${esc(x.merchant || '가게 이름 없음')}</span>
@@ -748,6 +757,7 @@
                     ${canRule ? `<button type="button" data-ib-rule>"${esc(suggestPattern(x.merchant))}"는 늘 ${esc(catOf(x.category_id).name)}로</button>` : ''}
                     <button type="button" data-ib-del>버리기</button>`}</div></div></div>`;
         }).join('');
+        if (typed && typed.focus && $(typed.focus)) $(typed.focus).focus();
     }
     async function inboxPost(body) {
         $('inbox-msg').textContent = '';
@@ -757,6 +767,13 @@
         return data;
     }
     $('inbox').addEventListener('click', async e => {
+        const clear = e.target.closest('[data-clear]');
+        if (clear) {
+            const input = $(clear.dataset.clear);
+            input.value = '';
+            input.focus();
+            return;
+        }
         const box = e.target.closest('[data-item]');
         if (!box) return;
         const id = Number(box.dataset.item), item = st.inbox.find(x => x.id === id);
