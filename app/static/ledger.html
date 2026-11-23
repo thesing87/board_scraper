@@ -117,13 +117,6 @@
                     <span class="msg" id="inbox-msg"></span></div>
             </section>
 
-            <div class="metrics">
-                <div class="metric"><span id="m-in-label">이 달 수입</span><b class="plus" id="m-in">–</b></div>
-                <div class="metric"><span id="m-ex-label">이 달 지출</span><b class="minus" id="m-ex">–</b></div>
-                <div class="metric"><span>남은 돈 (수입−지출)</span><b id="m-left">–</b></div>
-                <div class="metric"><span>기록</span><b id="m2">–</b></div>
-            </div>
-
             <!-- 입력 (기록을 누르면 고치기). 접는 칸: 늘 접힌 채로 시작, 기록을 눌러 고치면 저절로 펼침 -->
             <details class="sec entry fold" id="entry">
                 <summary class="sec-head"><span id="entry-title">지출 입력</span><span class="sec-note" id="entry-note"></span></summary>
@@ -171,6 +164,13 @@
                 </div>
                 <div class="seg" id="type-seg"><button type="button" data-type="all">모두</button><button type="button" data-type="expense">지출만</button><button type="button" data-type="income">수입만</button></div>
                 <div class="people" id="people"></div>
+            </div>
+            <!-- 이 기간 합계: 거르기 바로 아래 (기간·사람을 바꾸면 바로 보이게) -->
+            <div class="metrics">
+                <div class="metric"><span id="m-in-label">이 달 수입</span><b class="plus" id="m-in">–</b></div>
+                <div class="metric"><span id="m-ex-label">이 달 지출</span><b class="minus" id="m-ex">–</b></div>
+                <div class="metric"><span>남은 돈 (수입−지출)</span><b id="m-left">–</b></div>
+                <div class="metric"><span>기록</span><b id="m2">–</b></div>
             </div>
 
             <!-- 분석 · 달력 (접는 칸, 펼치면 PC는 둘이 나란히) -->

@@ -289,3 +289,71 @@ button:disabled { opacity: .6; cursor: default; }
     .people { margin-left: 0; }
     .period span { min-width: 110px; }
 }
+
+/* ---- 휴대폰 글자 1px 작게 (휴대폰 폭에서 가계부 안의 모든 글자): 위 규칙의 font-size −1px. 위에서 글자 크기를 바꾸면 여기도 함께 */
+@media (max-width: 640px) {
+    body { font-size: 13px; }
+    button.small { font-size: 11px; }
+    .who-me { font-size: 12px; }
+    .tool { font-size: 11px; }
+    .sec-note { font-size: 11px; }
+    .hint { font-size: 11px; }
+    .msg { font-size: 12px; }
+    .label { font-size: 11px; }
+    .badge { font-size: 10px; }
+    .person { font-size: 12px; }
+    .tag { font-size: 10px; }
+    .ib .amt { font-size: 14px; }
+    .ib .shop { font-size: 12.5px; }
+    .ib .meta { font-size: 11px; }
+    .ib .note { font-size: 11px; }
+    .ib .chip { font-size: 11px; }
+    .ib .raw { font-size: 10.5px; }
+    .ib .btns button { font-size: 11.5px; }
+    .ib .edit input { font-size: 12px; }
+    .clr-wrap .clr { font-size: 11px; }
+    .hook-url input { font-size: 11px; }
+    .steps { font-size: 11.5px; }
+    .rule { font-size: 12px; }
+    .alt { font-size: 11.5px; }
+    .app-up input[type=file] { font-size: 11.5px; }
+    .metric { font-size: 11px; }
+    .metric b { font-size: 15px; }
+    .kind button { font-size: 14px; }
+    .amount { font-size: 17px; }
+    .cat-head { font-size: 11px; }
+    .chip { font-size: 12px; }
+    .sw { font-size: 13px; }
+    .custom { font-size: 12px; }
+    .dd button { font-size: 12px; }
+    .dd .k { font-size: 11px; }
+    .seg button { font-size: 12px; }
+    .seg.small button { font-size: 11px; }
+    .in-tag { font-size: 10px; }
+    .period span { font-size: 14px; }
+    .icon { font-size: 17px; }
+    .pp { font-size: 12px; }
+    .av { font-size: 10px; }
+    .year-nav { font-size: 12px; }
+    .icon.sm { font-size: 14px; }
+    .wk { font-size: 10px; }
+    .dc .n { font-size: 11px; }
+    .dc .v { font-size: 9.5px; }
+    .ymet div { font-size: 10.5px; }
+    .ymet b { font-size: 13px; }
+    .mt { font-size: 11.5px; }
+    .mt th { font-size: 10.5px; }
+    .lg-top { font-size: 12px; }
+    .lg-top .p { font-size: 11px; }
+    .empty { font-size: 12px; }
+    .dayh { font-size: 11px; }
+    .dayh b { font-size: 11.5px; }
+    .it { font-size: 12px; }
+    .it .memo { font-size: 14px; }
+    .it .line2 { font-size: 11px; }
+    .who-tag { font-size: 10.5px; }
+    .who-tag .av { font-size: 8px; }
+    .list-sum > div { font-size: 11px; }
+    .list-sum b { font-size: 14px; }
+    .ib .edit .e-shop input { font-size: 13px; }
+}

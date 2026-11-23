@@ -67,6 +67,11 @@ try:
     # 화면 맨 위는 결제 알림 자동 기록, 지출 입력·분석과 달력·기록은 접힌 채로 시작 (머리 줄은 보임)
     assert js("return document.querySelector('#app > details, #app > section').id") == 'auto'
     assert js("return ['entry', 'ana-fold', 'list-fold'].map(i => document.getElementById(i).open)") == [False, False, False]
+    # 순서: 지출 입력 → 거르기 → 수입·지출·남은 돈·기록 칸 → 분석·달력 → 기록
+    order = js("return [...document.querySelectorAll('#entry, #app .filter, #app .metrics, #ana-fold, #list-fold')].map(e => e.id || e.className)")
+    assert order == ['entry', 'filter', 'metrics', 'ana-fold', 'list-fold'], order
+    font = lambda sel: js(f"return getComputedStyle(document.querySelector('{sel}')).fontSize")
+    assert font('body') == '14px' and font('.metric b') == '19px'      # PC는 그대로
     seen = lambda i: js(f"return document.getElementById('{i}').checkVisibility()")
     assert seen('entry-title') and not seen('amount') and not seen('list') and not seen('cal'), [seen(i) for i in ('entry-title', 'amount', 'list', 'cal')]
     click('#entry > summary'); time.sleep(.2)
@@ -291,6 +296,9 @@ try:
     box = lambda c: js(f"const r = document.querySelector('#inbox .{c}').getBoundingClientRect(); return [Math.round(r.top), Math.round(r.width)]")
     assert box('e-shop')[0] == box('e-amt')[0] == box('e-date')[0], (box('e-amt'), box('e-shop'), box('e-date'))
     d.set_window_size(400, 860); time.sleep(.5)
+    # 휴대폰 폭: 가계부 안의 글자 1px 작게 (위쪽 사이트 메뉴는 그대로)
+    font = lambda sel: js(f"return getComputedStyle(document.querySelector('{sel}')).fontSize")
+    assert font('body') == '13px' and font('.metric b') == '15px' and font('#inbox .amt') == '14px', (font('body'), font('.metric b'), font('#inbox .amt'))
     assert box('e-amt')[0] == box('e-date')[0] < box('e-shop')[0] and box('e-shop')[1] > 250, (box('e-amt'), box('e-shop'), box('e-date'))
     assert js("return document.documentElement.scrollWidth <= window.innerWidth")
     d.set_window_size(1280, 900); time.sleep(.5)
