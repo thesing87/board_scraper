@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- 새 버전 자동 업데이트 (가계부에 올라간 앱을 받아 설치) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 금액 인식 알림 (안드로이드 13 이상은 사용자가 허용해야 함) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- 집 NAS를 http 주소로 쓰는 경우가 있어 평문 연결도 허용 -->
     <application
@@ -21,6 +23,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="true">
             <intent-filter>

@@ -76,10 +76,15 @@ assert call('/api/ledger/inbox', cookie=user)[1]['hook']['hint'] == data['hook']
 today = datetime.now()
 md = f'{today.month}/{today.day}'
 pay = f'[삼성카드] 지*님 {md} 12:41 5,600원 일시불 스타벅스 강남점 누적 412,300원'
-assert call(hook, raw=pay, ctype='text/plain') == (200, {'success': True, 'result': 'saved'})
+code, reply = call(hook, raw=pay, ctype='text/plain')
+assert code == 200 and reply['success'] and reply['result'] == 'saved' and reply['item']['amount'] == 5600, reply
 assert call(hook, raw=pay, ctype='text/plain')[1]['result'] == 'duplicate'                          # 같은 알림 또
 assert call(hook, raw='배터리가 부족합니다', ctype='text/plain')[1]['result'] == 'ignored'
-assert call(hook, {'text': f'KB국민카드 승인 13,900원 {md} 21:03 쿠팡이츠'})[1]['result'] == 'saved'     # JSON 본문
+# 넣으면 넣은 내용도 답함 (앱의 '금액 인식 알림'), 넣지 않았으면 없음
+reply = call(hook, {'text': f'KB국민카드 승인 13,900원 {md} 21:03 쿠팡이츠'})[1]                         # JSON 본문
+assert reply['result'] == 'saved' and reply['item'] == {'amount': 13900, 'merchant': '쿠팡이츠', 'card': reply['item']['card'],
+                                                        'cancel': False, 'category': None}, reply
+assert reply['item']['card'] and 'item' not in call(hook, raw=pay, ctype='text/plain')[1]
 assert call(hook, raw='text=' + urllib.request.quote(f'신한카드 승인 42,000원 {md} 19:20 이마트 성수점'),
             ctype='application/x-www-form-urlencoded')[1]['result'] == 'saved'                       # 폼 본문
 assert call('/api/ledger/hook/wrongkey', raw=pay, ctype='text/plain')[0] == 404
@@ -150,6 +155,11 @@ call('/api/ledger/inbox', {'action': 'discard', 'id': data['items'][0]['id']}, c
 new = call('/api/ledger/hook-key', {'action': 'create'}, cookie=user)[1]['url'][len(BASE):]
 assert new != hook and call(hook, raw=pay, ctype='text/plain')[0] == 404 and call(new, raw=pay + ' 2', ctype='text/plain')[1]['result'] == 'saved'
 web_server._clear_auth_failures('127.0.0.1')
+# 규칙으로 정해진 분류도 함께 답함, 취소는 분류 없이
+reply = call(new, raw=f'신한카드 승인 5,500원 {md} 08:10 스타벅스 역삼점', ctype='text/plain')[1]
+assert reply['item']['category'] == '카페' and reply['item']['amount'] == 5500, reply
+reply = call(new, raw=f'신한카드 승인취소 5,500원 {md} 08:12 스타벅스 역삼점', ctype='text/plain')[1]
+assert reply['item']['cancel'] is True and reply['item']['category'] is None, reply
 
 # ---- 허락을 취소하면 연결 주소로도 못 보냄, 규칙 지우기
 call('/api/ledger/admin', {'action': 'revoke', 'user_id': jieun}, cookie=admin)

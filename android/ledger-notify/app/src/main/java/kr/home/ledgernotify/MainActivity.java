@@ -55,6 +55,40 @@ public class MainActivity extends Activity {
         store = new Store(this);
         setContentView(build());
         if (b != null) web.restoreState(b);
+        openInbox = getIntent().getBooleanExtra(Notifier.EXTRA_INBOX, false);
+        // 금액 인식 알림을 띄우려면 (안드로이드 13 이상) 알림 권한: 알림 읽기 권한을 켠 뒤 처음 한 번만 물음
+        if (android.os.Build.VERSION.SDK_INT >= 33 && store.alertOn() && !Notifier.allowed(this)
+                && !store.askedNotifyPermission() && SettingsActivity.hasAccess(this)) {
+            store.setAskedNotifyPermission();
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 2);
+        }
+    }
+
+    /** 금액 인식 알림을 누름: 가계부를 새로 읽고 확인 대기함으로 */
+    private boolean openInbox;
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent.getBooleanExtra(Notifier.EXTRA_INBOX, false) && !loadedSite.isEmpty()) {
+            openInbox = true;
+            web.reload();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(code, perms, results);
+        showBanner();
+    }
+
+    /** 확인 대기함이 그려질 때까지 잠깐 기다렸다가 그리로 (대기함이 비었으면 그냥 첫 화면) */
+    private void scrollToInbox() {
+        if (!openInbox) return;
+        openInbox = false;
+        web.evaluateJavascript("(function t(n){var e=document.getElementById('inbox-sec');"
+                + "if(e&&!e.hidden){e.scrollIntoView({block:'start'});}else if(n>0){setTimeout(function(){t(n-1);},300);}})(20)", null);
     }
 
     @Override
@@ -182,7 +216,7 @@ public class MainActivity extends Activity {
         return root;
     }
 
-    /** 할 일 한 줄: 알림 읽기 권한 → 페이지를 못 엶 → 새 버전 설치 허용 → 앱 연결 순서로 하나만 */
+    /** 할 일 한 줄: 알림 읽기 권한 → 페이지를 못 엶 → 알림 권한(금액 인식 알림) → 새 버전 설치 허용 → 앱 연결 순서로 하나만 */
     private void showBanner() {
         String text = null;
         View.OnClickListener go = null;
@@ -195,6 +229,9 @@ public class MainActivity extends Activity {
         } else if (!SettingsActivity.hasAccess(this)) {
             text = "알림 읽기 권한이 꺼져 있어 결제 알림을 못 받아요 — 눌러서 켜기";
             go = v -> startActivity(new Intent(this, SettingsActivity.class));
+        } else if (store.alertOn() && store.askedNotifyPermission() && !Notifier.allowed(this)) {
+            text = "알림 권한이 꺼져 있어 금액 인식 알림을 못 띄워요 — 눌러서 켜기 (설정에서 이 알림을 끌 수도 있어요)";
+            go = v -> startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()));
         } else if (updateNeedsPermission && !getPackageManager().canRequestPackageInstalls()) {
             text = "새 버전이 있어요 — 눌러서 '이 앱의 설치 허용' 켜기";
             go = v -> startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
@@ -253,6 +290,7 @@ public class MainActivity extends Activity {
         @Override
         public void onPageFinished(WebView view, String url) {
             showBanner();
+            scrollToInbox();
         }
 
         @Override

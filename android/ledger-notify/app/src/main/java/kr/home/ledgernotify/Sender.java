@@ -62,13 +62,17 @@ final class Sender {
         while ((item = s.peek()) != null) {
             String app = item.optString("app"), text = item.optString("text");
             Result r = post(s.url(), text);
+            int id = Notifier.idFor(item.optLong("t"));
             if (r.retry) {
                 scheduleRetry(c);
                 s.log(app, text, "보내지 못함 — 나중에 다시 (" + r.message + ")", false);
+                // 금액은 알아봤지만 못 보냄 ('못 보낸 것도 알림'을 켰을 때, 결제마다 한 번)
+                for (JSONObject w : s.takeUnwarned()) Notifier.pending(c, Notifier.idFor(w.optLong("t")), w.optString("text"));
                 return false;
             }
             s.dropFirst();
             s.log(app, text, r.message, r.ok);
+            if (r.item != null) Notifier.saved(c, id, r.item);
         }
         return true;
     }
@@ -76,7 +80,9 @@ final class Sender {
     static final class Result {
         final boolean ok, retry;
         final String message;
-        Result(boolean ok, boolean retry, String message) { this.ok = ok; this.retry = retry; this.message = message; }
+        final JSONObject item;   // 확인 대기함에 넣은 내용 (서버가 답했을 때만: 금액·가게·카드·취소·분류)
+        Result(boolean ok, boolean retry, String message) { this(ok, retry, message, null); }
+        Result(boolean ok, boolean retry, String message, JSONObject item) { this.ok = ok; this.retry = retry; this.message = message; this.item = item; }
     }
 
     static Result post(String url, String text) {
@@ -95,9 +101,14 @@ final class Sender {
             int code = con.getResponseCode();
             String reply = read(code < 400 ? con.getInputStream() : con.getErrorStream());
             if (code == 200) {
-                String result = new JSONObject(reply).optString("result");
+                JSONObject json = new JSONObject(reply);
+                String result = json.optString("result");
                 switch (result) {
-                    case "saved": return new Result(true, false, "확인 대기함에 넣음");
+                    case "saved": {
+                        JSONObject item = json.optJSONObject("item");
+                        String what = item == null ? "" : " (" + (item.optBoolean("cancel") ? "취소 " : "") + Notifier.won(item.optLong("amount")) + ")";
+                        return new Result(true, false, "확인 대기함에 넣음" + what, item);
+                    }
                     case "duplicate": return new Result(true, false, "같은 알림이 이미 있어 넘김");
                     case "ignored": return new Result(true, false, "결제 알림이 아니라고 서버가 넘김");
                     case "too_many": return new Result(false, false, "한 시간에 너무 많이 보내 넘김");

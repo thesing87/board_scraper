@@ -1385,14 +1385,16 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             pass
         if text.startswith('text=') and 'application/x-www-form-urlencoded' in (self.headers.get('Content-Type') or ''):
             text = parse_qs(text).get('text', [''])[0]
-        result = ledger.receive_hook(key.strip('/'), text)
-        if result is None:
+        found = ledger.receive_hook_detail(key.strip('/'), text)
+        if found is None:
             _record_auth_failure(ip)
             log_msg(f"[가계부] 모르는 연결 키로 알림: {ip}", "WARN")
             self._send_json(404, False, '❌ 연결 키가 맞지 않습니다.')
             return
+        result, item = found
         log_msg(f"[가계부] 결제 알림 받음: {result}", "DEBUG")
-        self._send_data(200, {'success': True, 'result': result})
+        # 넣은 내용(금액·가게 등)은 앱이 '금액 인식 알림'을 띄울 때 씀 (예전 앱은 무시)
+        self._send_data(200, {'success': True, 'result': result, **({'item': item} if item else {})})
 
     def _handle_ledger_hook_get(self, rest):
         """YeYe가계부 앱이 연결 주소로 새 버전을 확인·받음 (쿠키 없이 주소의 키로):

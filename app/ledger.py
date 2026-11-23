@@ -391,6 +391,13 @@ def hook_key_valid(key):
 
 def receive_hook(key, text):
     """연결 키로 온 알림 글. 결과: 'saved'·'ignored'(결제 알림 아님)·'duplicate'·'too_many', 모르는 키면 None"""
+    found = receive_hook_detail(key, text)
+    return found and found[0]
+
+
+def receive_hook_detail(key, text):
+    """receive_hook과 같고, 대기함에 넣었으면 넣은 내용도: (결과, {amount, merchant, card, cancel, category}) — 앱의 '금액 인식 알림'용.
+    넣지 않았으면 내용은 None, 모르는 키면 None"""
     from ledger_parse import parse
     if not key or len(key) > 100:
         return None
@@ -411,10 +418,16 @@ def receive_hook(key, text):
                           (user_id, now)).fetchone()[0] >= HOOK_MAX_PER_HOUR:
             result = 'too_many'
         else:
-            _store_notice(conn, user_id, text, parsed)
+            notice_id = _store_notice(conn, user_id, text, parsed)
             result = 'saved'
+        item = None
+        if result == 'saved':
+            cat = conn.execute("SELECT c.name FROM ledger_inbox i JOIN ledger_categories c ON c.id = i.category_id "
+                               "WHERE i.id = ?", (notice_id,)).fetchone()
+            item = {'amount': parsed['amount'], 'merchant': parsed['merchant'], 'card': parsed['card'],
+                    'cancel': bool(parsed['cancel']), 'category': cat['name'] if cat else None}
         conn.execute("UPDATE ledger_hook_keys SET last_used = ?, last_status = ? WHERE user_id = ?", (now, result, user_id))
-        return result
+        return result, item
 
 
 def send_test_notice(user):

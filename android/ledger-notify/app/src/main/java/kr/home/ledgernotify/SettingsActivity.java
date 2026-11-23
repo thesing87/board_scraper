@@ -52,7 +52,8 @@ public class SettingsActivity extends Activity {
     private String updateText = "";
     private boolean updateNeedsPermission;
     private EditText urlInput, siteInput;
-    private Switch enabledSwitch;
+    private Switch enabledSwitch, alertSwitch, alertPendingSwitch;
+    private TextView alertState;
     private LinearLayout appsBox, logBox;
     private String shownLogs = "", shownApps = "";
 
@@ -69,6 +70,10 @@ public class SettingsActivity extends Activity {
         if (hasAccess(this)) NotificationListenerService.requestRebind(new ComponentName(this, NotifyListener.class));
         urlInput.setText(store.url());
         enabledSwitch.setChecked(store.enabled());
+        alertSwitch.setChecked(store.alertOn());
+        alertPendingSwitch.setChecked(store.alertPendingOn());
+        alertPendingSwitch.setEnabled(store.alertOn());
+        showAlertState();
         shownLogs = shownApps = "";
         ui.post(tick);
         siteInput.setText(store.site());
@@ -173,6 +178,31 @@ public class SettingsActivity extends Activity {
         link.addView(waitState, gap(8));
         retryBtn = button("지금 다시 보내기", v -> Sender.flushAsync(this, () -> ui.post(this::refresh)));
         link.addView(retryBtn, gap(4));
+
+        // ---- 금액 인식 알림
+        LinearLayout alert = card(root, "금액 인식 알림");
+        alertSwitch = new Switch(this);
+        alertSwitch.setText("금액 인식 알림");
+        alertSwitch.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        alertSwitch.setOnCheckedChangeListener((sw, on) -> {
+            store.setAlertOn(on);
+            alertPendingSwitch.setEnabled(on);
+            if (on) askNotifyPermission();
+            showAlertState();
+        });
+        alert.addView(alertSwitch);
+        alert.addView(text("결제를 확인 대기함에 넣으면 금액과 가게를 휴대폰 알림으로 알려 줘요. 누르면 확인 대기함이 열려요.", 12, R.color.muted), gap(2));
+        alertPendingSwitch = new Switch(this);
+        alertPendingSwitch.setText("못 보낸 것도 알림");
+        alertPendingSwitch.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        alertPendingSwitch.setOnCheckedChangeListener((sw, on) -> store.setAlertPendingOn(on));
+        alert.addView(alertPendingSwitch, gap(12));
+        alert.addView(text("인터넷이 안 될 때 금액만 알아본 결제도 알려 줘요. 나중에 보내지면 그 알림이 '넣음'으로 바뀌어요.", 12, R.color.muted), gap(2));
+        alertState = text("", 13, R.color.text);
+        alertState.setOnClickListener(v -> {
+            if (store.alertOn() && !Notifier.allowed(this)) askNotifyPermission();
+        });
+        alert.addView(alertState, gap(10));
 
         // ---- 3. 앱
         LinearLayout apps = card(root, "3. 결제 알림을 보낸 앱");
@@ -300,6 +330,31 @@ public class SettingsActivity extends Activity {
             refresh();
             toast("보냈어요 — 아래 '최근 보낸 알림'과 가계부 확인 대기함을 보세요");
         }));
+    }
+
+    /** 알림 권한: 처음이면 권한 창, 이미 거절했으면 이 앱의 알림 설정 화면 */
+    private void askNotifyPermission() {
+        if (Notifier.allowed(this)) return;
+        if (android.os.Build.VERSION.SDK_INT >= 33 && (!store.askedNotifyPermission()
+                || shouldShowRequestPermissionRationale(android.Manifest.permission.POST_NOTIFICATIONS))) {
+            store.setAskedNotifyPermission();
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 2);
+        } else {
+            startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()));
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(code, perms, results);
+        showAlertState();
+    }
+
+    private void showAlertState() {
+        if (alertState == null) return;
+        if (!store.alertOn()) alertState.setText("꺼짐");
+        else if (Notifier.allowed(this)) alertState.setText("✓ 알림을 띄울 수 있어요");
+        else alertState.setText("✗ 알림 권한이 꺼져 있어요 — 눌러서 켜기");
     }
 
     static boolean hasAccess(android.content.Context c) {

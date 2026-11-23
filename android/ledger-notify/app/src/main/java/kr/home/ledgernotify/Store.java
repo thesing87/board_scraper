@@ -59,6 +59,14 @@ final class Store {
     }
     void setEnabled(boolean on) { p.edit().putBoolean("enabled", on).apply(); }
 
+    // ---------- 금액 인식 알림: 확인 대기함에 넣으면 알림 (처음엔 켜짐), 못 보낸 것도 알림 (처음엔 꺼짐), 알림 권한을 물어봤는지
+    boolean alertOn() { return p.getBoolean("alert", true); }
+    void setAlertOn(boolean on) { p.edit().putBoolean("alert", on).apply(); }
+    boolean alertPendingOn() { return p.getBoolean("alert_pending", false); }
+    void setAlertPendingOn(boolean on) { p.edit().putBoolean("alert_pending", on).apply(); }
+    boolean askedNotifyPermission() { return p.getBoolean("asked_notify", false); }
+    void setAskedNotifyPermission() { p.edit().putBoolean("asked_notify", true).apply(); }
+
     // ---------- 업데이트: 설치 결과 글, 확인 창을 취소한 때
     String updateMessage() { return p.getString("update_msg", ""); }
     void setUpdateMessage(String m) { p.edit().putString("update_msg", m).commit(); }
@@ -139,6 +147,22 @@ final class Store {
             JSONArray q = arr("queue"), rest = new JSONArray();
             for (int i = 1; i < q.length(); i++) rest.put(q.opt(i));
             put("queue", rest);
+        }
+    }
+
+    /** 줄의 알림 중 '못 보냄'을 아직 알리지 않은 것을 알렸다고 표시하고 돌려줌 (같은 결제를 여러 번 알리지 않게) */
+    List<JSONObject> takeUnwarned() {
+        synchronized (LOCK) {
+            JSONArray q = arr("queue");
+            List<JSONObject> out = new ArrayList<>();
+            for (int i = 0; i < q.length(); i++) {
+                JSONObject item = q.optJSONObject(i);
+                if (item == null || item.optBoolean("warned")) continue;
+                try { item.put("warned", true); } catch (JSONException ignored) { }
+                out.add(item);
+            }
+            if (!out.isEmpty()) put("queue", q);
+            return out;
         }
     }
 
