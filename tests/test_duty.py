@@ -85,6 +85,21 @@ assert s2['near'] == {'2026-11-25': T['N'], '2026-11-26': T['OFF']} and s2['toda
 s3 = duty.state('2026-11', yeye, today=date(2026, 11, 28))
 assert s3['near'] == {'2026-12-01': T['D']}                                           # 달이 넘어가도
 
+# ---- 앱 홈 탭 요약: 사람마다 오늘·내일, 고른 사람의 7일 / 가계부 이번 달 합계·대기함·최근 3건
+sm = duty.summary(yeye, today=date(2026, 11, 24))
+assert [(p['name'], p['today'], p['tomorrow']) for p in sm['people']] == [('예예', None, T['N']), ('기범', None, None)], sm['people']
+assert sm['person_id'] == yeye and [w['type_id'] for w in sm['week']] == [None, T['N'], T['OFF'], None, None, None, None] and sm['week'][0]['day'] == '2026-11-24'
+assert duty.summary(999, today=date(2026, 11, 24))['person_id'] == yeye          # 없는 사람이면 첫 사람
+assert call('/api/ledger/home', cookie='')[0] == 401
+code, home = call(f'/api/ledger/home?person={kb}', cookie=member)
+assert code == 200 and home['duty']['person_id'] == kb and set(home['ledger']) == {'month', 'expense', 'income', 'inbox', 'recent'}, home
+cats = {c['name']: c['id'] for c in ledger.state('')['categories']}
+ledger.add_entry({'id': ledger.user_for_token(member.split('=', 1)[1])['id']}, 12000, date.today().isoformat(), cats['식비'], '점심')
+ledger.add_entry({'id': ledger.user_for_token(member.split('=', 1)[1])['id']}, 500000, date.today().isoformat(), cats['급여'], '')
+lg = call('/api/ledger/home', cookie=member)[1]['ledger']
+assert lg['expense'] == 12000 and lg['income'] == 500000 and lg['inbox'] == 0, lg
+assert [(r['memo'], r['kind']) for r in lg['recent']] == [('급여', 'income'), ('점심', 'expense')], lg['recent']   # 메모가 없으면 분류 이름
+
 # ---- 근무 종류: 추가·바꾸기·지우기 (쓰인 것은 못 지움), 값 검사
 code, r = call('/api/ledger/duty', {'action': 'type-add', 'code': '교육', 'name': '교육', 'start_time': '09:00', 'end_time': '18:00', 'color': '#378add'}, member)
 assert code == 200, r

@@ -65,7 +65,14 @@ try:
     assert js("return document.querySelectorAll('#cal [data-day]').length") == int((date(TODAY.year + TODAY.month // 12, TODAY.month % 12 + 1, 1) - timedelta(days=1)).day)
     assert js(f"return document.querySelector('{cell(T)}').classList.contains('today')")
 
-    # ---- 근무를 안 고르고 날짜를 누르면 안내, 고르면 바로 들어가고 잠깐 뒤 저장
+    # ---- 평소엔 보기만: 날짜를 눌러도 안 바뀌고 근무 고르기 줄도 없음 → '고치기'
+    assert not vis('brush-sec') and txt('edit-btn') == '고치기'
+    click(cell(T)); time.sleep(.2)
+    assert '고치기' in txt('cal-msg') and days() == {}
+    click('#edit-btn'); time.sleep(.2)
+    assert vis('brush-sec') and txt('edit-btn') == '완료' and '고치는 중 · 예예' in txt('edit-label')
+    assert js("return document.getElementById('cal-sec').classList.contains('editing')")
+    # 근무를 안 고르고 날짜를 누르면 안내, 고르면 바로 들어가고 잠깐 뒤 저장
     click(cell(T)); time.sleep(.2)
     assert '먼저 골라' in txt('cal-msg') and days() == {}
     brush('E'); time.sleep(.1)
@@ -91,6 +98,7 @@ try:
     d2.execute_script("localStorage.setItem('admin_token', arguments[0])", web_server.ADMIN_TOKEN)
     d2.get(BASE + '/duty/'); time.sleep(1.5)
     assert d2.execute_script("return document.getElementById('who-me').textContent") == '임기범'
+    d2.execute_script("document.getElementById('edit-btn').click()")
     d2.execute_script("[...document.querySelectorAll('#brush [data-brush]')].find(b => b.textContent === 'OFF').click()")
     d2.execute_script(f"document.querySelector('{cell(T)}').click()"); time.sleep(1.5)
     d2.quit()
@@ -128,12 +136,27 @@ try:
     js("const r = document.querySelector('[data-pe]'); r.querySelector('input').value = '예예쌤'; r.querySelector('[data-pe-save]').click()"); time.sleep(1)
     assert '바꿨어요' in txt('pe-msg')
     d.save_screenshot(os.path.join(SHOTS, 'duty_settings.png'))
-    # 뒤로가기: 설정 닫기 → 근무 고른 것 풀기 → 닫을 것 없음
+    # 휴대폰 설정 화면: 시간 칸이 서로 겹치지 않음 (글자·이름 / 시간 / 색 / 버튼 줄)
+    d.set_window_size(400, 900); time.sleep(.5)
+    boxes = js("return [...document.querySelectorAll('#types .trow')][0].querySelectorAll('input[type=time]').length ? [...[...document.querySelectorAll('#types .trow')][0].querySelectorAll('input[type=time]')].map(i => { const r = i.getBoundingClientRect(); return [r.left, r.right, r.top]; }) : []")
+    assert len(boxes) == 2 and boxes[0][1] <= boxes[1][0] and boxes[0][2] == boxes[1][2], boxes
+    assert js("return document.documentElement.scrollWidth <= window.innerWidth")
+    d.save_screenshot(os.path.join(SHOTS, 'duty_settings_mobile.png'))
+    d.set_window_size(1280, 900); time.sleep(.4)
+    # 이 휴대폰 · 처음 보일 사람 (localStorage)
+    js("const s = document.getElementById('home-person'); s.value = s.options[0].value; s.dispatchEvent(new Event('change'))")
+    assert js("return localStorage.getItem('duty_home_person')") == js("return document.getElementById('home-person').options[0].value")
+    # 뒤로가기: 설정 닫기 → 고치기 끝 → 닫을 것 없음
     assert js('return window.ledgerBack()') is True; time.sleep(.8)
     assert not vis('set-view') and txt('people').startswith('예예쌤') and '교육' in txt('brush')
     brush('D')
-    assert js('return window.ledgerBack()') is True and '근무를 고르고' in txt('brush-hint')
+    assert js('return window.ledgerBack()') is True and not vis('brush-sec') and txt('edit-btn') == '고치기'
     assert js('return window.ledgerBack()') is False
+    # 앱의 다른 탭으로 가면(appTabHidden) 고치기 끝, 앱의 위쪽 '설정'(appOpenSettings)은 근무표 설정을 엶
+    click('#edit-btn'); js('window.appTabHidden()')
+    assert not vis('brush-sec')
+    assert js('return window.appOpenSettings()') is True; time.sleep(.4)
+    assert vis('set-view'); js('window.ledgerBack()'); time.sleep(.6)
     d.save_screenshot(os.path.join(SHOTS, 'duty_pc.png'))
     print('DUTY E2E OK')
 finally:

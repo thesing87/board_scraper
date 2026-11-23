@@ -64,7 +64,12 @@
                 <div id="roster" hidden>
                     <section class="sec today" id="today"></section>
 
-                    <section class="sec cal-sec">
+                    <!-- 평소엔 보기만, '고치기'를 눌러야 근무를 넣음 (완료·뒤로가기·다른 탭으로 가면 끝) -->
+                    <section class="sec cal-sec" id="cal-sec">
+                        <div class="edit-bar">
+                            <span id="edit-label">달력</span>
+                            <button type="button" class="small" id="edit-btn">고치기</button>
+                        </div>
                         <div class="cal-head">
                             <button type="button" class="nav-btn" id="prev" aria-label="지난달">‹</button>
                             <button type="button" class="month-btn" id="month-label"></button>
@@ -74,11 +79,11 @@
                         <div class="counts" id="counts"></div>
                     </section>
 
-                    <section class="sec brush-sec">
+                    <section class="sec brush-sec" id="brush-sec" hidden>
                         <div class="brush-head"><span id="brush-hint">근무를 고르고 날짜를 누르면 들어가요</span><button type="button" class="link" id="undo" hidden>되돌리기</button></div>
                         <div class="brush" id="brush"></div>
-                        <p class="msg" id="cal-msg" role="alert"></p>
                     </section>
+                    <p class="msg" id="cal-msg" role="alert"></p>
 
                     <section class="sec changes-sec" id="changes-sec" hidden>
                         <div class="sec-title">최근 고친 것</div>
@@ -100,6 +105,11 @@
                     <div class="sec-title">사람 <span class="sub">근무표 주인</span></div>
                     <div id="people-edit"></div>
                     <p class="msg" id="pe-msg" role="alert"></p>
+                </section>
+                <section class="sec">
+                    <div class="sec-title">이 휴대폰 <span class="sub">이 기기에만 저장돼요</span></div>
+                    <label class="home-person">YeYe홈 앱의 홈 탭·위젯에 처음 보일 사람
+                        <select id="home-person"></select></label>
                 </section>
             </div>
         </div>

@@ -23,6 +23,8 @@ a { color: var(--green); }
 .who-me { font-size: 13px; color: var(--muted); }
 .tool { height: 30px; font-size: 12px; }
 .in-app .site-nav { display: none !important; }
+/* 앱 안: 설정·로그아웃은 앱 위쪽 줄에 (앱이 window.appOpenSettings를 부름) */
+.in-app .site-top-tools { display: none !important; }
 
 .sec { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
 .sec-title { font-weight: 700; margin-bottom: 8px; }
@@ -60,6 +62,14 @@ a { color: var(--green); }
 .badge { display: inline-block; min-width: 26px; padding: 2px 6px; border-radius: 5px; font-size: 12px; font-weight: 700; text-align: center; white-space: nowrap; }
 .badge.blank { color: var(--faint); background: var(--soft); font-weight: 400; }
 
+/* 달력: 평소엔 보기만, 고치는 중엔 초록 테두리 */
+.edit-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
+.edit-bar button { font-weight: 700; }
+.cal-sec.editing { border: 2px solid var(--green); padding: 11px 13px; }
+.cal-sec.editing .edit-bar span { color: var(--green); font-weight: 700; }
+.cal-sec.editing #edit-btn { background: var(--green); border-color: var(--green); color: #fff; }
+.cal-sec:not(.editing) .cal .day { cursor: default; }
+.cal-sec:not(.editing) .cal .day:hover { border-color: var(--divider); }
 /* 달력 */
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .nav-btn { width: 36px; padding: 0; font-size: 18px; }
@@ -95,11 +105,15 @@ a { color: var(--green); }
 
 /* 설정 */
 .set-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 15px; }
-.trow { display: grid; grid-template-columns: 64px minmax(0, 1fr) 132px 132px auto; gap: 6px; align-items: center; padding: 8px 0; border-top: 1px solid var(--divider); }
+.trow { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto auto; grid-template-areas: 'code name times acts' 'colors colors colors colors';
+    gap: 6px; align-items: center; padding: 8px 0; border-top: 1px solid var(--divider); }
+.trow .code { grid-area: code; } .trow [data-f=name] { grid-area: name; } .trow .times { grid-area: times; } .trow .acts { grid-area: acts; }
+.trow .times { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.trow .times input { width: 118px; }
 .trow:first-child { border-top: 0; }
 .trow input { height: 34px; }
 .trow .code { font-weight: 700; text-align: center; }
-.trow .colors { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.trow .colors { grid-area: colors; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .trow .sw { width: 24px; height: 24px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
 .trow .sw.on { border-color: var(--text); box-shadow: inset 0 0 0 2px #fff; }
 .trow .acts { display: flex; gap: 4px; }
@@ -109,6 +123,8 @@ a { color: var(--green); }
 .prow:first-child { border-top: 0; }
 .prow input { flex: 1; height: 34px; }
 #type-add { margin-top: 8px; }
+.home-person { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.home-person select { height: 34px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 
 @media (max-width: 560px) {
     body { font-size: 13px; }
@@ -118,7 +134,9 @@ a { color: var(--green); }
     .cal .day, .cal .pad { height: 52px; }
     .cal .day .badge { font-size: 11px; padding: 2px 4px; }
     .today .big { font-size: 16px; }
-    .trow { grid-template-columns: 56px minmax(0, 1fr); }
-    .trow .t-start, .trow .t-end { grid-column: auto; }
-    .trow .acts { grid-column: 1 / -1; }
+    /* 휴대폰: 글자·이름 / 시간 07:00 ~ 15:00 / 색 / 지우기·저장 (시간 칸이 겹치지 않게 한 줄씩) */
+    .trow { grid-template-columns: 56px minmax(0, 1fr); grid-template-areas: 'code name' 'times times' 'colors colors' 'acts acts'; }
+    .trow .times input { flex: 1; width: auto; min-width: 0; }
+    .trow .acts { justify-content: flex-end; }
+    .trow .acts .sp { display: none; }
 }

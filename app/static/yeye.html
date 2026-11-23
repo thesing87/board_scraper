@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>YeYe홈</title>
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#F4F5F7">
+    <link rel="stylesheet" href="/yeye.css">
+    <script src="/yeye.js" defer></script>
+</head>
+<body>
+    <!-- YeYe홈 앱의 홈 탭: 근무표·가계부 요약 (가계부 로그인). 카드를 누르면 그 탭으로 -->
+    <main class="page">
+        <section class="card auth" id="auth" hidden>
+            <form id="login-form" autocomplete="on">
+                <b>가계부 계정으로 로그인</b>
+                <input id="login-name" name="username" autocomplete="username" placeholder="이름" maxlength="20">
+                <input id="login-pw" type="password" autocomplete="current-password" placeholder="비밀번호">
+                <button type="submit" class="primary">로그인</button>
+                <p class="hint">처음이면 <a href="/ledger/">가계부</a>에서 가입을 요청해 주세요.</p>
+            </form>
+            <p class="msg" id="auth-msg" role="alert"></p>
+        </section>
+
+        <div id="app" hidden>
+            <div class="card go" id="duty-card" data-go="/duty/" role="link" tabindex="0">
+                <div class="head"><b id="duty-title">근무표</b><span class="more">근무표 ›</span></div>
+                <div id="duty-body"></div>
+            </div>
+            <div class="card go" id="ledger-card" data-go="/ledger/" role="link" tabindex="0">
+                <div class="head"><b id="ledger-title">가계부</b><span class="more">가계부 ›</span></div>
+                <div id="ledger-body"></div>
+            </div>
+            <p class="msg" id="msg" role="alert"></p>
+        </div>
+    </main>
+</body>
+</html>

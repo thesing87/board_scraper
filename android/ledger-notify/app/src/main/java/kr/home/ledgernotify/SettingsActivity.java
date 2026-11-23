@@ -59,10 +59,17 @@ public class SettingsActivity extends Activity {
     private EditText ignoreInput;
     private String shownLogs = "", shownApps = "", shownIgnores = "";
 
+    /** 어느 설정을 보일지: 앱(홈 탭의 '설정': 주소·버전·로그아웃), 휴대폰 결제 알림(가계부 설정에서), 모두(처음 쓸 때) */
+    static final String EXTRA_SECTION = "section";
+    static final String SECTION_APP = "app", SECTION_PHONE = "phone", SECTION_ALL = "all";
+    private String section = SECTION_ALL;
+
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         store = new Store(this);
+        String sec = getIntent().getStringExtra(EXTRA_SECTION);
+        if (SECTION_APP.equals(sec) || SECTION_PHONE.equals(sec)) section = sec;
         setContentView(build());
     }
 
@@ -81,6 +88,34 @@ public class SettingsActivity extends Activity {
         siteInput.setText(store.site());
         // '이 앱의 설치 허용'을 켜러 갔다 돌아온 때는 바로 이어서 설치
         if (Updater.autoDue(updateNeedsPermission)) checkUpdate(true);
+    }
+
+    /** 로그아웃: 서버에 알리고 이 앱의 로그인 쿠키를 지움 → 돌아가면 페이지를 모두 다시 읽음 */
+    private void logout() {
+        String origin = Store.origin(store.site());
+        String cookie = DutyWidgets.cookie(this);
+        new Thread(() -> {
+            if (cookie != null && !origin.isEmpty()) {
+                try {
+                    java.net.HttpURLConnection con = (java.net.HttpURLConnection) new java.net.URL(origin + "/api/ledger/session").openConnection();
+                    con.setRequestMethod("POST");
+                    con.setDoOutput(true);
+                    con.setConnectTimeout(5000);
+                    con.setReadTimeout(5000);
+                    con.setRequestProperty("Content-Type", "application/json");
+                    con.setRequestProperty("Cookie", cookie);
+                    con.getOutputStream().write("{\"action\":\"logout\"}".getBytes("UTF-8"));
+                    con.getResponseCode();
+                    con.disconnect();
+                } catch (Exception ignored) { /* 서버에 못 알려도 이 휴대폰에서는 지움 */ }
+            }
+            ui.post(() -> android.webkit.CookieManager.getInstance().removeAllCookies(done -> {
+                android.webkit.CookieManager.getInstance().flush();
+                MainActivity.reloadPages = true;
+                toast("로그아웃했어요");
+                finish();
+            }));
+        }).start();
     }
 
     private void checkUpdate(boolean auto) {
@@ -105,10 +140,13 @@ public class SettingsActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(16), dp(16), dp(16), dp(24));
 
-        TextView title = text("YeYe홈 설정", 22, R.color.text);
+        boolean app = !SECTION_PHONE.equals(section), phone = !SECTION_APP.equals(section);
+        TextView title = text(SECTION_APP.equals(section) ? "앱 설정" : SECTION_PHONE.equals(section) ? "휴대폰 결제 알림 설정" : "YeYe홈 설정", 22, R.color.text);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title);
-        root.addView(text("카드 결제 알림을 가계부의 확인 대기함으로 보내요. 결제 알림처럼 보이는 글만 보내고, 다른 알림은 휴대폰 밖으로 나가지 않아요.", 13, R.color.muted), gap(4));
+        root.addView(text(SECTION_APP.equals(section)
+                ? "앱 전체에 쓰는 설정이에요. 가계부·근무표 설정은 그 탭에서 위쪽 '설정'을 누르세요."
+                : "카드 결제 알림을 가계부의 확인 대기함으로 보내요. 결제 알림처럼 보이는 글만 보내고, 다른 알림은 휴대폰 밖으로 나가지 않아요.", 13, R.color.muted), gap(4));
 
         // ---- 가계부 주소 (앱을 열면 뜨는 화면)
         LinearLayout site = card(root, "가계부 주소");
@@ -119,7 +157,7 @@ public class SettingsActivity extends Activity {
         siteInput.setSingleLine(true);
         siteInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         site.addView(siteInput, gap(6));
-        site.addView(button("저장하고 가계부 열기", v -> {
+        site.addView(button("저장하고 열기", v -> {
             String s = Store.normalizeSite(siteInput.getText().toString());
             if (s.isEmpty()) { toast("가계부 주소를 넣어 주세요"); return; }
             store.setSite(s);
@@ -236,6 +274,17 @@ public class SettingsActivity extends Activity {
         logBox = new LinearLayout(this);
         logBox.setOrientation(LinearLayout.VERTICAL);
         logs.addView(logBox);
+
+        // ---- 로그아웃 (앱 설정): 이 휴대폰에서 가계부·근무표·홈 모두
+        LinearLayout out = card(root, "로그인");
+        out.addView(text("이 휴대폰 앱에서 로그아웃해요. 결제 알림 연결은 그대로예요.", 12, R.color.muted));
+        out.addView(button("로그아웃", v -> logout()), gap(6));
+
+        // 들어온 곳에 따라 보일 칸만 (상태 갱신은 모든 칸에 그대로)
+        site.setVisibility(app ? View.VISIBLE : View.GONE);
+        ver.setVisibility(app ? View.VISIBLE : View.GONE);
+        out.setVisibility(SECTION_APP.equals(section) ? View.VISIBLE : View.GONE);
+        for (View v : new View[]{perm, link, alert, ign, apps, logs}) v.setVisibility(phone ? View.VISIBLE : View.GONE);
 
         ScrollView sv = new ScrollView(this);
         sv.addView(root);

@@ -50,6 +50,39 @@
             </intent-filter>
         </service>
 
+        <!-- 홈 화면 근무표 위젯 (한 달·오늘). 처음 놓을 때 누구 근무표인지 고르는 화면 -->
+        <receiver
+            android:name=".DutyMonthWidget"
+            android:label="@string/duty_widget_month"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/duty_widget_month" />
+        </receiver>
+        <receiver
+            android:name=".DutyTodayWidget"
+            android:label="@string/duty_widget_today"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/duty_widget_today" />
+        </receiver>
+        <activity
+            android:name=".DutyWidgetConfig"
+            android:exported="true"
+            android:label="근무표 위젯"
+            android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
         <!-- 업데이트 설치 결과 (확인 창 띄우기) -->
         <receiver
             android:name=".InstallReceiver"

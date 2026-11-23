@@ -79,6 +79,30 @@ def state(month, person_id=None, today=None):
             'person_id': pid, 'days': days, 'near': near, 'changes': changes}
 
 
+def summary(person_id=None, today=None):
+    """앱 홈 탭: 사람마다 오늘·내일 근무, 고른 사람(없으면 첫 사람)의 이번 주 7일(오늘부터), 근무 종류"""
+    today = today or date.today()
+    tomorrow, last = today + timedelta(days=1), today + timedelta(days=6)
+    with _db() as conn, conn:
+        _seed(conn)
+        people = [dict(r) for r in conn.execute("SELECT id, name FROM duty_people ORDER BY position, id")]
+        types = [dict(r) for r in conn.execute(
+            "SELECT id, code, name, start_time, end_time, color FROM duty_types ORDER BY position, id")]
+        rows = conn.execute("SELECT person_id, day, type_id FROM duty_days WHERE day >= ? AND day <= ?",
+                            (today.isoformat(), last.isoformat())).fetchall()
+    days = {}
+    for r in rows:
+        days.setdefault(r['person_id'], {})[r['day']] = r['type_id']
+    for p in people:
+        mine = days.get(p['id'], {})
+        p['today'], p['tomorrow'] = mine.get(today.isoformat()), mine.get(tomorrow.isoformat())
+    ids = [p['id'] for p in people]
+    pid = person_id if person_id in ids else (ids[0] if ids else None)
+    week = [{'day': (today + timedelta(days=i)).isoformat(), 'type_id': days.get(pid, {}).get((today + timedelta(days=i)).isoformat())}
+            for i in range(7)] if pid else []
+    return {'today': today.isoformat(), 'people': people, 'types': types, 'person_id': pid, 'week': week}
+
+
 # ==========================================
 # 근무 넣기·지우기
 # ==========================================

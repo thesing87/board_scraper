@@ -193,6 +193,8 @@
                     <p class="hint" id="hook-state"></p>
                     <!-- YeYe홈 앱 안에서 열었을 때만: 연결 주소를 만들어 앱에 바로 넣음 -->
                     <div class="app-connect app-only" id="app-connect"><button type="button" class="primary" id="app-connect-btn">이 휴대폰 앱에 연결</button><span class="hint" id="app-connect-state"></span></div>
+                    <!-- 앱 안에서만: 이 휴대폰의 알림 읽기 권한·연결 주소·무시할 알림·최근 알림 (앱의 화면) -->
+                    <div class="app-connect app-only"><button type="button" class="small" id="phone-settings-btn">휴대폰 알림 설정 열기</button><span class="hint">알림 읽기 권한 · 연결 주소 · 무시할 알림 · 최근 알림</span></div>
                     <div class="row-btns"><button type="button" class="small" id="hook-create">연결 주소 만들기</button><button type="button" class="small" id="hook-test">시험 알림 보내기</button></div>
                     <div class="app-get outside-only" id="app-get" hidden><a class="app-btn" id="app-link" href="/api/ledger/app.apk">YeYe홈 앱 받기</a><span class="hint" id="app-info"></span></div>
                     <p class="hint outside-only" id="app-none">관리자가 'YeYe홈' 앱 파일을 올리면 여기서 받을 수 있어요.</p>

@@ -128,6 +128,8 @@ button:disabled { opacity: .6; cursor: default; }
 .in-app .outside-only { display: none !important; }
 /* 앱에서는 가계부만: 다른 탭으로 가는 사이트 메뉴 줄을 숨김 (앱도 /ledger/ 밖으로는 가지 않음) */
 .in-app .site-nav { display: none !important; }
+/* 앱 안: 설정·로그아웃은 앱 위쪽 줄에 (앱이 window.appOpenSettings를 부름) */
+.in-app .site-top-tools { display: none !important; }
 .app-connect { align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
 
 /* 설정 (머리줄 '설정' → #settings): 메인 칸들은 숨기고 설정만. 탭 5개 (휴대폰은 옆으로 밀기) */

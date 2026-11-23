@@ -131,6 +131,7 @@
         if (user.admin) loadPeople();
         load();
         loadInbox();
+        if (location.hash === '#inbox') window.appShowInbox();
         // 앱 안이면 로그인됐다고 알림 (연결 전에도 로그인으로 새 버전을 확인)
         try { if (window.LedgerApp && window.LedgerApp.loggedIn) window.LedgerApp.loggedIn(); } catch (e) { /* 예전 앱 */ }
     }
@@ -1038,6 +1039,9 @@
         $('app-connect-btn').textContent = on ? '다시 연결' : '이 휴대폰 앱에 연결';
         $('app-connect-btn').className = on ? 'small' : 'primary';
     }
+    $('phone-settings-btn').addEventListener('click', () => {
+        try { if (window.LedgerApp.openPhoneSettings) window.LedgerApp.openPhoneSettings(); else window.LedgerApp.openSettings(); } catch (e) { /* 예전 앱 */ }
+    });
     $('app-connect-btn').addEventListener('click', async () => {
         if (st.hook && !window.confirm('새 연결 주소를 만들어 이 앱에 넣어요. 예전 연결 주소(다른 휴대폰·매크로드로이드)는 더 못 써요. 할까요?')) return;
         $('app-connect-btn').disabled = true;
@@ -1165,6 +1169,15 @@
         $('app').classList.toggle('settings-open', on);
         if (on) { renderSetTabs(); window.scrollTo(0, 0); }
     }
+    // 앱(YeYe홈)이 부름: 위쪽 '설정' → 가계부 설정 (로그인 전이면 false → 앱이 자기 설정을 엶)
+    window.appOpenSettings = () => { if (!st.me) return false; openSettings(); return true; };
+    // 홈 탭의 '확인 대기함 n건'을 눌러 왔을 때 (#inbox)
+    window.appShowInbox = () => {
+        if (location.hash === '#inbox') history.replaceState(history.state, '', location.pathname + location.search);
+        if (st.me && $('app').classList.contains('settings-open')) closeSettings();
+        let n = 20;
+        (function t() { const e = $('inbox-sec'); if (e && !e.hidden) e.scrollIntoView({ block: 'start' }); else if (n-- > 0) setTimeout(t, 300); })();
+    };
     function openSettings(tab) {
         if (tab) st.setTab = tab;
         if (location.hash !== '#settings') {

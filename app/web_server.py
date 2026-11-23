@@ -192,6 +192,10 @@ STATIC_FILES = {
     '/duty/': ('duty.html', 'text/html; charset=utf-8'),
     '/duty.js': ('duty.js', 'application/javascript; charset=utf-8'),
     '/duty.css': ('duty.css', 'text/css; charset=utf-8'),
+    # YeYe홈 앱의 홈 탭: 가계부·근무표 요약 (가계부 로그인)
+    '/yeye/': ('yeye.html', 'text/html; charset=utf-8'),
+    '/yeye.js': ('yeye.js', 'application/javascript; charset=utf-8'),
+    '/yeye.css': ('yeye.css', 'text/css; charset=utf-8'),
     # 모든 페이지 공통 바로가기 메뉴
     '/nav.js': ('nav.js', 'application/javascript; charset=utf-8'),
     '/nav.css': ('nav.css', 'text/css; charset=utf-8'),
@@ -1293,12 +1297,34 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_data(200, ledger.year_totals(query.get('year', [''])[0]))
         elif pure_path == '/api/ledger/admin' and user['admin']:
             self._send_data(200, ledger.people())
+        elif pure_path == '/api/ledger/home':
+            # 앱 홈 탭: 근무표 요약(사람마다 오늘·내일, 고른 사람의 이번 주)과 가계부 이번 달 요약
+            person = query.get('person', [''])[0]
+            self._send_data(200, {'user': user, 'duty': duty.summary(int(person) if person.isdigit() else None),
+                                  'ledger': self._ledger_summary(user)})
         elif pure_path == '/api/ledger/duty':
             # 근무표: 그 달(month)·고른 사람(person)의 근무와 사람들·근무 종류
             person = query.get('person', [''])[0]
             self._send_data(200, {'user': user, **duty.state(query.get('month', [''])[0], int(person) if person.isdigit() else None)})
         else:
             self._send_json(404, False, '❌ 없는 요청입니다.')
+
+    @staticmethod
+    def _ledger_summary(user):
+        """이번 달 지출·수입 합계, 내 확인 대기함 건수, 최근 기록 3건 (분류 이름·색과 함께)"""
+        st = ledger.state('')
+        cats = {c['id']: c for c in st['categories']}
+        total = {'expense': 0, 'income': 0}
+        for e in st['entries']:
+            kind = cats.get(e['category_id'], {}).get('kind', 'expense')
+            total[kind] = total.get(kind, 0) + e['amount']
+        recent = []
+        for e in st['entries'][:3]:
+            c = cats.get(e['category_id'], {})
+            recent.append({'memo': e['memo'] or c.get('name', ''), 'amount': e['amount'], 'used_on': e['used_on'],
+                           'kind': c.get('kind', 'expense'), 'category': c.get('name', ''), 'color': c.get('color', '#888780')})
+        return {'month': st['month'], 'expense': total['expense'], 'income': total['income'],
+                'inbox': len(ledger.inbox(user)), 'recent': recent}
 
     def _handle_ledger_session(self):
         """{action: login|signup|logout, name, password}"""

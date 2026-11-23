@@ -1,6 +1,7 @@
 // 근무표: 사람마다 날짜별 근무(D·E·N·OFF 등)를 넣고 함께 보기 (서버 duty.py, API /api/ledger/duty)
 // - 로그인은 가계부 계정 (관리자 기기는 대시보드 로그인 키로 자동 로그인). 허락받은 멤버 누구나 고침
-// - 아래 '근무 칠하기'에서 근무를 고르고 날짜를 누르면 바로 들어감 (같은 근무를 다시 누르면 지움), 잠깐 모았다가 한 번에 저장
+// - 평소엔 보기만. '고치기'를 누르면 아래 '근무 칠하기'가 나오고, 근무를 고르고 날짜를 누르면 바로 들어감
+//   (같은 근무를 다시 누르면 지움, 잠깐 모았다가 한 번에 저장). 완료·뒤로가기·앱의 다른 탭으로 가면 끝
 // - 설정(#settings): 근무 종류(글자·이름·시간·색)와 사람(근무표 주인) 고치기
 'use strict';
 
@@ -12,6 +13,7 @@
     const LEDGER_FLAG = 'ledger_user';        // 메뉴(nav.js)가 가계부·근무표를 보이게 하는 표시 (가계부와 같음)
     const ADMIN_TOKEN_KEY = 'admin_token';
     const PERSON_KEY = 'duty_person';         // 이 기기에서 마지막으로 본 사람
+    const HOME_PERSON_KEY = 'duty_home_person';   // YeYe홈 앱의 홈 탭·위젯에 처음 보일 사람 (설정 > 이 휴대폰)
     const PRESET = ['#EF9F27', '#D4537E', '#534AB7', '#888780', '#1D9E75', '#378ADD', '#E24B4A', '#D85A30', '#639922', '#2BA7B8', '#9B5DE5', '#5F5E5A'];
     const WD = '일월화수목금토';
     const SAVE_DELAY = 500;
@@ -30,6 +32,7 @@
 
     const st = {
         me: null, data: null, month: ymd(new Date()).slice(0, 7), personId: Number(storageGet(PERSON_KEY, 0)) || null,
+        editing: false,       // '고치기'를 누른 동안만 날짜를 눌러 근무를 넣음
         brush: null,          // 고른 근무 종류 id, 'clear'(지우기), null(안 고름)
         pending: {},          // 저장 전 바뀐 날 {날짜: 종류 id|null}
         undo: [],             // [{person, day, prev}]
@@ -53,6 +56,8 @@
     }
     const msgOf = d => String((d && d.message) || '처리하지 못했어요.').replace(/^❌\s*/, '');
     const act = body => post('/api/ledger/duty', body);
+    // YeYe홈 앱 안이면: 근무표를 고쳐 저장했다고 알려 홈 화면 위젯을 새로
+    function tellApp() { try { if (window.LedgerApp && window.LedgerApp.dutyChanged) window.LedgerApp.dutyChanged(); } catch (e) { /* 예전 앱 */ } }
 
     // ==========================================
     // 로그인 (가계부 계정)
@@ -178,6 +183,11 @@
     }
 
     function renderBrush() {
+        const person = (st.data.people || []).find(p => p.id === st.personId);
+        $('cal-sec').classList.toggle('editing', st.editing);
+        $('brush-sec').hidden = !st.editing;
+        $('edit-btn').textContent = st.editing ? '완료' : '고치기';
+        $('edit-label').textContent = st.editing ? `고치는 중 · ${person ? person.name : ''}` : '달력';
         $('brush').innerHTML = st.data.types.map(t => `<button type="button" data-brush="${t.id}" class="${st.brush === t.id ? 'on' : ''}" style="${badgeStyle(t.color)}" title="${esc(t.name)} ${timeOf(t)}">${esc(t.code)}</button>`).join('')
             + `<button type="button" data-brush="clear" class="clear${st.brush === 'clear' ? ' on' : ''}">지우기</button>`;
         const t = st.brush && st.brush !== 'clear' && typeOf(st.brush);
@@ -223,6 +233,7 @@
         const { status, data } = await act({ action: 'set', person_id: person, days });
         if (status !== 200) { $('cal-msg').textContent = msgOf(data); load(); return; }
         $('cal-msg').textContent = '';
+        tellApp();
         // 최근 고친 것만 새로 (칠하는 중에 달력을 다시 그리지 않음)
         if (!Object.keys(st.pending).length) refreshChanges();
     }
@@ -234,6 +245,7 @@
     $('cal').addEventListener('click', e => {
         const cell = e.target.closest('[data-day]');
         if (!cell) return;
+        if (!st.editing) { $('cal-msg').textContent = "근무를 바꾸려면 위의 '고치기'를 눌러 주세요."; return; }
         if (!st.brush) { $('cal-msg').textContent = '아래에서 넣을 근무를 먼저 골라 주세요.'; return; }
         $('cal-msg').textContent = '';
         const day = cell.dataset.day, cur = st.data.days[day] ?? null;
@@ -254,6 +266,15 @@
         if (!u.day.startsWith(st.month)) { await flush(); st.month = u.day.slice(0, 7); await load(); }
         apply(u.day, u.prev, false);
     });
+
+    // 고치기 시작·끝 (끝낼 때 칠한 것을 바로 저장하고 되돌리기 목록도 비움)
+    function setEditing(on) {
+        st.editing = on;
+        if (!on) { st.brush = null; st.undo = []; flush(); }
+        $('cal-msg').textContent = '';
+        renderBrush();
+    }
+    $('edit-btn').addEventListener('click', () => setEditing(!st.editing));
 
     // 달 넘기기
     async function goMonth(n) {
@@ -293,6 +314,7 @@
         const { status, data } = await act({ action: 'person-add', name });
         if (status !== 200) { $('ap-msg').textContent = msgOf(data); return; }
         st.adding = false;
+        tellApp();
         await switchPerson(data.id);
     }
     $('ap-save').addEventListener('click', addPerson);
@@ -328,8 +350,8 @@
         return `<div class="trow" data-type="${isNew ? 'new' : t.id}">
             <input class="code" data-f="code" maxlength="4" placeholder="글자" value="${esc(t.code || '')}" aria-label="짧은 글자">
             <input data-f="name" maxlength="10" placeholder="이름 (예: 데이)" value="${esc(t.name || '')}" aria-label="이름">
-            <input class="t-start" data-f="start_time" type="time" value="${esc(t.start_time || '')}" aria-label="시작 시간">
-            <input class="t-end" data-f="end_time" type="time" value="${esc(t.end_time || '')}" aria-label="끝 시간">
+            <div class="times"><span>시간</span><input data-f="start_time" type="time" value="${esc(t.start_time || '')}" aria-label="시작 시간">
+                <span>~</span><input data-f="end_time" type="time" value="${esc(t.end_time || '')}" aria-label="끝 시간"></div>
             <div class="acts"><button type="button" class="small primary" data-type-save>${isNew ? '더하기' : '저장'}</button>
                 <button type="button" class="small ${isNew ? '' : 'danger'}" data-type-del>${isNew ? '취소' : '지우기'}</button></div>
             <div class="colors"><span class="badge prev" style="${badgeStyle(color)}">${esc(t.code || '글자')}</span>
@@ -338,6 +360,10 @@
     }
     function renderSettings() {
         if (!st.data) return;
+        const hp = Number(storageGet(HOME_PERSON_KEY, 0));
+        $('home-person').innerHTML = st.data.people.length
+            ? st.data.people.map((p, i) => `<option value="${p.id}"${p.id === hp || (!hp && i === 0) ? ' selected' : ''}>${esc(p.name)}</option>`).join('')
+            : '<option value="">(사람이 없어요)</option>';
         $('types').innerHTML = st.data.types.map(t => typeRow(t, false)).join('') + (st.newType ? typeRow(st.newType, true) : '');
         $('type-add').hidden = !!st.newType;
         $('people-edit').innerHTML = st.data.people.map(p => `<div class="prow" data-pe="${p.id}">
@@ -368,6 +394,7 @@
             if (isNew) st.newType = null;
             $('type-msg').classList.add('ok');
             $('type-msg').textContent = isNew ? '더했어요.' : '저장했어요.';
+            tellApp();
             load();
         } else if (e.target.closest('[data-type-del]')) {
             if (isNew) { st.newType = null; renderSettings(); return; }
@@ -376,7 +403,7 @@
             const { status, data } = await act({ action: 'type-delete', id: Number(row.dataset.type) });
             $('type-msg').classList.toggle('ok', status === 200);
             $('type-msg').textContent = status === 200 ? '지웠어요.' : msgOf(data);
-            if (status === 200) load();
+            if (status === 200) { tellApp(); load(); }
         }
     });
     $('types').addEventListener('input', e => {
@@ -390,6 +417,10 @@
         $('type-msg').textContent = '';
         renderSettings();
         $('types').querySelector('[data-type="new"] [data-f="code"]').focus();
+    });
+    $('home-person').addEventListener('change', e => {
+        storageSet(HOME_PERSON_KEY, e.target.value);
+        try { if (window.LedgerApp && window.LedgerApp.setDutyPerson) window.LedgerApp.setDutyPerson(Number(e.target.value) || 0); } catch (err) { /* 예전 앱 */ }
     });
     $('people-edit').addEventListener('click', async e => {
         const row = e.target.closest('[data-pe]');
@@ -406,7 +437,7 @@
         } else return;
         $('pe-msg').classList.toggle('ok', res.status === 200);
         $('pe-msg').textContent = res.status === 200 ? res.ok : msgOf(res.data);
-        if (res.status === 200) load();
+        if (res.status === 200) { tellApp(); load(); }
     });
 
     // ==========================================
@@ -415,9 +446,12 @@
     window.ledgerBack = () => {
         if (!$('set-view').hidden) { closeSettings(); return true; }
         if (st.adding) { openAdd(false); return true; }
-        if (st.brush) { st.brush = null; renderBrush(); return true; }
+        if (st.editing) { setEditing(false); return true; }
         return false;
     };
+    // 앱(YeYe홈)이 부름: 위쪽 '설정' → 근무표 설정, 다른 탭으로 감 → 고치기 끝
+    window.appOpenSettings = () => { if (!st.me) return false; flush(); openSettings(); return true; };
+    window.appTabHidden = () => { if (st.editing) setEditing(false); else flush(); };
     if (window.LedgerApp) document.documentElement.classList.add('in-app');
 
     // 다른 화면에 갔다 오면 새로 (다른 멤버가 고쳤을 수 있음). 떠날 때는 칠한 것을 바로 저장

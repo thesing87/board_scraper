@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 오늘 근무 위젯 (2×1 쯤): 오늘 근무·시간과 다음 사흘 -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="40dp"
+    android:minResizeWidth="100dp"
+    android:minResizeHeight="40dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="1"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="10800000"
+    android:initialLayout="@layout/duty_widget"
+    android:configure="kr.home.ledgernotify.DutyWidgetConfig"
+    android:widgetFeatures="reconfigurable"
+    android:widgetCategory="home_screen"
+    android:description="@string/duty_widget_today_desc" />

@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">YeYe홈</string>
+    <string name="duty_widget_month">근무표 · 한 달</string>
+    <string name="duty_widget_today">근무표 · 오늘</string>
+    <string name="duty_widget_month_desc">이번 달 근무를 달력으로</string>
+    <string name="duty_widget_today_desc">오늘 근무와 다음 사흘</string>
 </resources>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 한 달 근무표 위젯 (4×4 쯤). 3시간마다 새로, 처음 놓을 때 누구 근무표인지 고름 (길게 눌러 다시 고를 수 있음) -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="180dp"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="140dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="4"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="10800000"
+    android:initialLayout="@layout/duty_widget"
+    android:configure="kr.home.ledgernotify.DutyWidgetConfig"
+    android:widgetFeatures="reconfigurable"
+    android:widgetCategory="home_screen"
+    android:description="@string/duty_widget_month_desc" />
