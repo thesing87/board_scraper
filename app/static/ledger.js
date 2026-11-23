@@ -608,20 +608,29 @@
     // ==========================================
     // 메모: 최근 메모 드롭다운 (고르면 그 메모에 썼던 소비형태도 함께)
     // ==========================================
-    function memoMatches() {
-        const q = $('memo').value.trim();
-        // 지금 고른 쪽(지출·수입)에서 쓴 메모만
-        return ((st.data && st.data.memos) || []).filter(m => catOf(m.category_id).kind === st.kind)
-            .filter(m => !q || m.memo.includes(q)).filter(m => m.memo !== q).slice(0, 6);
+    // 메모 자동완성 (지출 입력의 메모·대기함의 가게 칸): 비어 있으면 최근 메모, 글자를 치면 지금까지 쓴 모든 메모에서
+    // 앞에서부터 맞는 것 먼저, 그다음 최근 순 (띄어쓰기·대소문자 무시). kind를 주면 그쪽(지출·수입) 분류로 쓴 메모만
+    const memoKey = s => (s || '').replace(/\s+/g, '').toLowerCase();
+    function memoSearch(q, kind) {
+        const key = memoKey(q);
+        const all = ((st.data && st.data.memos) || []).filter(m => !kind || catOf(m.category_id).kind === kind);
+        if (!key) return all.slice(0, 6);
+        const hit = all.map(m => [m, memoKey(m.memo).indexOf(key)]).filter(([m, at]) => at >= 0 && memoKey(m.memo) !== key);
+        return [...hit.filter(([, at]) => at === 0), ...hit.filter(([, at]) => at > 0)].slice(0, 6).map(([m]) => m);
     }
+    // 목록 한 줄: 맞는 글자는 노랗게 (띄어쓰기 없이 그대로 들어 있을 때)
+    function memoItemHtml(m, q, attr, active) {
+        const c = catOf(m.category_id), at = q ? m.memo.indexOf(q.trim()) : -1, n = q.trim().length;
+        const label = at >= 0 && n ? `${esc(m.memo.slice(0, at))}<mark>${esc(m.memo.slice(at, at + n))}</mark>${esc(m.memo.slice(at + n))}` : esc(m.memo);
+        return `<button type="button" class="${active ? 'act' : ''}" ${attr}><span class="m">${label}</span>
+            <span class="dot" style="background:${c.color}"></span><span class="k">${esc(c.name)}</span></button>`;
+    }
+    function memoMatches() { return memoSearch($('memo').value, st.kind); }
     function renderMemoDd() {
-        const list = memoMatches();
+        const list = memoMatches(), q = $('memo').value;
         if (!list.length) { $('memo-dd').hidden = true; return; }
-        $('memo-dd').innerHTML = list.map((m, i) => {
-            const c = catOf(m.category_id);
-            return `<button type="button" class="${i === st.ddIndex ? 'act' : ''}" data-memo="${i}"><span class="m">${esc(m.memo)}</span>
-                <span class="dot" style="background:${c.color}"></span><span class="k">${esc(c.name)}</span></button>`;
-        }).join('');
+        $('memo-dd').innerHTML = (q.trim() ? '' : '<div class="dd-h">최근 메모</div>')
+            + list.map((m, i) => memoItemHtml(m, q, `data-memo="${i}"`, i === st.ddIndex)).join('');
         $('memo-dd').hidden = false;
     }
     function useMemo(i) {
@@ -828,8 +837,8 @@
             const edit = st.editItem === x.id ? `<div class="edit">
                 <span class="clr-wrap e-amt"><input id="ib-amount" inputmode="numeric" value="${esc(t ? t.amount : x.amount.toLocaleString('ko-KR'))}" placeholder="금액" aria-label="금액">
                     <button type="button" class="clr" data-clear="ib-amount" aria-label="금액 지우기">✕</button></span>
-                <span class="clr-wrap e-shop"><input id="ib-merchant" value="${esc(t ? t.merchant : x.merchant)}" maxlength="60" placeholder="가게 이름" aria-label="가게">
-                    <button type="button" class="clr" data-clear="ib-merchant" aria-label="가게 이름 지우기">✕</button></span>
+                <span class="clr-wrap e-shop"><input id="ib-merchant" value="${esc(t ? t.merchant : x.merchant)}" maxlength="60" placeholder="가게 이름" aria-label="가게" autocomplete="off">
+                    <button type="button" class="clr" data-clear="ib-merchant" aria-label="가게 이름 지우기">✕</button><div class="dd" id="ib-dd" hidden></div></span>
                 <input id="ib-date" class="e-date" type="date" value="${esc(t ? t.used_on : x.used_on)}" aria-label="날짜"></div>` : '';
             const canRule = !x.cancel && cat != null && x.merchant && !(rule && rule.category_id === cat);
             return `<div class="ib" data-item="${x.id}"><div class="body">
@@ -857,6 +866,7 @@
             const input = $(clear.dataset.clear);
             input.value = '';
             input.focus();
+            if (input.id === 'ib-merchant') { st.ibDdQuiet = false; renderIbDd(); }
             return;
         }
         const box = e.target.closest('[data-item]');
@@ -879,7 +889,49 @@
             applyInbox(data);
         }
     });
+    // 대기함 가게 칸 자동완성: 누르면 최근 메모, 치면 지난 메모 전체에서. 고르면 가게 이름이 그 메모로,
+    // 분류를 아직 안 골랐으면(추천 포함) 그 메모의 지출 분류도 함께
+    st.ibDdIndex = -1;
+    function renderIbDd() {
+        const input = $('ib-merchant'), dd = $('ib-dd');
+        if (!input || !dd) return;
+        const list = memoSearch(input.value, 'expense');
+        // 고른 직후(다시 그려 커서가 돌아와도)는 닫아 둠, 다시 치거나 누르면 열림
+        if (!list.length || document.activeElement !== input || st.ibDdQuiet) { dd.hidden = true; return; }
+        dd.innerHTML = (input.value.trim() ? '' : '<div class="dd-h">최근 메모</div>')
+            + list.map((m, i) => memoItemHtml(m, input.value, `data-ibmemo="${i}"`, i === st.ibDdIndex)).join('');
+        dd.hidden = false;
+    }
+    async function useIbMemo(i) {
+        const input = $('ib-merchant'), m = memoSearch(input.value, 'expense')[i];
+        if (!m) return;
+        input.value = m.memo;
+        $('ib-dd').hidden = true;
+        st.ibDdIndex = -1;
+        st.ibDdQuiet = true;
+        const item = (st.inbox || []).find(x => x.id === st.editItem);
+        if (item && !item.cancel && item.category_id == null && st.data.categories.some(c => c.id === m.category_id && c.kind === 'expense')) {
+            await inboxPost({ action: 'update', id: item.id, category_id: m.category_id });   // 친 가게 이름은 다시 그려도 그대로
+        }
+    }
+    $('inbox').addEventListener('focusin', e => { if (e.target.id === 'ib-merchant') { st.ibDdIndex = -1; renderIbDd(); } });
+    $('inbox').addEventListener('pointerdown', e => { if (e.target.id === 'ib-merchant') { st.ibDdQuiet = false; setTimeout(renderIbDd, 0); } });
+    $('inbox').addEventListener('focusout', e => { if (e.target.id === 'ib-merchant' && $('ib-dd')) $('ib-dd').hidden = true; });
+    $('inbox').addEventListener('keydown', e => {
+        if (e.target.id !== 'ib-merchant' || !$('ib-dd') || $('ib-dd').hidden) return;
+        const n = memoSearch(e.target.value, 'expense').length;
+        if (e.key === 'ArrowDown' && n) { st.ibDdIndex = Math.min(n - 1, st.ibDdIndex + 1); renderIbDd(); e.preventDefault(); }
+        else if (e.key === 'ArrowUp' && n) { st.ibDdIndex = Math.max(0, st.ibDdIndex - 1); renderIbDd(); e.preventDefault(); }
+        else if (e.key === 'Enter' && st.ibDdIndex >= 0) { e.preventDefault(); useIbMemo(st.ibDdIndex); }
+        else if (e.key === 'Escape') { $('ib-dd').hidden = true; }
+    });
+    // 누르는 순간 가게 칸에서 포커스가 빠져 목록이 닫히지 않게 mousedown에서 고름
+    $('inbox').addEventListener('mousedown', e => {
+        const b = e.target.closest('[data-ibmemo]');
+        if (b) { e.preventDefault(); useIbMemo(Number(b.dataset.ibmemo)); }
+    });
     $('inbox').addEventListener('input', e => {
+        if (e.target.id === 'ib-merchant') { st.ibDdIndex = -1; st.ibDdQuiet = false; renderIbDd(); return; }
         if (e.target.id !== 'ib-amount') return;
         const v = e.target.value.replace(/[^0-9]/g, '').slice(0, 10);
         e.target.value = v ? Number(v).toLocaleString('ko-KR') : '';

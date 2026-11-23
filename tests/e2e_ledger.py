@@ -140,6 +140,10 @@ try:
     assert vis('memo-dd') and js("return [...document.querySelectorAll('#memo-dd .m')].map(e => e.textContent)") == ['사료', '이마트 장보기']
     js("document.querySelectorAll('#memo-dd [data-memo]')[1].dispatchEvent(new MouseEvent('mousedown', {bubbles: true}))")
     assert js("return document.getElementById('memo').value") == '이마트 장보기'
+    # 지출 입력의 메모도 치면 자동완성 (앞에서부터 맞는 것 먼저)
+    js("const m = document.getElementById('memo'); m.value = '사'; m.dispatchEvent(new Event('input', {bubbles: true}))"); time.sleep(.2)
+    assert js("return [...document.querySelectorAll('#memo-dd .m')].map(e => e.textContent)") == ['사료'], js("return document.getElementById('memo-dd').textContent")
+    js("const m = document.getElementById('memo'); m.value = '이마트 장보기'; m.dispatchEvent(new Event('input', {bubbles: true}))")
     assert js("return document.querySelector('#cats .chip.on').textContent.trim()") == '식비'
     typ('memo', '')
     print('ENTRY OK')
@@ -310,6 +314,16 @@ try:
     click('[data-clear="ib-merchant"]')
     assert js("return document.getElementById('ib-merchant').value") == '' and js("return document.activeElement.id") == 'ib-merchant'
     assert not shown('ib-merchant') and shown('ib-amount')
+    # 가게 칸을 비우면 '최근 메모', 치면 지난 메모 전체에서 자동완성 (맞는 글자는 노랗게), 고르면 가게 이름이 그 메모로
+    dd = lambda: js("const d = document.getElementById('ib-dd'); return d && !d.hidden ? [...d.querySelectorAll('[data-ibmemo] .m')].map(m => m.textContent) : null")
+    assert dd() and '이마트 장보기' in dd() and '최근 메모' in txt('ib-dd'), dd()
+    js("const i = document.getElementById('ib-merchant'); i.value = '장 보'; i.dispatchEvent(new Event('input', {bubbles: true}))"); time.sleep(.2)
+    assert dd() == ['이마트 장보기'], dd()                                                      # 띄어쓰기 무시
+    js("const i = document.getElementById('ib-merchant'); i.value = '이마'; i.dispatchEvent(new Event('input', {bubbles: true}))"); time.sleep(.2)
+    assert dd()[0] == '이마트 장보기' and js("return document.querySelector('#ib-dd mark').textContent") == '이마', dd()
+    js("document.querySelector('#ib-dd [data-ibmemo]').dispatchEvent(new MouseEvent('mousedown', {bubbles: true}))"); time.sleep(.3)
+    assert js("return document.getElementById('ib-merchant').value") == '이마트 장보기' and not dd()
+    js("document.getElementById('ib-merchant').value = ''")
     typ('ib-merchant', '블루')
     js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)
     assert js("return document.getElementById('ib-merchant').value") == '블루' and js("return document.activeElement.id") == 'ib-merchant'

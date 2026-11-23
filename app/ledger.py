@@ -22,7 +22,7 @@ PASSWORD_MAX = 100
 MEMO_MAX = 60
 CATEGORY_NAME_MAX = 12
 AMOUNT_MAX = 10 ** 10
-RECENT_MEMOS = 8
+MEMO_LIMIT = 1000   # 메모 자동완성용: 지금까지 쓴 메모(최근 순, 메모마다 마지막에 쓴 분류)
 PBKDF2_ROUNDS = 120_000
 COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
 DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
@@ -224,7 +224,7 @@ def state(month):
                                   WHERE status = 'approved' OR id IN (SELECT DISTINCT user_id FROM ledger_entries)
                                   ORDER BY is_admin DESC, id""").fetchall()
         memos = conn.execute("""SELECT memo, category_id, MAX(id) AS last_id FROM ledger_entries WHERE memo != ''
-                                GROUP BY memo ORDER BY last_id DESC LIMIT ?""", (RECENT_MEMOS,)).fetchall()
+                                GROUP BY memo ORDER BY last_id DESC LIMIT ?""", (MEMO_LIMIT,)).fetchall()
     return {'month': month,
             'entries': [dict(r) for r in entries],
             'categories': [dict(r) for r in cats],
