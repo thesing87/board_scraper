@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 시험용 빌드(qa)의 앱 이름: 정식 앱과 홈 화면·알림 읽기 권한 목록에서 구별되게 -->
 <resources>
-    <string name="app_name">YeYe가계부 테스트</string>
+    <string name="app_name">YeYe홈 테스트</string>
 </resources>

@@ -82,14 +82,14 @@ final class Notifier {
                 .setStyle(new Notification.BigTextStyle().bigText(body))
                 .setGroup(GROUP)
                 .build());
-        // 여러 건이 몰리면 하나로 묶음 ('YeYe가계부 3건')
+        // 여러 건이 몰리면 하나로 묶음 ('가계부 결제 3건')
         int count = 0;
         for (android.service.notification.StatusBarNotification n : nm.getActiveNotifications()) {
             if (n.getId() != SUMMARY_ID && GROUP.equals(n.getNotification().getGroup())) count++;
         }
         if (count >= 2) {
             nm.notify(SUMMARY_ID, base(c)
-                    .setContentTitle("YeYe가계부 " + count + "건")
+                    .setContentTitle("가계부 결제 " + count + "건")
                     .setContentText("확인 대기함을 확인해 주세요")
                     .setGroup(GROUP)
                     .setGroupSummary(true)

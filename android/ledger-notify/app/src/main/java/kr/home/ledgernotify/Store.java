@@ -39,6 +39,10 @@ final class Store {
     }
     void setSite(String s) { p.edit().putString("site", s).apply(); }
 
+    /** 아래쪽 탭: 마지막으로 본 화면 (0 가계부, 1 근무표). 앱을 다시 열면 그 탭부터 */
+    int tab() { return p.getInt("tab", 0); }
+    void setTab(int t) { p.edit().putInt("tab", t).apply(); }
+
     /** 주소 고르기: 'nas.example.com:8443' → https://nas.example.com:8443/ledger/, 주소 끝에 /ledger/를 붙임 */
     static String normalizeSite(String raw) {
         String s = raw == null ? "" : raw.trim();

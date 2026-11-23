@@ -676,7 +676,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         pure_path = self.path.split('?')[0]
         log_msg(f"[API] POST {pure_path} ({client_ip(self.client_address[0], self.headers)})", "DEBUG")
         # 휴대폰(매크로드로이드 등)이 보내는 결제 알림: 본문이 JSON이 아닐 수 있어 따로 받음
-        # YeYe가계부 앱(APK) 올리기: 본문이 파일 그대로라 JSON으로 읽지 않음
+        # YeYe홈 앱(APK) 올리기: 본문이 파일 그대로라 JSON으로 읽지 않음
         if pure_path == '/api/ledger/app-upload':
             try:
                 self._handle_ledger_app_upload()
@@ -1407,7 +1407,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         self._send_data(200, {'success': True, 'result': result, **({'item': item} if item else {})})
 
     def _handle_ledger_hook_get(self, rest):
-        """YeYe가계부 앱이 연결 주소로 새 버전을 확인·받음 (쿠키 없이 주소의 키로):
+        """YeYe홈 앱이 연결 주소로 새 버전을 확인·받음 (쿠키 없이 주소의 키로):
         <키>/app → 올라간 앱 정보 {app: {versionCode, versionName, size, sha256} 또는 null}, <키>/app.apk → 파일"""
         ip = client_ip(self.client_address[0], self.headers)
         key, _, what = rest.partition('/')
@@ -1432,7 +1432,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                               filename=ledger_app.download_name(app))
 
     def _handle_ledger_app_upload(self):
-        """관리자가 YeYe가계부 앱(APK) 파일을 올림. 본문은 파일 그대로 (application/octet-stream)"""
+        """관리자가 YeYe홈 앱(APK) 파일을 올림. 본문은 파일 그대로 (application/octet-stream)"""
         user = self._ledger_user()
         if not user:
             return

@@ -441,7 +441,7 @@ try:
     assert vis('inbox-sec') and '1,000원' in txt('inbox') and '마지막으로 받은 알림' in txt('hook-state')
     click('#inbox [data-ib-del]'); time.sleep(1)
     assert not vis('inbox-sec')
-    # ---- YeYe가계부 앱 안에서 열었을 때 (앱이 넣는 window.LedgerApp 흉내): 앱 받기 안내는 숨고 '이 휴대폰 앱에 연결' → 새 연결 주소를 앱에 넣음
+    # ---- YeYe홈 앱 안에서 열었을 때 (앱이 넣는 window.LedgerApp 흉내): 앱 받기 안내는 숨고 '이 휴대폰 앱에 연결' → 새 연결 주소를 앱에 넣음
     d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source': "window.__got = []; window.confirm = () => true; window.LedgerApp = {version: () => '1.2', connected: () => window.__got.length > 0, connect: u => { window.__got.push(u); return true; }, openSettings: () => {}};"})
     d.get(BASE + '/ledger/'); time.sleep(2); open_all()
     assert js("return document.documentElement.classList.contains('in-app')") and vis('app-hint')   # 연결 전: 메인에 한 줄 안내

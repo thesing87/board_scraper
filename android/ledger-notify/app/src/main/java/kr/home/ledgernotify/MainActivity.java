@@ -23,25 +23,34 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
 /**
- * 첫 화면: 가계부 페이지(웹)를 앱 안에서 띄움. 위쪽 줄(새로고침·설정)과 할 일을 알려 주는 한 줄 안내.
- * 가계부 페이지는 window.LedgerApp(Bridge)로 이 앱을 알아보고 '이 휴대폰 앱에 연결'을 누르면 연결 주소를 넘겨줌.
- * 가계부와 다른 주소의 링크는 브라우저로 엶 (이 화면에는 가계부만)
+ * 첫 화면 (YeYe홈): 아래쪽 탭으로 가계부(/ledger/)와 근무표(/duty/) 웹 페이지를 오감. 탭마다 웹 화면을 따로 둬서
+ * 오가도 보던 곳이 그대로. 위쪽 줄(새로고침·설정)과 할 일을 알려 주는 한 줄 안내.
+ * 페이지는 window.LedgerApp(Bridge)로 이 앱을 알아보고, 가계부의 '이 휴대폰 앱에 연결'을 누르면 연결 주소를 넘겨줌.
+ * 다른 주소의 링크는 브라우저로 엶 (앱 안에는 가계부·근무표만)
  */
 public class MainActivity extends Activity {
     private static final int PICK_FILE = 1;
+    static final int TAB_LEDGER = 0, TAB_DUTY = 1;
 
     private Store store;
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private WebView web;
+    private WebView web;                     // 지금 보이는 탭의 웹 화면
+    private WebView webLedger, webDuty;
+    private int tab = TAB_LEDGER;
+    private final TextView[] tabLabels = new TextView[2];
+    private final ImageView[] tabIcons = new ImageView[2];
     private TextView banner;
     private ProgressBar progress;
     private String loadedSite = "";
+    private String loadedDuty = "";          // 근무표 화면에 띄운 주소 (근무표 탭을 처음 볼 때 엶)
     private volatile String pageOrigin = "";
     private ValueCallback<Uri[]> fileCallback;
     private boolean askedSite;
@@ -54,8 +63,9 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         store = new Store(this);
         setContentView(build());
-        if (b != null) web.restoreState(b);
         openInbox = getIntent().getBooleanExtra(Notifier.EXTRA_INBOX, false);
+        // 마지막으로 본 탭부터 (금액 인식 알림을 눌러 열면 가계부)
+        selectTab(openInbox ? TAB_LEDGER : store.tab());
         // 금액 인식 알림을 띄우려면 (안드로이드 13 이상) 알림 권한: 알림 읽기 권한을 켠 뒤 처음 한 번만 물음
         if (android.os.Build.VERSION.SDK_INT >= 33 && store.alertOn() && !Notifier.allowed(this)
                 && !store.askedNotifyPermission() && SettingsActivity.hasAccess(this)) {
@@ -73,7 +83,8 @@ public class MainActivity extends Activity {
         setIntent(intent);
         if (intent.getBooleanExtra(Notifier.EXTRA_INBOX, false) && !loadedSite.isEmpty()) {
             openInbox = true;
-            web.reload();
+            selectTab(TAB_LEDGER);
+            webLedger.reload();
         }
     }
 
@@ -87,20 +98,15 @@ public class MainActivity extends Activity {
     private void scrollToInbox() {
         if (!openInbox) return;
         openInbox = false;
-        web.evaluateJavascript("(function t(n){var e=document.getElementById('inbox-sec');"
+        webLedger.evaluateJavascript("(function t(n){var e=document.getElementById('inbox-sec');"
                 + "if(e&&!e.hidden){e.scrollIntoView({block:'start'});}else if(n>0){setTimeout(function(){t(n-1);},300);}})(20)", null);
-    }
-
-    @Override
-    protected void onSaveInstanceState(Bundle out) {
-        super.onSaveInstanceState(out);
-        web.saveState(out);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        web.onResume();
+        webLedger.onResume();
+        webDuty.onResume();
         String site = store.site();
         if (site.isEmpty()) {
             // 처음: 가계부 주소부터 (설정 화면에서 넣으면 돌아와서 엶)
@@ -111,7 +117,9 @@ public class MainActivity extends Activity {
         } else if (!site.equals(loadedSite)) {
             loadedSite = site;
             pageOrigin = Store.origin(site);
-            web.loadUrl(site);
+            webLedger.loadUrl(site);
+            loadedDuty = "";
+            if (tab == TAB_DUTY) loadDuty();
         }
         if (Updater.autoDue(updateNeedsPermission)) checkUpdate(true);
         showBanner();
@@ -120,13 +128,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
-        web.onPause();
+        webLedger.onPause();
+        webDuty.onPause();
         CookieManager.getInstance().flush();   // 가계부 로그인 쿠키를 바로 저장
     }
 
     /**
-     * 뒤로가기: 가계부 페이지에 열린 것(색 고르기·메모 목록·고치기·펼친 칸)이 있으면 그것부터 닫고,
-     * 없으면 '한 번 더 누르면 종료' 안내 → 2초 안에 한 번 더 누르면 앱을 뒤로 보냄 (다시 열면 보던 화면 그대로)
+     * 뒤로가기: 페이지에 열린 것(설정·색 고르기·메모 목록·고치기·고른 근무)이 있으면 그것부터 닫고,
+     * 근무표 탭이면 가계부 탭으로, 가계부 탭이면 '한 번 더 누르면 종료' 안내
+     * → 2초 안에 한 번 더 누르면 앱을 뒤로 보냄 (다시 열면 보던 화면 그대로)
      */
     private long backAt;
 
@@ -136,6 +146,10 @@ public class MainActivity extends Activity {
             if (r != null && r.contains("closed")) return;
             if (web.canGoBack()) {
                 web.goBack();
+                return;
+            }
+            if (tab == TAB_DUTY) {
+                selectTab(TAB_LEDGER);
                 return;
             }
             long now = System.currentTimeMillis();
@@ -171,12 +185,17 @@ public class MainActivity extends Activity {
         bar.setBackgroundColor(getColor(R.color.green));
         bar.setPadding(dp(16), 0, dp(4), 0);
         TextView title = new TextView(this);
-        title.setText(R.string.app_name);   // 시험 앱은 'YeYe가계부 테스트'
+        title.setText(R.string.app_name);   // 시험 앱은 'YeYe홈 테스트'
         title.setTextColor(0xFFFFFFFF);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         bar.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        bar.addView(barButton("새로고침", v -> { loadFailed = false; if (loadedSite.isEmpty()) onResume(); else web.reload(); }));
+        bar.addView(barButton("새로고침", v -> {
+            loadFailed = false;
+            if (loadedSite.isEmpty()) onResume();
+            else if (tab == TAB_DUTY && loadedDuty.isEmpty()) loadDuty();
+            else web.reload();
+        }));
         bar.addView(barButton("설정", v -> startActivity(new Intent(this, SettingsActivity.class))));
         root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
 
@@ -194,16 +213,38 @@ public class MainActivity extends Activity {
         progress.setVisibility(View.GONE);
         root.addView(progress, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)));
 
-        web = new WebView(this);
-        WebSettings s = web.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);           // 가계부가 localStorage를 씀
-        s.setUserAgentString(s.getUserAgentString() + " LedgerNotifyApp/" + Updater.ownVersionName(this));
+        // ---- 탭마다 웹 화면 하나 (로그인 쿠키는 함께 씀)
         CookieManager.getInstance().setAcceptCookie(true);
-        web.addJavascriptInterface(new Bridge(), "LedgerApp");
-        web.setWebViewClient(new Client());
-        web.setWebChromeClient(new Chrome());
-        web.setDownloadListener((url, ua, disposition, mime, length) -> {
+        FrameLayout pages = new FrameLayout(this);
+        webLedger = newWeb();
+        webDuty = newWeb();
+        pages.addView(webLedger, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        pages.addView(webDuty, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        web = webLedger;
+        root.addView(pages, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+
+        // ---- 아래쪽 탭: 가계부 | 근무표
+        View line = new View(this);
+        line.setBackgroundColor(0xFFE5E7EB);
+        root.addView(line, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setBackgroundColor(0xFFFFFFFF);
+        tabs.addView(tabButton(TAB_LEDGER, "가계부", R.drawable.ic_tab_ledger), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        tabs.addView(tabButton(TAB_DUTY, "근무표", R.drawable.ic_tab_duty), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        root.addView(tabs, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)));
+        return root;
+    }
+
+    private WebView newWeb() {
+        WebView w = new WebView(this);
+        WebSettings s = w.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);           // 가계부·근무표가 localStorage를 씀
+        s.setUserAgentString(s.getUserAgentString() + " LedgerNotifyApp/" + Updater.ownVersionName(this));
+        w.addJavascriptInterface(new Bridge(), "LedgerApp");
+        w.setWebViewClient(new Client());
+        w.setWebChromeClient(new Chrome());
+        w.setDownloadListener((url, ua, disposition, mime, length) -> {
             if (url.contains("/api/ledger/app.apk")) {
                 // 앱 안에서는 받지 않고 바로 새 버전 확인·설치
                 toast("새 버전을 확인할게요");
@@ -212,19 +253,70 @@ public class MainActivity extends Activity {
                 openOutside(Uri.parse(url));
             }
         });
-        root.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-        return root;
+        return w;
+    }
+
+    private View tabButton(int which, String label, int icon) {
+        LinearLayout b = new LinearLayout(this);
+        b.setOrientation(LinearLayout.VERTICAL);
+        b.setGravity(Gravity.CENTER);
+        TypedValue tv = new TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
+        b.setBackgroundResource(tv.resourceId);
+        ImageView i = new ImageView(this);
+        i.setImageResource(icon);
+        b.addView(i, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(0, dp(3), 0, 0);
+        b.addView(t);
+        b.setContentDescription(label);
+        b.setOnClickListener(v -> {
+            // 보고 있는 탭을 다시 누르면 그 페이지 맨 위로
+            if (tab == which) web.evaluateJavascript("window.scrollTo({top: 0, behavior: 'smooth'})", null);
+            else selectTab(which);
+        });
+        tabIcons[which] = i;
+        tabLabels[which] = t;
+        return b;
+    }
+
+    /** 탭 바꾸기: 그 탭의 웹 화면을 보이고 (근무표는 처음 볼 때 엶), 다음에 앱을 열면 이 탭부터 */
+    private void selectTab(int which) {
+        tab = which == TAB_DUTY ? TAB_DUTY : TAB_LEDGER;
+        store.setTab(tab);
+        web = tab == TAB_DUTY ? webDuty : webLedger;
+        webLedger.setVisibility(tab == TAB_LEDGER ? View.VISIBLE : View.GONE);
+        webDuty.setVisibility(tab == TAB_DUTY ? View.VISIBLE : View.GONE);
+        for (int k = 0; k < 2; k++) {
+            int color = k == tab ? getColor(R.color.green) : 0xFF8B919C;
+            tabIcons[k].setColorFilter(color);
+            tabLabels[k].setTextColor(color);
+            tabLabels[k].setTypeface(k == tab ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+        }
+        if (tab == TAB_DUTY && loadedDuty.isEmpty() && !loadedSite.isEmpty()) loadDuty();
+        loadFailed = false;
+        progress.setVisibility(View.GONE);
+        showBanner();
+    }
+
+    private void loadDuty() {
+        loadedDuty = Store.origin(loadedSite) + "/duty/";
+        webDuty.loadUrl(loadedDuty);
     }
 
     /** 할 일 한 줄: 알림 읽기 권한 → 페이지를 못 엶 → 알림 권한(금액 인식 알림) → 새 버전 설치 허용 → 앱 연결 순서로 하나만 */
     private void showBanner() {
+        if (banner == null) return;
         String text = null;
         View.OnClickListener go = null;
         if (store.site().isEmpty()) {
             text = "가계부 주소를 넣어 주세요 — 눌러서 설정";
             go = v -> startActivity(new Intent(this, SettingsActivity.class));
         } else if (loadFailed) {
-            text = "가계부를 열지 못했어요 — 인터넷·가계부 주소를 확인하고 눌러서 다시";
+            text = (tab == TAB_DUTY ? "근무표" : "가계부") + "를 열지 못했어요 — 인터넷·가계부 주소를 확인하고 눌러서 다시";
             go = v -> { loadFailed = false; showBanner(); web.reload(); };
         } else if (!SettingsActivity.hasAccess(this)) {
             text = "알림 읽기 권한이 꺼져 있어 결제 알림을 못 받아요 — 눌러서 켜기";
@@ -237,7 +329,7 @@ public class MainActivity extends Activity {
             go = v -> startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
         } else if (updateText.contains("설치 중") || updateText.contains("받는 중")) {
             text = updateText;
-        } else if (store.url().isEmpty()) {
+        } else if (store.url().isEmpty() && tab == TAB_LEDGER) {
             text = "결제 알림이 아직 가계부로 안 가요 — 로그인 뒤 '결제 알림 자동 기록' → '이 휴대폰 앱에 연결'을 누르세요";
         }
         banner.setText(text == null ? "" : text);
@@ -252,10 +344,18 @@ public class MainActivity extends Activity {
         return Store.origin(u.toString()).equals(Store.origin(loadedSite));
     }
 
-    /** 가계부 페이지와 가계부 API(받기 등)만 */
-    private static boolean inLedger(Uri u) {
-        String path = u.getPath() == null ? "" : u.getPath();
-        return path.equals("/ledger") || path.startsWith("/ledger/") || path.startsWith("/api/ledger/");
+    private static String pathOf(Uri u) {
+        return u.getPath() == null ? "" : u.getPath();
+    }
+
+    private static boolean isLedgerPage(Uri u) {
+        String path = pathOf(u);
+        return path.equals("/ledger") || path.startsWith("/ledger/");
+    }
+
+    private static boolean isDutyPage(Uri u) {
+        String path = pathOf(u);
+        return path.equals("/duty") || path.startsWith("/duty/");
     }
 
     private void openOutside(Uri u) {
@@ -274,9 +374,21 @@ public class MainActivity extends Activity {
                 openOutside(u);
                 return true;
             }
-            // 앱에서는 가계부만: 같은 사이트라도 /ledger/ 밖(대시보드·동영상 등)으로는 가지 않음
-            if (!inLedger(u)) {
-                toast("앱에서는 가계부만 볼 수 있어요");
+            // 다른 탭의 페이지로 가는 링크(근무표 로그인 화면의 '가계부에서 가입' 등)는 그 탭에서 엶
+            if (isLedgerPage(u) && view == webDuty) {
+                selectTab(TAB_LEDGER);
+                webLedger.loadUrl(u.toString());
+                return true;
+            }
+            if (isDutyPage(u) && view == webLedger) {
+                loadedDuty = u.toString();
+                webDuty.loadUrl(loadedDuty);
+                selectTab(TAB_DUTY);
+                return true;
+            }
+            // 앱에서는 가계부·근무표만: 같은 사이트라도 그 밖(대시보드·동영상 등)으로는 가지 않음
+            if (!isLedgerPage(u) && !isDutyPage(u) && !pathOf(u).startsWith("/api/ledger/")) {
+                toast("앱에서는 가계부·근무표만 볼 수 있어요");
                 return true;
             }
             return false;
@@ -290,12 +402,12 @@ public class MainActivity extends Activity {
         @Override
         public void onPageFinished(WebView view, String url) {
             showBanner();
-            scrollToInbox();
+            if (view == webLedger) scrollToInbox();
         }
 
         @Override
         public void onReceivedError(WebView view, WebResourceRequest req, WebResourceError err) {
-            if (req.isForMainFrame()) {
+            if (req.isForMainFrame() && view == web) {
                 loadFailed = true;
                 showBanner();
             }
@@ -305,6 +417,7 @@ public class MainActivity extends Activity {
     private class Chrome extends WebChromeClient {
         @Override
         public void onProgressChanged(WebView view, int p) {
+            if (view != web) return;
             progress.setProgress(p);
             progress.setVisibility(p < 100 ? View.VISIBLE : View.GONE);
         }
@@ -334,7 +447,7 @@ public class MainActivity extends Activity {
         super.onActivityResult(req, result, data);
     }
 
-    /** 가계부 페이지가 부르는 것 (window.LedgerApp). 가계부 주소의 페이지에서만 받음 */
+    /** 가계부·근무표 페이지가 부르는 것 (window.LedgerApp). 가계부 주소의 페이지에서만 받음 */
     private class Bridge {
         private boolean fromLedger() {
             return !loadedSite.isEmpty() && pageOrigin.equals(Store.origin(loadedSite));
@@ -366,7 +479,7 @@ public class MainActivity extends Activity {
             return true;
         }
 
-        /** 가계부에 로그인됨: 로그인 전이라 새 버전을 확인하지 못했으면 바로 다시 */
+        /** 가계부·근무표에 로그인됨: 로그인 전이라 새 버전을 확인하지 못했으면 바로 다시 */
         @JavascriptInterface
         public void loggedIn() {
             if (!fromLedger()) return;

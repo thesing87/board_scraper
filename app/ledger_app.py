@@ -1,4 +1,4 @@
-"""YeYe가계부 앱(android/ledger-notify) 파일: 관리자가 올린 APK 하나를 OUTPUT_DIR/ledger_app에 두고 가계부 사람들이 받아 감
+"""YeYe홈 앱(android/ledger-notify) 파일: 관리자가 올린 APK 하나를 OUTPUT_DIR/ledger_app에 두고 가계부 사람들이 받아 감
 
 - 올릴 때 APK 안의 AndroidManifest.xml(바이너리 XML)을 읽어 패키지 이름·버전을 확인 (다른 앱을 잘못 올리지 않게)
 - 새로 올리면 바꿔 끼움 (임시 파일에 쓴 뒤 이름 바꾸기라 받는 중인 사람도 깨진 파일을 받지 않음)
@@ -112,7 +112,7 @@ def save(data, uploader):
     except zipfile.BadZipFile:
         raise AppFileError('안드로이드 앱(APK) 파일이 아니에요.')
     if manifest['package'] != PACKAGE:
-        raise AppFileError(f'YeYe가계부 앱이 아니에요 ({manifest["package"] or "패키지 이름 없음"}).')
+        raise AppFileError(f'YeYe홈 앱이 아니에요 ({manifest["package"] or "패키지 이름 없음"}).')
     old = info()
     if old and manifest['versionCode'] < old['versionCode']:
         raise AppFileError(f'지금 올라가 있는 {old["versionName"]}({old["versionCode"]})보다 낮은 버전이에요.')
@@ -138,4 +138,4 @@ def info():
 
 
 def download_name(data):
-    return f"YeYe가계부-{data.get('versionName') or data.get('versionCode')}.apk"
+    return f"YeYe홈-{data.get('versionName') or data.get('versionCode')}.apk"
