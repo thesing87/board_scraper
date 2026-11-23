@@ -103,6 +103,53 @@ final class Store {
         }
     }
 
+    // ---------- 무시할 알림: 알림 글에 이 표현이 있으면 가계부로 보내지 않음 (이 휴대폰에만, 띄어쓰기·대소문자 무시)
+    static final int IGNORE_MAX = 50;
+    static final int IGNORE_LEN = 30;
+
+    static String norm(String s) {
+        return s == null ? "" : s.replaceAll("\\s+", "").toLowerCase(java.util.Locale.ROOT);
+    }
+
+    List<String> ignores() {
+        synchronized (LOCK) {
+            JSONArray a = arr("ignores");
+            List<String> out = new ArrayList<>();
+            for (int i = 0; i < a.length(); i++) if (!a.optString(i).isEmpty()) out.add(a.optString(i));
+            return out;
+        }
+    }
+
+    /** 표현 추가. 결과 글 (비었음·김·이미 있음·가득 참이면 그 이유, 넣었으면 null) */
+    String addIgnore(String word) {
+        String w = word == null ? "" : word.trim().replaceAll("\\s+", " ");
+        if (norm(w).isEmpty()) return "표현을 넣어 주세요";
+        if (w.length() > IGNORE_LEN) return IGNORE_LEN + "자까지 넣을 수 있어요";
+        synchronized (LOCK) {
+            List<String> list = ignores();
+            for (String old : list) if (norm(old).equals(norm(w))) return "이미 있는 표현이에요";
+            if (list.size() >= IGNORE_MAX) return IGNORE_MAX + "개까지 넣을 수 있어요";
+            list.add(w);
+            put("ignores", new JSONArray(list));
+            return null;
+        }
+    }
+
+    void removeIgnore(String word) {
+        synchronized (LOCK) {
+            List<String> list = ignores();
+            list.removeIf(w -> w.equals(word));
+            put("ignores", new JSONArray(list));
+        }
+    }
+
+    /** 이 글을 거르는 표현 (없으면 null) */
+    String ignoredBy(String text) {
+        String t = norm(text);
+        for (String w : ignores()) if (!norm(w).isEmpty() && t.contains(norm(w))) return w;
+        return null;
+    }
+
     // ---------- 같은 알림 다시 오면 넘김 (글이 같고 10분 안)
     boolean seenRecently(String text) {
         synchronized (LOCK) {
@@ -171,14 +218,18 @@ final class Store {
     }
 
     // ---------- 최근 보낸 알림 기록 (새 것이 앞)
-    void log(String app, String text, String status, boolean ok) {
+    void log(String app, String text, String status, boolean ok) { log(app, text, status, ok, false); }
+
+    /** filtered: 무시할 표현에 걸려 보내지 않은 알림. full은 '이런 알림 안 받기'에서 낱말을 고를 때 쓰는 글 (휴대폰 안에만) */
+    void log(String app, String text, String status, boolean ok, boolean filtered) {
         synchronized (LOCK) {
             JSONArray old = arr("log"), log = new JSONArray();
             try {
-                String preview = text.replaceAll("\\s+", " ").trim();
-                if (preview.length() > 70) preview = preview.substring(0, 70) + "…";
+                String flat = text.replaceAll("\\s+", " ").trim();
+                String preview = flat.length() > 70 ? flat.substring(0, 70) + "…" : flat;
                 log.put(new JSONObject().put("t", System.currentTimeMillis()).put("app", app)
-                        .put("text", preview).put("status", status).put("ok", ok));
+                        .put("text", preview).put("full", flat.length() > 300 ? flat.substring(0, 300) : flat)
+                        .put("status", status).put("ok", ok).put("filtered", filtered));
             } catch (JSONException ignored) { }
             for (int i = 0; i < old.length() && log.length() < LOG_MAX; i++) log.put(old.opt(i));
             put("log", log);

@@ -1,6 +1,7 @@
 package kr.home.ledgernotify;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ComponentName;
@@ -54,8 +55,9 @@ public class SettingsActivity extends Activity {
     private EditText urlInput, siteInput;
     private Switch enabledSwitch, alertSwitch, alertPendingSwitch;
     private TextView alertState;
-    private LinearLayout appsBox, logBox;
-    private String shownLogs = "", shownApps = "";
+    private LinearLayout appsBox, logBox, ignoreBox;
+    private EditText ignoreInput;
+    private String shownLogs = "", shownApps = "", shownIgnores = "";
 
     @Override
     protected void onCreate(Bundle b) {
@@ -74,7 +76,7 @@ public class SettingsActivity extends Activity {
         alertPendingSwitch.setChecked(store.alertPendingOn());
         alertPendingSwitch.setEnabled(store.alertOn());
         showAlertState();
-        shownLogs = shownApps = "";
+        shownLogs = shownApps = shownIgnores = "";
         ui.post(tick);
         siteInput.setText(store.site());
         // '이 앱의 설치 허용'을 켜러 갔다 돌아온 때는 바로 이어서 설치
@@ -204,6 +206,24 @@ public class SettingsActivity extends Activity {
         });
         alert.addView(alertState, gap(10));
 
+        // ---- 무시할 알림 (이 휴대폰에만)
+        LinearLayout ign = card(root, "무시할 알림");
+        ign.addView(text("알림 글에 이 표현이 있으면 가계부로 보내지 않아요 (이 휴대폰에만, 띄어쓰기는 무시). 아래 '최근 알림'의 '이런 알림 안 받기'로도 넣을 수 있어요.", 12, R.color.muted));
+        ignoreBox = new LinearLayout(this);
+        ignoreBox.setOrientation(LinearLayout.VERTICAL);
+        ign.addView(ignoreBox, gap(6));
+        LinearLayout irow = new LinearLayout(this);
+        irow.setGravity(Gravity.CENTER_VERTICAL);
+        ignoreInput = new EditText(this);
+        ignoreInput.setHint("표현 넣기 (예: 결제예정)");
+        ignoreInput.setSingleLine(true);
+        ignoreInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        irow.addView(ignoreInput, weight());
+        irow.addView(button("추가", v -> {
+            if (addIgnore(ignoreInput.getText().toString())) ignoreInput.setText("");
+        }));
+        ign.addView(irow, gap(4));
+
         // ---- 3. 앱
         LinearLayout apps = card(root, "3. 결제 알림을 보낸 앱");
         apps.addView(text("결제 알림처럼 보이는 글을 보낸 앱이 여기 쌓여요. 체크를 끄면 그 앱 알림은 보내지 않아요.", 12, R.color.muted));
@@ -212,7 +232,7 @@ public class SettingsActivity extends Activity {
         apps.addView(appsBox, gap(6));
 
         // ---- 4. 기록
-        LinearLayout logs = card(root, "최근 보낸 알림");
+        LinearLayout logs = card(root, "최근 알림");
         logBox = new LinearLayout(this);
         logBox.setOrientation(LinearLayout.VERTICAL);
         logs.addView(logBox);
@@ -249,6 +269,8 @@ public class SettingsActivity extends Activity {
 
         String appsNow = store.apps().toString();
         if (!appsNow.equals(shownApps)) { shownApps = appsNow; drawApps(); }
+        List<String> ignores = store.ignores();
+        if (!ignores.toString().equals(shownIgnores)) { shownIgnores = ignores.toString(); drawIgnores(ignores); }
         List<JSONObject> logs = store.logs();
         String logsNow = logs.toString();
         if (!logsNow.equals(shownLogs)) { shownLogs = logsNow; drawLogs(logs); }
@@ -290,8 +312,75 @@ public class SettingsActivity extends Activity {
                     l.optBoolean("ok") ? R.color.green : R.color.bad);
             item.addView(head);
             item.addView(text(l.optString("text"), 13, R.color.text));
+            // 보낸 결제 알림이면 '이런 알림 안 받기' (그 알림 글의 낱말로 무시할 표현 넣기)
+            String full = l.optString("full", "");
+            if (!l.optBoolean("filtered") && !"시험".equals(l.optString("app")) && !full.isEmpty()) {
+                Button no = button("이런 알림 안 받기", v -> pickIgnore(full));
+                no.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = dp(4);
+                item.addView(no, lp);
+            }
             logBox.addView(item);
         }
+    }
+
+    private void drawIgnores(List<String> ignores) {
+        ignoreBox.removeAllViews();
+        if (ignores.isEmpty()) {
+            ignoreBox.addView(text("아직 없어요.", 13, R.color.muted));
+            return;
+        }
+        for (String w : ignores) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.addView(text(w, 14, R.color.bad), weight());
+            Button del = button("빼기", v -> { store.removeIgnore(w); refresh(); });
+            del.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            row.addView(del);
+            ignoreBox.addView(row);
+        }
+    }
+
+    /** 무시할 표현 넣기. 넣었으면 true (아니면 그 이유를 알려 줌) */
+    private boolean addIgnore(String word) {
+        String err = store.addIgnore(word);
+        if (err != null) { toast(err); return false; }
+        toast("'" + word.trim() + "'이(가) 들어간 알림은 이제 보내지 않아요");
+        refresh();
+        return true;
+    }
+
+    /** '이런 알림 안 받기': 알림 글의 낱말(두 글자 이상, 숫자·금액 빼고)을 골라 무시할 표현으로, 또는 직접 넣기 */
+    private void pickIgnore(String full) {
+        List<String> words = new ArrayList<>();
+        for (String w : full.split("[^가-힣A-Za-z0-9]+")) {
+            if (w.length() < 2 || w.matches("[0-9]+.*") || words.contains(w) || store.ignoredBy(w) != null) continue;
+            words.add(w);
+            if (words.size() >= 15) break;
+        }
+        List<String> items = new ArrayList<>(words);
+        items.add("직접 넣기…");
+        new AlertDialog.Builder(this)
+                .setTitle("어떤 표현이 있으면 거를까요?")
+                .setItems(items.toArray(new String[0]), (d, which) -> {
+                    if (which < words.size()) addIgnore(words.get(which));
+                    else typeIgnore();
+                })
+                .setNegativeButton("취소", null)
+                .show();
+    }
+
+    private void typeIgnore() {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("예: 결제예정");
+        new AlertDialog.Builder(this)
+                .setTitle("무시할 표현 넣기")
+                .setView(input)
+                .setPositiveButton("거르기에 추가", (d, w) -> addIgnore(input.getText().toString()))
+                .setNegativeButton("취소", null)
+                .show();
     }
 
     // ==========================================

@@ -28,6 +28,12 @@ final class Sender {
         Store s = new Store(c);
         if (!s.enabled() || s.url().isEmpty() || !PayFilter.looksLikePayment(text)) return;
         if (!s.appAllowed(pkg, app) || s.seenRecently(text)) return;
+        // 무시할 표현이 있으면 보내지 않음 (휴대폰 밖으로 나가지 않음), 기록에만 남김
+        String hit = s.ignoredBy(text);
+        if (hit != null) {
+            s.log(app, text, "거름 ('" + hit + "') — 휴대폰 밖으로 안 나감", false, true);
+            return;
+        }
         s.enqueue(app, text);
         flushAsync(c, null);
     }
