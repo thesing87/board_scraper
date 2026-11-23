@@ -196,9 +196,9 @@ try:
     d.execute_script("localStorage.clear()")
     visit(TESLA, [105, 104, 103])
     assert not d.execute_script("return document.querySelectorAll('.kmfm-new').length")          # 처음은 비교할 기록이 없음
-    assert '오늘 1/3' in d.execute_script("return arguments[0].textContent", bar(d, '.prog'))
-    nxt = d.execute_script("return arguments[0].textContent", bar(d, '[data-next]'))
-    assert nxt.startswith('다음 ▶') and nxt.endswith('gpt'), nxt                                 # 안 본 것 먼저 (모델y는 봤던 적 있음)
+    # 1.8.0: 오늘 진행·다음 ▶·‹ n/전체 › 단추는 없음, 키워드 모니터 링크는 제목 아래, 접기는 화살표만
+    assert not bar(d, '.prog') and not bar(d, '[data-next]') and not bar(d, '.knav')
+    assert bar(d, '.head .kmlink') and d.execute_script("return arguments[0].textContent.trim()", bar(d, '[data-fold]')) == '▲'
     N = 9000000000
     seen = lambda: (lambda r: (r[0], json.loads(r[1])) if r else None)(
         storage._db().__enter__().execute("SELECT seen_max, read_ids FROM fm_seen WHERE board = 'car' AND keyword = '테슬라'").fetchone())
@@ -218,7 +218,6 @@ try:
     tesla_chip = lambda: d.execute_script("const a = [...document.getElementById('keyword-monitor-fm-bar').shadowRoot.querySelectorAll('a.chip')]"
                                           ".find(a => a.dataset.keyword === '테슬라'); const b = a && a.querySelector('.newb'); return b ? b.textContent : null")
     assert tesla_chip() == '새 2', tesla_chip()
-    assert d.execute_script("return arguments[0].textContent", bar(d, '[data-next]')).endswith('테슬라')
     # 묶음을 접어도 묶음 이름 옆에 합계
     d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{tesla}"]')); time.sleep(0.2)
     assert '새 2' in d.execute_script("return arguments[0].textContent", bar(d, f'[data-toggle="{tesla}"]'))
@@ -274,8 +273,8 @@ try:
     d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{tesla}"]')); time.sleep(0.2)
     assert not bar(d, '.box.open')
     d.execute_script("arguments[0].click()", bar(d, f'[data-toggle="{tesla}"]')); time.sleep(0.2)
-    # 다음 ▶ 과 ] 단축키: 오늘 안 본 것 중 가장 오래 안 본 것으로 이동 (시험에서는 이동 대신 주소만 확인)
-    d.execute_script("arguments[0].click()", bar(d, '[data-next]'))
+    # ] 단축키 (단추는 없앰): 오늘 안 본 것 중 가장 오래 안 본 것으로 이동 (시험에서는 이동 대신 주소만 확인)
+    d.execute_script("document.dispatchEvent(new KeyboardEvent('keydown', {key: ']', bubbles: true}))")
     for _ in range(20):
         if 'is_keyword=gpt' in d.current_url:
             break

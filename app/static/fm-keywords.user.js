@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.7.2
+// @version      1.8.0
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -154,6 +154,18 @@
         .chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; flex: 1 1 auto; min-width: 0; }
         .chips::-webkit-scrollbar { display: none; }
         .top .chips { flex-wrap: wrap; overflow: visible; }
+        .top.two { align-items: flex-start; }
+        .two .head { flex-direction: column; align-items: flex-start; gap: 1px; padding-top: 3px; }
+        .two .kmlink { font-size: 11px; color: #993C1D; text-decoration: none; white-space: nowrap; }
+        .two .kmlink:hover { text-decoration: underline; }
+        .rows { display: flex; flex-direction: column; gap: 5px; flex: 1 1 auto; min-width: 0; }
+        .rows .crow { padding-top: 5px; border-top: 1px dashed #F0997B; }
+        .two .side { padding-top: 2px; }
+        .top.two .bignext { align-self: flex-start; margin: 0 -6px 0 2px; }
+        .side .fold { font-size: 12px; line-height: 1; padding: 5px 7px; border-radius: 6px; }
+        .side .fold:hover { background: #fff; }
+        .two .box.open { background: #712B13; border-color: #712B13; }
+        .two .box.open .gh, .two .box.open .cnt, .two .box.open .newg { color: #fff; }
         a.chip { flex: 0 0 auto; display: inline-flex; flex-direction: column; justify-content: center; padding: 3px 10px; border-radius: 12px;
             border: 1px solid #F0997B; background: #fff; color: #4A1B0C; text-decoration: none; line-height: 1.25; white-space: nowrap; }
         .bottom a.chip { border-radius: 999px; padding: 5px 12px; }
@@ -172,12 +184,6 @@
         .gp .newg { margin-left: 4px; }
         .gp.on .newg { color: #B5D4F4; }
         .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #185FA5; margin-left: 4px; vertical-align: 1px; }
-        .prog { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #712B13; white-space: nowrap; }
-        .pbar { width: 56px; height: 5px; border-radius: 3px; background: #F5C4B3; overflow: hidden; }
-        .pbar i { display: block; height: 100%; background: #993C1D; }
-        .side .next { border: 0; border-radius: 8px; background: #993C1D; color: #fff; font-size: 12px; font-weight: 700; padding: 4px 10px; cursor: pointer; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
-        .side .next small { font-weight: 400; opacity: .85; margin-left: 2px; }
-        .side .next.alldone { background: #fff; color: #3B6D11; border: 1px solid #97C459; cursor: default; }
         .side { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: 0 0 auto; white-space: nowrap; }
         .side a, .side button { font: inherit; font-size: 12px; color: #993C1D; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: none; }
         .mini { display: flex; justify-content: center; padding: 4px 0 calc(4px + env(safe-area-inset-bottom, 0px)); cursor: pointer; color: #993C1D; font-size: 12px; font-weight: 700; }
@@ -218,10 +224,6 @@
         /* 묶음 이름: 누르면 그 묶음의 첫 키워드로 (PC는 ▸·▾ 화살표만 펼치기·접기) */
         .gname { cursor: pointer; border-radius: 4px; }
         .gname:hover { text-decoration: underline; }
-        .knav { display: inline-flex; align-items: center; border: 1px solid #F0997B; border-radius: 8px; background: #fff; overflow: hidden; }
-        .side .knav button { border: 0; border-radius: 0; background: none; color: #712B13; font-weight: 700; padding: 3px 8px; line-height: 1.2; }
-        .side .knav button:hover { background: #FFF6F2; }
-        .knav .kpos { font-size: 11px; color: #993C1D; padding: 0 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .pnav { display: inline-flex; align-items: center; gap: 4px; padding-right: 10px; margin-right: 2px; border-right: 1px solid #F0997B; }
         .bottom .pnav { border-right: 0; padding-right: 0; }
         .side .pnav button, .side .pnav a { border: 1px solid #F0997B; border-radius: 7px; background: #fff; color: #712B13; font-weight: 700; padding: 3px 8px; line-height: 1.2; }
@@ -289,7 +291,7 @@
         return all[(i + delta + all.length) % all.length];
     }
     function goSeq(delta) { const t = seqTarget(delta); if (t) openLink(t.g, t.l); }
-    // 큰 다음 키워드 단추 (휴대폰 아랫줄, PC 윗줄에서. PC 얇은 줄에서는 작은 ‹ › 그대로)
+    // 큰 다음 키워드 단추: 전체 키워드를 차례대로 (휴대폰 아랫줄, PC 윗줄. PC 얇은 줄에서는 없음, 단축키 . , 는 그대로)
     const showBig = () => allLinks().length >= 2 && (MOBILE || !compact);
     function bigNextHtml() {
         if (!showBig()) return '';
@@ -297,25 +299,6 @@
         const n = all.findIndex(x => x.l === next.l && x.g.id === next.g.id) + 1;
         return `<button class="bignext" data-seq="1" title="다음 키워드: ${esc(next.g.name)} · ${esc(next.l.keyword)}${MOBILE ? '' : ' (단축키 .)'}" aria-label="다음 키워드 ${esc(next.l.keyword)}">
             <span class="arw">›</span><span class="bn">${esc(next.l.keyword)}</span><span class="bp">${n}/${all.length}</span></button>`;
-    }
-    function seqHtml() {
-        const all = allLinks();
-        if (all.length < 2) return '';
-        const i = all.findIndex(x => isCurrent(x.l));
-        const prev = seqTarget(-1), next = seqTarget(1);
-        const tip = (t, key) => `${t.g.name} · ${t.l.keyword}${MOBILE ? '' : ` (단축키 ${key})`}`;
-        return `<span class="knav" title="전체 키워드 차례대로">
-            <button data-seq="-1" title="이전 키워드: ${esc(tip(prev, ','))}" aria-label="이전 키워드">‹</button>
-            <span class="kpos">${i >= 0 ? `${i + 1}/${all.length}` : `–/${all.length}`}</span>
-            ${showBig() ? '' : `<button data-seq="1" title="다음 키워드: ${esc(tip(next, '.'))}" aria-label="다음 키워드">›</button>`}</span>`;
-    }
-    function progressHtml() {
-        const all = allLinks(), done = all.filter(x => openedToday(x.l)).length;
-        const next = nextLink();
-        const nextBtn = next
-            ? `<button class="next" data-next title="안 읽은 새 글이 남은 키워드 → 오늘 아직 안 본 키워드 중 가장 오래 안 본 것 (단축키 ])">다음 ▶${MOBILE ? '' : `<small>${esc(next.l.keyword)}</small>`}</button>`
-            : `<span class="next alldone">오늘 모두 확인 ✓</span>`;
-        return `<span class="prog" title="오늘 연 키워드">오늘 ${done}/${all.length}${MOBILE ? '' : `<span class="pbar"><i style="width:${all.length ? Math.round(done / all.length * 100) : 0}%"></i></span>`}</span>${nextBtn}`;
     }
     // ---------- 키워드 줄에서 바로 추가 ----------
     // 목록에 없는 검색을 직접 보고 있으면 '+ 추가' 단추. 누르면 넣을 카드를 고름 (이 게시판을 가장 많이 쓰는 카드가 맨 위)
@@ -455,7 +438,7 @@
         } else {
             const addBtn = canAdd() && !(compact && !MOBILE)
                 ? `<button class="add" data-add title="지금 보는 검색을 FM키워드에 추가">+ ${MOBILE ? '추가' : `'${esc(currentKeyword)}' 추가`}</button>` : '';
-            const side = `<span class="side">${postNavHtml()}${addBtn}${seqHtml()}${progressHtml()}${MOBILE ? '' : `<a href="${SITE}/board/#fm" target="_blank" rel="noopener">키워드 모니터 ↗</a>`}<button data-fold>${MOBILE ? '숨기기 ▾' : '접기 ▴'}</button></span>`;
+            const side = `<span class="side">${postNavHtml()}${addBtn}<button class="fold" data-fold title="키워드 줄 ${MOBILE ? '숨기기' : '접기'}" aria-label="키워드 줄 ${MOBILE ? '숨기기' : '접기'}">${MOBILE ? '▼' : '▲'}</button></span>`;
             if (MOBILE) {
                 // 윗줄: 묶음 이름 (누르면 아랫줄이 그 묶음으로, 같은 것을 다시 누르면 아랫줄 접힘), 아랫줄: 고른 묶음의 키워드
                 const picked = groups.find(g => g.id === mobileGroupId());
@@ -469,12 +452,14 @@
                 const names = groups.map(g => `<button class="gh${cur === g ? ' cur' : ''}" data-cgroup="${g.id}">▸ <span class="gname" data-gfirst="${g.id}" title="${esc(g.name)}의 첫 키워드로">${esc(g.name)}</span>${groupUnread(g) ? '<span class="dot" title="안 읽은 새 글"></span>' : ''}</button>`).join('');
                 html = `<div class="bar top compact"><span class="title">FM키워드</span><div class="names">${names}</div>${side}</div>`;
             } else {
-                // 묶음 상자: 접히면 이름·개수, 펼치면 그 자리에 키워드 칩 (여러 개 함께 펼침)
+                // 두 줄: 윗줄은 묶음 이름이 늘 같은 자리 (펼친 묶음만 진하게), 아랫줄은 펼친 묶음의 키워드 칩.
+                // 예전에는 펼친 묶음이 이름 줄 가운데에 큰 상자로 끼어 앞뒤 묶음이 위아래로 갈라졌음
                 const open = openIds();
-                const boxes = groups.map(g => open.has(g.id)
-                    ? `<span class="box open"><button class="gh" data-toggle="${g.id}" aria-expanded="true">▾ <span class="gname" data-gfirst="${g.id}" title="${esc(g.name)}의 첫 키워드로">${esc(g.name)}</span></button>${g.links.map(l => chipHtml(g, l)).join('')}</span>`
-                    : `<span class="box"><button class="gh" data-toggle="${g.id}" aria-expanded="false">▸ <span class="gname" data-gfirst="${g.id}" title="${esc(g.name)}의 첫 키워드로">${esc(g.name)}</span> ${countHtml(g)}</button></span>`).join('');
-                html = `<div class="bar top"><div class="head"><span class="title">FM키워드</span></div><div class="boxes">${boxes}</div>${side}${bigNextHtml()}</div>`;
+                const boxes = groups.map(g => `<span class="box${open.has(g.id) ? ' open' : ''}"><button class="gh" data-toggle="${g.id}" aria-expanded="${open.has(g.id)}">${open.has(g.id) ? '▾' : '▸'} <span class="gname" data-gfirst="${g.id}" title="${esc(g.name)}의 첫 키워드로">${esc(g.name)}</span> ${countHtml(g)}</button></span>`).join('');
+                const og = groups.find(g => open.has(g.id));
+                const crow = og ? `<div class="chips crow">${og.links.map(l => chipHtml(og, l)).join('')}</div>` : '';
+                html = `<div class="bar top two"><div class="head"><span class="title">FM키워드</span><a class="kmlink" href="${SITE}/board/#fm" target="_blank" rel="noopener">키워드 모니터 ↗</a></div>
+                    <div class="rows"><div class="boxes">${boxes}</div>${crow}</div>${side}${bigNextHtml()}</div>`;
             }
         }
         if (!message && !folded && !(compact && !MOBILE) && canAdd()) html = html.replace(/<\/div>$/, pickerHtml() + '</div>');

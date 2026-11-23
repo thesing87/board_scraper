@@ -29,7 +29,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 BASE = f'http://127.0.0.1:{port}'
 with urllib.request.urlopen(BASE + '/fm-keywords.user.js') as r:
     script = r.read().decode('utf-8')
-assert '// @version      1.7.2' in script
+assert '// @version      1.8.0' in script
 order = [(l['board'], l['keyword']) for g in web_server.json.loads(urllib.request.urlopen(BASE + '/api/fm-links').read())['groups'] for l in g['links']]
 assert len(order) == 3, order
 
@@ -59,7 +59,7 @@ def page(query):
     js("document.body.innerHTML = '<div style=\"height:300px\">에펨코리아 화면</div>'")
     js(SHIM + script)
     for _ in range(30):
-        if js(f"return !!{R}.querySelector('.knav')"):
+        if js(f"return !!{R}.querySelector('.bignext')"):
             break
         time.sleep(0.2)
     time.sleep(0.5)
@@ -72,19 +72,21 @@ def search_query(board, keyword):
 
 def went_to(board, keyword):
     want = 'is_keyword=' + urllib.parse.quote(keyword) if not board else 'search_keyword=' + urllib.parse.quote(keyword)
-    for _ in range(30):
+    for _ in range(75):   # 막아 둔 에펨코리아 주소로 넘어가는 데 가끔 몇 초 걸림 (15초까지 기다림)
         if want in d.current_url and 'fmkorea.com' in d.current_url:
             return True
         time.sleep(0.2)
     return False
 
 
-pos = lambda: js(f"return {R}.querySelector('.knav .kpos').textContent")
+# 1.8.0부터 ‹ n/전체 › 단추는 없고, 큰 다음 키워드 단추(› 다음 키워드 n/전체)와 단축키 . , 로 넘김
+big_label = lambda: js(f"return {R}.querySelector('.bignext').textContent.replace(/\s+/g, '')")
 try:
     # 첫 키워드(투싼)를 보는 중: 1/3, 다음 단추는 쏘렌토, 이전 단추는 마지막(gpt)으로 돌아감
     page(search_query(*order[0]))
-    assert pos() == '1/3', pos()
-    assert '쏘렌토' in js(f"return {R}.querySelector('[data-seq=\"1\"]').title") and 'gpt' in js(f"return {R}.querySelector('[data-seq=\"-1\"]').title")
+    assert big_label() == '›쏘렌토2/3', big_label()
+    assert '쏘렌토' in js(f"return {R}.querySelector('[data-seq=\"1\"]').title")
+    assert not js(f"return {R}.querySelector('.knav, [data-seq=\"-1\"], .prog, [data-next]')")   # 이전·오늘 진행·다음 ▶ 단추는 없음
     # PC: 다음 키워드는 윗줄 오른쪽 끝의 큰 단추 하나 (작은 ‹ 옆의 ›는 없음), 다음 키워드 이름·순번
     big = js(f"""const b = {R}.querySelector('.bar.top .bignext'), r = b.getBoundingClientRect();
                  return [b.textContent.replace(/\\s+/g, ' ').trim(), Math.round(innerWidth - r.right), Math.round(r.height),
@@ -94,7 +96,7 @@ try:
     assert went_to(*order[1]), d.current_url
     # 두 번째(쏘렌토)에서 단축키 . → 다음 카드의 gpt, , → 투싼
     page(search_query(*order[1]))
-    assert pos() == '2/3', pos()
+    assert big_label() == '›gpt3/3', big_label()
     js("document.dispatchEvent(new KeyboardEvent('keydown', {key: '.', bubbles: true}))")
     assert went_to(*order[2]), d.current_url
     page(search_query(*order[1]))
@@ -102,7 +104,7 @@ try:
     assert went_to(*order[0]), d.current_url
     # 마지막(gpt)에서 다음은 처음(투싼)으로
     page(search_query(*order[2]))
-    assert pos() == '3/3', pos()
+    assert big_label() == '›투싼1/3', big_label()
     js(f"{R}.querySelector('[data-seq=\"1\"]').click()")
     assert went_to(*order[0]), d.current_url
     # 누른 시각이 기록됨
@@ -111,7 +113,7 @@ try:
     assert last[order[0]] and last[order[1]] and last[order[2]], last
     # 목록에 없는 검색: 다음은 첫 키워드, 이전은 마지막 키워드
     page('mid=car&search_keyword=x')
-    assert pos() == '–/3', pos()
+    assert big_label() == '›투싼1/3', big_label()
     js("document.dispatchEvent(new KeyboardEvent('keydown', {key: ',', bubbles: true}))")
     assert went_to(*order[2]), d.current_url
     # 묶음 이름(1.7.1): 이름을 누르면 그 묶음의 첫 키워드로, ▸ 화살표 쪽은 펼치기·접기 (이동 없음)
@@ -123,10 +125,10 @@ try:
     assert d.current_url.startswith(BASE) and js(f"return {R}.querySelector('.box.open .gname').textContent") == '자동차'
     print('SEQ PC OK')
 
-    # 휴대폰: 아랫줄에도 ‹ n/전체 ›
+    # 휴대폰: ‹ n/전체 ›·오늘 진행·다음 ▶ 없음, 큰 다음 단추만
     d.set_window_size(390, 844); time.sleep(.3)
     page(search_query(*order[1]))
-    assert js(f"return !!{R}.querySelector('.bar.bottom .knav')") and pos() == '2/3', pos()
+    assert not js(f"return {R}.querySelector('.knav, [data-seq=\"-1\"], .prog, [data-next]')")
     assert js("return document.documentElement.scrollWidth <= innerWidth")
     # 휴대폰: 아랫줄 오른쪽에 두 줄 높이의 큰 다음 단추 (엄지가 닿는 자리)
     big = js(f"""const b = {R}.querySelector('.bar.bottom.has-big .bignext'), r = b.getBoundingClientRect();
@@ -134,9 +136,6 @@ try:
     assert big[0].replace(' ', '') == '›gpt3/3' and big[1] <= 14 and big[2] >= 56 and big[3] >= 56, big
     js(f"{R}.querySelector('.bignext').click()")
     assert went_to(*order[2]), d.current_url
-    page(search_query(*order[1]))
-    js(f"{R}.querySelector('[data-seq=\"-1\"]').click()")
-    assert went_to(*order[0]), d.current_url
     print('SEQ MOBILE OK')
 finally:
     d.quit()
