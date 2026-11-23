@@ -41,6 +41,7 @@
         try { return !!localStorage.getItem('admin_token'); } catch (e) { return false; }
     }
 
+    const NAV_MAX_COLS = 8;
     function render(nav) {
         const current = nav.dataset.current || '';
         // 관리자 전용 메뉴(카드·만화·동영상)는 관리자로 로그인한 기기(로그인 키가 있는 기기)에서만. 그 페이지에 있을 때는 보임
@@ -49,7 +50,8 @@
         try { ledgerUser = !!localStorage.getItem('ledger_user'); } catch (e) { ledgerUser = false; }
         const shown = ITEMS.filter(item => item.key === current
             || (item.ledger ? admin || ledgerUser : (!item.adminOnly || admin) && (!item.secret || revealed)));
-        nav.style.setProperty('--nav-cols', shown.length);
+        // 휴대폰: 한 줄에 최대 8칸 (칸이 너무 좁아지지 않게), 넘으면 아랫줄 왼쪽부터
+        nav.style.setProperty('--nav-cols', Math.min(shown.length, NAV_MAX_COLS));
         const items = shown.map(item => itemHtml(item, current)).join('');
         nav.setAttribute('aria-label', '바로가기');
         nav.innerHTML = items;

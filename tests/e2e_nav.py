@@ -66,7 +66,12 @@ try:
     assert js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)") == KEYS
     assert js("return document.querySelector('.site-nav [data-nav=videos]').classList.contains('is-revealed')")
     cols = js("return getComputedStyle(document.querySelector('.site-nav')).gridTemplateColumns.split(' ').length")
-    assert cols == len(KEYS), cols
+    assert cols == min(len(KEYS), 8), cols                              # 한 줄 최대 8칸
+    # 8개를 넘으면 아랫줄 왼쪽부터 (11개 → 8 + 3)
+    tops = js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => Math.round(a.getBoundingClientRect().top))")
+    lefts = js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => Math.round(a.getBoundingClientRect().left))")
+    assert len(set(tops[:8])) == 1 and tops[8] > tops[0] and len(set(tops[8:])) == 1 and lefts[8] == lefts[0], (tops, lefts)
+    assert js("return Math.round(document.querySelector('.site-nav [data-nav]').getBoundingClientRect().width)") >= 40   # 누르기 좋은 폭
     # 다른 페이지로 가면 숨겨지고, 대시보드를 다시 열어도(새로고침) 숨겨짐
     d.get(BASE + '/stats/'); time.sleep(1)
     assert 'videos' not in js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)")
