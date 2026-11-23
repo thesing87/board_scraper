@@ -453,16 +453,49 @@ def _cancel_match(conn, item):
     return None
 
 
+def _history_map(conn):
+    """지난 기록의 분류 추천: {가게 글자(rule_key): (분류 ID, 그 분류로 쓴 횟수, 메모)}. 가계부를 함께 쓰는 사람 모두의 지출 기록에서,
+    메모가 같은 가게(띄어쓰기·(주) 등을 빼고 같은 글자)로 가장 많이 쓴 분류 (같으면 최근에 쓴 것)"""
+    from ledger_parse import rule_key
+    found = {}   # key -> {category_id: (횟수, 최근 (used_on, id), 그 최근 기록의 메모)}
+    for r in conn.execute("""SELECT e.id, e.memo, e.used_on, e.category_id FROM ledger_entries e
+                             JOIN ledger_categories c ON c.id = e.category_id WHERE c.kind = 'expense' AND e.memo != ''"""):
+        key = rule_key(r['memo'])
+        if not key:
+            continue
+        cats = found.setdefault(key, {})
+        count, last, memo = cats.get(r['category_id'], (0, ('', 0), ''))
+        if (r['used_on'], r['id']) > last:
+            last, memo = (r['used_on'], r['id']), r['memo']
+        cats[r['category_id']] = (count + 1, last, memo)
+    out = {}
+    for key, cats in found.items():
+        cat, (count, _, memo) = max(cats.items(), key=lambda kv: (kv[1][0], kv[1][1]))
+        out[key] = (cat, count, memo)
+    return out
+
+
+def _suggest(history, item):
+    """분류가 없는 결제 알림의 추천 {category_id, memo, count} (규칙이 먼저라 규칙으로 정해진 것·취소는 없음)"""
+    from ledger_parse import rule_key
+    if item['is_cancel'] or item['category_id'] is not None:
+        return None
+    found = history.get(rule_key(item['merchant']))
+    return {'category_id': found[0], 'count': found[1], 'memo': found[2]} if found else None
+
+
 def inbox(user):
-    """내 확인 대기함 (최근 순). 취소 알림은 지울 기록을 찾아 붙임"""
+    """내 확인 대기함 (최근 순). 취소 알림은 지울 기록을 찾아 붙임. 분류가 없는 결제는 지난 기록의 추천(suggest)을 붙임"""
     with _db() as conn:
         rows = conn.execute("SELECT * FROM ledger_inbox WHERE user_id = ? ORDER BY used_on DESC, used_time DESC, id DESC", (user['id'],)).fetchall()
+        history = _history_map(conn) if rows else {}
         items = []
         for r in rows:
             item = {k: r[k] for k in ('id', 'raw', 'amount', 'merchant', 'card', 'used_on', 'used_time', 'category_id', 'created_at')}
             item['cancel'] = bool(r['is_cancel'])
             if item['cancel']:
                 item['match'] = _cancel_match(conn, r)
+            item['suggest'] = _suggest(history, r)
             items.append(item)
     return items
 
@@ -501,17 +534,20 @@ def update_item(user, item_id, category_id=None, amount=None, merchant=None, use
                      (amount, merchant, used_on, category_id, item_id))
 
 
-def _confirm_row(conn, row):
+def _confirm_row(conn, row, history=None):
     if row['is_cancel']:
         match = _cancel_match(conn, row)
         if match:
             conn.execute("DELETE FROM ledger_entries WHERE id = ?", (match['id'],))
     else:
-        if row['category_id'] is None:
+        # 분류를 고르지 않았으면 지난 기록의 추천으로 (화면에 미리 골라 보여 준 것)
+        suggest = _suggest(history if history is not None else _history_map(conn), row)
+        category_id = row['category_id'] if row['category_id'] is not None else suggest and suggest['category_id']
+        if category_id is None:
             raise LedgerError('분류를 골라 주세요.')
         now = _now()
         conn.execute("""INSERT INTO ledger_entries(user_id, amount, used_on, category_id, memo, created_at, updated_at)
-                        VALUES(?, ?, ?, ?, ?, ?, ?)""", (row['user_id'], row['amount'], row['used_on'], row['category_id'],
+                        VALUES(?, ?, ?, ?, ?, ?, ?)""", (row['user_id'], row['amount'], row['used_on'], category_id,
                                                         row['merchant'][:MEMO_MAX], now, now))
     conn.execute("DELETE FROM ledger_inbox WHERE id = ?", (row['id'],))
 
@@ -523,12 +559,14 @@ def confirm_item(user, item_id):
 
 
 def confirm_all(user):
-    """분류가 정해진 결제와 지울 기록을 찾은 취소를 한꺼번에 확정. 확정한 수"""
+    """분류가 정해진(지난 기록의 추천 포함) 결제와 지울 기록을 찾은 취소를 한꺼번에 확정. 확정한 수.
+    추천은 확정을 시작할 때의 기록으로 (이번에 확정한 것이 뒤의 추천을 바꾸지 않게)"""
     done = 0
     with _db() as conn, conn:
+        history = _history_map(conn)
         for row in conn.execute("SELECT * FROM ledger_inbox WHERE user_id = ?", (user['id'],)).fetchall():
-            if (row['is_cancel'] and _cancel_match(conn, row)) or (not row['is_cancel'] and row['category_id'] is not None):
-                _confirm_row(conn, row)
+            if (row['is_cancel'] and _cancel_match(conn, row)) or (not row['is_cancel'] and (row['category_id'] is not None or _suggest(history, row))):
+                _confirm_row(conn, row, history)
                 done += 1
     return done
 

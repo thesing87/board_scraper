@@ -329,6 +329,16 @@ try:
     assert '규칙 "블루보틀" → 카페' in txt('inbox')
     click('#inbox-all'); time.sleep(1.5)
     assert not vis('inbox-sec') and entries()[-1]['amount'] == 6100
+    # 규칙이 없어도 같은 가게의 지난 기록('이마트 장보기' → 식비)으로 분류를 미리 골라 둠 → 바로 확정
+    assert send(f'[삼성카드] {md} 18:20 7,700원 일시불 이마트 장보기') == 200
+    js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)
+    assert "지난 기록 '이마트 장보기'" in txt('inbox') and '→ 식비' in txt('inbox'), txt('inbox')
+    assert js("return document.querySelector('#inbox .chip.on').textContent.trim()") == '식비'
+    assert not js("return document.querySelector('#inbox [data-ib-ok]').disabled")
+    click('#inbox [data-ib-ok]'); time.sleep(1.5)
+    with storage._db() as conn:
+        food = conn.execute("SELECT id FROM ledger_categories WHERE name = '식비'").fetchone()[0]
+    assert not vis('inbox-sec') and entries()[-1]['amount'] == 7700 and entries()[-1]['category_id'] == food
     # 취소 알림: 맞는 기록을 찾아 지움
     assert send(f'[삼성카드] 승인취소 6,100원 블루보틀 한남점 {md} 15:10') == 200
     js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)

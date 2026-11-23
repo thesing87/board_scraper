@@ -770,12 +770,16 @@
         $('inbox').innerHTML = items.map(x => {
             const day = `${+x.used_on.slice(5, 7)}/${+x.used_on.slice(8)}`;
             const rule = !x.cancel && ruleFor(x.merchant);
+            // 고른 분류가 없으면 지난 기록의 추천 (같은 가게로 가장 많이 쓴 분류, 그대로 확정하면 그 분류로)
+            const sug = !x.cancel && x.category_id == null && x.suggest && catOf(x.suggest.category_id).id != null ? x.suggest : null;
+            const cat = x.category_id != null ? x.category_id : sug ? sug.category_id : null;
             let note;
             if (x.cancel) note = x.match ? `<span class="note bad">결제 취소 · ${+x.match.used_on.slice(5, 7)}/${+x.match.used_on.slice(8)}의 같은 결제를 찾았어요 — 확정하면 그 기록을 지워요</span>`
                 : '<span class="note bad">결제 취소 · 맞는 기록을 찾지 못했어요 — 확정하면 이 알림만 지워요</span>';
+            else if (sug) note = `<span class="note rec">지난 기록 '${esc(sug.memo)}' ${sug.count}번 → ${esc(catOf(sug.category_id).name)}</span>`;
             else if (x.category_id == null) note = '<span class="note">규칙에 없는 가게 — 분류를 골라 주세요</span>';
             else note = `<span class="note">${rule && rule.category_id === x.category_id ? `규칙 "${esc(rule.pattern)}" → ` : ''}${esc(catOf(x.category_id).name)}</span>`;
-            const chips = x.cancel ? '' : `<div class="cats">${expenseCats().map(c => `<span class="chip${c.id === x.category_id ? ' on' : ''}" data-ib-cat="${c.id}" data-ib="${x.id}"
+            const chips = x.cancel ? '' : `<div class="cats">${expenseCats().map(c => `<span class="chip${c.id === cat ? ' on' : ''}" data-ib-cat="${c.id}" data-ib="${x.id}"
                 style="background:${chipBg(c.color)};color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span>`).join(' ')}</div>`;
             // 금액·가게 칸 오른쪽 X: 한 번에 지우고 바로 입력 (글자가 있을 때만 보임). 휴대폰은 윗줄 금액·날짜, 아랫줄 가게 한 줄 전부
             const t = typed && st.editItem === x.id ? typed : null;
@@ -785,15 +789,15 @@
                 <span class="clr-wrap e-shop"><input id="ib-merchant" value="${esc(t ? t.merchant : x.merchant)}" maxlength="60" placeholder="가게 이름" aria-label="가게">
                     <button type="button" class="clr" data-clear="ib-merchant" aria-label="가게 이름 지우기">✕</button></span>
                 <input id="ib-date" class="e-date" type="date" value="${esc(t ? t.used_on : x.used_on)}" aria-label="날짜"></div>` : '';
-            const canRule = !x.cancel && x.category_id != null && x.merchant && !(rule && rule.category_id === x.category_id);
+            const canRule = !x.cancel && cat != null && x.merchant && !(rule && rule.category_id === cat);
             return `<div class="ib" data-item="${x.id}"><div class="body">
                 <div class="top"><span class="amt${x.cancel ? ' cancel' : ''}">${x.cancel ? '취소 ' : ''}${won(x.amount)}</span><span class="shop">${esc(x.merchant || '가게 이름 없음')}</span>
                 <span class="meta">· ${esc(x.card || '카드')} · ${day} ${esc(x.used_time)}</span></div>
                 ${note}${chips}${edit}<span class="raw">${esc(x.raw)}</span>
                 <div class="btns">${st.editItem === x.id ? '<button type="button" class="primary" data-ib-save>고친 것 저장</button><button type="button" data-ib-edit>그만 고치기</button>'
-                    : `<button type="button" class="primary" data-ib-ok${!x.cancel && x.category_id == null ? ' disabled' : ''}>${x.cancel ? '취소 확정' : '확정'}</button>
+                    : `<button type="button" class="primary" data-ib-ok${!x.cancel && cat == null ? ' disabled' : ''}>${x.cancel ? '취소 확정' : '확정'}</button>
                     ${x.cancel ? '' : '<button type="button" data-ib-edit>금액·가게 고치기</button>'}
-                    ${canRule ? `<button type="button" data-ib-rule>"${esc(suggestPattern(x.merchant))}"는 늘 ${esc(catOf(x.category_id).name)}로</button>` : ''}
+                    ${canRule ? `<button type="button" data-ib-rule>"${esc(suggestPattern(x.merchant))}"는 늘 ${esc(catOf(cat).name)}로</button>` : ''}
                     <button type="button" data-ib-del>버리기</button>`}</div></div></div>`;
         }).join('');
         if (typed && typed.focus && $(typed.focus)) $(typed.focus).focus();
@@ -827,7 +831,8 @@
         if (e.target.closest('[data-ib-ok]')) { if (await inboxPost({ action: 'confirm', id })) load(); return; }
         if (e.target.closest('[data-ib-del]')) { await inboxPost({ action: 'discard', id }); return; }
         if (e.target.closest('[data-ib-rule]')) {
-            const { status, data } = await post('/api/ledger/rule', { action: 'add', pattern: suggestPattern(item.merchant), category_id: item.category_id });
+            const cat = item.category_id != null ? item.category_id : item.suggest && item.suggest.category_id;
+            const { status, data } = await post('/api/ledger/rule', { action: 'add', pattern: suggestPattern(item.merchant), category_id: cat });
             if (status !== 200) { $('inbox-msg').textContent = msgOf(data); return; }
             applyInbox(data);
         }

@@ -148,6 +148,25 @@ entries = call(f'/api/ledger/state?month={month}', cookie=user)[1]['entries']
 assert [e['memo'] for e in entries] == ['쿠팡이츠 치킨'], entries
 assert call('/api/ledger/inbox', {'action': 'confirm', 'id': lost['id']}, cookie=user)[1]['items'] == []
 
+# ---- 지난 기록으로 분류 추천: 규칙이 없으면 같은 가게(띄어쓰기 무시)로 가장 많이 쓴 지출 분류, 그대로 확정하면 그 분류로
+assert call(hook, raw=f'[신한카드] 승인 18,000원 {md} 19:00 쿠팡이츠 치킨', ctype='text/plain')[1]['result'] == 'saved'
+assert call(hook, raw=f'[신한카드] 승인 9,000원 {md} 19:30 처음보는가게', ctype='text/plain')[1]['result'] == 'saved'
+items = call('/api/ledger/inbox', cookie=user)[1]['items']
+chicken = next(x for x in items if x['amount'] == 18000)
+assert chicken['category_id'] is None and chicken['suggest'] == {'category_id': cats['식비'], 'count': 1, 'memo': '쿠팡이츠 치킨'}, chicken
+assert next(x for x in items if x['amount'] == 9000)['suggest'] is None
+for _ in range(2):   # 쇼핑으로 두 번 더 쓰면 쇼핑이 추천 (띄어쓰기가 달라도 같은 가게)
+    assert call('/api/ledger/entry', {'action': 'add', 'amount': 1000, 'used_on': today.strftime('%Y-%m-%d'),
+                                      'category_id': cats['쇼핑'], 'memo': '쿠팡이츠치킨'}, cookie=user)[0] == 200
+chicken = next(x for x in call('/api/ledger/inbox', cookie=user)[1]['items'] if x['amount'] == 18000)
+assert chicken['suggest'] == {'category_id': cats['쇼핑'], 'count': 2, 'memo': '쿠팡이츠치킨'}, chicken
+code, data = call('/api/ledger/inbox', {'action': 'confirm_all'}, cookie=user)
+assert data['confirmed'] == 1 and [x['amount'] for x in data['items']] == [9000], data   # 추천 없는 것은 남음
+entries = call(f'/api/ledger/state?month={month}', cookie=user)[1]['entries']
+assert any(e['amount'] == 18000 and e['category_id'] == cats['쇼핑'] for e in entries), entries
+assert call('/api/ledger/inbox', {'action': 'confirm', 'id': data['items'][0]['id']}, cookie=user)[0] == 400   # 분류 없으면 거절
+call('/api/ledger/inbox', {'action': 'discard', 'id': data['items'][0]['id']}, cookie=user)
+
 # ---- 시험 알림, 연결 주소 새로 만들면 예전 주소는 못 씀
 code, data = call('/api/ledger/inbox', {'action': 'test'}, cookie=user)
 assert code == 200 and len(data['items']) == 1 and data['items'][0]['amount'] == 1000 and data['items'][0]['card'] == '삼성카드', data
