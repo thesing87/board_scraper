@@ -184,7 +184,6 @@
                     <button type="button" class="set-tab" role="tab" data-tab="rules">가게 규칙</button>
                     <button type="button" class="set-tab" role="tab" data-tab="trash">버린 알림<span class="tab-n" id="tab-trash-n" hidden></span></button>
                     <button type="button" class="set-tab admin-only" role="tab" data-tab="users" hidden>사용자 허락<span class="tab-n warm" id="pending-count" hidden></span></button>
-                    <button type="button" class="set-tab admin-only" role="tab" data-tab="appfile" hidden>앱 파일</button>
                 </div>
                 <section class="sec set-pane" data-pane="hook" id="auto">
                     <p class="label">내 휴대폰 연결 <span class="sec-note" id="auto-note"></span></p>
@@ -228,13 +227,6 @@
                     <div id="pending"></div>
                     <p class="label">가계부를 함께 쓰는 사람</p>
                     <div id="members"></div>
-                </section>
-                <section class="sec set-pane admin-only" data-pane="appfile" hidden>
-                    <p class="hint">빌드한 YeYe홈 APK를 올리면 가계부를 쓰는 사람 모두가 받고, 앱은 열 때 저절로 새 버전으로 바뀌어요.</p>
-                    <p class="hint" id="app-admin-state"></p>
-                    <div class="app-up"><input type="file" id="app-file" accept=".apk,application/vnd.android.package-archive" aria-label="APK 파일">
-                        <button type="button" class="small primary" id="app-upload" disabled>올리기</button></div>
-                    <p class="msg" id="app-msg"></p>
                 </section>
             </div>
         </div>

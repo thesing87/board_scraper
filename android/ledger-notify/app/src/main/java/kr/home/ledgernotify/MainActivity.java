@@ -33,7 +33,8 @@ import android.widget.Toast;
 /**
  * 첫 화면 (YeYe홈): 아래쪽 탭으로 홈(/yeye/, 근무표·가계부 요약)·가계부(/ledger/)·근무표(/duty/) 웹 페이지를 오감.
  * 탭마다 웹 화면을 따로 둬서 오가도 보던 곳이 그대로. 앱을 열면 홈부터 (알림을 누르면 가계부, 근무표 위젯을 누르면 근무표).
- * 위쪽 줄의 '설정'은 보고 있는 탭의 설정: 홈 → 앱 설정(주소·버전·로그아웃), 가계부·근무표 → 그 페이지의 설정 화면.
+ * 위쪽 줄의 '설정'은 보고 있는 탭의 설정: 홈 → 전체 설정(앱 파일·버전·로그아웃), 가계부·근무표 → 그 페이지의 설정 화면.
+ * 주소는 고정 (strings.xml의 site_url).
  * 페이지는 window.LedgerApp(Bridge)로 이 앱을 알아보고, 가계부의 '이 휴대폰 앱에 연결'을 누르면 연결 주소를 넘겨줌.
  * 다른 주소의 링크는 브라우저로 엶 (앱 안에는 홈·가계부·근무표만)
  */
@@ -61,7 +62,7 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCallback;
     private boolean askedSite;
     private boolean loadFailed;
-    private String updateText = "";
+    private volatile String updateText = "";
     private boolean updateNeedsPermission;
 
     @Override
@@ -184,9 +185,9 @@ public class MainActivity extends Activity {
         startActivity(new Intent(this, SettingsActivity.class).putExtra(SettingsActivity.EXTRA_SECTION, section));
     }
 
-    /** 위쪽 '설정': 홈 → 앱 설정, 가계부·근무표 → 그 페이지의 설정 (로그인 전이면 앱 설정) */
+    /** 위쪽 '설정': 홈 → 전체 설정, 가계부·근무표 → 그 페이지의 설정 (페이지를 못 열었거나 로그인 전이면 앱의 설정 화면) */
     private void openTabSettings() {
-        if (tab == TAB_HOME || loaded[tab].isEmpty()) {
+        if (loaded[tab].isEmpty()) {
             openSettings(SettingsActivity.SECTION_APP);
             return;
         }
@@ -362,7 +363,7 @@ public class MainActivity extends Activity {
         } else if (updateText.contains("설치 중") || updateText.contains("받는 중")) {
             text = updateText;
         } else if (store.url().isEmpty() && tab == TAB_LEDGER) {
-            text = "결제 알림이 아직 가계부로 안 가요 — 로그인 뒤 '결제 알림 자동 기록' → '이 휴대폰 앱에 연결'을 누르세요";
+            text = "결제 알림이 아직 가계부로 안 가요 — 위쪽 '설정' → 결제 알림 연결 → '이 휴대폰 앱에 연결'을 누르세요";
         }
         banner.setText(text == null ? "" : text);
         banner.setOnClickListener(go);
@@ -516,7 +517,7 @@ public class MainActivity extends Activity {
             ui.post(() -> {
                 if (Updater.NEED_LOGIN.equals(updateText)) {
                     updateText = "";
-                    checkUpdate(true);
+                    MainActivity.this.checkUpdate(true);
                 }
             });
         }
@@ -540,6 +541,28 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void openPhoneSettings() {
             ui.post(() -> MainActivity.this.openSettings(SettingsActivity.SECTION_PHONE));
+        }
+
+        /** 전체 설정의 '새 버전 확인' (결과는 updateText로 물어봄) */
+        @JavascriptInterface
+        public void checkUpdate() {
+            if (!fromLedger()) return;
+            ui.post(() -> MainActivity.this.checkUpdate(false));
+        }
+
+        @JavascriptInterface
+        public String updateText() {
+            return updateText;
+        }
+
+        /** 전체 설정에서 로그아웃함: 가계부·근무표 탭도 다시 읽음 */
+        @JavascriptInterface
+        public void loggedOut() {
+            if (!fromLedger()) return;
+            ui.post(() -> {
+                CookieManager.getInstance().flush();
+                for (int k = 0; k < 3; k++) if (k != tab && !loaded[k].isEmpty()) webs[k].reload();
+            });
         }
 
         @JavascriptInterface

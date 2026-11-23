@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">YeYe홈</string>
+    <!-- 앱이 여는 주소 (고정, 서버의 DDNS_URL과 같은 곳) -->
+    <string name="site_url" translatable="false">https://thesing87.synology.me/ledger/</string>
     <string name="duty_widget_month">근무표 · 한 달</string>
     <string name="duty_widget_today">근무표 · 오늘</string>
     <string name="duty_widget_month_desc">이번 달 근무를 달력으로</string>

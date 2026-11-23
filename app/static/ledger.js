@@ -1109,35 +1109,14 @@
         const { status, data } = await post('/api/ledger/rule', { action: 'delete', id: Number(b.dataset.ruleDel) });
         if (status === 200) applyInbox(data);
     });
-    // ---- YeYe홈 앱: 모두 받기, 관리자는 올리기
+    // ---- YeYe홈 앱 받기 (앱 밖에서만 보임). 올리기는 전체 설정(/yeye/#settings)으로 옮김
     const kb = n => n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`;
     function renderApp(app) {
         $('app-get').hidden = !app;
         $('app-none').hidden = !!app;
         const text = app ? `${app.versionName} · ${kb(app.size)} · ${app.uploaded_at.slice(5, 10).replace('-', '/')} 올림` : '';
         $('app-info').textContent = text;
-        $('app-admin-state').textContent = app ? `지금 올라가 있는 앱: ${text} (${app.uploaded_by})` : '아직 올린 앱이 없어요.';
     }
-    $('app-file').addEventListener('change', () => { $('app-upload').disabled = !$('app-file').files.length; $('app-msg').textContent = ''; });
-    $('app-upload').addEventListener('click', async () => {
-        const file = $('app-file').files[0];
-        if (!file) return;
-        $('app-upload').disabled = true;
-        $('app-msg').textContent = '올리는 중…';
-        let status = 0, data = {};
-        try {
-            const res = await fetch('/api/ledger/app-upload', { method: 'POST', credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/octet-stream' }, body: file });
-            status = res.status;
-            data = await res.json().catch(() => ({}));
-        } catch (e) { data = { message: '연결이 끊겼어요.' }; }
-        $('app-upload').disabled = false;
-        if (status !== 200) { $('app-msg').textContent = msgOf(data); return; }
-        $('app-msg').textContent = `올렸어요: ${data.app.versionName}`;
-        $('app-file').value = '';
-        $('app-upload').disabled = true;
-        renderApp(data.app);
-    });
     // ---- 앱의 뒤로가기: 열려 있는 것을 하나 닫으면 true (닫을 게 없으면 false → 앱이 '한 번 더 누르면 종료' 안내)
     window.ledgerBack = () => {
         if ($('app').classList.contains('settings-open')) { closeSettings(); return true; }
@@ -1156,7 +1135,7 @@
     // ==========================================
     function renderSetTabs() {
         const admin = !!(st.me && st.me.admin);
-        if (!admin && ['users', 'appfile'].includes(st.setTab)) st.setTab = 'hook';
+        if (!admin && st.setTab === 'users') st.setTab = 'hook';
         const tab = st.setTab || 'hook';
         document.querySelectorAll('#set-view .set-tab').forEach(b => {
             if (b.classList.contains('admin-only')) b.hidden = !admin;

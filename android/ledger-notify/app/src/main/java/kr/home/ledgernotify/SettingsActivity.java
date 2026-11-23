@@ -52,7 +52,7 @@ public class SettingsActivity extends Activity {
     private Button accessBtn, restrictBtn, batteryBtn, retryBtn, installAllowBtn;
     private String updateText = "";
     private boolean updateNeedsPermission;
-    private EditText urlInput, siteInput;
+    private EditText urlInput;
     private Switch enabledSwitch, alertSwitch, alertPendingSwitch;
     private TextView alertState;
     private LinearLayout appsBox, logBox, ignoreBox;
@@ -85,7 +85,6 @@ public class SettingsActivity extends Activity {
         showAlertState();
         shownLogs = shownApps = shownIgnores = "";
         ui.post(tick);
-        siteInput.setText(store.site());
         // '이 앱의 설치 허용'을 켜러 갔다 돌아온 때는 바로 이어서 설치
         if (Updater.autoDue(updateNeedsPermission)) checkUpdate(true);
     }
@@ -148,23 +147,6 @@ public class SettingsActivity extends Activity {
                 ? "앱 전체에 쓰는 설정이에요. 가계부·근무표 설정은 그 탭에서 위쪽 '설정'을 누르세요."
                 : "카드 결제 알림을 가계부의 확인 대기함으로 보내요. 결제 알림처럼 보이는 글만 보내고, 다른 알림은 휴대폰 밖으로 나가지 않아요.", 13, R.color.muted), gap(4));
 
-        // ---- 가계부 주소 (앱을 열면 뜨는 화면)
-        LinearLayout site = card(root, "가계부 주소");
-        site.addView(text("앱을 열면 이 주소의 가계부가 떠요. 집 밖에서도 쓰려면 바깥 주소(DDNS)를 넣으세요. 예: nas.example.com:8443", 12, R.color.muted));
-        siteInput = new EditText(this);
-        siteInput.setHint("https://…/ledger/");
-        siteInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        siteInput.setSingleLine(true);
-        siteInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        site.addView(siteInput, gap(6));
-        site.addView(button("저장하고 열기", v -> {
-            String s = Store.normalizeSite(siteInput.getText().toString());
-            if (s.isEmpty()) { toast("가계부 주소를 넣어 주세요"); return; }
-            store.setSite(s);
-            siteInput.setText(s);
-            finish();
-        }), gap(4));
-
         // ---- 앱 버전·업데이트
         LinearLayout ver = card(root, "앱 버전 " + Updater.ownVersionName(this));
         updateState = text("", 13, R.color.muted);
@@ -195,7 +177,7 @@ public class SettingsActivity extends Activity {
 
         // ---- 2. 연결 주소
         LinearLayout link = card(root, "2. 연결 주소");
-        link.addView(text("앱 첫 화면(가계부) → '결제 알림 자동 기록' → '이 휴대폰 앱에 연결'을 누르면 저절로 들어가요. 직접 넣으려면 받은 연결 주소를 붙여 넣으세요.", 12, R.color.muted));
+        link.addView(text("가계부 탭 → 위쪽 '설정' → 결제 알림 연결 → '이 휴대폰 앱에 연결'을 누르면 저절로 들어가요. 직접 넣으려면 받은 연결 주소를 붙여 넣으세요.", 12, R.color.muted));
         urlInput = new EditText(this);
         urlInput.setHint("https://…/api/ledger/hook/…");
         urlInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
@@ -281,7 +263,6 @@ public class SettingsActivity extends Activity {
         out.addView(button("로그아웃", v -> logout()), gap(6));
 
         // 들어온 곳에 따라 보일 칸만 (상태 갱신은 모든 칸에 그대로)
-        site.setVisibility(app ? View.VISIBLE : View.GONE);
         ver.setVisibility(app ? View.VISIBLE : View.GONE);
         out.setVisibility(SECTION_APP.equals(section) ? View.VISIBLE : View.GONE);
         for (View v : new View[]{perm, link, alert, ign, apps, logs}) v.setVisibility(phone ? View.VISIBLE : View.GONE);

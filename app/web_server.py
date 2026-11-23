@@ -1301,7 +1301,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             # 앱 홈 탭: 근무표 요약(사람마다 오늘·내일, 고른 사람의 이번 주)과 가계부 이번 달 요약
             person = query.get('person', [''])[0]
             self._send_data(200, {'user': user, 'duty': duty.summary(int(person) if person.isdigit() else None),
-                                  'ledger': self._ledger_summary(user)})
+                                  'ledger': self._ledger_summary(user), 'app': ledger_app.info()})
         elif pure_path == '/api/ledger/duty':
             # 근무표: 그 달(month)·고른 사람(person)의 근무와 사람들·근무 종류
             person = query.get('person', [''])[0]

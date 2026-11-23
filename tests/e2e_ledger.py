@@ -103,21 +103,27 @@ try:
     click('[data-admin="approve"]'); time.sleep(1)
     assert '기다리는 사람 없음' in txt('pending') and '지은' in txt('members') and not vis('set-dot')
     assert 'ledger' in navs()
-    # 앱 파일 올리기 (설정 > 앱 파일): 고르기 전엔 버튼 꺼짐, APK가 아니면 거절, 올리면 받기 버튼
-    click('[data-tab="appfile"]'); time.sleep(.2)
-    assert vis('app-upload') and not vis('admin')
-    assert '아직 올린 앱이 없어요' in txt('app-admin-state') and js("return document.getElementById('app-upload').disabled")
-    assert js("return document.getElementById('app-get').hidden && !document.getElementById('app-none').hidden")
+    # 가계부 설정에는 앱 파일 탭이 없음 (전체 설정으로 옮김)
+    assert not js("return !!document.querySelector('[data-tab=appfile]')")
+    click('#set-back'); time.sleep(.5)                                  # ← 또는 뒤로가기로 메인
+    assert not vis('set-view') and vis('set-open') and js("return location.hash") == ''
+    # 앱 파일 올리기 (전체 설정 /yeye/#settings, 관리자): 고르기 전엔 버튼 꺼짐, APK가 아니면 거절, 올리면 받기 버튼
+    d.get(BASE + '/yeye/#settings'); time.sleep(1.5)
+    assert vis('set-view') and vis('app-up') and not vis('phone-card') and '임기범 (관리자)' in txt('who')
+    assert '아직 올라간 앱이 없어요' in txt('app-state') and js("return document.getElementById('app-upload').disabled") and not vis('app-get')
     bad = os.path.join(tempfile.mkdtemp(), 'x.apk'); open(bad, 'wb').write(b'not apk')
     d.find_element('id', 'app-file').send_keys(bad); time.sleep(.2)
     click('#app-upload'); time.sleep(1)
     assert '(APK) 파일이 아니에요' in txt('app-msg'), txt('app-msg')
     d.find_element('id', 'app-file').send_keys(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures', 'ledger-notify-1.0.apk')); time.sleep(.2)
     click('#app-upload'); time.sleep(1.5)
-    assert '올렸어요: 1.0' in txt('app-msg') and '1.0 · 24KB' in txt('app-admin-state') and '임기범' in txt('app-admin-state'), txt('app-admin-state')
+    assert '올렸어요: 1.0' in txt('app-msg') and '1.0 · 24KB' in txt('app-state') and '임기범' in txt('app-state'), txt('app-state')
+    assert vis('app-get') and js("return document.getElementById('app-get').getAttribute('href')") == '/api/ledger/app.apk'
+    click('#set-back'); time.sleep(.6)
+    assert not vis('set-view') and vis('duty-card') and vis('ledger-card')
+    # 가계부의 결제 알림 연결 칸(앱 밖)에는 받기 버튼만 그대로
+    d.get(BASE + '/ledger/'); time.sleep(2); open_all()
     assert '1.0 · 24KB' in txt('app-info') and js("return document.getElementById('app-link').getAttribute('href')") == '/api/ledger/app.apk'
-    click('#set-back'); time.sleep(.5)                                  # ← 또는 뒤로가기로 메인
-    assert not vis('set-view') and vis('set-open') and js("return location.hash") == ''
     print('ADMIN OK')
 
     # ---- 입력: 금액(쉼표), 소비형태, 메모
@@ -244,7 +250,7 @@ try:
     typ('login-name', '지은'); typ('login-pw', 'pw12')
     js("document.getElementById('login-form').requestSubmit()"); time.sleep(2)
     assert vis('app') and not vis('admin') and '지은' in txt('who-me')
-    assert js("return document.querySelector('[data-tab=users]').hidden && document.querySelector('[data-tab=appfile]').hidden")   # 관리자 탭 없음
+    assert js("return document.querySelector('[data-tab=users]').hidden")   # 관리자 탭 없음
     assert not js("return document.querySelector('#list [data-entry]').classList.contains('mine')")
     click('#list [data-entry]'); time.sleep(.3)
     assert not vis('edit-row')

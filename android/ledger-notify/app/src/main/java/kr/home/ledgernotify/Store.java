@@ -22,6 +22,7 @@ final class Store {
 
     Store(Context c) {
         p = c.getApplicationContext().getSharedPreferences("ledger_notify", Context.MODE_PRIVATE);
+        site = c.getApplicationContext().getString(R.string.site_url);
     }
 
     // ---------- 설정
@@ -29,29 +30,13 @@ final class Store {
     void setUrl(String u) { p.edit().putString("url", u).apply(); }
     boolean enabled() { return p.getBoolean("enabled", true); }
 
-    /** 앱 화면에 띄울 가계부 주소 (https://집주소/ledger/). 따로 넣지 않았으면 연결 주소에서 만듦 */
-    String site() {
-        String s = p.getString("site", "");
-        if (!s.isEmpty()) return s;
-        String u = url();
-        int i = u.indexOf("/api/ledger/hook/");
-        return i > 0 ? u.substring(0, i) + "/ledger/" : "";
-    }
-    void setSite(String s) { p.edit().putString("site", s).apply(); }
+    /** 앱이 여는 가계부 주소: 고정 (res/values/strings.xml의 site_url, 시험용 debug 빌드는 src/debug에서 에뮬레이터용 주소) */
+    private final String site;
+    String site() { return site; }
 
     /** 아래쪽 탭: 마지막으로 본 화면 (0 가계부, 1 근무표). 앱을 다시 열면 그 탭부터 */
     int tab() { return p.getInt("tab", 0); }
     void setTab(int t) { p.edit().putInt("tab", t).apply(); }
-
-    /** 주소 고르기: 'nas.example.com:8443' → https://nas.example.com:8443/ledger/, 주소 끝에 /ledger/를 붙임 */
-    static String normalizeSite(String raw) {
-        String s = raw == null ? "" : raw.trim();
-        if (s.isEmpty()) return "";
-        if (!s.startsWith("http://") && !s.startsWith("https://")) s = "https://" + s;
-        int path = s.indexOf('/', s.indexOf("://") + 3);
-        String origin = path < 0 ? s : s.substring(0, path);
-        return origin + "/ledger/";
-    }
 
     /** 주소의 앞부분 (https://집주소:포트) */
     static String origin(String url) {

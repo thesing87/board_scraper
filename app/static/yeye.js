@@ -2,6 +2,8 @@
 // - 근무표: 사람마다 오늘·내일, '처음 보일 사람'(근무표 설정 > 이 휴대폰, localStorage duty_home_person)의 오늘부터 7일
 // - 가계부: 이번 달 지출·수입, 내 확인 대기함 건수, 최근 기록 3건
 // - 카드를 누르면 그 페이지로 (앱은 그 탭으로 바꿈). 앱이 홈 탭을 다시 보일 때 window.homeRefresh()로 새로
+// - 전체 설정(#settings, 앱 홈 탭의 위쪽 '설정' = window.appOpenSettings): 앱 파일(관리자는 APK 올리기, 앱 밖에서는 앱 받기),
+//   이 휴대폰 앱(버전·새 버전 확인, 앱 안에서만), 로그아웃
 'use strict';
 
 (function () {
@@ -18,7 +20,10 @@
         return '#' + c.map(v => Math.round(v + (t - v) * f).toString(16).padStart(2, '0')).join('');
     }
     const badgeStyle = h => `background:${mix(h, true, 0.8)};color:${mix(h, false, 0.5)}`;
-    if (window.LedgerApp) document.documentElement.classList.add('in-app');
+    const inApp = !!window.LedgerApp;
+    if (inApp) document.documentElement.classList.add('in-app');
+    const st = { me: null, app: null };
+    const kb = n => n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`;
 
     async function req(url, body) {
         const res = await fetch(url, body ? { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
@@ -51,16 +56,21 @@
                 load.triedToken = true;
                 if ((await req('/api/ledger/session', { action: 'login', password: token })).status === 200) { load(); return; }
             }
-            $('app').hidden = true;
+            st.me = null;
+            $('app').hidden = $('set-view').hidden = $('outside-bar').hidden = true;
             $('auth').hidden = false;
             return;
         }
         if (status !== 200) { $('msg').textContent = '불러오지 못했어요. 잠시 뒤 다시 해 주세요.'; return; }
         $('msg').textContent = '';
         $('auth').hidden = true;
-        $('app').hidden = false;
+        st.me = data.user;
+        st.app = data.app;
+        $('outside-bar').hidden = false;
+        showSettings(location.hash === '#settings');
         renderDuty(data.duty);
         renderLedger(data.ledger);
+        renderSettings();
     }
     window.homeRefresh = load;
 
@@ -93,6 +103,98 @@
                 <span class="m">${esc(r.memo)}</span><span class="a${r.kind === 'income' ? ' in' : ''}">${r.kind === 'income' ? '+' : '-'}${won(r.amount)}</span></div>`).join('')}</div>`
                 : '<p class="none" style="margin:10px 0 0">이번 달 기록이 아직 없어요.</p>');
     }
+
+    // ==========================================
+    // 전체 설정 (#settings)
+    // ==========================================
+    function showSettings(on) {
+        $('app').hidden = on;
+        $('set-view').hidden = !on;
+        if (on) window.scrollTo(0, 0);
+    }
+    function openSettings() {
+        if (location.hash !== '#settings') history.pushState({ homeSettings: 1 }, '', '#settings');
+        showSettings(true);
+        renderSettings();
+    }
+    function closeSettings() {
+        if (location.hash === '#settings' && (history.state || {}).homeSettings) history.back();
+        else {
+            if (location.hash === '#settings') history.replaceState(null, '', location.pathname + location.search);
+            showSettings(false);
+        }
+    }
+    window.addEventListener('popstate', () => { if (st.me) showSettings(location.hash === '#settings'); });
+    $('set-open').addEventListener('click', openSettings);
+    $('set-back').addEventListener('click', closeSettings);
+    // 앱이 부름: 홈 탭 위쪽 '설정' → 전체 설정 (로그인 전이면 false → 앱이 자기 설정을 엶), 뒤로가기 → 설정부터 닫음
+    window.appOpenSettings = () => { if (!st.me) return false; openSettings(); return true; };
+    window.ledgerBack = () => { if (!$('set-view').hidden) { closeSettings(); return true; } return false; };
+
+    function renderSettings() {
+        if (!st.me) return;
+        const admin = !!st.me.admin, app = st.app;
+        const text = app ? `YeYe홈 ${app.versionName} · ${kb(app.size)} · ${String(app.uploaded_at).slice(5, 10).replace('-', '/')} 올림` : '';
+        // 앱 파일: 관리자는 올리기, 앱 밖의 멤버는 받기, 앱 안의 멤버에게는 칸을 숨김 (앱은 저절로 새 버전으로)
+        $('appfile-card').hidden = !admin && inApp;
+        $('appfile-tag').hidden = !admin;
+        $('app-state').textContent = app ? `서버에 올라간 앱: ${text}${admin && app.uploaded_by ? ` (${app.uploaded_by})` : ''}` : '아직 올라간 앱이 없어요.';
+        $('app-up').hidden = !admin;
+        $('app-get').hidden = !app || inApp;
+        $('who').textContent = `${st.me.name}${admin ? ' (관리자)' : ''}로 로그인했어요.`;
+        if (inApp) {
+            let v = '';
+            try { v = window.LedgerApp.version(); } catch (e) { /* 예전 앱 */ }
+            const newer = app && v && app.versionName !== v;
+            $('phone-state').textContent = `이 휴대폰 앱 ${v || '?'}` + (app ? (newer ? ` · 새 버전 ${app.versionName}이 있어요` : ' · 최신 버전이에요') : '');
+        }
+    }
+    $('app-file').addEventListener('change', () => { $('app-upload').disabled = !$('app-file').files.length; $('app-msg').textContent = ''; });
+    $('app-upload').addEventListener('click', async () => {
+        const file = $('app-file').files[0];
+        if (!file) return;
+        $('app-upload').disabled = true;
+        $('app-msg').classList.remove('ok');
+        $('app-msg').textContent = '올리는 중…';
+        let status = 0, data = {};
+        try {
+            const res = await fetch('/api/ledger/app-upload', { method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+            status = res.status;
+            data = await res.json().catch(() => ({}));
+        } catch (e) { data = { message: '연결이 끊겼어요.' }; }
+        if (status !== 200) {
+            $('app-upload').disabled = false;
+            $('app-msg').textContent = String(data.message || '올리지 못했어요.').replace(/^❌\s*/, '');
+            return;
+        }
+        $('app-msg').classList.add('ok');
+        $('app-msg').textContent = `올렸어요: ${data.app.versionName}`;
+        $('app-file').value = '';
+        st.app = data.app;
+        renderSettings();
+    });
+    $('update-check').addEventListener('click', () => {
+        try { window.LedgerApp.checkUpdate(); } catch (e) { $('phone-state').textContent = '이 앱 버전에서는 위쪽 줄의 설정에서 확인해 주세요.'; return; }
+        $('phone-state').textContent = '새 버전 확인 중…';
+        // 확인 결과는 앱이 알려 줌 (몇 번 물어봄)
+        let n = 0;
+        const t = setInterval(() => {
+            let s = '';
+            try { s = window.LedgerApp.updateText(); } catch (e) { /* 예전 앱 */ }
+            if (s) $('phone-state').textContent = s;
+            if (++n > 20 || (s && !/확인 중|받는 중/.test(s))) clearInterval(t);
+        }, 700);
+    });
+    $('logout').addEventListener('click', async () => {
+        await req('/api/ledger/session', { action: 'logout' });
+        try { localStorage.removeItem('ledger_user'); } catch (e) { /* 저장 불가 */ }
+        // 앱 안이면 가계부·근무표 탭도 다시 읽음
+        try { if (window.LedgerApp && window.LedgerApp.loggedOut) window.LedgerApp.loggedOut(); } catch (e) { /* 예전 앱 */ }
+        if (location.hash === '#settings') history.replaceState(null, '', location.pathname);
+        load.triedToken = true;     // 관리자 기기여도 방금 로그아웃했으면 자동으로 다시 로그인하지 않음
+        load();
+    });
 
     // 카드·대기함을 누르면 그 페이지로 (앱은 탭을 바꿈)
     document.addEventListener('click', e => {

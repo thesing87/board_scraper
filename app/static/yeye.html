@@ -10,8 +10,10 @@
     <script src="/yeye.js" defer></script>
 </head>
 <body>
-    <!-- YeYe홈 앱의 홈 탭: 근무표·가계부 요약 (가계부 로그인). 카드를 누르면 그 탭으로 -->
+    <!-- YeYe홈 앱의 홈 탭: 근무표·가계부 요약 (가계부 로그인). 카드를 누르면 그 탭으로.
+         전체 설정(#settings): 앱 파일(관리자 올리기·앱 받기) · 이 휴대폰 앱(버전·새 버전 확인) · 로그아웃 -->
     <main class="page">
+        <div class="outside-bar" id="outside-bar" hidden><b>YeYe홈</b><button type="button" class="small" id="set-open">전체 설정</button></div>
         <section class="card auth" id="auth" hidden>
             <form id="login-form" autocomplete="on">
                 <b>가계부 계정으로 로그인</b>
@@ -33,6 +35,31 @@
                 <div id="ledger-body"></div>
             </div>
             <p class="msg" id="msg" role="alert"></p>
+        </div>
+
+        <div id="set-view" hidden>
+            <div class="set-top"><button type="button" class="small" id="set-back">‹ 홈</button><b>전체 설정</b></div>
+            <section class="card" id="appfile-card">
+                <div class="head"><b>앱 파일</b><span class="tag" id="appfile-tag">관리자</span></div>
+                <p class="hint" id="app-state"></p>
+                <a class="app-get" id="app-get" href="/api/ledger/app.apk" hidden>YeYe홈 앱 받기</a>
+                <div class="app-up" id="app-up" hidden>
+                    <input type="file" id="app-file" accept=".apk,application/vnd.android.package-archive" aria-label="APK 파일">
+                    <button type="button" class="small primary" id="app-upload" disabled>올리기</button>
+                    <p class="hint">빌드한 YeYe홈 APK를 올리면 모두의 앱이 열 때 저절로 새 버전으로 바뀌어요.</p>
+                </div>
+                <p class="msg" id="app-msg" role="alert"></p>
+            </section>
+            <section class="card in-app-only" id="phone-card">
+                <div class="head"><b>이 휴대폰 앱</b></div>
+                <p class="hint" id="phone-state"></p>
+                <button type="button" class="small" id="update-check">새 버전 확인</button>
+            </section>
+            <section class="card">
+                <div class="head"><b>로그인</b></div>
+                <p class="hint" id="who"></p>
+                <button type="button" class="small" id="logout">로그아웃</button>
+            </section>
         </div>
     </main>
 </body>

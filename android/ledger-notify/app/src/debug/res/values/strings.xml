@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- debug 빌드(에뮬레이터 확인용, 배포 안 함): 이 PC의 시험 서버 -->
+<resources>
+    <string name="site_url" translatable="false">http://10.0.2.2:8765/ledger/</string>
+</resources>
