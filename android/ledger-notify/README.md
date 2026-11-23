@@ -65,3 +65,13 @@ D:\android\gradle-8.7\bin\gradle.bat assembleRelease --no-daemon
 - `local.properties`: `sdk.dir=D\:/android/sdk`
 - 서명: `keystore.properties`가 있으면 그 키로 (원본은 `D:\android\keys`, git에 안 올림). 새 버전은 **같은 키**로 서명해야 지우지 않고 덮어 설치됨 — 키를 잃어버리면 앱을 지우고 다시 설치(설정도 다시)해야 하니 `D:\android\keys`를 백업해 둘 것
 - 새 버전을 낼 때는 `app/build.gradle`의 `versionCode`를 올림
+
+### 시험 앱 (qa 빌드, 정식 키가 없을 때)
+
+`gradle assembleQa` → `app\build\outputs\apk\qa\app-qa.apk`. 패키지 `kr.home.ledgernotify.test`, 이름 'YeYe가계부 테스트'라
+정식 앱 옆에 따로 설치되고, 가계부 관리자 칸에는 올라가지 않음 (패키지가 달라 거절됨).
+
+- 서명은 임시 키 `keystore-test.properties` → `C:\Users\thesi\android-keys-temp\ledger-notify-test.jks` (회사 PC, git에 안 올림). **정식 릴리즈에는 쓰지 않음**
+- 시험 앱의 연결 주소는 정식 앱 설정의 연결 주소를 그대로 붙여 넣을 것 — 가계부에서 '이 휴대폰 앱에 연결'(새 연결 주소)을 누르면 정식 앱의 주소가 막힘
+- 두 앱이 같은 결제를 보내도 서버가 10분 안의 같은 알림은 한 번만 넣음 ('같은 알림이 이미 있어 넘김')
+- 회사 PC에는 JDK 17이 `C:\Users\thesi\android-tools\jdk17`에, SDK가 `%LOCALAPPDATA%\Android\Sdk`에 있음 (Gradle은 `~/.gradle/wrapper/dists`의 8.10.2)

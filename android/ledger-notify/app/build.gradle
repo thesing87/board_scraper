@@ -7,6 +7,11 @@ plugins {
 def keyProps = new Properties()
 def keyFile = rootProject.file('keystore.properties')
 if (keyFile.exists()) keyFile.withInputStream { keyProps.load(it) }
+// 시험용 빌드(qa): 정식 키가 없을 때 임시 키(keystore-test.properties, git에 안 올림)로 서명해 정식 앱과 따로 설치되는 시험 앱을 만듦.
+// 패키지 이름이 kr.home.ledgernotify.test라 가계부 관리자 칸에는 올라가지 않음 (정식 릴리즈는 반드시 release + 원래 키로)
+def testProps = new Properties()
+def testFile = rootProject.file('keystore-test.properties')
+if (testFile.exists()) testFile.withInputStream { testProps.load(it) }
 
 android {
     namespace 'kr.home.ledgernotify'
@@ -29,12 +34,28 @@ android {
                 keyPassword keyProps['keyPassword']
             }
         }
+        if (testFile.exists()) {
+            qa {
+                storeFile file(testProps['storeFile'])
+                storePassword testProps['storePassword']
+                keyAlias testProps['keyAlias']
+                keyPassword testProps['keyPassword']
+            }
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
             signingConfig keyFile.exists() ? signingConfigs.release : signingConfigs.debug
+        }
+        // 시험 앱: 이름 'YeYe가계부 테스트'(src/qa/res), 정식 앱 옆에 따로 설치됨 (gradle assembleQa)
+        qa {
+            initWith release
+            applicationIdSuffix '.test'
+            versionNameSuffix '-test'
+            matchingFallbacks = ['release']
+            signingConfig testFile.exists() ? signingConfigs.qa : signingConfigs.debug
         }
     }
 

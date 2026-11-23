@@ -171,7 +171,7 @@ public class MainActivity extends Activity {
         bar.setBackgroundColor(getColor(R.color.green));
         bar.setPadding(dp(16), 0, dp(4), 0);
         TextView title = new TextView(this);
-        title.setText("YeYe가계부");
+        title.setText(R.string.app_name);   // 시험 앱은 'YeYe가계부 테스트'
         title.setTextColor(0xFFFFFFFF);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
         title.setTypeface(Typeface.DEFAULT_BOLD);
