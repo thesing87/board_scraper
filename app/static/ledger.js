@@ -253,13 +253,19 @@
         $('type-seg').querySelectorAll('[data-type]').forEach(b => b.classList.toggle('on', b.dataset.type === st.type));
         $('ana-seg').querySelectorAll('[data-ana]').forEach(b => b.classList.toggle('on', b.dataset.ana === st.ana));
         const d = st.day;
+        // 기간 (해도 함께): 월별 '2026년 11월', 일별 '2026.11.23 (일)'
         $('period').textContent = st.mode === 'day'
-            ? `${d.getMonth() + 1}월 ${d.getDate()}일 (${'일월화수목금토'[d.getDay()]})`
+            ? `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()} (${'일월화수목금토'[d.getDay()]})`
             : `${d.getFullYear()}년 ${d.getMonth() + 1}월`;
+        $('mode-btn').textContent = `${st.mode === 'day' ? '일별' : '월별'} ▾`;
         const members = st.data.members;
         if (st.who && !members.some(m => m.id === st.who)) st.who = 0;
         $('people').innerHTML = `<button type="button" class="pp all${!st.who ? ' on' : ''}" data-who="0">모두</button>`
             + members.map(m => `<button type="button" class="pp${st.who === m.id ? ' on' : ''}" data-who="${m.id}">${avatarOf(m.id, m.name)}${esc(m.name)}</button>`).join('');
+        // '전체 ▾' 단추: 고른 사람·종류를 보여 주고, 거른 상태면 파랗게
+        const picked = [st.who ? nameOf(st.who) : '', { expense: '지출만', income: '수입만' }[st.type] || ''].filter(Boolean);
+        $('pick-btn').textContent = `${picked.length ? picked.join(' · ') : '전체'} ▾`;
+        $('pick-btn').classList.toggle('on', picked.length > 0);
     }
 
     function renderSummary() {
@@ -668,6 +674,17 @@
         render();
     });
     $('mode-month').addEventListener('click', () => { st.mode = 'month'; render(); });
+    // 거르기 고르기 창: 단추를 누르면 열고 닫음, 창 밖을 누르면 닫음. 일별·월별은 고르면 닫고, 종류·사람은 둘 다 고를 수 있게 열어 둠
+    function setPop(id, open) {
+        $(id).hidden = !open;
+        $(id === 'mode-pop' ? 'mode-btn' : 'pick-btn').setAttribute('aria-expanded', String(open));
+    }
+    const closePops = () => { setPop('mode-pop', false); setPop('pick-pop', false); };
+    $('mode-btn').addEventListener('click', () => { const open = $('mode-pop').hidden; closePops(); setPop('mode-pop', open); });
+    $('pick-btn').addEventListener('click', () => { const open = $('pick-pop').hidden; closePops(); setPop('pick-pop', open); });
+    $('mode-pop').addEventListener('click', e => { if (e.target.closest('button')) setPop('mode-pop', false); });
+    // (누른 단추가 다시 그려져 문서에서 빠져도 알 수 있게, 누른 순간의 경로로)
+    document.addEventListener('click', e => { if (!e.composedPath().some(n => n.classList && n.classList.contains('filter'))) closePops(); });
     function setKind(kind) {
         if (st.kind === kind) return;
         st.kind = kind;
@@ -941,6 +958,7 @@
     });
     // ---- 앱의 뒤로가기: 열려 있는 것을 하나 닫으면 true (닫을 게 없으면 false → 앱이 '한 번 더 누르면 종료' 안내)
     window.ledgerBack = () => {
+        if (!$('mode-pop').hidden || !$('pick-pop').hidden) { closePops(); return true; }
         if (!$('memo-dd').hidden) { $('memo-dd').hidden = true; return true; }
         if (st.popFor != null) { st.popFor = null; renderCats(); return true; }
         if (!$('addbox').hidden) { $('addbox').hidden = true; return true; }

@@ -34,6 +34,11 @@ def typ(i, v):
     js("const e = document.getElementById(arguments[0]); e.value = arguments[1]; e.dispatchEvent(new Event('input', {bubbles: true}))", i, v)
 def click(sel):
     js("document.querySelector(arguments[0]).click()", sel)
+def tap(by, value):
+    # 사람이 누르듯 (가운데로 스크롤해 위쪽 고정 메뉴에 가리지 않게)
+    el = d.find_element(by, value)
+    js("arguments[0].scrollIntoView({block: 'center'})", el); time.sleep(.1)
+    el.click()
 def open_all():
     # 지출 입력·분석과 달력·기록은 접는 칸이고 늘 접힌 채로 시작 → 시험에서는 모두 펼쳐 둠
     js("['entry', 'ana-fold', 'list-fold'].forEach(i => document.getElementById(i).open = true)")
@@ -221,10 +226,20 @@ try:
     typ('amount', '5600'); typ('memo', '스타벅스'); click('#cats [data-cat]:nth-child(2)')   # 카페
     click('#save'); time.sleep(1.2)
     assert txt('m2') == '3건'
-    # 사람 거르기: 지은만
+    # 거르기는 한 줄: ‹ 기간(해 포함) › · '월별 ▾' · '전체 ▾' (종류·사람은 고르기 창 안)
+    assert txt('period') == f'{date.today().year}년 {date.today().month}월' and txt('mode-btn') == '월별 ▾' and txt('pick-btn') == '전체 ▾'
+    assert not vis('pick-pop') and not vis('people')
+    tops = js("return ['prev', 'period', 'next', 'mode-btn', 'pick-btn'].map(i => Math.round(document.getElementById(i).getBoundingClientRect().top + document.getElementById(i).offsetHeight / 2))")
+    assert max(tops) - min(tops) <= 2, tops
+    # 사람 거르기: 지은만 (창을 열고 고르면 창은 열린 채, 단추는 '지은 ▾' 파랗게, 창 밖을 누르면 닫힘)
+    tap('id', 'pick-btn'); time.sleep(.3)
+    assert vis('pick-pop') and vis('people')
     jieun = js("return [...document.querySelectorAll('#people [data-who]')].find(b => b.textContent.includes('지은')).dataset.who")
-    click(f'#people [data-who="{jieun}"]'); time.sleep(.3)
+    tap('css selector', f'#people [data-who="{jieun}"]'); time.sleep(.3)
+    assert vis('pick-pop') and txt('pick-btn') == '지은 ▾' and js("return document.getElementById('pick-btn').classList.contains('on')")
     assert txt('m-ex') == '−5,600원' and '지은' in txt('m-ex-label') and txt('count') == '1건 · −5,600원'
+    tap('id', 'count'); time.sleep(.3)
+    assert not vis('pick-pop')
     click('#people [data-who="0"]'); time.sleep(.3)
     # 기록 칸은 쓴 사람의 색 (프로필 동그라미의 연한 색 + 왼쪽 띠), 사람마다 다름
     rows = js("return [...document.querySelectorAll('#list .it')].map(b => [b.textContent.includes('지은'), getComputedStyle(b).backgroundColor, getComputedStyle(b).boxShadow])")
@@ -238,10 +253,13 @@ try:
     click('#type-seg [data-type="expense"]'); time.sleep(.3)
     assert band() == [f'{month} 지출−47,600원'], band()
     click(f'#people [data-who="{jieun}"]'); time.sleep(.3)
-    assert band() == [f'{month} 지출−5,600원'], band()
+    assert band() == [f'{month} 지출−5,600원'], band() and txt('pick-btn') == '지은 · 지출만 ▾'
     click('#people [data-who="0"]'); click('#type-seg [data-type="all"]'); time.sleep(.3)
     # 일별: 오늘 기록, 하루 앞으로 가면 없음
-    click('#mode-day'); time.sleep(.3)
+    tap('id', 'mode-btn'); time.sleep(.2)
+    tap('id', 'mode-day'); time.sleep(.3)
+    t = date.today()
+    assert not vis('mode-pop') and txt('mode-btn') == '일별 ▾' and txt('period').startswith(f'{t.year}.{t.month}.{t.day} (')
     assert txt('m2') == '3건' and '이날' in txt('m-ex-label')
     click('#prev'); time.sleep(1)
     assert txt('m2') == '0건' and '기록이 없어요' in txt('list')

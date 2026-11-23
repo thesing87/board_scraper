@@ -176,7 +176,16 @@ button:disabled { opacity: .6; cursor: default; }
 .edit-row { display: flex; gap: 8px; margin-top: 8px; }
 
 /* 거르기 */
-.filter { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #E9EBEF; margin-bottom: 12px; }
+.filter { position: relative; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 12px; background: #E9EBEF; margin-bottom: 12px; }
+.filter .period { flex: 1 1 auto; min-width: 0; }
+/* 거르기 단추 ('월별 ▾'·'전체 ▾'): 누르면 아래에 고르기 창, 거른 상태면 파랗게 */
+.fbtn { flex: 0 0 auto; height: 30px; padding: 0 10px; border: 1px solid #CBD0D8; border-radius: 8px; background: var(--surface); font-size: 13px; white-space: nowrap; max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }
+.fbtn.on { border-color: #378ADD; background: #E6F1FB; color: #0C447C; font-weight: 700; }
+.fpop { position: absolute; top: calc(100% + 4px); right: 0; z-index: 20; display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--border);
+    border-radius: 12px; background: var(--surface); box-shadow: 0 6px 20px rgba(17, 24, 39, .14); max-width: calc(100vw - 32px); }
+.fpop[hidden] { display: none; }
+.fpop .flabel { margin: 0; font-size: 11.5px; color: var(--muted); }
+.fpop .people { margin-left: 0; }
 .seg { display: inline-flex; border: 1px solid #CBD0D8; border-radius: 8px; overflow: hidden; background: var(--surface); }
 .seg button { border: 0; border-radius: 0; height: 30px; font-size: 13px; }
 .seg button.on { background: var(--text); color: #fff; }
@@ -184,7 +193,7 @@ button:disabled { opacity: .6; cursor: default; }
 .seg.small button { height: 26px; font-size: 12px; padding: 0 10px; }
 .in-tag { font-size: 11px; font-weight: 400; padding: 1px 6px; border-radius: 999px; background: #E6F1FB; color: #0C447C; }
 .period { display: flex; align-items: center; gap: 4px; }
-.period span { min-width: 124px; text-align: center; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.period span { min-width: 124px; text-align: center; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .icon { width: 30px; height: 30px; padding: 0; font-size: 18px; line-height: 1; }
 .people { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .pp { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 10px 0 3px; border-radius: 999px; font-size: 13px; }
@@ -287,7 +296,7 @@ button:disabled { opacity: .6; cursor: default; }
     .metric b { font-size: 16px; }
     .row2 { grid-template-columns: minmax(0, 1fr) 128px; }
     .people { margin-left: 0; }
-    .period span { min-width: 110px; }
+    .period span { min-width: 0; flex: 1; }
 }
 
 /* ---- 휴대폰 글자 1px 작게 (휴대폰 폭에서 가계부 안의 모든 글자): 위 규칙의 font-size −1px. 위에서 글자 크기를 바꾸면 여기도 함께 */

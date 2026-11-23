@@ -155,15 +155,24 @@
             </details>
 
             <!-- 거르기: 일별·월별, 기간, 누구의 소비인지 -->
+            <!-- 한 줄: ‹ 기간 › · '월별 ▾'(일별·월별) · '전체 ▾'(종류·사람 고르기 창) -->
             <div class="filter">
-                <div class="seg"><button type="button" id="mode-day">일별</button><button type="button" id="mode-month">월별</button></div>
                 <div class="period">
                     <button type="button" class="icon" id="prev" aria-label="이전">‹</button>
                     <span id="period"></span>
                     <button type="button" class="icon" id="next" aria-label="다음">›</button>
                 </div>
-                <div class="seg" id="type-seg"><button type="button" data-type="all">모두</button><button type="button" data-type="expense">지출만</button><button type="button" data-type="income">수입만</button></div>
-                <div class="people" id="people"></div>
+                <button type="button" class="fbtn" id="mode-btn" aria-haspopup="true" aria-expanded="false">월별 ▾</button>
+                <button type="button" class="fbtn" id="pick-btn" aria-haspopup="true" aria-expanded="false">전체 ▾</button>
+                <div class="fpop" id="mode-pop" hidden>
+                    <div class="seg"><button type="button" id="mode-day">일별</button><button type="button" id="mode-month">월별</button></div>
+                </div>
+                <div class="fpop" id="pick-pop" hidden>
+                    <p class="flabel">종류</p>
+                    <div class="seg" id="type-seg"><button type="button" data-type="all">모두</button><button type="button" data-type="expense">지출만</button><button type="button" data-type="income">수입만</button></div>
+                    <p class="flabel">사람</p>
+                    <div class="people" id="people"></div>
+                </div>
             </div>
             <!-- 이 기간 합계: 거르기 바로 아래 (기간·사람을 바꾸면 바로 보이게) -->
             <div class="metrics">
