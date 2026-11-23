@@ -116,6 +116,13 @@
                 <div class="inbox-foot"><button type="button" class="primary small" id="inbox-all">모두 확정</button><span class="hint">분류가 정해진 결제와 지울 기록을 찾은 취소만</span>
                     <span class="msg" id="inbox-msg"></span></div>
             </section>
+            <!-- 버린 알림 (최근 30일): 대기함이 비어 있어도 버린 것이 있으면 작게, 누르면 목록·되살리기 -->
+            <div class="trash" id="trash" hidden>
+                <button type="button" class="trash-btn" id="trash-btn" aria-expanded="false"></button>
+                <div class="trash-list" id="trash-list" hidden></div>
+            </div>
+            <!-- 버린 직후 5초: 되돌리기 -->
+            <div class="undo" id="undo" hidden role="status"><span id="undo-msg"></span><button type="button" id="undo-btn">되돌리기</button></div>
 
             <!-- 입력 (기록을 누르면 고치기). 접는 칸: 늘 접힌 채로 시작, 기록을 눌러 고치면 저절로 펼침 -->
             <details class="sec entry fold" id="entry">

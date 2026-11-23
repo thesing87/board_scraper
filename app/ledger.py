@@ -487,7 +487,8 @@ def _suggest(history, item):
 def inbox(user):
     """내 확인 대기함 (최근 순). 취소 알림은 지울 기록을 찾아 붙임. 분류가 없는 결제는 지난 기록의 추천(suggest)을 붙임"""
     with _db() as conn:
-        rows = conn.execute("SELECT * FROM ledger_inbox WHERE user_id = ? ORDER BY used_on DESC, used_time DESC, id DESC", (user['id'],)).fetchall()
+        rows = conn.execute("SELECT * FROM ledger_inbox WHERE user_id = ? AND discarded_at IS NULL ORDER BY used_on DESC, used_time DESC, id DESC",
+                            (user['id'],)).fetchall()
         history = _history_map(conn) if rows else {}
         items = []
         for r in rows:
@@ -505,9 +506,10 @@ def rules():
         return [dict(r) for r in conn.execute("SELECT id, pattern, category_id FROM ledger_rules ORDER BY pattern")]
 
 
-def _own_item(conn, user, item_id):
+def _own_item(conn, user, item_id, discarded=False):
+    """내 대기함의 알림 (discarded=True면 버린 알림 중에서)"""
     row = conn.execute("SELECT * FROM ledger_inbox WHERE id = ?", (item_id,)).fetchone()
-    if not row or row['user_id'] != user['id']:
+    if not row or row['user_id'] != user['id'] or (row['discarded_at'] is not None) != discarded:
         raise LedgerError('없는 알림이에요.')
     return row
 
@@ -564,17 +566,40 @@ def confirm_all(user):
     done = 0
     with _db() as conn, conn:
         history = _history_map(conn)
-        for row in conn.execute("SELECT * FROM ledger_inbox WHERE user_id = ?", (user['id'],)).fetchall():
+        for row in conn.execute("SELECT * FROM ledger_inbox WHERE user_id = ? AND discarded_at IS NULL", (user['id'],)).fetchall():
             if (row['is_cancel'] and _cancel_match(conn, row)) or (not row['is_cancel'] and (row['category_id'] is not None or _suggest(history, row))):
                 _confirm_row(conn, row, history)
                 done += 1
     return done
 
 
+DISCARD_KEEP_DAYS = 30
+
+
 def discard_item(user, item_id):
+    """버리기: 대기함에서 빼되 DISCARD_KEEP_DAYS일 동안 보관 (되살릴 수 있게)"""
     with _db() as conn, conn:
         _own_item(conn, user, item_id)
-        conn.execute("DELETE FROM ledger_inbox WHERE id = ?", (item_id,))
+        conn.execute("UPDATE ledger_inbox SET discarded_at = ? WHERE id = ?", (_now(), item_id))
+
+
+def restore_item(user, item_id):
+    """버린 알림을 대기함으로 되살림"""
+    with _db() as conn, conn:
+        _own_item(conn, user, item_id, discarded=True)
+        conn.execute("UPDATE ledger_inbox SET discarded_at = NULL WHERE id = ?", (item_id,))
+
+
+def discarded(user):
+    """내가 버린 알림 (최근 버린 순, 최근 DISCARD_KEEP_DAYS일). 그보다 오래된 것은 이때 지움"""
+    with _db() as conn, conn:
+        conn.execute("DELETE FROM ledger_inbox WHERE discarded_at IS NOT NULL AND discarded_at < datetime(?, ?)",
+                     (_now(), f'-{DISCARD_KEEP_DAYS} days'))
+        rows = conn.execute("""SELECT id, amount, merchant, card, used_on, used_time, is_cancel, discarded_at FROM ledger_inbox
+                               WHERE user_id = ? AND discarded_at IS NOT NULL ORDER BY discarded_at DESC, id DESC LIMIT 100""",
+                            (user['id'],)).fetchall()
+    return [{**{k: r[k] for k in ('id', 'amount', 'merchant', 'card', 'used_on', 'used_time', 'discarded_at')}, 'cancel': bool(r['is_cancel'])}
+            for r in rows]
 
 
 def add_rule(pattern, category_id):

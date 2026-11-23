@@ -346,6 +346,20 @@ try:
     with storage._db() as conn:
         food = conn.execute("SELECT id FROM ledger_categories WHERE name = '식비'").fetchone()[0]
     assert not vis('inbox-sec') and entries()[-1]['amount'] == 7700 and entries()[-1]['category_id'] == food
+    # 버리기 → 5초 '되돌리기' → 대기함으로, 다시 버리면 '버린 알림 1 ›' 목록에서 되살리기
+    assert send(f'[삼성카드] {md} 18:40 3,300원 일시불 편의점') == 200
+    js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)
+    click('#inbox [data-ib-del]'); time.sleep(1)
+    assert not vis('inbox-sec') and vis('undo') and '편의점 3,300원' in txt('undo-msg'), txt('undo-msg')
+    click('#undo-btn'); time.sleep(1)
+    assert vis('inbox-sec') and '편의점' in txt('inbox') and not vis('undo') and not vis('trash')
+    click('#inbox [data-ib-del]'); time.sleep(5.6)
+    assert not vis('undo') and vis('trash') and txt('trash-btn') == '버린 알림 1 ›' and not vis('trash-list')
+    click('#trash-btn'); time.sleep(.3)
+    assert vis('trash-list') and '편의점' in txt('trash-list') and '버림' in txt('trash-list')
+    click('#trash-list [data-restore]'); time.sleep(1)
+    assert vis('inbox-sec') and '편의점' in txt('inbox') and not vis('trash')
+    click('#inbox [data-ib-del]'); time.sleep(1)
     # 취소 알림: 맞는 기록을 찾아 지움
     assert send(f'[삼성카드] 승인취소 6,100원 블루보틀 한남점 {md} 15:10') == 200
     js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)

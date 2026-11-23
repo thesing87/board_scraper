@@ -121,7 +121,23 @@ assert call('/api/ledger/inbox', {'action': 'update', 'id': coupang, 'used_on': 
 
 # ---- 하나 확정 → 기록(메모는 가게 이름), 버리기, 모두 확정
 assert call('/api/ledger/inbox', {'action': 'confirm', 'id': star}, cookie=user)[0] == 200
+# 버리기는 30일 동안 보관: 대기함에서 빠지고 버린 알림(discarded)에, 되살리면 대기함으로, 남의 것·대기 중인 것은 되살릴 수 없음
+code, data = call('/api/ledger/inbox', {'action': 'discard', 'id': emart}, cookie=user)
+assert code == 200 and emart not in [x['id'] for x in data['items']] and [x['id'] for x in data['discarded']] == [emart], data
+assert data['discarded'][0]['merchant'] == '이마트 성수점' and data['discarded'][0]['discarded_at']
+assert call('/api/ledger/inbox', {'action': 'confirm', 'id': emart}, cookie=user)[0] == 400                  # 버린 것은 확정 못 함
+assert call('/api/ledger/inbox', {'action': 'restore', 'id': emart}, cookie=admin)[0] == 400                 # 남의 것
+assert call('/api/ledger/inbox', {'action': 'restore', 'id': coupang}, cookie=user)[0] == 400                # 대기 중인 것
+assert call('/api/ledger/inbox', cookie=user)[1]['discarded'][0]['id'] == emart                               # 대기함을 열 때도 함께
+code, data = call('/api/ledger/inbox', {'action': 'restore', 'id': emart}, cookie=user)
+assert code == 200 and emart in [x['id'] for x in data['items']] and data['discarded'] == [], data
 assert call('/api/ledger/inbox', {'action': 'discard', 'id': emart}, cookie=user)[0] == 200
+# 30일 지난 버린 알림은 저절로 지워짐
+with storage._db() as conn, conn:
+    conn.execute("UPDATE ledger_inbox SET discarded_at = datetime('now', 'localtime', '-31 days') WHERE id = ?", (emart,))
+assert call('/api/ledger/inbox', cookie=user)[1]['discarded'] == []
+with storage._db() as conn:
+    assert not conn.execute("SELECT 1 FROM ledger_inbox WHERE id = ?", (emart,)).fetchone()
 code, data = call('/api/ledger/inbox', {'action': 'confirm_all'}, cookie=user)
 assert code == 200 and data['confirmed'] == 1 and data['items'] == []
 month = today.strftime('%Y-%m')

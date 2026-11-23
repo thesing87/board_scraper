@@ -84,6 +84,22 @@ button:disabled { opacity: .6; cursor: default; }
 .clr-wrap .clr:hover { color: var(--text); }
 .clr-wrap input:placeholder-shown + .clr { display: none; }
 .inbox-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 14px; }
+/* 버린 알림 (대기함 아래, 오른쪽 작은 링크 → 목록) */
+.trash { margin: -6px 0 12px; }
+.trash-btn { display: block; margin-left: auto; height: auto; padding: 2px 4px; border: 0; background: none; font-size: 12.5px; color: var(--muted); }
+.trash-btn:hover { color: var(--text); }
+.trash-list { margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.trash-list .th { padding: 8px 14px; font-size: 12px; font-weight: 700; color: var(--muted); background: var(--soft); }
+.trash-list .tr { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-top: 1px solid var(--divider); }
+.trash-list .tr .m { flex: 1; min-width: 0; font-size: 13px; }
+.trash-list .tr .m small { display: block; color: var(--muted); font-size: 11.5px; }
+.trash-list .tr button { height: 30px; font-size: 12.5px; flex: 0 0 auto; }
+/* 버린 직후 되돌리기 (화면 아래 5초) */
+.undo { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 14px; max-width: calc(100vw - 32px);
+    padding: 10px 14px; border-radius: 12px; background: #2C2C2A; color: #fff; font-size: 13px; box-shadow: 0 6px 20px rgba(0, 0, 0, .25); }
+.undo[hidden] { display: none; }
+.undo span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.undo button { flex: 0 0 auto; border: 0; background: none; color: #85B7EB; font-weight: 700; padding: 0; height: auto; }
 .auto { margin-bottom: 12px; }
 .auto > summary { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; font-weight: 700; list-style: none; }
 .auto > summary::-webkit-details-marker { display: none; }
@@ -359,4 +375,7 @@ button:disabled { opacity: .6; cursor: default; }
     .who-tag { font-size: 10.5px; }
     .who-tag .av { font-size: 8px; }
     .ib .edit .e-shop input { font-size: 13px; }
+    .trash-btn { font-size: 11.5px; }
+    .trash-list .tr .m { font-size: 12px; }
+    .undo { font-size: 12px; }
 }

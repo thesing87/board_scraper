@@ -1270,7 +1270,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         elif pure_path == '/api/ledger/state':
             self._send_data(200, {'user': user, **ledger.state(query.get('month', [''])[0])})
         elif pure_path == '/api/ledger/inbox':
-            self._send_data(200, {'items': ledger.inbox(user), 'rules': ledger.rules(), 'hook': ledger.hook_info(user),
+            self._send_data(200, {'items': ledger.inbox(user), 'rules': ledger.rules(), 'discarded': ledger.discarded(user), 'hook': ledger.hook_info(user),
                                   'hook_base': self._site_base() + self.LEDGER_HOOK_PREFIX, 'app': ledger_app.info()})
         elif pure_path == '/api/ledger/app':
             # 앱이 연결 주소 없이 가계부 로그인만으로 새 버전을 확인할 때
@@ -1452,17 +1452,19 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         self._send_data(200, {'success': True, 'app': app})
 
     def _handle_ledger_inbox(self):
-        """{action: update|confirm|confirm_all|discard|test, id, category_id, amount, merchant, used_on}"""
+        """{action: update|confirm|confirm_all|discard|restore|test, id, category_id, amount, merchant, used_on}. restore는 버린 알림을 되살림"""
         user = self._ledger_user()
         if not user:
             return
         b, action, item = self._body, self._body.get('action'), self._body.get('id')
         def done(extra=None):
-            return {**(extra or {}), 'items': ledger.inbox(user), 'rules': ledger.rules()}
+            return {**(extra or {}), 'items': ledger.inbox(user), 'rules': ledger.rules(), 'discarded': ledger.discarded(user)}
         if action == 'confirm_all':
             self._ledger_reply(lambda: done({'confirmed': ledger.confirm_all(user)}))
         elif action == 'test':
             self._ledger_reply(lambda: (ledger.send_test_notice(user), done())[1])
+        elif action == 'restore' and type(item) is int:
+            self._ledger_reply(lambda: (ledger.restore_item(user, item), done())[1])
         elif action in ('update', 'confirm', 'discard') and type(item) is int:
             def run():
                 if action == 'update' or any(k in b for k in ('category_id', 'amount', 'merchant', 'used_on')):

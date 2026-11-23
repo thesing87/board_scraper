@@ -337,7 +337,8 @@ def _create_schema(conn):
             used_time   TEXT NOT NULL DEFAULT '',
             is_cancel   INTEGER NOT NULL DEFAULT 0,
             category_id INTEGER REFERENCES ledger_categories(id) ON DELETE SET NULL,
-            created_at  TEXT NOT NULL
+            created_at  TEXT NOT NULL,
+            discarded_at TEXT   -- 버린 때 (버린 알림은 30일 동안 보관해 되살릴 수 있음, NULL이면 대기 중)
         );
         CREATE TABLE IF NOT EXISTS ledger_rules (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -480,6 +481,9 @@ def _migrate_legacy_files(conn):
 
 def _add_missing_columns(conn):
     """이미 만들어진 DB에 나중에 추가된 컬럼을 보충"""
+    if 'discarded_at' not in {row['name'] for row in conn.execute("PRAGMA table_info(ledger_inbox)")}:
+        conn.execute("ALTER TABLE ledger_inbox ADD COLUMN discarded_at TEXT")
+        log_msg("[DB] ledger_inbox.discarded_at 컬럼 추가")
     if 'kind' not in {row['name'] for row in conn.execute("PRAGMA table_info(ledger_categories)")}:
         # 가계부 수입: 그전까지의 분류는 모두 지출
         conn.execute("ALTER TABLE ledger_categories ADD COLUMN kind TEXT NOT NULL DEFAULT 'expense'")

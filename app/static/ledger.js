@@ -740,7 +740,7 @@
     async function loadInbox() {
         const { status, data } = await get('/api/ledger/inbox');
         if (status !== 200) return;
-        st.inbox = data.items; st.rules = data.rules; st.hook = data.hook; st.hookBase = data.hook_base;
+        st.inbox = data.items; st.rules = data.rules; st.hook = data.hook; st.hookBase = data.hook_base; st.discarded = data.discarded || [];
         renderApp(data.app);
         // 앱 안에서 처음 열었는데 연결 전이면 연결 칸을 펼쳐 둠
         if (inApp && !st.autoOpened && !appConnected()) { st.autoOpened = true; $('auto').open = true; }
@@ -749,6 +749,7 @@
     function applyInbox(data) {
         if (data.items) st.inbox = data.items;
         if (data.rules) st.rules = data.rules;
+        if (data.discarded) st.discarded = data.discarded;
         renderInbox(); renderAuto();
     }
     const expenseCats = () => (st.data ? st.data.categories.filter(c => c.kind !== 'income') : []);
@@ -761,7 +762,46 @@
         if (words.length >= 2 && /(점|지점|역점|센터)$/.test(words[words.length - 1])) words.pop();
         return (words[0] && words[0].length >= 2 ? words[0] : words.join(' ')).slice(0, 20);
     }
+    // 버린 알림 (최근 30일, 최근 버린 순): '버린 알림 n ›'을 누르면 목록, 되살리면 대기함으로
+    function renderTrash() {
+        const list = st.discarded || [];
+        $('trash').hidden = !list.length;
+        if (!list.length) st.trashOpen = false;
+        $('trash-btn').textContent = `버린 알림 ${list.length} ${st.trashOpen ? '▴' : '›'}`;
+        $('trash-btn').setAttribute('aria-expanded', String(!!st.trashOpen));
+        $('trash-list').hidden = !st.trashOpen;
+        if (!st.trashOpen) return;
+        const ago = at => {
+            const min = Math.max(0, Math.round((Date.now() - new Date(at.replace(' ', 'T'))) / 60000));
+            return min < 1 ? '방금' : min < 60 ? `${min}분 전` : min < 1440 ? `${Math.floor(min / 60)}시간 전` : `${Math.floor(min / 1440)}일 전`;
+        };
+        $('trash-list').innerHTML = '<div class="th">버린 알림 · 최근 30일 (지나면 저절로 지워져요)</div>' + list.map(x => `
+            <div class="tr"><div class="m"><b>${x.cancel ? '취소 ' : ''}${won(x.amount)}</b> ${esc(x.merchant || '가게 이름 없음')}
+                <small>${+x.used_on.slice(5, 7)}/${+x.used_on.slice(8)} ${esc(x.used_time)} · ${esc(x.card || '카드')} · ${ago(x.discarded_at)} 버림</small></div>
+                <button type="button" data-restore="${x.id}">되살리기</button></div>`).join('');
+    }
+    $('trash-btn').addEventListener('click', () => { st.trashOpen = !st.trashOpen; renderTrash(); });
+    $('trash-list').addEventListener('click', async e => {
+        const b = e.target.closest('[data-restore]');
+        if (b && await inboxPost({ action: 'restore', id: Number(b.dataset.restore) })) $('inbox-sec').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+    // 버린 직후 5초 동안 '되돌리기'
+    let undoTimer = null;
+    function showUndo(item) {
+        clearTimeout(undoTimer);
+        $('undo-msg').textContent = `'${item.merchant || '가게 이름 없음'} ${won(item.amount)}'을 버렸어요`;
+        $('undo').dataset.id = item.id;
+        $('undo').hidden = false;
+        undoTimer = setTimeout(() => { $('undo').hidden = true; }, 5000);
+    }
+    $('undo-btn').addEventListener('click', async () => {
+        clearTimeout(undoTimer);
+        $('undo').hidden = true;
+        await inboxPost({ action: 'restore', id: Number($('undo').dataset.id) });
+    });
+
     function renderInbox() {
+        renderTrash();
         const items = st.inbox || [];
         // 고치는 중이면 친 값은 그대로 (1분마다 대기함을 새로 받아 다시 그려도)
         const typed = st.editItem != null && $('ib-merchant') ? { amount: $('ib-amount').value, merchant: $('ib-merchant').value,
@@ -831,7 +871,7 @@
             return;
         }
         if (e.target.closest('[data-ib-ok]')) { if (await inboxPost({ action: 'confirm', id })) load(); return; }
-        if (e.target.closest('[data-ib-del]')) { await inboxPost({ action: 'discard', id }); return; }
+        if (e.target.closest('[data-ib-del]')) { if (await inboxPost({ action: 'discard', id })) showUndo(item); return; }
         if (e.target.closest('[data-ib-rule]')) {
             const cat = item.category_id != null ? item.category_id : item.suggest && item.suggest.category_id;
             const { status, data } = await post('/api/ledger/rule', { action: 'add', pattern: suggestPattern(item.merchant), category_id: cat });
