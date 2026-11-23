@@ -428,17 +428,8 @@
     function renderList(list) {
         if (!list.length) { $('count').textContent = '0건'; $('list').innerHTML = '<p class="empty">이 기간에는 기록이 없어요</p>'; return; }
         const days = [...new Set(list.map(e => e.used_on))];
-        // 맨 위 합계 띠: 목록과 같은 거르기(기간·사람·종류)로 수입·지출·합계 ('지출만'·'수입만'이면 그쪽 칸만)
-        const when = st.mode === 'day' ? `${st.day.getMonth() + 1}월 ${st.day.getDate()}일` : `${st.day.getMonth() + 1}월`;
-        const sumIn = list.filter(e => kindOf(e) === 'income').reduce((t, e) => t + e.amount, 0);
-        const sumEx = list.filter(e => kindOf(e) === 'expense').reduce((t, e) => t + e.amount, 0);
-        const cells = [];
-        if (st.type !== 'expense') cells.push(`<div>${when} 수입<b class="plus">+${won(sumIn)}</b></div>`);
-        if (st.type !== 'income') cells.push(`<div>${when} 지출<b class="minus">−${won(sumEx)}</b></div>`);
-        if (st.type === 'all') cells.push(`<div>합계<b class="${sumIn - sumEx < 0 ? 'minus' : sumIn - sumEx > 0 ? 'plus' : ''}">${signed(sumIn - sumEx)}</b></div>`);
-        $('count').innerHTML = `${list.length}건 · ${signed(st.type === 'expense' ? -sumEx : sumIn - sumEx)}`;   // 접힌 줄에도 보이게
-        const band = `<div class="list-sum" style="grid-template-columns:repeat(${cells.length}, minmax(0, 1fr))">${cells.join('')}</div>`;
-        $('list').innerHTML = band + days.map(day => {
+        $('count').textContent = `${list.length}건`;   // (기간 합계는 바로 위 수입·지출·남은 돈 칸에)
+        $('list').innerHTML = days.map(day => {
             const items = list.filter(e => e.used_on === day);
             const dayIn = items.filter(e => kindOf(e) === 'income').reduce((t, e) => t + e.amount, 0);
             const dayEx = items.filter(e => kindOf(e) === 'expense').reduce((t, e) => t + e.amount, 0);

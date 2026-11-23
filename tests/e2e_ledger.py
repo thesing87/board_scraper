@@ -159,7 +159,7 @@ try:
     assert '+3,200,000원' in txt('list') and '−57,000원' in txt('list')      # 날짜 머리줄: 수입·지출
     # 기록 거르기: 수입만
     click('#type-seg [data-type="income"]'); time.sleep(.3)
-    assert txt('count').startswith('1건 · ') and txt('m-ex') == '−57,000원'          # 요약은 그대로
+    assert txt('count') == '1건' and txt('m-ex') == '−57,000원'          # 요약은 그대로
     click('#type-seg [data-type="all"]')
     # 분석: 수입
     click('#ana-seg [data-ana="income"]'); time.sleep(.3)
@@ -237,7 +237,7 @@ try:
     jieun = js("return [...document.querySelectorAll('#people [data-who]')].find(b => b.textContent.includes('지은')).dataset.who")
     tap('css selector', f'#people [data-who="{jieun}"]'); time.sleep(.3)
     assert vis('pick-pop') and txt('pick-btn') == '지은 ▾' and js("return document.getElementById('pick-btn').classList.contains('on')")
-    assert txt('m-ex') == '−5,600원' and '지은' in txt('m-ex-label') and txt('count') == '1건 · −5,600원'
+    assert txt('m-ex') == '−5,600원' and '지은' in txt('m-ex-label') and txt('count') == '1건'
     tap('id', 'count'); time.sleep(.3)
     assert not vis('pick-pop')
     click('#people [data-who="0"]'); time.sleep(.3)
@@ -246,14 +246,11 @@ try:
     colors = {who: bg for who, bg, _ in rows}
     assert len(colors) == 2 and all(bg != 'rgba(0, 0, 0, 0)' for bg in colors.values()) and 'inset' in rows[0][2], rows
     assert all(colors[who] == bg for who, bg, _ in rows), rows
-    # 기록 목록 맨 위 합계 띠: 목록과 같은 거르기로 수입·지출·합계, '지출만'이면 지출 칸만
-    band = lambda: js("return [...document.querySelectorAll('#list .list-sum > div')].map(c => c.textContent.trim())")
-    month = f'{date.today().month}월'
-    assert band() == [f'{month} 수입+3,200,000원', f'{month} 지출−47,600원', '합계+3,152,400원'], band()
+    # 기록 칸에는 합계 띠 없음 (기간 합계는 위 수입·지출·남은 돈 칸), 접힌 줄은 건수만
+    assert not js("return document.querySelector('#list .list-sum')") and txt('count') == '3건'
     click('#type-seg [data-type="expense"]'); time.sleep(.3)
-    assert band() == [f'{month} 지출−47,600원'], band()
     click(f'#people [data-who="{jieun}"]'); time.sleep(.3)
-    assert band() == [f'{month} 지출−5,600원'], band() and txt('pick-btn') == '지은 · 지출만 ▾'
+    assert txt('pick-btn') == '지은 · 지출만 ▾' and txt('count') == '1건'
     click('#people [data-who="0"]'); click('#type-seg [data-type="all"]'); time.sleep(.3)
     # 일별: 오늘 기록, 하루 앞으로 가면 없음
     tap('id', 'mode-btn'); time.sleep(.2)
