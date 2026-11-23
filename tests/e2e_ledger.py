@@ -287,6 +287,13 @@ try:
     assert send(f'[삼성카드] 지*님 {md} 12:41 4,800원 일시불 블루보틀 성수점') == 200
     js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)
     assert vis('inbox-sec') and txt('inbox-count') == '1' and '블루보틀 성수점' in txt('inbox') and '규칙에 없는 가게' in txt('inbox')
+    # 기록·분류(state)가 대기함보다 늦게 와도 대기함 내용이 나옴 (알림을 눌러 앱을 열 때 자주 그럼)
+    slow = d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source':
+        "const f0 = window.fetch; window.fetch = (u, o) => String(u).includes('/api/ledger/state') ? new Promise(r => setTimeout(r, 1500)).then(() => f0(u, o)) : f0(u, o);"})
+    d.refresh(); time.sleep(3.5)
+    assert '블루보틀 성수점' in txt('inbox') and js("return document.querySelectorAll('#inbox [data-item]').length") == 1, txt('inbox')
+    d.execute_cdp_cmd('Page.removeScriptToEvaluateOnNewDocument', {'identifier': slow['identifier']})
+    d.refresh(); time.sleep(2); open_all()
     assert js("return document.querySelector('#inbox [data-ib-ok]').disabled")
     cafe = js("return [...document.querySelectorAll('#inbox [data-ib-cat]')].find(c => c.textContent.includes('카페')).dataset.ibCat")
     click(f'#inbox [data-ib-cat="{cafe}"]'); time.sleep(1)

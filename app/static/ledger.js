@@ -148,6 +148,8 @@
             if (!list.some(c => c.id === st.sels[kind])) st.sels[kind] = list.length ? list[0].id : null;
         }
         render();
+        // 대기함이 먼저 와서 분류 목록 없이 칸만 열렸으면 이제 내용까지 (알림을 눌러 열 때 기록 쪽이 늦게 오는 일이 잦음)
+        if (st.inbox) renderInbox();
     }
 
     // ==========================================
