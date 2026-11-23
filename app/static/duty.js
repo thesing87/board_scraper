@@ -66,7 +66,7 @@
         st.me = null;
         storageSet(LEDGER_FLAG, '');
         $('app').hidden = true;
-        $('who-me').hidden = $('logout').hidden = $('set-open').hidden = true;
+        $('who-me').hidden = $('logout').hidden = $('set-open').hidden = $('all-set').hidden = true;
         $('auth').hidden = false;
     }
     $('login-form').addEventListener('submit', async e => {
@@ -90,7 +90,7 @@
         $('auth').hidden = true;
         $('app').hidden = false;
         $('who-me').textContent = user.name;
-        $('who-me').hidden = $('logout').hidden = $('set-open').hidden = false;
+        $('who-me').hidden = $('logout').hidden = $('set-open').hidden = $('all-set').hidden = false;
         showSettings(location.hash === '#settings');
         load();
         try { if (window.LedgerApp && window.LedgerApp.loggedIn) window.LedgerApp.loggedIn(); } catch (e) { /* 예전 앱 */ }

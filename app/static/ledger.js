@@ -70,7 +70,7 @@
         st.me = null;
         storageSet(LEDGER_FLAG, '');
         $('app').hidden = true;
-        $('who-me').hidden = $('logout').hidden = $('set-open').hidden = true;
+        $('who-me').hidden = $('logout').hidden = $('set-open').hidden = $('all-set').hidden = true;
         $('app').classList.remove('settings-open');
         $('auth').hidden = false;
         setTab(tab || 'login');
@@ -123,7 +123,7 @@
         $('app').hidden = false;
         const av = avatarOf(user.id, user.name);
         $('who-me').innerHTML = `${av}<span>${esc(user.name)}</span>`;
-        $('who-me').hidden = $('logout').hidden = false;
+        $('who-me').hidden = $('logout').hidden = $('all-set').hidden = false;
         setUsedOn(ymd(new Date()));
         $('set-open').hidden = false;
         renderSetTabs();

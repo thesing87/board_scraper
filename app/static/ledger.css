@@ -21,6 +21,7 @@ button:disabled { opacity: .6; cursor: default; }
 .site-top-tools { display: flex; align-items: center; gap: 8px; }
 .who-me { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
 .tool { height: 30px; font-size: 12px; }
+a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); text-decoration: none; white-space: nowrap; }
 
 .sec { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; min-width: 0; }
 .sec-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-weight: 700; border-radius: 13px 13px 0 0; }

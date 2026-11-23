@@ -54,6 +54,8 @@ try:
     js("document.getElementById('login-form').requestSubmit()"); time.sleep(1.2)
     assert vis('app') and txt('who-me') == '지은' and vis('no-person') and not vis('roster')
     assert 'duty' in js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)")
+    # 머리줄 '전체 설정' 링크 (PC에서 /yeye/#settings로)
+    assert vis('all-set') and js("return document.getElementById('all-set').getAttribute('href')") == '/yeye/#settings'
 
     # ---- 사람 더하기 (빈 이름은 막음)
     click('#first-person'); time.sleep(.2)
@@ -116,6 +118,7 @@ try:
     d.set_window_size(400, 900); time.sleep(.5)
     assert js("return document.documentElement.scrollWidth <= window.innerWidth")
     os.makedirs(SHOTS, exist_ok=True)
+    assert js("const r = document.getElementById('logout').getBoundingClientRect(); return r.right <= window.innerWidth")   # 머리줄 버튼이 화면 안에
     d.save_screenshot(os.path.join(SHOTS, 'duty_mobile.png'))
     d.set_window_size(1280, 900); time.sleep(.4)
 
