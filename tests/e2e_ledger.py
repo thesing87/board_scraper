@@ -73,6 +73,18 @@ try:
     # 지출 입력·분석과 달력·기록은 접힌 채로 시작 (머리 줄은 보임)
     assert vis('set-open') and not vis('set-view') and not vis('auto') and not vis('admin')
     assert js("return ['entry', 'ana-fold', 'list-fold'].map(i => document.getElementById(i).open)") == [False, False, False]
+    # 지출 입력의 날짜는 짧게 '11/23 (일)' (휴대폰 기본 모양은 칸에 안 들어감), 금액·날짜 칸은 메모 칸과 같은 높이
+    import datetime as _dt
+    _t = _dt.date.today()
+    assert txt('used-on-show') == f"{_t.month}/{_t.day} ({'월화수목금토일'[_t.weekday()]})", txt('used-on-show')
+    js("const i = document.getElementById('used-on'); i.value = '2025-12-31'; i.dispatchEvent(new Event('change', {bubbles: true}))")
+    assert txt('used-on-show') == '25/12/31'
+    js("const i = document.getElementById('used-on'); i.value = arguments[0]; i.dispatchEvent(new Event('input', {bubbles: true}))", _t.isoformat())
+    js("document.getElementById('entry').open = true")
+    h = lambda i: js(f"return Math.round(document.getElementById('{i}').getBoundingClientRect().height)")
+    assert h('amount') == h('used-on') == h('memo') == 38, (h('amount'), h('used-on'), h('memo'))
+    assert js("return getComputedStyle(document.getElementById('amount')).fontSize") == '16px'
+    js("document.getElementById('entry').open = false")
     # 순서: 지출 입력 → 거르기 → 수입·지출·남은 돈·기록 칸 → 분석·달력 → 기록
     order = js("return [...document.querySelectorAll('#entry, #app .filter, #app .metrics, #ana-fold, #list-fold')].map(e => e.id || e.className)")
     assert order == ['entry', 'filter', 'metrics', 'ana-fold', 'list-fold'], order
@@ -406,15 +418,16 @@ try:
     click('#inbox [data-ib-del]'); time.sleep(1)
     assert not vis('inbox-sec') and vis('undo') and '편의점 3,300원' in txt('undo-msg'), txt('undo-msg')
     click('#undo-btn'); time.sleep(1)
-    assert vis('inbox-sec') and '편의점' in txt('inbox') and not vis('undo') and not vis('trash')
+    assert vis('inbox-sec') and '편의점' in txt('inbox') and not vis('undo') and js("return document.getElementById('tab-trash-n').hidden")
     click('#inbox [data-ib-del]'); time.sleep(5.6)
-    assert not vis('undo') and vis('trash') and txt('trash-btn') == '버린 알림 1 ›' and txt('tab-trash-n') == '1' and not vis('trash-list')
-    click('#trash-btn'); time.sleep(.3)                                 # → 설정 > 버린 알림
+    # 버린 알림은 메인에 보이지 않고 설정 > 버린 알림 탭에만 (탭에 개수)
+    assert not vis('undo') and not js("return !!document.getElementById('trash-btn')") and txt('tab-trash-n') == '1' and not vis('trash-list')
+    click('#set-open'); time.sleep(.3); click('[data-tab="trash"]'); time.sleep(.2)
     assert vis('set-view') and vis('trash-list') and '편의점' in txt('trash-list') and '버림' in txt('trash-list')
     click('#trash-list [data-restore]'); time.sleep(1)
     assert '버린 알림이 없어요' in txt('trash-list') and js("return document.getElementById('tab-trash-n').hidden")
     click('#set-back'); time.sleep(.4)
-    assert vis('inbox-sec') and '편의점' in txt('inbox') and not vis('trash')
+    assert vis('inbox-sec') and '편의점' in txt('inbox')
     click('#inbox [data-ib-del]'); time.sleep(1)
     # 취소 알림: 맞는 기록을 찾아 지움
     assert send(f'[삼성카드] 승인취소 6,100원 블루보틀 한남점 {md} 15:10') == 200

@@ -66,10 +66,6 @@
                 <div class="inbox-foot"><button type="button" class="primary small" id="inbox-all">모두 확정</button><span class="hint">분류가 정해진 결제와 지울 기록을 찾은 취소만</span>
                     <span class="msg" id="inbox-msg"></span></div>
             </section>
-            <!-- 버린 알림 (최근 30일): 대기함이 비어 있어도 버린 것이 있으면 작게, 누르면 설정 > 버린 알림 -->
-            <div class="trash" id="trash" hidden>
-                <button type="button" class="trash-btn" id="trash-btn"></button>
-            </div>
             <!-- 버린 직후 5초: 되돌리기 -->
             <div class="undo" id="undo" hidden role="status"><span id="undo-msg"></span><button type="button" id="undo-btn">되돌리기</button></div>
 
@@ -84,7 +80,8 @@
                     </div>
                     <div class="row2">
                         <input id="amount" inputmode="numeric" placeholder="금액 (원)" class="amount" autocomplete="off">
-                        <input id="used-on" type="date">
+                        <!-- 날짜: 휴대폰 기본 모양(2026. 11. 23. + 아이콘)은 칸에 안 들어가 '11/23 (일)'처럼 짧게 보이고, 누르면 휴대폰 달력 -->
+                        <label class="date-wrap"><span class="date-show" id="used-on-show" aria-hidden="true"></span><input id="used-on" type="date" aria-label="날짜"></label>
                     </div>
                     <div class="cat-head"><span id="cat-hint">소비형태 — 누르면 선택, 없으면 추가</span><button type="button" class="small" id="cat-edit">색·이름 편집</button></div>
                     <div class="cats" id="cats"></div>

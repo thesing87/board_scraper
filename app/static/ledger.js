@@ -19,6 +19,14 @@
     const won = n => `${Math.round(n).toLocaleString('ko-KR')}원`;
     const pad = n => String(n).padStart(2, '0');
     const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    // 지출 입력의 날짜: 칸에는 짧게 '11/23 (일)' (올해가 아니면 '25/12/31')
+    function showUsedOn() {
+        const v = $('used-on').value, el = $('used-on-show');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { el.textContent = '날짜'; return; }
+        const [y, m, d] = v.split('-').map(Number);
+        el.textContent = y === new Date().getFullYear() ? `${m}/${d} (${'일월화수목금토'[new Date(y, m - 1, d).getDay()]})` : `${String(y).slice(2)}/${pad(m)}/${pad(d)}`;
+    }
+    function setUsedOn(v) { $('used-on').value = v; showUsedOn(); }
     const ym = d => ymd(d).slice(0, 7);
     function mix(hex, toWhite, f) {
         const c = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
@@ -116,7 +124,7 @@
         const av = avatarOf(user.id, user.name);
         $('who-me').innerHTML = `${av}<span>${esc(user.name)}</span>`;
         $('who-me').hidden = $('logout').hidden = false;
-        $('used-on').value = ymd(new Date());
+        setUsedOn(ymd(new Date()));
         $('set-open').hidden = false;
         renderSetTabs();
         if (location.hash === '#settings') showSettings(true);
@@ -493,14 +501,18 @@
         st.catEditing = false; st.popFor = null;
         $('addbox').hidden = true;
         $('amount').value = entry.amount.toLocaleString('ko-KR');
-        $('used-on').value = entry.used_on;
+        setUsedOn(entry.used_on);
         $('memo').value = entry.memo || '';
         $('entry-msg').textContent = '';
         render();
         $('entry').open = true;   // 접혀 있으면 펼쳐서 고치기
         $('entry').scrollIntoView({ block: 'start', behavior: 'smooth' });
     }
-    $('edit-cancel').addEventListener('click', () => { clearForm(); $('used-on').value = ymd(new Date()); render(); });
+    $('used-on').addEventListener('input', showUsedOn);
+    $('used-on').addEventListener('change', showUsedOn);
+    // 칸 어디를 눌러도 달력 (PC 크롬은 아이콘을 눌러야만 열림)
+    $('used-on').addEventListener('click', e => { try { e.target.showPicker(); } catch (err) { /* 지원 안 함 */ } });
+    $('edit-cancel').addEventListener('click', () => { clearForm(); setUsedOn(ymd(new Date())); render(); });
     $('edit-delete').addEventListener('click', async () => {
         if (st.editId == null) return;
         // 지울 기록을 확인 창에 보여 줌: 날짜 · 메모(없으면 소비형태) / 소비형태 · 금액 · 쓴 사람
@@ -515,7 +527,7 @@
         const { status, data } = await post('/api/ledger/entry', { action: 'delete', id: st.editId });
         if (status !== 200) { $('entry-msg').textContent = msgOf(data); return; }
         clearForm();
-        $('used-on').value = ymd(new Date());
+        setUsedOn(ymd(new Date()));
         load();
     });
 
@@ -773,11 +785,9 @@
         if (words.length >= 2 && /(점|지점|역점|센터)$/.test(words[words.length - 1])) words.pop();
         return (words[0] && words[0].length >= 2 ? words[0] : words.join(' ')).slice(0, 20);
     }
-    // 버린 알림 (최근 30일, 최근 버린 순): 메인의 '버린 알림 n ›'을 누르면 설정 > 버린 알림, 되살리면 대기함으로
+    // 버린 알림 (최근 30일, 최근 버린 순): 설정 > 버린 알림 탭에만 (탭에 개수), 되살리면 대기함으로
     function renderTrash() {
         const list = st.discarded || [];
-        $('trash').hidden = !list.length;
-        $('trash-btn').textContent = `버린 알림 ${list.length} ›`;
         $('tab-trash-n').hidden = !list.length;
         $('tab-trash-n').textContent = list.length;
         if (!list.length) { $('trash-list').innerHTML = '<p class="none">버린 알림이 없어요.</p>'; return; }
@@ -790,7 +800,6 @@
                 <small>${+x.used_on.slice(5, 7)}/${+x.used_on.slice(8)} ${esc(x.used_time)} · ${esc(x.card || '카드')} · ${ago(x.discarded_at)} 버림</small></div>
                 <button type="button" data-restore="${x.id}">되살리기</button></div>`).join('');
     }
-    $('trash-btn').addEventListener('click', () => openSettings('trash'));
     $('trash-list').addEventListener('click', async e => {
         const b = e.target.closest('[data-restore]');
         if (b) await inboxPost({ action: 'restore', id: Number(b.dataset.restore) });
