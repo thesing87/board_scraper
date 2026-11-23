@@ -213,6 +213,15 @@ try:
     colors = {who: bg for who, bg, _ in rows}
     assert len(colors) == 2 and all(bg != 'rgba(0, 0, 0, 0)' for bg in colors.values()) and 'inset' in rows[0][2], rows
     assert all(colors[who] == bg for who, bg, _ in rows), rows
+    # 기록 목록 맨 위 합계 띠: 목록과 같은 거르기로 수입·지출·합계, '지출만'이면 지출 칸만
+    band = lambda: js("return [...document.querySelectorAll('#list .list-sum > div')].map(c => c.textContent.trim())")
+    month = f'{date.today().month}월'
+    assert band() == [f'{month} 수입+3,200,000원', f'{month} 지출−47,600원', '합계+3,152,400원'], band()
+    click('#type-seg [data-type="expense"]'); time.sleep(.3)
+    assert band() == [f'{month} 지출−47,600원'], band()
+    click(f'#people [data-who="{jieun}"]'); time.sleep(.3)
+    assert band() == [f'{month} 지출−5,600원'], band()
+    click('#people [data-who="0"]'); click('#type-seg [data-type="all"]'); time.sleep(.3)
     # 일별: 오늘 기록, 하루 앞으로 가면 없음
     click('#mode-day'); time.sleep(.3)
     assert txt('m2') == '3건' and '이날' in txt('m-ex-label')
