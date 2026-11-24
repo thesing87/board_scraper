@@ -415,26 +415,35 @@ final class DutyWidgets {
             textAt(s, w - 10, h - 6, 9, FAINT, false, Paint.Align.RIGHT);
         }
 
-        /** 칸 안 일정 한 줄: 왼쪽 캘린더 색 띠 + 첫 일정 이름, 더 있으면 오른쪽에 +n */
-        void eventChip(List<Ev> evs, RectF r) {
-            Ev e = evs.get(0);
-            fill.setColor(mix(e.color, 0xFFFFFFFF, 0.85f));
-            cv.drawRect(r, fill);
-            fill.setColor(e.color);
-            cv.drawRect(new RectF(r.left, r.top, r.left + 2, r.bottom), fill);
-            String more = evs.size() > 1 ? "+" + (evs.size() - 1) : "";
-            float moreW = 0;
-            if (!more.isEmpty()) {
-                text.setTypeface(Typeface.DEFAULT_BOLD);
-                text.setTextSize(8);
-                moreW = text.measureText(more) + 2;
+        static final float EV_LINE = 11, EV_GAP = 1;
+
+        /** 칸 안 일정: 남는 높이만큼 한 줄에 하나씩 (왼쪽 캘린더 색 띠 + 이름). 다 못 넣으면 마지막 줄 오른쪽에 +n */
+        void eventLines(List<Ev> evs, RectF area) {
+            int fit = (int) ((area.height() + EV_GAP) / (EV_LINE + EV_GAP));
+            int n = Math.min(evs.size(), fit);
+            for (int i = 0; i < n; i++) {
+                Ev e = evs.get(i);
+                float top = area.top + i * (EV_LINE + EV_GAP);
+                RectF r = new RectF(area.left, top, area.right, top + EV_LINE);
+                fill.setColor(mix(e.color, 0xFFFFFFFF, 0.85f));
+                cv.drawRect(r, fill);
+                fill.setColor(e.color);
+                cv.drawRect(new RectF(r.left, r.top, r.left + 2, r.bottom), fill);
+                int rest = i == n - 1 ? evs.size() - n : 0;
+                String more = rest > 0 ? "+" + rest : "";
+                float moreW = 0;
+                if (rest > 0) {
+                    text.setTypeface(Typeface.DEFAULT_BOLD);
+                    text.setTextSize(8);
+                    moreW = text.measureText(more) + 2;
+                }
+                float max = r.width() - 4 - moreW;
+                if (max >= 6) {
+                    text.setTypeface(Typeface.DEFAULT);
+                    textAt(fitClip(e.title, 9, max), r.left + 3.5f, r.bottom - 2.5f, 9, TEXT, false, Paint.Align.LEFT);
+                }
+                if (rest > 0) textAt(more, r.right - 1, r.bottom - 2.5f, 8, MUTED, true, Paint.Align.RIGHT);
             }
-            float max = r.width() - 4 - moreW;
-            if (max >= 6) {
-                text.setTypeface(Typeface.DEFAULT);
-                textAt(fitClip(e.title, 9, max), r.left + 3.5f, r.bottom - 2.5f, 9, TEXT, false, Paint.Align.LEFT);
-            }
-            if (!more.isEmpty()) textAt(more, r.right - 1, r.bottom - 2.5f, 8, MUTED, true, Paint.Align.RIGHT);
         }
 
         /** 이름을 넣을 자리가 없는 칸: 맨 아래에 일정 색 띠 (3개까지 나눠서) */
@@ -489,14 +498,15 @@ final class DutyWidgets {
                     textAt(String.valueOf(day), cell.centerX(), cell.top + 11, 10, today ? GREEN : numColor, today, Paint.Align.CENTER);
                     float below = cell.top + 15;
                     if (t != null) {
-                        // 날짜 바로 아래 (칸이 높아도 날짜와 떨어지지 않게). 일정이 있으면 배지를 조금 낮게 하고 바로 붙임
-                        float bh = Math.min(evs.isEmpty() ? 16 : 14, cell.height() - 18);
-                        float cy = evs.isEmpty() ? cell.top + 16 + bh / 2 + Math.min(4, (cell.height() - 16 - bh) / 4) : cell.top + 15 + bh / 2;
+                        // 날짜 바로 아래, 일정이 있든 없든 같은 크기·같은 자리
+                        float bh = Math.min(16, cell.height() - 18);
+                        float cy = cell.top + 16 + bh / 2;
                         badge(t, cell.centerX(), cy, bh, cell.width() - 2, Math.min(11, bh - 4));
                         below = cy + bh / 2;
                     }
                     if (!evs.isEmpty()) {
-                        if (cell.bottom - 2 - (below + 2) >= 11) eventChip(evs, new RectF(cell.left + 2, below + 2, cell.right - 2, below + 13));
+                        RectF area = new RectF(cell.left + 2, below + 2, cell.right - 2, cell.bottom - 2);
+                        if (area.height() >= EV_LINE) eventLines(evs, area);
                         else eventBar(evs, cell);
                     }
                 } else {
@@ -559,6 +569,35 @@ final class DutyWidgets {
             float leftW = side ? w - pad * 2 - 58 : w - pad * 2;
             float mid = h / 2;
             List<Ev> evs = h >= 60 ? r.eventsAt(r.today) : new ArrayList<>();
+            // 위젯이 높으면 오늘 일정을 한 줄에 하나씩 (라벨 14 + 근무 20 + 일정 줄마다 13)
+            int lines = (int) ((h - 2 * pad - 36) / 13);
+            if (evs.size() >= 2 && lines >= 2) {
+                int n = Math.min(evs.size(), lines);
+                float top = (h - (36 + n * 13)) / 2;
+                textAt(fit(label, 10, leftW), pad, top + 10, 10, MUTED, false, Paint.Align.LEFT);
+                if (t == null) {
+                    textAt("근무 없음", pad, top + 29, 15, FAINT, false, Paint.Align.LEFT);
+                } else {
+                    float nw = textAt(fit(t.name, 16, leftW), pad, top + 29, 16, mix(t.color, 0xFF000000, 0.4f), true, Paint.Align.LEFT);
+                    if (!t.time.isEmpty() && nw + 6 + 50 <= leftW) textAt(t.time, pad + nw + 6, top + 29, 10, MUTED, false, Paint.Align.LEFT);
+                }
+                for (int i = 0; i < n; i++) {
+                    Ev e = evs.get(i);
+                    float y = top + 36 + 13 * i + 10;
+                    int rest = i == n - 1 ? evs.size() - n : 0;
+                    String more = rest > 0 ? "외 " + rest : "";
+                    text.setTypeface(Typeface.DEFAULT);
+                    text.setTextSize(10);
+                    float moreW = rest > 0 ? text.measureText(more) + 6 : 0;
+                    fill.setColor(e.color);
+                    cv.drawCircle(pad + 3, y - 3.5f, 3, fill);
+                    String s = (!e.allDay && e.day.equals(r.today) ? e.start + " " : "") + e.title;
+                    textAt(fit(s, 10, leftW - 8 - moreW), pad + 8, y, 10, TEXT, false, Paint.Align.LEFT);
+                    if (rest > 0) textAt(more, pad + leftW, y, 10, FAINT, false, Paint.Align.RIGHT);
+                }
+                nextDays(r, pad, h / 2, side);
+                return;
+            }
             boolean withEv = !evs.isEmpty();
             float up = withEv ? 7 : 0;     // 오늘 일정 줄 자리만큼 위로
             textAt(fit(label, 10, leftW), pad, mid - 12 - up, 10, MUTED, false, Paint.Align.LEFT);
@@ -573,6 +612,11 @@ final class DutyWidgets {
                 if (!t.time.isEmpty() && h >= 56) textAt(t.time, pad, mid + 21, 10, MUTED, false, Paint.Align.LEFT);
             }
             if (withEv) todayEvents(evs, r.today, pad, mid + 23 - up, leftW);
+            nextDays(r, pad, mid, side);
+        }
+
+        /** 작은 위젯 오른쪽: 내일부터 사흘(높이가 낮으면 이틀) 근무 */
+        void nextDays(Roster r, float pad, float mid, boolean side) {
             if (!side) return;
             int n = h >= 64 ? 3 : 2;
             float rowH = Math.min(17, (h - 12) / n), y0 = mid - rowH * n / 2;
