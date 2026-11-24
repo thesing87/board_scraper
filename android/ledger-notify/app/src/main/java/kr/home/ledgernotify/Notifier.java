@@ -25,7 +25,9 @@ import java.util.regex.Pattern;
  * 나중에 보내지면 '못 보냄' 알림이 '넣음' 알림으로 바뀜. 누르면 앱의 가계부 확인 대기함이 열림
  */
 final class Notifier {
-    static final String CHANNEL = "pay_amount";
+    /** 1.15부터 중요도 '높음'(팝업). 채널 중요도는 만든 뒤 앱이 못 바꿔서 새 이름으로 만들고 옛 채널은 지움 */
+    static final String CHANNEL = "pay_amount_v2";
+    private static final String OLD_CHANNEL = "pay_amount";
     static final String EXTRA_INBOX = "open_inbox";
     private static final String GROUP = "kr.home.ledgernotify.PAY";
     private static final int SUMMARY_ID = 1;
@@ -110,8 +112,9 @@ final class Notifier {
     }
 
     private static void ensureChannel(NotificationManager nm) {
+        if (nm.getNotificationChannel(OLD_CHANNEL) != null) nm.deleteNotificationChannel(OLD_CHANNEL);
         if (nm.getNotificationChannel(CHANNEL) != null) return;
-        NotificationChannel ch = new NotificationChannel(CHANNEL, "금액 인식 알림", NotificationManager.IMPORTANCE_DEFAULT);
+        NotificationChannel ch = new NotificationChannel(CHANNEL, "금액 인식 알림", NotificationManager.IMPORTANCE_HIGH);
         ch.setDescription("결제를 확인 대기함에 넣으면 금액과 가게를 알려 줘요");
         nm.createNotificationChannel(ch);
     }
