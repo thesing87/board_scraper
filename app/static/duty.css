@@ -121,7 +121,25 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .trow .code { grid-area: code; } .trow [data-f=name] { grid-area: name; } .trow .times { grid-area: times; } .trow .acts { grid-area: acts; }
 .trow .times { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
 .trow .times input { width: 118px; }
+.trow .times .tinput { width: 72px; }
 .trow:first-child { border-top: 0; }
+/* 고친 줄은 노랗게, 저장이 거절된 줄은 빨갛게 */
+.trow.changed { background: #FFF6E5; margin: 0 -14px; padding: 8px 14px; }
+.trow.bad { background: #FCEBEB; box-shadow: inset 3px 0 0 var(--bad); margin: 0 -14px; padding: 8px 14px; }
+.type-save { display: block; width: 100%; height: 44px; margin-top: 12px; border-radius: 12px; font-size: 15px; color: var(--muted);
+    position: sticky; bottom: calc(env(safe-area-inset-bottom) + 66px); z-index: 4; }
+.type-save.primary { color: #fff; box-shadow: 0 4px 14px rgba(15, 110, 86, .3); }
+/* PC 시간 칸: 글자 칸 + 30분 간격 목록 */
+.tpick { position: relative; display: inline-block; }
+.tpick .tinput { width: 70px; text-align: center; font-variant-numeric: tabular-nums; }
+.tpick .tinput.bad { border-color: var(--bad); color: var(--bad); }
+.tlist { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; width: 124px; max-height: 220px; overflow-y: auto; padding: 4px;
+    border: 1px solid #CBD0D8; border-radius: 10px; background: var(--surface); box-shadow: 0 8px 24px rgba(17, 24, 39, .14); }
+.tlist button { display: flex; justify-content: space-between; align-items: baseline; width: 100%; height: 30px; padding: 0 8px; border: 0; border-radius: 6px;
+    background: none; font-size: 13px; font-variant-numeric: tabular-nums; text-align: left; }
+.tlist button:hover { background: var(--soft); }
+.tlist button.sel { background: #E6F1FB; color: #0C447C; font-weight: 700; }
+.tlist small { font-size: 11px; color: var(--muted); font-weight: 400; }
 .trow input { height: 34px; }
 .trow .code { font-weight: 700; text-align: center; }
 .trow .colors { grid-area: colors; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

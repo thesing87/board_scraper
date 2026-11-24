@@ -127,6 +127,29 @@ with storage._db() as conn:
 assert [p['name'] for p in call('/api/ledger/duty', cookie=member)[1]['people']] == ['기범2']
 assert call('/api/ledger/duty', {'action': 'nope'}, member)[0] == 400 and call('/api/ledger/duty', {'action': 'person-delete'}, member)[0] == 400
 
+# ---- 근무 종류 한 번에 저장 (type-save): 글자 맞바꾸기 가능, 틀린 줄이 있으면 아무것도 안 바꾸고 그 줄 번호(row)
+types = {t['code']: t for t in duty.state('2026-11', None)['types']}
+d_, e_ = types['D'], types['E']
+code, data = call('/api/ledger/duty', {'action': 'type-save', 'types': [
+    {'id': d_['id'], 'code': 'E', 'name': d_['name'], 'start_time': d_['start_time'], 'end_time': d_['end_time'], 'color': d_['color']},
+    {'id': e_['id'], 'code': 'D', 'name': e_['name'], 'start_time': e_['start_time'], 'end_time': e_['end_time'], 'color': e_['color']},
+    {'code': 'X', 'name': '시험', 'start_time': '', 'end_time': '', 'color': '#378ADD'}]}, cookie=member)
+assert code == 200, data
+after = {t['id']: t['code'] for t in duty.state('2026-11', None)['types']}
+assert after[d_['id']] == 'E' and after[e_['id']] == 'D' and 'X' in after.values()
+code, data = call('/api/ledger/duty', {'action': 'type-save', 'types': [
+    {'id': d_['id'], 'code': 'D', 'name': '바뀜', 'start_time': '', 'end_time': '', 'color': '#378ADD'},
+    {'code': '', 'name': '글자 없음', 'start_time': '', 'end_time': '', 'color': '#378ADD'}]}, cookie=member)
+assert code == 400 and data['row'] == 1 and '짧은 글자' in data['message'], data
+assert {t['id']: t['code'] for t in duty.state('2026-11', None)['types']} == after          # 하나도 안 바뀜
+code, data = call('/api/ledger/duty', {'action': 'type-save', 'types': [
+    {'id': d_['id'], 'code': 'OFF', 'name': 'x', 'start_time': '', 'end_time': '', 'color': '#378ADD'}]}, cookie=member)
+assert code == 400 and data['row'] == 0 and '겹쳐요' in data['message'], data
+code, data = call('/api/ledger/duty', {'action': 'type-save', 'types': [
+    {'id': d_['id'], 'code': 'D', 'name': d_['name'], 'start_time': d_['start_time'], 'end_time': d_['end_time'], 'color': d_['color']},
+    {'id': e_['id'], 'code': 'E', 'name': e_['name'], 'start_time': e_['start_time'], 'end_time': e_['end_time'], 'color': e_['color']}]}, cookie=member)
+assert code == 200, data
+
 # ---- 허락을 취소하면 근무표도 못 씀
 ledger.revoke(next(p['id'] for p in ledger.people()['members'] if p['name'] == '지은'))
 assert call('/api/ledger/duty', cookie=member)[0] == 401

@@ -36,7 +36,8 @@
         brush: null,          // 고른 근무 종류 id, 'clear'(지우기), null(안 고름)
         pending: {},          // 저장 전 바뀐 날 {날짜: 종류 id|null}
         undo: [],             // [{person, day, prev}]
-        saveTimer: null, adding: false, newType: null,
+        saveTimer: null, adding: false,
+        typeDraft: null,      // 설정에서 고치는 중인 근무 종류 (모두 저장 전)
         dview: 'cal',         // 아래 메뉴: cal(오늘·달력) · history(고친 기록)
     };
 
@@ -167,6 +168,7 @@
         const b = e.target.closest('[data-dv]');
         if (!b) return;
         if (b.dataset.dv === 'set') { if ($('set-view').hidden) { await flush(); openSettings(); } return; }
+        if (!$('set-view').hidden && !okToLeave()) return;
         if (st.editing) setEditing(false);
         if (!$('set-view').hidden) closeSettings();
         if (st.dview !== b.dataset.dv) window.scrollTo(0, 0);
@@ -362,6 +364,7 @@
         renderSettings();
     }
     function closeSettings() {
+        st.typeDraft = null;
         if (location.hash === '#settings' && (history.state || {}).dutySettings) history.back();
         else {
             if (location.hash === '#settings') history.replaceState(null, '', location.pathname + location.search);
@@ -371,81 +374,188 @@
     }
     window.addEventListener('popstate', () => { if (st.me) { showSettings(location.hash === '#settings'); if (location.hash !== '#settings') load(); } });
     $('set-open').addEventListener('click', async () => { await flush(); openSettings(); });
-    $('set-back').addEventListener('click', closeSettings);
+    $('set-back').addEventListener('click', () => { if (okToLeave()) closeSettings(); });
 
-    function typeRow(t, isNew) {
-        const color = t.color || PRESET[5];
-        return `<div class="trow" data-type="${isNew ? 'new' : t.id}">
-            <input class="code" data-f="code" maxlength="4" placeholder="글자" value="${esc(t.code || '')}" aria-label="짧은 글자">
-            <input data-f="name" maxlength="10" placeholder="이름 (예: 데이)" value="${esc(t.name || '')}" aria-label="이름">
-            <div class="times"><span>시간</span><input data-f="start_time" type="time" value="${esc(t.start_time || '')}" aria-label="시작 시간">
-                <span>~</span><input data-f="end_time" type="time" value="${esc(t.end_time || '')}" aria-label="끝 시간"></div>
-            <div class="acts"><button type="button" class="small primary" data-type-save>${isNew ? '더하기' : '저장'}</button>
-                <button type="button" class="small ${isNew ? '' : 'danger'}" data-type-del>${isNew ? '취소' : '지우기'}</button></div>
-            <div class="colors"><span class="badge prev" style="${badgeStyle(color)}">${esc(t.code || '글자')}</span>
-                ${PRESET.map(c => `<button type="button" class="sw${c === color.toUpperCase() ? ' on' : ''}" data-color="${c}" style="background:${c}" aria-label="색 ${c}"></button>`).join('')}</div>
+    // ==========================================
+    // 근무 종류: 고친 것을 모아 두었다가 '모두 저장'으로 한 번에 (고친 줄은 노랗게). 지우기(✕)만 바로.
+    // 시간 칸: 휴대폰은 휴대폰의 시간 고르기 그대로, PC는 글자 칸 + 30분 간격 목록 (숫자로 치기·↑↓·휠로 10분씩)
+    // ==========================================
+    const touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const F = ['code', 'name', 'start_time', 'end_time', 'color'];
+    let rowKey = 0;
+    const draftOf = t => ({ key: ++rowKey, id: t.id ?? null, code: t.code || '', name: t.name || '', start_time: t.start_time || '', end_time: t.end_time || '', color: (t.color || PRESET[5]).toUpperCase() });
+    const origOf = r => r.id != null && (st.data.types || []).find(t => t.id === r.id);
+    function rowChanged(r) {
+        const o = origOf(r);
+        if (!o) return true;   // 새 줄
+        return F.some(f => String(r[f] || '').trim() !== String((f === 'color' ? (o.color || '').toUpperCase() : o[f]) || '').trim());
+    }
+    const changedCount = () => (st.typeDraft || []).filter(rowChanged).length;
+    function timeField(r, f, label) {
+        if (touch) return `<input data-f="${f}" type="time" value="${esc(r[f])}" aria-label="${label}">`;
+        return `<span class="tpick"><input data-f="${f}" class="tinput" value="${esc(r[f])}" placeholder="--:--" maxlength="5" autocomplete="off" aria-label="${label}"><span class="tlist" hidden></span></span>`;
+    }
+    function typeRow(r, bad) {
+        return `<div class="trow${rowChanged(r) ? ' changed' : ''}${bad ? ' bad' : ''}" data-key="${r.key}">
+            <input class="code" data-f="code" maxlength="4" placeholder="글자" value="${esc(r.code)}" aria-label="짧은 글자">
+            <input data-f="name" maxlength="10" placeholder="이름 (예: 데이)" value="${esc(r.name)}" aria-label="이름">
+            <div class="times"><span>시간</span>${timeField(r, 'start_time', '시작 시간')}<span>~</span>${timeField(r, 'end_time', '끝 시간')}</div>
+            <div class="acts"><button type="button" class="small ${r.id != null ? 'danger' : ''}" data-type-del aria-label="${r.id != null ? '이 근무 종류 지우기' : '이 줄 빼기'}">✕</button></div>
+            <div class="colors"><span class="badge prev" style="${badgeStyle(r.color)}">${esc(r.code || '글자')}</span>
+                ${PRESET.map(c => `<button type="button" class="sw${c === r.color ? ' on' : ''}" data-color="${c}" style="background:${c}" aria-label="색 ${c}"></button>`).join('')}</div>
         </div>`;
     }
+    function renderTypes(badKey) {
+        if (!st.typeDraft) st.typeDraft = (st.data.types || []).map(draftOf);
+        $('types').innerHTML = st.typeDraft.map(r => typeRow(r, r.key === badKey)).join('');
+        renderSaveBtn();
+    }
+    function renderSaveBtn() {
+        const n = changedCount();
+        $('type-save').textContent = n ? `모두 저장 (${n}개 바뀜)` : '바뀐 것 없음';
+        $('type-save').classList.toggle('primary', !!n);
+        document.querySelectorAll('#types .trow').forEach(el => {
+            const r = st.typeDraft.find(x => String(x.key) === el.dataset.key);
+            if (r) el.classList.toggle('changed', rowChanged(r));
+        });
+    }
+    const rowOf = el => st.typeDraft.find(x => String(x.key) === el.closest('.trow').dataset.key);
+    $('types').addEventListener('input', e => {
+        const f = e.target.dataset.f;
+        if (!f) return;
+        const r = rowOf(e.target);
+        r[f] = e.target.value;
+        if (f === 'code') e.target.closest('.trow').querySelector('.prev').textContent = e.target.value.trim() || '글자';
+        if (e.target.classList.contains('tinput')) showTimes(e.target);
+        renderSaveBtn();
+    });
+    $('types').addEventListener('click', async e => {
+        const row = e.target.closest('.trow');
+        if (!row) return;
+        const r = rowOf(row);
+        const sw = e.target.closest('[data-color]');
+        if (sw) {
+            r.color = sw.dataset.color;
+            row.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', b === sw));
+            row.querySelector('.prev').setAttribute('style', badgeStyle(r.color));
+            renderSaveBtn();
+            return;
+        }
+        const pick = e.target.closest('[data-time]');
+        if (pick) { e.preventDefault(); const input = pick.closest('.tpick').querySelector('input'); setTime(input, pick.dataset.time); hideTimes(input); return; }
+        if (!e.target.closest('[data-type-del]')) return;
+        if (r.id == null) { st.typeDraft = st.typeDraft.filter(x => x !== r); renderTypes(); return; }
+        const t = typeOf(r.id);
+        if (!confirm(`'${t ? t.name : r.name}' 근무 종류를 지울까요?`)) return;
+        const { status, data } = await act({ action: 'type-delete', id: r.id });
+        $('type-msg').classList.toggle('ok', status === 200);
+        $('type-msg').textContent = status === 200 ? '지웠어요.' : msgOf(data);
+        if (status !== 200) return;
+        st.typeDraft = st.typeDraft.filter(x => x !== r);   // 다른 줄의 고친 것은 그대로
+        st.data.types = st.data.types.filter(x => x.id !== r.id);
+        renderTypes();
+        tellApp();
+        load();
+    });
+    $('type-add').addEventListener('click', () => {
+        const used = new Set(st.typeDraft.map(t => t.color));
+        st.typeDraft.push(draftOf({ color: PRESET.find(c => !used.has(c)) || PRESET[5] }));
+        $('type-msg').textContent = '';
+        renderTypes();
+        $('types').querySelector('.trow:last-child [data-f="code"]').focus();
+    });
+    $('type-save').addEventListener('click', async () => {
+        if (!changedCount()) return;
+        const rows = st.typeDraft;
+        const types = rows.map(r => ({ ...(r.id != null ? { id: r.id } : {}), code: r.code, name: r.name, start_time: normTime(r.start_time) ?? r.start_time, end_time: normTime(r.end_time) ?? r.end_time, color: r.color }));
+        $('type-save').disabled = true;
+        const { status, data } = await act({ action: 'type-save', types });
+        $('type-save').disabled = false;
+        $('type-msg').classList.toggle('ok', status === 200);
+        if (status !== 200) {
+            const bad = rows[data.row];
+            $('type-msg').textContent = (bad ? `${bad.code || '새'} 줄: ` : '') + msgOf(data);
+            renderTypes(bad && bad.key);
+            return;
+        }
+        $('type-msg').textContent = '저장했어요.';
+        st.typeDraft = null;
+        tellApp();
+        await load();
+        renderTypes();
+    });
+    const typesDirty = () => !!st.typeDraft && changedCount() > 0;
+    const okToLeave = () => !typesDirty() || confirm('저장하지 않은 근무 종류 변경이 있어요. 버리고 나갈까요?');
+
+    // ---- PC 시간 칸: '7' → 07:00, '1530' → 15:30, '9:15' → 09:15, 빈 칸은 시간 없음 (틀리면 null)
+    function normTime(v) {
+        const s = String(v || '').trim();
+        if (!s) return '';
+        let m = s.match(/^(\d{1,2}):?(\d{2})?$/);
+        if (!m && /^\d{3,4}$/.test(s)) m = [s, s.slice(0, s.length - 2), s.slice(-2)];
+        if (!m) return null;
+        const h = Number(m[1]), mi = Number(m[2] || 0);
+        return h < 24 && mi < 60 ? `${pad(h)}:${pad(mi)}` : null;
+    }
+    const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+    const fromMin = n => { n = ((n % 1440) + 1440) % 1440; return `${pad(Math.floor(n / 60))}:${pad(n % 60)}`; };
+    function setTime(input, v) {
+        input.value = v;
+        rowOf(input)[input.dataset.f] = v;
+        input.classList.remove('bad');
+        renderSaveBtn();
+    }
+    function showTimes(input) {
+        const list = input.parentElement.querySelector('.tlist'), r = rowOf(input);
+        const start = input.dataset.f === 'end_time' && normTime(r.start_time);
+        const cur = normTime(input.value);
+        list.innerHTML = Array.from({ length: 48 }, (_, i) => {
+            const t = fromMin(i * 30);
+            const len = start ? ((toMin(t) - toMin(start) + 1440) % 1440) / 60 : null;
+            return `<button type="button" data-time="${t}" class="${t === cur ? 'sel' : ''}" tabindex="-1">${t}${len ? `<small>${len}시간</small>` : ''}</button>`;
+        }).join('');
+        list.hidden = false;
+        const near = cur ? list.querySelector(`[data-time="${fromMin(Math.round(toMin(cur) / 30) * 30)}"]`) : list.querySelector('[data-time="07:00"]');
+        if (near) list.scrollTop = near.offsetTop - 60;
+    }
+    function hideTimes(input) { input.parentElement.querySelector('.tlist').hidden = true; }
+    $('types').addEventListener('focusin', e => { if (e.target.classList.contains('tinput')) showTimes(e.target); });
+    $('types').addEventListener('mousedown', e => { if (e.target.closest('[data-time]')) e.preventDefault(); });   // 목록을 누를 때 칸에서 커서가 빠지지 않게
+    $('types').addEventListener('focusout', e => {
+        if (!e.target.classList.contains('tinput')) return;
+        const v = normTime(e.target.value);
+        if (v == null) e.target.classList.add('bad'); else setTime(e.target, v);
+        hideTimes(e.target);
+    });
+    function stepTime(input, d) {
+        const cur = normTime(input.value) || '07:00';
+        setTime(input, fromMin(toMin(cur) + d));
+        showTimes(input);
+    }
+    $('types').addEventListener('keydown', e => {
+        if (!e.target.classList.contains('tinput')) return;
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); stepTime(e.target, e.key === 'ArrowUp' ? 10 : -10); }
+        else if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+        else if (e.key === 'Escape') hideTimes(e.target);
+    });
+    $('types').addEventListener('wheel', e => {
+        if (!e.target.classList.contains('tinput') || document.activeElement !== e.target) return;
+        e.preventDefault();
+        stepTime(e.target, e.deltaY < 0 ? 10 : -10);
+    }, { passive: false });
+
     function renderSettings() {
         if (!st.data) return;
         const hp = Number(storageGet(HOME_PERSON_KEY, 0));
         $('home-person').innerHTML = st.data.people.length
             ? st.data.people.map((p, i) => `<option value="${p.id}"${p.id === hp || (!hp && i === 0) ? ' selected' : ''}>${esc(p.name)}</option>`).join('')
             : '<option value="">(사람이 없어요)</option>';
-        $('types').innerHTML = st.data.types.map(t => typeRow(t, false)).join('') + (st.newType ? typeRow(st.newType, true) : '');
-        $('type-add').hidden = !!st.newType;
+        if (!st.typeDraft) renderTypes();   // 고치는 중이면 칸을 다시 그리지 않음 (친 글자·커서 그대로)
         $('people-edit').innerHTML = st.data.people.map(p => `<div class="prow" data-pe="${p.id}">
             <input maxlength="20" value="${esc(p.name)}" aria-label="이름"><button type="button" class="small" data-pe-save>이름 바꾸기</button>
             <button type="button" class="small danger" data-pe-del>지우기</button></div>`).join('')
             || '<p class="hint">아직 사람이 없어요. 근무표 화면에서 더할 수 있어요.</p>';
     }
-    function rowValues(row) {
-        const v = {};
-        row.querySelectorAll('[data-f]').forEach(i => { v[i.dataset.f] = i.value.trim(); });
-        v.color = (row.querySelector('.sw.on') || {}).dataset?.color || PRESET[5];
-        return v;
-    }
-    $('types').addEventListener('click', async e => {
-        const row = e.target.closest('.trow');
-        if (!row) return;
-        const sw = e.target.closest('[data-color]');
-        if (sw) {
-            row.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', b === sw));
-            row.querySelector('.prev').setAttribute('style', badgeStyle(sw.dataset.color));
-            return;
-        }
-        const isNew = row.dataset.type === 'new';
-        if (e.target.closest('[data-type-save]')) {
-            const v = rowValues(row);
-            const { status, data } = await act(isNew ? { action: 'type-add', ...v } : { action: 'type-edit', id: Number(row.dataset.type), ...v });
-            if (status !== 200) { $('type-msg').classList.remove('ok'); $('type-msg').textContent = msgOf(data); return; }
-            if (isNew) st.newType = null;
-            $('type-msg').classList.add('ok');
-            $('type-msg').textContent = isNew ? '더했어요.' : '저장했어요.';
-            tellApp();
-            load();
-        } else if (e.target.closest('[data-type-del]')) {
-            if (isNew) { st.newType = null; renderSettings(); return; }
-            const t = typeOf(Number(row.dataset.type));
-            if (!confirm(`'${t ? t.name : ''}' 근무 종류를 지울까요?`)) return;
-            const { status, data } = await act({ action: 'type-delete', id: Number(row.dataset.type) });
-            $('type-msg').classList.toggle('ok', status === 200);
-            $('type-msg').textContent = status === 200 ? '지웠어요.' : msgOf(data);
-            if (status === 200) { tellApp(); load(); }
-        }
-    });
-    $('types').addEventListener('input', e => {
-        if (e.target.dataset.f !== 'code') return;
-        const row = e.target.closest('.trow');
-        row.querySelector('.prev').textContent = e.target.value.trim() || '글자';
-    });
-    $('type-add').addEventListener('click', () => {
-        const used = new Set(st.data.types.map(t => t.color.toUpperCase()));
-        st.newType = { code: '', name: '', start_time: '', end_time: '', color: PRESET.find(c => !used.has(c)) || PRESET[5] };
-        $('type-msg').textContent = '';
-        renderSettings();
-        $('types').querySelector('[data-type="new"] [data-f="code"]').focus();
-    });
     $('home-person').addEventListener('change', e => {
         storageSet(HOME_PERSON_KEY, e.target.value);
         try { if (window.LedgerApp && window.LedgerApp.setDutyPerson) window.LedgerApp.setDutyPerson(Number(e.target.value) || 0); } catch (err) { /* 예전 앱 */ }
@@ -472,7 +582,7 @@
     // 앱의 뒤로가기 (YeYe홈 앱이 부름): 열린 것을 하나씩 닫고, 닫을 게 없으면 false
     // ==========================================
     window.ledgerBack = () => {
-        if (!$('set-view').hidden) { closeSettings(); return true; }
+        if (!$('set-view').hidden) { if (okToLeave()) closeSettings(); return true; }
         if (st.adding) { openAdd(false); return true; }
         if (st.editing) { setEditing(false); return true; }
         return false;

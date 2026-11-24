@@ -219,6 +219,52 @@ def edit_type(type_id, code, name, start_time, end_time, color):
             raise DutyError('없는 근무 종류예요.')
 
 
+class TypeRowError(DutyError):
+    """한 번에 저장할 때 잘못된 줄 (row: 보낸 목록의 몇 번째, 0부터)"""
+    def __init__(self, row, message):
+        super().__init__(message)
+        self.row = row
+
+
+def save_types(items):
+    """근무 종류를 한 번에 저장: items = [{id(있으면 고치기, 없으면 더하기), code, name, start_time, end_time, color}, ...].
+    모두 확인한 뒤에만 바꿈 (한 줄이라도 잘못되면 아무것도 안 바꾸고 그 줄을 알려 줌). 여기 없는 종류는 그대로"""
+    if not isinstance(items, list) or not items or len(items) > 50:
+        raise DutyError('저장할 근무 종류가 없어요.')
+    rows = []
+    for i, it in enumerate(items):
+        if not isinstance(it, dict) or ('id' in it and it['id'] is not None and type(it['id']) is not int):
+            raise TypeRowError(i, '잘못된 요청이에요.')
+        try:
+            rows.append((it.get('id'), _type_values(it.get('code'), it.get('name'), it.get('start_time'), it.get('end_time'), it.get('color'))))
+        except DutyError as e:
+            raise TypeRowError(i, str(e))
+    with _db() as conn, conn:
+        _seed(conn)
+        known = {r['id']: r['code'] for r in conn.execute("SELECT id, code FROM duty_types")}
+        ids = [tid for tid, _ in rows if tid is not None]
+        for i, (tid, _) in enumerate(rows):
+            if tid is not None and (tid not in known or ids.count(tid) > 1):
+                raise TypeRowError(i, '없는 근무 종류예요.')
+        # 글자는 겹치면 안 됨 (여기서 고치지 않는 종류의 글자와도)
+        taken = {code: tid for tid, code in known.items() if tid not in ids}
+        for i, (tid, v) in enumerate(rows):
+            if v[0] in taken:
+                raise TypeRowError(i, f"'{v[0]}' 글자가 겹쳐요.")
+            taken[v[0]] = tid
+        # 글자를 서로 맞바꿔도 되게 고칠 줄의 글자를 잠깐 비켜 둔 뒤 저장
+        for tid in ids:
+            conn.execute("UPDATE duty_types SET code = ? WHERE id = ?", (f'~tmp{tid}~', tid))
+        position = conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM duty_types").fetchone()[0]
+        for tid, v in rows:
+            if tid is None:
+                conn.execute("""INSERT INTO duty_types(code, name, start_time, end_time, color, position, created_at)
+                                VALUES(?, ?, ?, ?, ?, ?, ?)""", (*v, position, _now()))
+                position += 1
+            else:
+                conn.execute("UPDATE duty_types SET code = ?, name = ?, start_time = ?, end_time = ?, color = ? WHERE id = ?", (*v, tid))
+
+
 def delete_type(type_id):
     with _db() as conn, conn:
         if conn.execute("SELECT 1 FROM duty_days WHERE type_id = ?", (type_id,)).fetchone():

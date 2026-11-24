@@ -1545,7 +1545,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
 
     def _handle_duty(self):
         """근무표 (duty.py, 멤버 누구나): {action: set, person_id, days: {날짜: 종류 id|null}}
-        · person-add|person-rename|person-delete {id, name} · type-add|type-edit|type-delete {id, code, name, start_time, end_time, color}"""
+        · person-add|person-rename|person-delete {id, name} · type-add|type-edit|type-delete {id, code, name, start_time, end_time, color}
+        · type-save {types: [{id(없으면 더하기), code, name, start_time, end_time, color}]} 한 번에 저장 (틀리면 row로 그 줄)"""
         user = self._ledger_user()
         if not user:
             return
@@ -1560,6 +1561,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             'type-add': (True, lambda: {'id': duty.add_type(*type_args())}),
             'type-edit': (has_id, lambda: duty.edit_type(b['id'], *type_args())),
             'type-delete': (has_id, lambda: duty.delete_type(b['id'])),
+            'type-save': (True, lambda: duty.save_types(b.get('types'))),
         }
         ok, fn = handlers.get(action, (False, None))
         if not ok:
@@ -1568,7 +1570,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         try:
             result = fn()
         except duty.DutyError as e:
-            self._send_json(400, False, f'❌ {e}')
+            self._send_data(400, {'success': False, 'message': f'❌ {e}', **({'row': e.row} if hasattr(e, 'row') else {})})
             return
         self._send_data(200, {'success': True, **(result or {})})
 

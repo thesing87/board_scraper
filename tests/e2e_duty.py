@@ -139,17 +139,41 @@ try:
     click('#dnav [data-dv="set"]'); time.sleep(.5)                      # 아래 메뉴 '설정'
     assert vis('set-view') and not vis('main-view') and js("return location.hash") == '#settings' and vis('dnav')
     assert js("return document.querySelector('#dnav .on').dataset.dv") == 'set'
+    # 근무 종류: 줄마다 저장 없이 고친 것을 모아 '모두 저장' 한 번 (고친 줄은 노랗게)
+    def tset(row, f, v):   # row: 줄 번호(-1은 마지막), 칸에 치기
+        js("const r = [...document.querySelectorAll('#types .trow')].at(arguments[0]), i = r.querySelector(`[data-f=${arguments[1]}]`);"
+           "i.value = arguments[2]; i.dispatchEvent(new Event('input', {bubbles: true}))", row, f, v)
+    def types_db():
+        with storage._db() as conn:
+            return {r['code']: dict(r) for r in conn.execute("SELECT code, name, start_time, end_time FROM duty_types")}
+    assert txt('type-save') == '바뀐 것 없음' and not js("return [...document.querySelectorAll('#types [data-type-save]')].length")
     click('#type-add'); time.sleep(.2)
-    click('[data-type="new"] [data-type-save]'); time.sleep(.5)
-    assert '짧은 글자' in txt('type-msg')
-    js("const r = document.querySelector('[data-type=new]'); r.querySelector('[data-f=code]').value = '교육'; r.querySelector('[data-f=name]').value = '교육';"
-       "r.querySelector('[data-f=start_time]').value = '09:00'; r.querySelector('[data-f=end_time]').value = '18:00'")
-    click('[data-type="new"] [data-type-save]'); time.sleep(1)
-    assert '더했어요' in txt('type-msg') and '교육' in js("return [...document.querySelectorAll('#types [data-f=code]')].map(i => i.value).join()")
-    # 쓰인 종류(OFF)는 못 지움
+    assert txt('type-save') == '모두 저장 (1개 바뀜)' and js("return document.querySelector('#types .trow:last-child').classList.contains('changed')")
+    click('#type-save'); time.sleep(.6)                                   # 글자가 없는 줄 → 아무것도 안 바뀌고 그 줄이 빨갛게
+    assert '짧은 글자' in txt('type-msg') and js("return document.querySelector('#types .trow:last-child').classList.contains('bad')")
+    before = types_db()
+    tset(-1, 'code', '교육'); tset(-1, 'name', '교육'); tset(-1, 'start_time', '09:00'); tset(-1, 'end_time', '18:00')
+    tset(0, 'name', '데이 근무')                                           # 다른 줄도 함께
+    assert txt('type-save') == '모두 저장 (2개 바뀜)'
+    assert types_db() == before                                          # 저장 전엔 그대로
+    click('#type-save'); time.sleep(1.2)
+    db = types_db()
+    assert '저장했어요' in txt('type-msg') and db['교육']['start_time'] == '09:00' and db['교육']['end_time'] == '18:00' and db['D']['name'] == '데이 근무', db
+    assert txt('type-save') == '바뀐 것 없음' and not js("return !!document.querySelector('#types .trow.changed')")
+    # 글자가 겹치면 거절 (아무것도 안 바뀜)
+    tset(0, 'code', 'E'); click('#type-save'); time.sleep(.6)
+    assert '겹쳐요' in txt('type-msg') and types_db() == db
+    # 쓰인 종류(OFF)는 못 지움 (✕는 확인 후 바로), 고치던 다른 줄은 그대로
     js("window.confirm = () => true")
     js("[...document.querySelectorAll('#types .trow')].find(r => r.querySelector('[data-f=code]').value === 'OFF').querySelector('[data-type-del]').click()"); time.sleep(.6)
-    assert '지울 수 없어요' in txt('type-msg')
+    assert '지울 수 없어요' in txt('type-msg') and js("return document.querySelector('#types .trow [data-f=code]').value") == 'E'
+    # 저장하지 않고 나가려 하면 물음 (취소하면 그대로, 버리면 원래대로)
+    js("window.confirm = () => false"); click('#set-back'); time.sleep(.3)
+    assert vis('set-view')
+    js("window.confirm = () => true"); click('#set-back'); time.sleep(.6)
+    assert not vis('set-view') and types_db() == db
+    click('#dnav [data-dv="set"]'); time.sleep(.5)
+    assert js("return document.querySelector('#types .trow [data-f=code]').value") == 'D' and txt('type-save') == '바뀐 것 없음'
     js("const r = document.querySelector('[data-pe]'); r.querySelector('input').value = '예예쌤'; r.querySelector('[data-pe-save]').click()"); time.sleep(1)
     assert '바꿨어요' in txt('pe-msg')
     d.save_screenshot(os.path.join(SHOTS, 'duty_settings.png'))
@@ -160,12 +184,40 @@ try:
     assert js("return document.documentElement.scrollWidth <= window.innerWidth")
     d.save_screenshot(os.path.join(SHOTS, 'duty_settings_mobile.png'))
     d.set_window_size(1280, 900); time.sleep(.4)
+    # ---- PC(마우스)의 시간 칸: 글자 칸 + 30분 간격 목록 (끝 시간엔 근무 길이), 숫자로 치기, ↑↓로 10분씩
+    # (헤드리스 크롬은 손가락 기기로 나타나므로 마우스 PC로 흉내)
+    pc = d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source':
+        "const mm = window.matchMedia.bind(window); window.matchMedia = q => /pointer:\\s*coarse/.test(q) ? mm('(max-width: 0px)') : mm(q);"})
+    d.refresh(); time.sleep(2)
+    assert vis('set-view') and not js("return !!document.querySelector('#types input[type=time]')") and js("return document.querySelectorAll('#types .tinput').length") > 0
+    S = "#types .trow:nth-child(2) [data-f=start_time]"; E = "#types .trow:nth-child(2) [data-f=end_time]"   # E 이브닝
+    js(f"document.querySelector('{S}').focus()"); time.sleep(.2)
+    assert js(f"return !document.querySelector('{S}').parentElement.querySelector('.tlist').hidden")
+    assert js(f"return document.querySelectorAll('{S} ~ .tlist [data-time]').length") == 48
+    js(f"const i = document.querySelector('{S}'); i.value = '1530'; i.dispatchEvent(new Event('input', {{bubbles: true}})); i.blur()"); time.sleep(.2)
+    assert js(f"return document.querySelector('{S}').value") == '15:30'
+    js(f"document.querySelector('{E}').focus()"); time.sleep(.2)
+    labels = js(f"return [...document.querySelectorAll('{E} ~ .tlist [data-time]')].map(b => b.textContent)")
+    assert '23:308시간' in labels, labels[44:]          # 시간 · 근무 길이
+    js(f"document.querySelector('{E} ~ .tlist [data-time=\"23:30\"]').click()"); time.sleep(.2)
+    assert js(f"return document.querySelector('{E}').value") == '23:30' and js(f"return document.querySelector('{E} ~ .tlist').hidden")
+    js(f"const i = document.querySelector('{E}'); i.focus(); i.dispatchEvent(new KeyboardEvent('keydown', {{key: 'ArrowUp', bubbles: true}}))")
+    assert js(f"return document.querySelector('{E}').value") == '23:40'
+    js(f"const i = document.querySelector('{E}'); i.value = '25:00'; i.dispatchEvent(new Event('input', {{bubbles: true}})); i.blur()"); time.sleep(.2)
+    assert js(f"return document.querySelector('{E}').classList.contains('bad')")   # 틀린 시간은 빨갛게
+    js(f"const i = document.querySelector('{E}'); i.focus(); i.value = '7'; i.dispatchEvent(new Event('input', {{bubbles: true}})); i.blur()"); time.sleep(.2)
+    assert js(f"return document.querySelector('{E}').value") == '07:00'
+    click('#type-save'); time.sleep(1)
+    assert types_db()['E']['start_time'] == '15:30' and types_db()['E']['end_time'] == '07:00'
+    d.execute_cdp_cmd('Page.removeScriptToEvaluateOnNewDocument', {'identifier': pc['identifier']})
+    d.refresh(); time.sleep(2)
     # 이 휴대폰 · 처음 보일 사람 (localStorage)
     js("const s = document.getElementById('home-person'); s.value = s.options[0].value; s.dispatchEvent(new Event('change'))")
     assert js("return localStorage.getItem('duty_home_person')") == js("return document.getElementById('home-person').options[0].value")
     # 뒤로가기: 설정 닫기 → 고치기 끝 → 닫을 것 없음
     assert js('return window.ledgerBack()') is True; time.sleep(.8)
     assert not vis('set-view') and txt('people').startswith('예예쌤') and '교육' in txt('brush')
+    click('#edit-fab'); time.sleep(.2)                                  # (위에서 새로고침해 고치기가 끝났으므로 다시)
     brush('D')
     assert js('return window.ledgerBack()') is True and not vis('brush-sec') and txt('edit-btn') == '고치기'
     assert js('return window.ledgerBack()') is False
