@@ -91,8 +91,30 @@
 
 ## 빌드 (Windows)
 
-정식 릴리즈는 `C:\android`의 도구로 함: JDK 17·안드로이드 SDK 34·Gradle 8.7·원래 서명 키(`keys`) (안드로이드 스튜디오 없이).
-집 노트북에는 같은 구성이 `D:\android`에 있음.
+정식 릴리즈는 **집 노트북**과 **회사 PC** 두 곳에서 함. 구성은 같고 드라이브만 다름 (안드로이드 스튜디오 없이).
+
+| | 집 노트북 | 회사 PC |
+|---|---|---|
+| 도구·키 폴더 | `D:\android` | `C:\android` |
+| JDK 17 | `D:\android\jdk17` | `C:\android\jdk17` |
+| Gradle 8.7 | `D:\android\gradle-8.7` | `C:\android\gradle-8.7` |
+| SDK 34 | `D:\android\sdk` | `C:\android\sdk` |
+| 원래 서명 키 | `D:\android\keys` | `C:\android\keys` |
+
+### 처음 한 번 (PC마다)
+
+`keystore.properties`·`local.properties`는 git에 안 올라가므로 PC마다 따로 둠.
+
+1. `<폴더>\keys\keystore.properties`를 이 폴더(`android/ledger-notify`)에 복사하고 `storeFile`을 그 PC 경로로 고침
+   - 집 노트북: `storeFile=D:/android/keys/ledger-notify.jks`
+   - 회사 PC: `storeFile=C:/android/keys/ledger-notify.jks`
+2. `local.properties`에 `sdk.dir`
+   - 집 노트북: `sdk.dir=D\:/android/sdk`
+   - 회사 PC: `sdk.dir=C\:/android/sdk`
+
+### 릴리즈 빌드
+
+회사 PC 기준. 집 노트북에서는 `C:`를 `D:`로 바꿔서 실행.
 
 ```powershell
 $env:JAVA_HOME = 'C:\android\jdk17'
@@ -102,9 +124,12 @@ C:\android\sdk\build-tools\34.0.0\apksigner.bat verify --print-certs app\build\o
 # → CN=Ledger Notify, 인증서 SHA-256 ddb6e2c7a013a2c3e4ee8b2b7e169eb3a74768e16a1029c1aef612222918eea8 이어야 덮어 설치됨
 ```
 
-- `local.properties`: `sdk.dir`는 SDK 34가 있는 곳 (예: `C\:/android/sdk`)
-- 서명: `keystore.properties`가 있으면 그 키로 (`C:\android\keys\keystore.properties`를 이 폴더에 복사하고 `storeFile=C:/android/keys/ledger-notify.jks`로 고침, git에 안 올림). 새 버전은 **같은 키**로 서명해야 지우지 않고 덮어 설치됨 — 키를 잃어버리면 앱을 지우고 다시 설치(설정도 다시)해야 하니 `C:\android\keys`(집은 `D:\android\keys`)를 백업해 둘 것
-- 새 버전을 낼 때는 `app/build.gradle`의 `versionCode`를 올림
+### 두 곳에서 번갈아 릴리즈할 때
+
+- 빌드 전에 `git pull`로 최신 코드를 받음 (두 PC가 같은 코드로 빌드하도록)
+- 새 버전을 낼 때는 `app/build.gradle`의 `versionCode`를 올리고 **바로 커밋·push** — 다른 PC에서 같은 번호를 다시 쓰지 않게. 번호가 같거나 낮으면 휴대폰에 덮어 설치되지 않음
+- 두 곳의 키 파일은 **같은 파일**이어야 함 (인증서 지문이 위와 같은지 확인). 키를 잃어버리면 앱을 지우고 다시 설치(설정도 다시)해야 하니 두 곳 중 한 곳에 늘 백업이 있게 둘 것
+- 만든 APK는 `YeYe가계부-<버전>.apk`로 이름을 바꿔 가계부 관리자 칸 → '가계부 알림 앱 파일 (APK)'에 올림
 
 ### 시험 앱 (qa 빌드, 정식 키가 없을 때)
 
@@ -114,4 +139,4 @@ C:\android\sdk\build-tools\34.0.0\apksigner.bat verify --print-certs app\build\o
 - 서명은 임시 키 `keystore-test.properties` → `C:\Users\thesi\android-keys-temp\ledger-notify-test.jks` (회사 PC, git에 안 올림). **정식 릴리즈에는 쓰지 않음**
 - 시험 앱의 연결 주소는 정식 앱 설정의 연결 주소를 그대로 붙여 넣을 것 — 가계부에서 '이 휴대폰 앱에 연결'(새 연결 주소)을 누르면 정식 앱의 주소가 막힘
 - 두 앱이 같은 결제를 보내도 서버가 10분 안의 같은 알림은 한 번만 넣음 ('같은 알림이 이미 있어 넘김')
-- 회사 PC에는 JDK 17이 `C:\Users\thesi\android-tools\jdk17`에, SDK가 `%LOCALAPPDATA%\Android\Sdk`에 있음 (Gradle은 `~/.gradle/wrapper/dists`의 8.10.2)
+- 시험 앱도 위의 릴리즈 빌드와 같은 도구로 만듦 (`assembleRelease` 대신 `assembleQa`)
