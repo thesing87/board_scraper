@@ -110,5 +110,11 @@
             android:name=".RetryJob"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!-- 휴대폰 캘린더가 바뀌면 근무표 위젯을 다시 그림 (1.18부터) -->
+        <service
+            android:name=".CalendarWatch"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
     </application>
 </manifest>

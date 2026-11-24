@@ -26,7 +26,9 @@ import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -36,6 +38,8 @@ import java.util.Map;
  *   인터넷이 안 될 때는 그것으로 그림
  * - 그리기: 근무 색을 그대로 쓰려고 위젯 크기만 한 그림(Bitmap)을 그려 ImageView에 넣음
  * - 새로: 3시간마다(위젯 설정), 자정 조금 뒤(알람), 앱에서 근무표를 고쳤을 때(DutyWidgets.refreshAll)
+ * - 휴대폰 캘린더 일정 (1.18부터): 근무표 설정 > 구글 캘린더를 켰으면 앱 달력처럼 일정 이름도 (PhoneCalendar, 숨긴 캘린더는 빼고).
+ *   캘린더가 바뀌면 CalendarWatch가 곧 다시 그림
  * - 누르면 앱의 근무표 탭
  */
 final class DutyWidgets {
@@ -136,6 +140,16 @@ final class DutyWidgets {
         }).start();
     }
 
+    /** 서버에서 다시 받지 않고 저장해 둔 답으로만 다시 그림 (캘린더 일정이 바뀜) */
+    static void redrawAll(Context c) {
+        Context app = c.getApplicationContext();
+        AppWidgetManager m = AppWidgetManager.getInstance(app);
+        for (Class<?> k : new Class<?>[]{DutyMonthWidget.class, DutyTodayWidget.class}) {
+            for (int id : m.getAppWidgetIds(new ComponentName(app, k))) draw(app, m, id);
+        }
+        CalendarWatch.schedule(app);
+    }
+
     static boolean any(Context c) {
         AppWidgetManager m = AppWidgetManager.getInstance(c);
         return m.getAppWidgetIds(new ComponentName(c, DutyMonthWidget.class)).length
@@ -159,6 +173,7 @@ final class DutyWidgets {
             }
         }
         scheduleMidnight(c);
+        CalendarWatch.schedule(c);
     }
 
     private static void draw(Context c, AppWidgetManager m, int id) {
@@ -188,6 +203,7 @@ final class DutyWidgets {
             p.message("근무표에 사람이 없어요 · 눌러서 앱에서 더하기");
         } else {
             Roster r = new Roster(data);
+            r.loadEvents(c);
             if (small) p.today(r); else p.month(r);
             if (err != null) p.stale("login".equals(err) ? "로그인 필요" : "연결 안 됨");
         }
@@ -266,6 +282,52 @@ final class DutyWidgets {
             Integer t = days.get(day);
             return t == null ? null : types.get(t);
         }
+
+        /** 날짜마다 휴대폰 캘린더 일정 (켜 두고 권한이 있을 때만). 여러 날 일정은 날마다, 종일 일정이 먼저 */
+        final Map<String, List<Ev>> events = new HashMap<>();
+
+        void loadEvents(Context c) {
+            Store s = new Store(c);
+            if (!s.calendarOn() || !PhoneCalendar.allowed(c) || month.length() != 7) return;
+            String from = month + "-01";
+            String to = addDays(addDays(from, 31).substring(0, 7) + "-01", -1);   // 그 달 마지막 날
+            if (today.compareTo(to) > 0) to = today;   // 받은 뒤 달이 바뀜
+            try {
+                JSONArray list = PhoneCalendar.events(c, from, to, s.calendarHidden());
+                for (int i = 0; i < list.length(); i++) {
+                    JSONObject o = list.optJSONObject(i);
+                    Ev e = new Ev();
+                    e.title = o.optString("title");
+                    e.day = o.optString("day");
+                    e.allDay = o.optBoolean("allDay");
+                    e.start = o.optString("start");
+                    try { e.color = Color.parseColor(o.optString("color")); } catch (Exception x) { e.color = 0xFF378ADD; }
+                    String day = e.day.compareTo(from) < 0 ? from : e.day, last = o.optString("endDay");
+                    if (last.compareTo(to) > 0) last = to;
+                    for (int n = 0; day.compareTo(last) <= 0 && n < 62; n++, day = addDays(day, 1)) {
+                        List<Ev> at = events.get(day);
+                        if (at == null) events.put(day, at = new ArrayList<>());
+                        at.add(e);
+                    }
+                }
+            } catch (Exception ignored) {
+                return;     // 캘린더를 못 읽으면 근무만
+            }
+            for (List<Ev> at : events.values()) {
+                at.sort((a, b) -> a.allDay != b.allDay ? (a.allDay ? -1 : 1) : a.start.compareTo(b.start));
+            }
+        }
+
+        List<Ev> eventsAt(String day) {
+            List<Ev> l = events.get(day);
+            return l == null ? new ArrayList<>() : l;
+        }
+    }
+
+    private static final class Ev {
+        String title, day, start;
+        boolean allDay;
+        int color;
     }
 
     private static String addDays(String day, int n) {
@@ -353,6 +415,46 @@ final class DutyWidgets {
             textAt(s, w - 10, h - 6, 9, FAINT, false, Paint.Align.RIGHT);
         }
 
+        /** 칸 안 일정 한 줄: 왼쪽 캘린더 색 띠 + 첫 일정 이름, 더 있으면 오른쪽에 +n */
+        void eventChip(List<Ev> evs, RectF r) {
+            Ev e = evs.get(0);
+            fill.setColor(mix(e.color, 0xFFFFFFFF, 0.85f));
+            cv.drawRect(r, fill);
+            fill.setColor(e.color);
+            cv.drawRect(new RectF(r.left, r.top, r.left + 2, r.bottom), fill);
+            String more = evs.size() > 1 ? "+" + (evs.size() - 1) : "";
+            float moreW = 0;
+            if (!more.isEmpty()) {
+                text.setTypeface(Typeface.DEFAULT_BOLD);
+                text.setTextSize(8);
+                moreW = text.measureText(more) + 2;
+            }
+            float max = r.width() - 4 - moreW;
+            if (max >= 6) {
+                text.setTypeface(Typeface.DEFAULT);
+                textAt(fitClip(e.title, 9, max), r.left + 3.5f, r.bottom - 2.5f, 9, TEXT, false, Paint.Align.LEFT);
+            }
+            if (!more.isEmpty()) textAt(more, r.right - 1, r.bottom - 2.5f, 8, MUTED, true, Paint.Align.RIGHT);
+        }
+
+        /** 이름을 넣을 자리가 없는 칸: 맨 아래에 일정 색 띠 (3개까지 나눠서) */
+        void eventBar(List<Ev> evs, RectF cell) {
+            int n = Math.min(3, evs.size());
+            float x0 = cell.left + 4, seg = (cell.width() - 8 - (n - 1)) / n;
+            for (int i = 0; i < n; i++) {
+                fill.setColor(evs.get(i).color);
+                float x = x0 + i * (seg + 1);
+                cv.drawRect(new RectF(x, cell.bottom - 4, x + seg, cell.bottom - 2), fill);
+            }
+        }
+
+        /** 줄임표 없이 자름 (칸이 좁아 '…'이 한 글자 자리를 차지하는 게 아까움) */
+        String fitClip(String s, float size, float max) {
+            text.setTextSize(size);
+            while (s.length() > 1 && text.measureText(s) > max) s = s.substring(0, s.length() - 1);
+            return s;
+        }
+
         /** 한 달: 제목(달·사람) · 오늘·내일 · 요일 · 날짜마다 근무 배지 */
         void month(Roster r) {
             float pad = 10;
@@ -382,12 +484,20 @@ final class DutyWidgets {
                 Type t = r.at(key);
                 boolean today = key.equals(r.today);
                 int numColor = col == 0 ? SUN : col == 6 ? SAT : MUTED;
+                List<Ev> evs = r.eventsAt(key);
                 if (roomy) {
                     textAt(String.valueOf(day), cell.centerX(), cell.top + 11, 10, today ? GREEN : numColor, today, Paint.Align.CENTER);
+                    float below = cell.top + 15;
                     if (t != null) {
-                        // 날짜 바로 아래 (칸이 높아도 날짜와 떨어지지 않게)
-                        float bh = Math.min(16, cell.height() - 18);
-                        badge(t, cell.centerX(), cell.top + 16 + bh / 2 + Math.min(4, (cell.height() - 16 - bh) / 4), bh, cell.width() - 2, Math.min(11, bh - 4));
+                        // 날짜 바로 아래 (칸이 높아도 날짜와 떨어지지 않게). 일정이 있으면 배지를 조금 낮게 하고 바로 붙임
+                        float bh = Math.min(evs.isEmpty() ? 16 : 14, cell.height() - 18);
+                        float cy = evs.isEmpty() ? cell.top + 16 + bh / 2 + Math.min(4, (cell.height() - 16 - bh) / 4) : cell.top + 15 + bh / 2;
+                        badge(t, cell.centerX(), cy, bh, cell.width() - 2, Math.min(11, bh - 4));
+                        below = cy + bh / 2;
+                    }
+                    if (!evs.isEmpty()) {
+                        if (cell.bottom - 2 - (below + 2) >= 11) eventChip(evs, new RectF(cell.left + 2, below + 2, cell.right - 2, below + 13));
+                        else eventBar(evs, cell);
                     }
                 } else {
                     // 칸이 낮으면: 근무 색을 칸에 깔고 날짜만 (근무 글자는 생략)
@@ -400,6 +510,7 @@ final class DutyWidgets {
                     fm = text.getFontMetrics();
                     textAt(String.valueOf(day), cell.centerX(), cell.centerY() - (fm.ascent + fm.descent) / 2, 10,
                             t != null ? mix(t.color, 0xFF000000, 0.5f) : today ? GREEN : numColor, today || t != null, Paint.Align.CENTER);
+                    if (!evs.isEmpty()) eventBar(evs, cell);
                 }
                 if (today) {
                     Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -407,6 +518,32 @@ final class DutyWidgets {
                     line.setStrokeWidth(1.6f);
                     line.setColor(GREEN);
                     cv.drawRoundRect(cell, 5, 5, line);
+                }
+            }
+        }
+
+        /** 오늘 일정 한 줄: '● 10:00 병원 ● 19:00 운동 외 1' (자리가 모자라면 '외 n') */
+        void todayEvents(List<Ev> evs, String day, float x0, float y, float maxW) {
+            float x = x0, right = x0 + maxW;
+            for (int i = 0; i < evs.size(); i++) {
+                Ev e = evs.get(i);
+                String s = (!e.allDay && e.day.equals(day) ? e.start + " " : "") + e.title;
+                int left = evs.size() - i - 1;
+                text.setTypeface(Typeface.DEFAULT);
+                text.setTextSize(10);
+                float rest = left > 0 ? text.measureText("외 " + left) + 2 : 0;
+                float avail = right - x - 8 - rest;
+                if (i > 0 && avail < 30) {
+                    textAt("외 " + (evs.size() - i), x, y, 10, FAINT, false, Paint.Align.LEFT);
+                    return;
+                }
+                fill.setColor(e.color);
+                cv.drawCircle(x + 3, y - 3.5f, 3, fill);
+                String shown = fit(s, 10, Math.max(12, avail));
+                x += 8 + textAt(shown, x + 8, y, 10, TEXT, false, Paint.Align.LEFT) + 6;
+                if (!shown.equals(s)) {
+                    if (left > 0) textAt("외 " + left, x - 4, y, 10, FAINT, false, Paint.Align.LEFT);
+                    return;
                 }
             }
         }
@@ -421,13 +558,21 @@ final class DutyWidgets {
             boolean side = w >= 150;
             float leftW = side ? w - pad * 2 - 58 : w - pad * 2;
             float mid = h / 2;
-            textAt(fit(label, 10, leftW), pad, mid - 12, 10, MUTED, false, Paint.Align.LEFT);
+            List<Ev> evs = h >= 60 ? r.eventsAt(r.today) : new ArrayList<>();
+            boolean withEv = !evs.isEmpty();
+            float up = withEv ? 7 : 0;     // 오늘 일정 줄 자리만큼 위로
+            textAt(fit(label, 10, leftW), pad, mid - 12 - up, 10, MUTED, false, Paint.Align.LEFT);
             if (t == null) {
-                textAt("근무 없음", pad, mid + 6, 15, FAINT, false, Paint.Align.LEFT);
+                textAt("근무 없음", pad, mid + 6 - up, 15, FAINT, false, Paint.Align.LEFT);
+            } else if (withEv) {
+                // 근무 시간은 이름 옆으로 (아래 줄은 일정)
+                float nw = textAt(fit(t.name, 16, leftW), pad, mid + 7 - up, 16, mix(t.color, 0xFF000000, 0.4f), true, Paint.Align.LEFT);
+                if (!t.time.isEmpty() && nw + 6 + 50 <= leftW) textAt(t.time, pad + nw + 6, mid + 7 - up, 10, MUTED, false, Paint.Align.LEFT);
             } else {
                 textAt(fit(t.name, 16, leftW), pad, mid + 7, 16, mix(t.color, 0xFF000000, 0.4f), true, Paint.Align.LEFT);
                 if (!t.time.isEmpty() && h >= 56) textAt(t.time, pad, mid + 21, 10, MUTED, false, Paint.Align.LEFT);
             }
+            if (withEv) todayEvents(evs, r.today, pad, mid + 23 - up, leftW);
             if (!side) return;
             int n = h >= 64 ? 3 : 2;
             float rowH = Math.min(17, (h - 12) / n), y0 = mid - rowH * n / 2;

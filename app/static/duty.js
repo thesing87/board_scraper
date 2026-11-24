@@ -207,10 +207,10 @@
             const t = typeOf(tid);
             const evs = (st.cal && st.cal[key]) || [];
             html += `<div class="day${wd === 0 ? ' sun' : wd === 6 ? ' sat' : ''}${key === d.today ? ' today' : ''}${st.cal && key === selDay() ? ' sel' : ''}" data-day="${key}" role="button" aria-label="${m}월 ${day}일${t ? ' ' + esc(t.name) : ''}${evs.length ? ` 일정 ${evs.length}개` : ''}">
-                <span class="n">${day}</span>${t ? `<span class="badge" style="${badgeStyle(t.color)}">${esc(t.code)}</span>` : ''}${evDots(evs)}</div>`;
+                <span class="n">${day}</span>${t ? `<span class="badge" style="${badgeStyle(t.color)}">${esc(t.code)}</span>` : ''}${evChips(evs, key)}</div>`;
         }
         $('cal').innerHTML = html;
-        $('cal').classList.toggle('has-ev', !!st.cal);   // 캘린더 일정 점 자리만큼 칸을 조금 높게
+        $('cal').classList.toggle('has-ev', !!st.cal);   // 캘린더 일정 이름 두 줄 자리만큼 칸을 높게
         $('counts').innerHTML = d.types.filter(t => counts[t.id]).map(t => `<span>${esc(t.name)}<b>${counts[t.id]}</b></span>`).join('')
             || '<span>이 달은 아직 넣은 근무가 없어요</span>';
     }
@@ -237,9 +237,11 @@
         for (const k of Object.keys(map)) map[k].sort((a, b) => (b.allDay - a.allDay) || String(a.start || '').localeCompare(String(b.start || '')));
         st.cal = map;
     }
-    function evDots(evs) {
+    // 칸 안 일정: 이름 두 개까지 (캘린더 색 띠), 넘치면 +n. 시간 있는 일정은 그날 시작 시각을 앞에 (휴대폰처럼 칸이 좁으면 CSS가 시각을 숨김)
+    function evChips(evs, day) {
         if (!evs.length) return '';
-        return `<span class="evs">${evs.slice(0, 3).map(e => `<i style="background:${esc(e.color)}"></i>`).join('')}${evs.length > 3 ? '<b>+</b>' : ''}</span>`;
+        const chip = e => `<span class="evc" style="--c:${esc(e.color)}">${!e.allDay && e.day === day ? `<span class="tm">${esc(e.start)}</span>` : ''}${esc(e.title)}</span>`;
+        return `<span class="evs">${evs.slice(0, 2).map(chip).join('')}${evs.length > 2 ? `<b>+${evs.length - 2}</b>` : ''}</span>`;
     }
     function evTime(e, day) {
         if (e.allDay) return '종일';
