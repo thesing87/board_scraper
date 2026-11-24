@@ -37,6 +37,7 @@
         pending: {},          // 저장 전 바뀐 날 {날짜: 종류 id|null}
         undo: [],             // [{person, day, prev}]
         saveTimer: null, adding: false, newType: null,
+        dview: 'cal',         // 아래 메뉴: cal(오늘·달력) · history(고친 기록)
     };
 
     // ==========================================
@@ -66,7 +67,7 @@
         st.me = null;
         storageSet(LEDGER_FLAG, '');
         $('app').hidden = true;
-        $('who-me').hidden = $('logout').hidden = $('set-open').hidden = $('all-set').hidden = true;
+        $('who-me').hidden = $('logout').hidden = $('set-open').hidden = true;
         $('auth').hidden = false;
     }
     $('login-form').addEventListener('submit', async e => {
@@ -90,7 +91,7 @@
         $('auth').hidden = true;
         $('app').hidden = false;
         $('who-me').textContent = user.name;
-        $('who-me').hidden = $('logout').hidden = $('set-open').hidden = $('all-set').hidden = false;
+        $('who-me').hidden = $('logout').hidden = $('set-open').hidden = false;
         showSettings(location.hash === '#settings');
         load();
         try { if (window.LedgerApp && window.LedgerApp.loggedIn) window.LedgerApp.loggedIn(); } catch (e) { /* 예전 앱 */ }
@@ -148,7 +149,31 @@
         renderCal();
         renderBrush();
         renderChanges();
+        renderDView();
     }
+    // 아래 메뉴 (설정이 열려 있으면 '설정'), 달력에서만 ✎
+    function renderDView() {
+        const set = !$('set-view').hidden, v = set ? 'set' : st.dview, cal = st.dview === 'cal';
+        document.querySelectorAll('#dnav [data-dv]').forEach(b => {
+            b.classList.toggle('on', b.dataset.dv === v);
+            if (b.dataset.dv === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+        });
+        $('today').hidden = $('cal-sec').hidden = !cal;
+        $('changes-sec').hidden = cal;
+        $('edit-fab').hidden = !cal || set || !st.data || !(st.data.people || []).length;
+        if (!cal) $('brush-sec').hidden = true;
+    }
+    $('dnav').addEventListener('click', async e => {
+        const b = e.target.closest('[data-dv]');
+        if (!b) return;
+        if (b.dataset.dv === 'set') { if ($('set-view').hidden) { await flush(); openSettings(); } return; }
+        if (st.editing) setEditing(false);
+        if (!$('set-view').hidden) closeSettings();
+        if (st.dview !== b.dataset.dv) window.scrollTo(0, 0);
+        st.dview = b.dataset.dv;
+        if (st.data) { renderBrush(); renderDView(); }
+    });
+    $('edit-fab').addEventListener('click', () => setEditing(!st.editing));
 
     function renderToday() {
         const d = st.data, person = d.people.find(p => p.id === st.personId);
@@ -185,8 +210,11 @@
     function renderBrush() {
         const person = (st.data.people || []).find(p => p.id === st.personId);
         $('cal-sec').classList.toggle('editing', st.editing);
-        $('brush-sec').hidden = !st.editing;
+        $('brush-sec').hidden = !st.editing || st.dview !== 'cal';
         $('edit-btn').textContent = st.editing ? '완료' : '고치기';
+        $('edit-fab').textContent = st.editing ? '✓' : '✎';
+        $('edit-fab').setAttribute('aria-label', st.editing ? '고치기 끝' : '고치기');
+        $('edit-fab').classList.toggle('editing', st.editing);
         $('edit-label').textContent = st.editing ? `고치는 중 · ${person ? person.name : ''}` : '달력';
         $('brush').innerHTML = st.data.types.map(t => `<button type="button" data-brush="${t.id}" class="${st.brush === t.id ? 'on' : ''}" style="${badgeStyle(t.color)}" title="${esc(t.name)} ${timeOf(t)}">${esc(t.code)}</button>`).join('')
             + `<button type="button" data-brush="clear" class="clear${st.brush === 'clear' ? ' on' : ''}">지우기</button>`;
@@ -198,8 +226,7 @@
 
     function renderChanges() {
         const list = st.data.changes || [];
-        $('changes-sec').hidden = !list.length;
-        $('changes').innerHTML = list.map(c => `<div class="ch">${c.type_id == null ? '<span class="badge blank">지움</span>' : badge(c.type_id)}
+        $('changes').innerHTML = (list.length ? '' : '<p class="hint">아직 고친 게 없어요</p>') + list.map(c => `<div class="ch">${c.type_id == null ? '<span class="badge blank">지움</span>' : badge(c.type_id)}
             <span class="d">${short(c.day)}</span><span class="w">${esc(c.who || '누군가')} · ${ago(c.changed_at)}</span></div>`).join('');
     }
     function ago(at) {
@@ -245,7 +272,7 @@
     $('cal').addEventListener('click', e => {
         const cell = e.target.closest('[data-day]');
         if (!cell) return;
-        if (!st.editing) { $('cal-msg').textContent = "근무를 바꾸려면 위의 '고치기'를 눌러 주세요."; return; }
+        if (!st.editing) { $('cal-msg').textContent = '근무를 바꾸려면 ✎를 눌러 주세요.'; return; }
         if (!st.brush) { $('cal-msg').textContent = '아래에서 넣을 근무를 먼저 골라 주세요.'; return; }
         $('cal-msg').textContent = '';
         const day = cell.dataset.day, cur = st.data.days[day] ?? null;
@@ -327,6 +354,7 @@
         $('main-view').hidden = on;
         $('set-view').hidden = !on;
         if (on) window.scrollTo(0, 0);
+        renderDView();
     }
     function openSettings() {
         if (location.hash !== '#settings') history.pushState({ dutySettings: 1 }, '', '#settings');

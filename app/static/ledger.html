@@ -11,10 +11,11 @@
     <meta name="theme-color" content="#F4F5F7">
     <link rel="stylesheet" href="/ledger.css">
     <link rel="stylesheet" href="/nav.css">
+    <link rel="stylesheet" href="/tabbar.css">
     <script src="/nav.js" defer></script>
     <script src="/ledger.js" defer></script>
 </head>
-<body>
+<body class="has-tabbar">
     <!-- 가계부: 관리자가 허락한 사람끼리 지출을 함께 기록하고 보기 (ledger.py). 공유 버튼은 두지 않음 -->
     <header class="site-top" data-no-share>
         <div class="site-top-row">
@@ -25,8 +26,6 @@
             <div class="site-top-tools">
                 <span class="who-me" id="who-me" hidden></span>
                 <button type="button" class="tool set-btn" id="set-open" hidden>설정<span class="set-dot" id="set-dot" hidden></span></button>
-                <!-- 전체 설정 (앱 파일·로그아웃, 홈 페이지의 설정). 앱 안에서는 이 줄이 숨음 -->
-                <a class="tool tool-link" id="all-set" href="/yeye/#settings" hidden>전체 설정</a>
                 <button type="button" class="tool" id="logout" hidden>로그아웃</button>
             </div>
         </div>
@@ -79,12 +78,6 @@
             </section>
             <!-- 버린 직후 5초: 되돌리기 -->
             <div class="undo" id="undo" hidden role="status"><span id="undo-msg"></span><button type="button" id="undo-btn">되돌리기</button></div>
-            <!-- 보기: 내역 · 달력 · 분석 (위에 붙어 다님) -->
-            <div class="views" id="views" role="tablist">
-                <button type="button" role="tab" data-view="list">내역</button>
-                <button type="button" role="tab" data-view="cal">달력</button>
-                <button type="button" role="tab" data-view="ana">분석</button>
-            </div>
             <!-- 거르기: 사람 칩 · 지출/수입 -->
             <div class="filter">
                 <div class="people" id="people"></div>
@@ -157,6 +150,8 @@
                     <button type="button" class="save" id="save">저장</button>
                 </div>
             </div>
+            <!-- 아래 메뉴: 내역 · 달력 · 분석 · 설정 (tabbar.css, 홈·근무표와 같은 모양) -->
+            <nav class="tabbar" id="views" aria-label="아래 메뉴"><div class="tabbar-in"><button type="button" data-view="list"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg><span>내역</span></button><button type="button" data-view="cal"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span>달력</span></button><button type="button" data-view="ana"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12A9 9 0 1 1 12 3v9z"/><path d="M15.5 3.7A9 9 0 0 1 20.3 8.5H15.5z"/></svg><span>분석</span></button><button type="button" data-view="set"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>설정</span></button></div></nav>
             <!-- 설정 (머리줄 '설정' → #settings, 뒤로가기로 메인): 휴대폰 설정처럼 목록 → 줄을 누르면 그 페이지(#settings/hook 등), ←·뒤로가기로 목록 -->
             <div class="set-view" id="set-view">
                 <div class="set-head"><button type="button" class="set-back" id="set-back" aria-label="뒤로">←</button><span id="set-title">설정</span></div>
@@ -171,9 +166,6 @@
                     <div class="set-grp">
                         <button type="button" class="set-row" data-tab="cats"><span class="sico" style="background:#FAECE7">🏷️</span><span class="n">분류</span><span class="v" id="row-cats"></span><span class="chev">›</span></button>
                         <button type="button" class="set-row admin-only" data-tab="users" hidden><span class="sico" style="background:#EEEDFE">👥</span><span class="n">함께 쓰는 사람</span><span class="tab-n warm" id="pending-count" hidden></span><span class="chev">›</span></button>
-                    </div>
-                    <div class="set-grp">
-                        <a class="set-row" id="row-all" href="/yeye/#settings"><span class="sico" style="background:#E6F1FB">⚙️</span><span class="n">전체 설정<small>앱 파일 · 로그아웃</small></span><span class="chev">›</span></a>
                     </div>
                 </div>
                 <!-- 휴대폰 연결: 상태 카드 하나 + 할 일 몇 줄. 설치 방법·연결 주소(매크로드로이드용)는 접어 둠 -->

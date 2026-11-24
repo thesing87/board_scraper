@@ -55,6 +55,7 @@ public class MainActivity extends Activity {
     private int tab = -1;
     private final TextView[] tabLabels = new TextView[3];
     private final ImageView[] tabIcons = new ImageView[3];
+    private final View[] tabLines = new View[3];
     private TextView banner;
     private ProgressBar progress;
     private String loadedSite = "";
@@ -185,17 +186,6 @@ public class MainActivity extends Activity {
         startActivity(new Intent(this, SettingsActivity.class).putExtra(SettingsActivity.EXTRA_SECTION, section));
     }
 
-    /** 위쪽 '설정': 홈 → 전체 설정, 가계부·근무표 → 그 페이지의 설정 (페이지를 못 열었거나 로그인 전이면 앱의 설정 화면) */
-    private void openTabSettings() {
-        if (loaded[tab].isEmpty()) {
-            openSettings(SettingsActivity.SECTION_APP);
-            return;
-        }
-        web.evaluateJavascript("(window.appOpenSettings && window.appOpenSettings() === true) ? 'opened' : ''", r -> {
-            if (r == null || !r.contains("opened")) openSettings(tab == TAB_LEDGER ? SettingsActivity.SECTION_PHONE : SettingsActivity.SECTION_APP);
-        });
-    }
-
     // ==========================================
     // 화면
     // ==========================================
@@ -204,25 +194,34 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(getColor(R.color.bg));
 
-        // ---- 위쪽 줄: 제목 · 새로고침 · 설정
+        // ---- 위쪽 한 줄: 제목 · 탭(홈 | 가계부 | 근무표, 아이콘 위·이름 아래, 고른 탭은 흰 밑줄) · 새로고침
+        // (설정은 각 페이지의 아래 메뉴에. 제목을 누르면 앱의 설정 화면 — 페이지를 못 열 때도 들어갈 수 있게)
         LinearLayout bar = new LinearLayout(this);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setBackgroundColor(getColor(R.color.green));
-        bar.setPadding(dp(16), 0, dp(4), 0);
+        bar.setPadding(dp(14), 0, dp(2), 0);
         TextView title = new TextView(this);
         title.setText(R.string.app_name);   // 시험 앱은 'YeYe홈 테스트'
         title.setTextColor(0xFFFFFFFF);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        bar.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        bar.addView(barButton("새로고침", v -> {
+        title.setPadding(0, 0, dp(10), 0);
+        title.setOnClickListener(v -> openSettings(SettingsActivity.SECTION_ALL));
+        bar.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        bar.addView(tabButton(TAB_HOME, "홈", R.drawable.ic_tab_home), new LinearLayout.LayoutParams(dp(62), ViewGroup.LayoutParams.MATCH_PARENT));
+        bar.addView(tabButton(TAB_LEDGER, "가계부", R.drawable.ic_tab_ledger), new LinearLayout.LayoutParams(dp(62), ViewGroup.LayoutParams.MATCH_PARENT));
+        bar.addView(tabButton(TAB_DUTY, "근무표", R.drawable.ic_tab_duty), new LinearLayout.LayoutParams(dp(62), ViewGroup.LayoutParams.MATCH_PARENT));
+        bar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+        TextView refresh = barButton("↻", v -> {
             loadFailed = false;
             if (loadedSite.isEmpty()) onResume();
             else if (loaded[tab].isEmpty()) load(tab, null);
             else web.reload();
-        }));
-        bar.addView(barButton("설정", v -> openTabSettings()));
-        root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
+        });
+        refresh.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+        refresh.setContentDescription("새로고침");
+        bar.addView(refresh);
+        root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)));
 
         // ---- 할 일 한 줄 (누르면 그 화면으로)
         banner = new TextView(this);
@@ -248,17 +247,6 @@ public class MainActivity extends Activity {
         }
         web = webs[TAB_HOME];
         root.addView(pages, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-
-        // ---- 아래쪽 탭: 홈 | 가계부 | 근무표
-        View line = new View(this);
-        line.setBackgroundColor(0xFFE5E7EB);
-        root.addView(line, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1));
-        LinearLayout tabs = new LinearLayout(this);
-        tabs.setBackgroundColor(0xFFFFFFFF);
-        tabs.addView(tabButton(TAB_HOME, "홈", R.drawable.ic_tab_home), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
-        tabs.addView(tabButton(TAB_LEDGER, "가계부", R.drawable.ic_tab_ledger), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
-        tabs.addView(tabButton(TAB_DUTY, "근무표", R.drawable.ic_tab_duty), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
-        root.addView(tabs, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)));
         return root;
     }
 
@@ -283,31 +271,39 @@ public class MainActivity extends Activity {
         return w;
     }
 
+    /** 위쪽 탭 하나: 아이콘 위·이름 아래 (페이지들의 아래 메뉴와 같은 모양), 고른 탭은 아래에 흰 밑줄 */
     private View tabButton(int which, String label, int icon) {
+        FrameLayout f = new FrameLayout(this);
+        TypedValue tv = new TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, tv, true);
+        f.setBackgroundResource(tv.resourceId);
         LinearLayout b = new LinearLayout(this);
         b.setOrientation(LinearLayout.VERTICAL);
         b.setGravity(Gravity.CENTER);
-        TypedValue tv = new TypedValue();
-        getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
-        b.setBackgroundResource(tv.resourceId);
         ImageView i = new ImageView(this);
         i.setImageResource(icon);
-        b.addView(i, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        b.addView(i, new LinearLayout.LayoutParams(dp(22), dp(22)));
         TextView t = new TextView(this);
         t.setText(label);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         t.setGravity(Gravity.CENTER);
-        t.setPadding(0, dp(3), 0, 0);
+        t.setPadding(0, dp(2), 0, 0);
         b.addView(t);
-        b.setContentDescription(label);
-        b.setOnClickListener(v -> {
+        f.addView(b, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        View line = new View(this);
+        line.setBackgroundColor(0xFFFFFFFF);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(40), dp(3), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        f.addView(line, lp);
+        tabLines[which] = line;
+        f.setContentDescription(label);
+        f.setOnClickListener(v -> {
             // 보고 있는 탭을 다시 누르면 그 페이지 맨 위로
             if (tab == which) web.evaluateJavascript("window.scrollTo({top: 0, behavior: 'smooth'})", null);
             else selectTab(which);
         });
         tabIcons[which] = i;
         tabLabels[which] = t;
-        return b;
+        return f;
     }
 
     /** 그 탭의 웹 화면에 페이지를 엶 (path가 null이면 그 탭의 첫 페이지) */
@@ -326,10 +322,11 @@ public class MainActivity extends Activity {
         web = webs[tab];
         for (int k = 0; k < 3; k++) {
             webs[k].setVisibility(k == tab ? View.VISIBLE : View.GONE);
-            int color = k == tab ? getColor(R.color.green) : 0xFF8B919C;
+            int color = k == tab ? 0xFFFFFFFF : 0xB3FFFFFF;   // 고른 탭은 흰색 + 밑줄, 나머지는 흐린 흰색
             tabIcons[k].setColorFilter(color);
             tabLabels[k].setTextColor(color);
             tabLabels[k].setTypeface(k == tab ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+            tabLines[k].setVisibility(k == tab ? View.VISIBLE : View.INVISIBLE);
         }
         if (loaded[tab].isEmpty()) load(tab, null);
         // 다른 탭에서 로그인했는데 이 탭은 아직 로그인 화면이면 다시 읽음 (로그인은 탭들이 함께 씀). 홈은 늘 새 요약으로

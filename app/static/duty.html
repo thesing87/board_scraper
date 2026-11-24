@@ -11,10 +11,11 @@
     <meta name="theme-color" content="#F4F5F7">
     <link rel="stylesheet" href="/duty.css">
     <link rel="stylesheet" href="/nav.css">
+    <link rel="stylesheet" href="/tabbar.css">
     <script src="/nav.js" defer></script>
     <script src="/duty.js" defer></script>
 </head>
-<body>
+<body class="has-tabbar">
     <!-- 근무표: 가계부 계정으로 로그인, 허락받은 멤버 모두가 함께 넣고 고침 (duty.py) -->
     <header class="site-top" data-no-share>
         <div class="site-top-row">
@@ -25,8 +26,6 @@
             <div class="site-top-tools">
                 <span class="who-me" id="who-me" hidden></span>
                 <button type="button" class="tool" id="set-open" hidden>설정</button>
-                <!-- 전체 설정 (앱 파일·로그아웃, 홈 페이지의 설정). 앱 안에서는 이 줄이 숨음 -->
-                <a class="tool tool-link" id="all-set" href="/yeye/#settings" hidden>전체 설정</a>
                 <button type="button" class="tool" id="logout" hidden>로그아웃</button>
             </div>
         </div>
@@ -88,11 +87,14 @@
                     <p class="msg" id="cal-msg" role="alert"></p>
 
                     <section class="sec changes-sec" id="changes-sec" hidden>
-                        <div class="sec-title">최근 고친 것</div>
                         <div id="changes"></div>
                     </section>
+                    <!-- 고치기: 오른쪽 아래 ✎ (고치는 중엔 ✓ = 완료) -->
+                    <button type="button" class="fab" id="edit-fab" aria-label="고치기">✎</button>
                 </div>
             </div>
+            <!-- 아래 메뉴: 달력 · 고친 기록 · 설정 (tabbar.css, 홈·가계부와 같은 모양) -->
+            <nav class="tabbar" id="dnav" aria-label="아래 메뉴"><div class="tabbar-in"><button type="button" data-dv="cal"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span>달력</span></button><button type="button" data-dv="history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg><span>고친 기록</span></button><button type="button" data-dv="set"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>설정</span></button></div></nav>
 
             <!-- 설정 (#settings): 근무 종류 · 사람 -->
             <div id="set-view" hidden>

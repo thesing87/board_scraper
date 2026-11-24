@@ -7,13 +7,14 @@
     <meta name="robots" content="noindex, nofollow">
     <meta name="theme-color" content="#F4F5F7">
     <link rel="stylesheet" href="/yeye.css">
+    <link rel="stylesheet" href="/tabbar.css">
     <script src="/yeye.js" defer></script>
 </head>
-<body>
-    <!-- YeYe홈 앱의 홈 탭: 근무표·가계부 요약 (가계부 로그인). 카드를 누르면 그 탭으로.
-         전체 설정(#settings): 앱 파일(관리자 올리기·앱 받기) · 이 휴대폰 앱(버전·새 버전 확인) · 로그아웃 -->
+<body class="has-tabbar">
+    <!-- YeYe홈 앱의 홈 탭: 오늘 근무 · 이번 달 지출 · 확인할 결제 · 최근 내역 카드 (순서는 이 기기에서 바꿈, 가계부 로그인). 카드를 누르면 그 탭으로.
+         아래 메뉴 '설정'(#settings): 앱 파일(관리자 올리기·앱 받기) · 이 휴대폰 앱(버전·새 버전 확인) · 로그아웃 -->
     <main class="page">
-        <div class="outside-bar" id="outside-bar" hidden><b>YeYe홈</b><button type="button" class="small" id="set-open">전체 설정</button></div>
+        <div class="outside-bar" id="outside-bar" hidden><b>YeYe홈</b></div>
         <section class="card auth" id="auth" hidden>
             <form id="login-form" autocomplete="on">
                 <b>가계부 계정으로 로그인</b>
@@ -26,14 +27,27 @@
         </section>
 
         <div id="app" hidden>
-            <div class="card go" id="duty-card" data-go="/duty/" role="link" tabindex="0">
-                <div class="head"><b id="duty-title">근무표</b><span class="more">근무표 ›</span></div>
-                <div id="duty-body"></div>
+            <div class="greet"><span id="greet-date"></span><b id="greet-name"></b></div>
+            <!-- 순서 바꾸는 중: 카드마다 ⋮⋮, 끌어서 옮기고 '완료' (이 기기에 저장) -->
+            <div class="order-bar" id="order-bar" hidden><b>카드 순서</b><button type="button" class="link-btn" id="order-done">완료</button></div>
+            <div id="cards">
+                <div class="card go" id="duty-card" data-card="duty" data-go="/duty/" role="link" tabindex="0">
+                    <div class="head"><b id="duty-title">오늘 근무</b><span class="drag" aria-hidden="true">⋮⋮</span></div>
+                    <div id="duty-body"></div>
+                </div>
+                <div class="card go" id="ledger-card" data-card="spend" data-go="/ledger/" role="link" tabindex="0">
+                    <div class="head"><b id="ledger-title">이번 달 지출</b><span class="drag" aria-hidden="true">⋮⋮</span></div>
+                    <div id="ledger-body"></div>
+                </div>
+                <div class="card go inbox-card" id="inbox-card" data-card="inbox" data-go="/ledger/#inbox" role="link" tabindex="0">
+                    <div class="head"><b>확인할 결제 <span id="inbox-n"></span></b><span class="more">보기 ›</span><span class="drag" aria-hidden="true">⋮⋮</span></div>
+                </div>
+                <div class="card go" id="recent-card" data-card="recent" data-go="/ledger/" role="link" tabindex="0">
+                    <div class="head"><b>최근 내역</b><span class="drag" aria-hidden="true">⋮⋮</span></div>
+                    <div id="recent-body"></div>
+                </div>
             </div>
-            <div class="card go" id="ledger-card" data-go="/ledger/" role="link" tabindex="0">
-                <div class="head"><b id="ledger-title">가계부</b><span class="more">가계부 ›</span></div>
-                <div id="ledger-body"></div>
-            </div>
+            <button type="button" class="link-btn order-btn" id="order-btn">⇅ 카드 순서 바꾸기</button>
             <p class="msg" id="msg" role="alert"></p>
         </div>
 
@@ -62,5 +76,7 @@
             </section>
         </div>
     </main>
+    <!-- 아래 메뉴: 홈 · 설정 (tabbar.css, 가계부·근무표와 같은 모양). 로그인 전엔 숨김 -->
+    <nav class="tabbar" hidden id="hnav" aria-label="아래 메뉴"><div class="tabbar-in"><button type="button" data-hv="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>홈</span></button><button type="button" data-hv="set"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>설정</span></button></div></nav>
 </body>
 </html>

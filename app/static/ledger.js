@@ -89,7 +89,7 @@
         st.me = null;
         storageSet(LEDGER_FLAG, '');
         $('app').hidden = true;
-        $('who-me').hidden = $('logout').hidden = $('set-open').hidden = $('all-set').hidden = true;
+        $('who-me').hidden = $('logout').hidden = $('set-open').hidden = true;
         $('app').classList.remove('settings-open');
         $('auth').hidden = false;
         setTab(tab || 'login');
@@ -142,7 +142,7 @@
         $('app').hidden = false;
         const av = avatarOf(user.id, user.name);
         $('who-me').innerHTML = `${av}<span>${esc(user.name)}</span>`;
-        $('who-me').hidden = $('logout').hidden = $('all-set').hidden = false;
+        $('who-me').hidden = $('logout').hidden = false;
         setUsedOn(ymd(new Date()));
         $('set-open').hidden = false;
         renderSetTabs();
@@ -227,17 +227,24 @@
         renderTotals();
         renderViews();
     }
+    // 아래 메뉴: 내역·달력·분석 (설정이 열려 있으면 '설정'이 켜짐)
     function renderViews() {
+        const on = $('app').classList.contains('settings-open') ? 'set' : st.view;
         document.querySelectorAll('#views [data-view]').forEach(b => {
-            b.classList.toggle('on', b.dataset.view === st.view);
-            b.setAttribute('aria-selected', String(b.dataset.view === st.view));
+            b.classList.toggle('on', b.dataset.view === on);
+            if (b.dataset.view === on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
         });
         document.querySelectorAll('#app .pane').forEach(p => { p.hidden = p.dataset.pane !== st.view; });
         $('type-seg').hidden = st.view !== 'list';   // 지출·수입 거르기는 내역에만 (달력·분석은 자기 단추)
     }
     $('views').addEventListener('click', e => {
         const b = e.target.closest('[data-view]');
-        if (b) { st.view = b.dataset.view; renderViews(); }
+        if (!b) return;
+        if (b.dataset.view === 'set') { if (!$('app').classList.contains('settings-open')) openSettings(); else if (st.setTab) setBack(); return; }
+        if ($('app').classList.contains('settings-open')) closeSettings();
+        if (st.view !== b.dataset.view) window.scrollTo(0, 0);
+        st.view = b.dataset.view;
+        renderViews();
     });
 
     function renderEntryHead() {
@@ -1360,6 +1367,7 @@
     function showSettings(on) {
         $('app').classList.toggle('settings-open', on);
         if (on) { renderSetTabs(); window.scrollTo(0, 0); }
+        renderViews();
     }
     // 설정 안에서 쌓은 주소 칸 수 (메인 → #settings 1, → #settings/hook 2)
     const setLevel = () => (history.state || {}).ledgerSet || 0;

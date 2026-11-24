@@ -22,7 +22,27 @@
     const badgeStyle = h => `background:${mix(h, true, 0.8)};color:${mix(h, false, 0.5)}`;
     const inApp = !!window.LedgerApp;
     if (inApp) document.documentElement.classList.add('in-app');
-    const st = { me: null, app: null };
+    const st = { me: null, app: null, ordering: false };
+    // 카드 순서 (이 기기, localStorage home_cards: 'duty,spend,inbox,recent')
+    const CARDS = ['duty', 'spend', 'inbox', 'recent'], ORDER_KEY = 'home_cards';
+    function cardOrder() {
+        const saved = storageGet(ORDER_KEY, '').split(',').filter(k => CARDS.includes(k));
+        return [...new Set([...saved, ...CARDS])];
+    }
+    function applyOrder() {
+        const box = $('cards');
+        cardOrder().forEach(k => box.appendChild(box.querySelector(`[data-card="${k}"]`)));
+    }
+    function saveOrder() {
+        const keys = [...$('cards').querySelectorAll('[data-card]')].map(c => c.dataset.card);
+        try { localStorage.setItem(ORDER_KEY, keys.join(',')); } catch (e) { /* 저장 불가 */ }
+    }
+    // 분류 아이콘 (가계부와 같은 규칙: 고른 이모지, 없으면 이름으로 짐작)
+    const GUESS = [[/식|밥|외식|배달/, '🍚'], [/카페|커피/, '☕'], [/교통|버스|지하철|택시/, '🚌'], [/생활|마트|장보/, '🧺'], [/쇼핑|옷/, '🛍️'],
+        [/의료|병원|약|건강/, '💊'], [/주거|월세|관리비|집/, '🏠'], [/통신|휴대폰|폰/, '📱'], [/경조|선물/, '🎁'], [/문화|여가|취미|영화/, '🎬'],
+        [/교육|학원|책/, '📚'], [/반려|강아지|고양이|펫/, '🐶'], [/여행/, '✈️'], [/차|주유|주차/, '🚗'], [/공과|전기|가스|수도/, '💡'], [/술/, '🍺'],
+        [/미용|화장/, '💄'], [/육아|아이/, '👶'], [/급여|월급/, '💰'], [/부수입/, '💵'], [/용돈/, '🎉'], [/이자|환급/, '🏦']];
+    const iconOf = (icon, name) => icon || (GUESS.find(([re]) => re.test(name || '')) || [0, [...(name || '?')][0]])[1];
     const kb = n => n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`;
 
     async function req(url, body) {
@@ -57,7 +77,7 @@
                 if ((await req('/api/ledger/session', { action: 'login', password: token })).status === 200) { load(); return; }
             }
             st.me = null;
-            $('app').hidden = $('set-view').hidden = $('outside-bar').hidden = true;
+            $('app').hidden = $('set-view').hidden = $('outside-bar').hidden = $('hnav').hidden = true;
             $('auth').hidden = false;
             return;
         }
@@ -66,10 +86,15 @@
         $('auth').hidden = true;
         st.me = data.user;
         st.app = data.app;
-        $('outside-bar').hidden = false;
+        $('outside-bar').hidden = $('hnav').hidden = false;
         showSettings(location.hash === '#settings');
+        const now = new Date();
+        $('greet-date').textContent = `${now.getMonth() + 1}월 ${now.getDate()}일 ${WD[now.getDay()]}요일`;
+        $('greet-name').textContent = `안녕하세요, ${st.me.name}님`;
+        applyOrder();
         renderDuty(data.duty);
         renderLedger(data.ledger);
+        renderOrdering();
         renderSettings();
     }
     window.homeRefresh = load;
@@ -78,31 +103,90 @@
         const types = {};
         d.types.forEach(t => { types[t.id] = t; });
         const badge = id => types[id] ? `<span class="badge" style="${badgeStyle(types[id].color)}">${esc(types[id].code)}</span>` : '<span class="badge blank">–</span>';
-        const t0 = parse(d.today);
-        $('duty-title').textContent = `근무표 · 오늘 ${t0.getMonth() + 1}/${t0.getDate()} (${WD[t0.getDay()]})`;
-        if (!d.people.length) { $('duty-body').innerHTML = '<p class="none">아직 근무표가 없어요. 눌러서 사람을 더해 주세요.</p>'; return; }
-        const rows = d.people.map(p => {
+        $('duty-title').textContent = '오늘 근무';
+        if (!d.people.length) { $('duty-body').innerHTML = '<p class="none">아직 근무표가 없어요</p>'; return; }
+        // 처음 보일 사람은 크게 (가계부의 이번 달 지출처럼), 다른 사람은 한 줄씩
+        const who = d.people.find(p => p.id === d.person_id) || d.people[0];
+        const big = p => {
+            const t = types[p.today], n = types[p.tomorrow];
+            return `<div class="big-duty"><span class="lbl">${esc(p.name)}</span><span class="v"${t ? ` style="color:${mix(t.color, false, 0.4)}"` : ''}>${t ? esc(t.name) : '근무 없음'}</span>
+                ${t && t.start_time ? `<span class="tm">${t.start_time}–${t.end_time}</span>` : ''}<span class="nx">내일 ${n ? esc(n.name) : '–'}</span></div>`;
+        };
+        const rows = d.people.filter(p => p !== who).map(p => {
             const t = types[p.today], n = types[p.tomorrow];
             const desc = (t ? `${t.name}${t.start_time ? ` ${t.start_time}–${t.end_time}` : ''}` : '근무 없음') + ` · 내일 ${n ? n.code : '–'}`;
             return `<div class="who"><span class="n">${esc(p.name)}</span>${badge(p.today)}<span class="t">${esc(desc)}</span></div>`;
         }).join('');
-        const who = d.people.find(p => p.id === d.person_id);
         const week = d.week.map((w, i) => {
             const day = parse(w.day);
             return `<div><div class="d${i === 0 ? ' today' : ''}">${i === 0 ? '오늘' : WD[day.getDay()]}</div>${badge(w.type_id)}</div>`;
         }).join('');
-        $('duty-body').innerHTML = rows + (who ? `<div class="week"><div class="lbl">${esc(who.name)}의 이번 주</div><div class="row">${week}</div></div>` : '');
+        $('duty-body').innerHTML = big(who) + (d.person_id === who.id ? `<div class="week"><div class="row">${week}</div></div>` : '') + (rows ? `<div class="others">${rows}</div>` : '');
     }
 
     function renderLedger(l) {
-        $('ledger-title').textContent = `가계부 · ${Number(l.month.slice(5))}월`;
-        $('ledger-body').innerHTML = `<div class="sums"><div><div class="l">지출</div><div class="v ex">-${won(l.expense)}</div></div>
-            <div><div class="l">수입</div><div class="v in">+${won(l.income)}</div></div></div>`
-            + (l.inbox ? `<div class="inbox" data-go="/ledger/#inbox" role="link">확인 대기함 ${l.inbox}건 ›</div>` : '')
-            + (l.recent.length ? `<div class="recent">${l.recent.map(r => `<div class="rc"><span class="dot" style="background:${esc(r.color)}"></span>
-                <span class="m">${esc(r.memo)}</span><span class="a${r.kind === 'income' ? ' in' : ''}">${r.kind === 'income' ? '+' : '-'}${won(r.amount)}</span></div>`).join('')}</div>`
-                : '<p class="none" style="margin:10px 0 0">이번 달 기록이 아직 없어요.</p>');
+        $('ledger-title').textContent = '이번 달 지출';
+        const pct = l.income ? Math.min(100, Math.round(l.expense / l.income * 100)) : l.expense ? 100 : 0;
+        $('ledger-body').innerHTML = `<div class="spend">${won(l.expense)}<small>원</small></div>
+            <div class="bar"><i style="width:${pct}%"></i></div><div class="sub">수입 <b class="in">${won(l.income)}원</b> · 남음 <b>${won(l.income - l.expense)}원</b></div>`;
+        $('inbox-n').textContent = l.inbox || '';
+        st.inboxN = l.inbox;
+        $('recent-body').innerHTML = l.recent.length ? l.recent.map(r => `<div class="rc"><span class="ci" style="background:${mix(r.color || '#888780', true, 0.84)}">${esc(iconOf(r.icon, r.category))}</span>
+                <span class="m">${esc(r.memo)}</span><span class="a${r.kind === 'income' ? ' in' : ''}">${r.kind === 'income' ? '+' : '−'}${won(r.amount)}</span></div>`).join('')
+            : '<p class="none">이번 달 기록이 아직 없어요</p>';
     }
+
+    // ==========================================
+    // 카드 순서 바꾸기: ⋮⋮를 끌어 옮기고 '완료' (놓을 때마다 이 기기에 저장)
+    // ==========================================
+    function renderOrdering() {
+        $('app').classList.toggle('ordering', st.ordering);
+        $('order-bar').hidden = !st.ordering;
+        $('order-btn').hidden = st.ordering;
+        $('inbox-card').hidden = !st.ordering && !st.inboxN;   // 확인할 결제가 없으면 숨김 (순서 바꿀 때는 보임)
+    }
+    $('order-btn').addEventListener('click', () => { st.ordering = true; renderOrdering(); });
+    $('order-done').addEventListener('click', () => { saveOrder(); st.ordering = false; renderOrdering(); });
+    let drag = null;
+    $('cards').addEventListener('pointerdown', e => {
+        if (!st.ordering) return;
+        const card = e.target.closest('[data-card]');
+        if (!card) return;
+        e.preventDefault();
+        drag = { card, id: e.pointerId };
+        card.setPointerCapture(e.pointerId);
+        card.classList.add('dragging');
+    });
+    $('cards').addEventListener('pointermove', e => {
+        if (!drag || e.pointerId !== drag.id) return;
+        const rest = [...$('cards').querySelectorAll('[data-card]')].filter(c => c !== drag.card && !c.hidden);
+        const before = rest.find(c => { const b = c.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; });
+        if (before) { if (before !== drag.card.nextElementSibling) $('cards').insertBefore(drag.card, before); }
+        else if (rest.length) rest[rest.length - 1].after(drag.card);
+    });
+    const endDrag = e => { if (!drag || e.pointerId !== drag.id) return; drag.card.classList.remove('dragging'); drag = null; saveOrder(); };
+    $('cards').addEventListener('pointerup', endDrag);
+    $('cards').addEventListener('pointercancel', endDrag);
+    window.homeMoveCard = (key, to) => {   // 시험용: 카드를 to번째로 옮기고 저장
+        const card = $('cards').querySelector(`[data-card="${key}"]`), rest = [...$('cards').querySelectorAll('[data-card]')].filter(c => c !== card);
+        if (rest[to]) $('cards').insertBefore(card, rest[to]); else $('cards').appendChild(card);
+        saveOrder();
+    };
+
+    // 아래 메뉴: 홈 · 설정
+    function renderNav() {
+        const v = $('set-view').hidden ? 'home' : 'set';
+        document.querySelectorAll('#hnav [data-hv]').forEach(b => {
+            b.classList.toggle('on', b.dataset.hv === v);
+            if (b.dataset.hv === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+        });
+    }
+    $('hnav').addEventListener('click', e => {
+        const b = e.target.closest('[data-hv]');
+        if (!b) return;
+        if (b.dataset.hv === 'set') { if ($('set-view').hidden) openSettings(); }
+        else if (!$('set-view').hidden) closeSettings();
+    });
 
     // ==========================================
     // 전체 설정 (#settings)
@@ -111,6 +195,8 @@
         $('app').hidden = on;
         $('set-view').hidden = !on;
         if (on) window.scrollTo(0, 0);
+        if (on && st.ordering) { saveOrder(); st.ordering = false; renderOrdering(); }
+        renderNav();
     }
     function openSettings() {
         if (location.hash !== '#settings') history.pushState({ homeSettings: 1 }, '', '#settings');
@@ -125,11 +211,14 @@
         }
     }
     window.addEventListener('popstate', () => { if (st.me) showSettings(location.hash === '#settings'); });
-    $('set-open').addEventListener('click', openSettings);
     $('set-back').addEventListener('click', closeSettings);
     // 앱이 부름: 홈 탭 위쪽 '설정' → 전체 설정 (로그인 전이면 false → 앱이 자기 설정을 엶), 뒤로가기 → 설정부터 닫음
     window.appOpenSettings = () => { if (!st.me) return false; openSettings(); return true; };
-    window.ledgerBack = () => { if (!$('set-view').hidden) { closeSettings(); return true; } return false; };
+    window.ledgerBack = () => {
+        if (!$('set-view').hidden) { closeSettings(); return true; }
+        if (st.ordering) { saveOrder(); st.ordering = false; renderOrdering(); return true; }
+        return false;
+    };
 
     function renderSettings() {
         if (!st.me) return;
@@ -198,6 +287,7 @@
 
     // 카드·대기함을 누르면 그 페이지로 (앱은 탭을 바꿈)
     document.addEventListener('click', e => {
+        if (st.ordering) return;   // 순서 바꾸는 중엔 카드를 눌러도 가지 않음
         const go = e.target.closest('[data-go]');
         if (go) location.href = go.dataset.go;
     });

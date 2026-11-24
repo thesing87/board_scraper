@@ -91,8 +91,12 @@ try:
     # 메인에는 매일 쓰는 것만: 결제 알림 연결·사용자 허락·버린 알림 목록은 머리줄 '설정' 화면에 (처음엔 닫힘).
     assert vis('set-open') and not vis('set-view') and not vis('auto') and not vis('admin')
     # 순서: 맨 위 요약 → 보기(내역·달력·분석) → 거르기(사람 칩·지출/수입) → 내역. 입력 창은 ＋를 누를 때만
-    order = js("return [...document.querySelectorAll('#hero, #views, #app .filter, #pane-list')].map(e => e.id || e.className)")
-    assert order == ['hero', 'views', 'filter', 'pane-list'], order
+    order = js("return [...document.querySelectorAll('#hero, #app .filter, #pane-list')].map(e => e.id || e.className)")
+    assert order == ['hero', 'filter', 'pane-list'], order
+    # 아래 메뉴: 내역·달력·분석·설정 (화면 맨 아래에 고정, 고른 것에 표시), 머리줄에 '전체 설정' 없음
+    assert vis('views') and [b.strip() for b in js("return [...document.querySelectorAll('#views [data-view]')].map(b => b.textContent)")] == ['내역', '달력', '분석', '설정']
+    assert js("const r = document.getElementById('views').getBoundingClientRect(); return Math.round(r.bottom) === innerHeight")
+    assert js("return document.querySelector('#views .on').dataset.view") == 'list' and not js("return !!document.getElementById('all-set')")
     assert vis('fab') and not vis('sheet-wrap') and vis('pane-list') and not vis('totals') and not vis('pane-ana')
     assert txt('period') == f'{date.today().year}년 {date.today().month}월' and txt('m-ex-label') == '이번 달 지출'
     font = lambda sel: js(f"return getComputedStyle(document.querySelector('{sel}')).fontSize")
@@ -128,6 +132,12 @@ try:
     assert '연결 안 됨' in txt('row-hook')
     click('#set-back'); time.sleep(.5)                                  # 한 번 더 → 메인
     assert not vis('set-view') and vis('set-open') and js("return location.hash") == ''
+    # 아래 메뉴 '설정' → 설정 목록 ('설정'에 표시, 메뉴는 그대로), '내역' → 메인
+    click('#views [data-view="set"]'); time.sleep(.4)
+    assert vis('set-home') and vis('views') and js("return document.querySelector('#views .on').dataset.view") == 'set'
+    assert not js("return !!document.getElementById('row-all')")      # 전체 설정 줄 없음 (홈의 설정으로)
+    click('#views [data-view="list"]'); time.sleep(.5)
+    assert not vis('set-view') and vis('pane-list') and js("return location.hash") == ''
     # 앱 파일 올리기 (전체 설정 /yeye/#settings, 관리자): 고르기 전엔 버튼 꺼짐, APK가 아니면 거절, 올리면 받기 버튼
     d.get(BASE + '/yeye/#settings'); time.sleep(1.5)
     assert vis('set-view') and vis('app-up') and not vis('phone-card') and '임기범 (관리자)' in txt('who')

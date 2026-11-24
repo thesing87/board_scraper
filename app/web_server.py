@@ -199,6 +199,7 @@ STATIC_FILES = {
     # 모든 페이지 공통 바로가기 메뉴
     '/nav.js': ('nav.js', 'application/javascript; charset=utf-8'),
     '/nav.css': ('nav.css', 'text/css; charset=utf-8'),
+    '/tabbar.css': ('tabbar.css', 'text/css; charset=utf-8'),
     # 카드 혜택 한도
     '/card/': ('card.html', 'text/html; charset=utf-8'),
     '/card.js': ('card.js', 'application/javascript; charset=utf-8'),
@@ -1322,7 +1323,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         for e in st['entries'][:3]:
             c = cats.get(e['category_id'], {})
             recent.append({'memo': e['memo'] or c.get('name', ''), 'amount': e['amount'], 'used_on': e['used_on'],
-                           'kind': c.get('kind', 'expense'), 'category': c.get('name', ''), 'color': c.get('color', '#888780')})
+                           'kind': c.get('kind', 'expense'), 'category': c.get('name', ''), 'color': c.get('color', '#888780'),
+                           'icon': c.get('icon', '')})
         return {'month': st['month'], 'expense': total['expense'], 'income': total['income'],
                 'inbox': len(ledger.inbox(user)), 'recent': recent}
 

@@ -50,11 +50,11 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .add-person input { flex: 1 1 180px; height: 34px; }
 .add-person .msg { flex-basis: 100%; margin: 0; }
 
-/* 오늘 */
-.today { display: flex; gap: 12px; align-items: center; }
+/* 오늘: 맨 위 요약 (카드 없이 크게, 가계부의 이번 달 지출처럼) */
+.today { display: flex; gap: 12px; align-items: center; background: none; border: 0; padding: 6px 2px 14px; }
 .today .main { flex: 1; min-width: 0; }
 .today .lbl { font-size: 12px; color: var(--muted); }
-.today .big { font-size: 18px; font-weight: 700; margin-top: 2px; }
+.today .big { font-size: 26px; font-weight: 700; margin-top: 2px; letter-spacing: -0.3px; }
 .today .big .time { font-size: 13px; font-weight: 400; color: var(--muted); margin-left: 6px; }
 .today .none { color: var(--faint); font-weight: 400; font-size: 15px; }
 .today .next { display: flex; gap: 6px; }
@@ -63,8 +63,11 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .badge { display: inline-block; min-width: 26px; padding: 2px 6px; border-radius: 5px; font-size: 12px; font-weight: 700; text-align: center; white-space: nowrap; }
 .badge.blank { color: var(--faint); background: var(--soft); font-weight: 400; }
 
-/* 달력: 평소엔 보기만, 고치는 중엔 초록 테두리 */
-.edit-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
+/* 달력: 흰 카드, 평소엔 보기만, 고치는 중엔 초록 테두리 (✎로 시작·✓로 끝) */
+.cal-sec { border: 0; }
+.edit-bar { display: none; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
+.cal-sec.editing .edit-bar { display: flex; }
+#edit-btn { display: none; }
 .edit-bar button { font-weight: 700; }
 .cal-sec.editing { border: 2px solid var(--green); padding: 11px 13px; }
 .cal-sec.editing .edit-bar span { color: var(--green); font-weight: 700; }
@@ -90,7 +93,11 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .counts b { font-weight: 700; color: var(--text); margin-left: 3px; }
 
 /* 근무 칠하기 */
-.brush-sec { position: sticky; bottom: calc(env(safe-area-inset-bottom) + 8px); z-index: 5; }
+.brush-sec { position: sticky; bottom: calc(env(safe-area-inset-bottom) + 64px); z-index: 5; box-shadow: 0 -4px 16px rgba(17, 24, 39, .08); }
+/* ✎ 고치기 (아래 메뉴 위, 고치는 중엔 칠하기 칸 위) */
+.fab { position: fixed; right: max(18px, calc(50vw - 342px)); bottom: calc(env(safe-area-inset-bottom) + 72px); z-index: 30; width: 56px; height: 56px; padding: 0;
+    border: 0; border-radius: 50%; background: #185FA5; color: #fff; font-size: 24px; line-height: 56px; box-shadow: 0 6px 16px rgba(24, 95, 165, .35); }
+.fab.editing { background: var(--green); box-shadow: 0 6px 16px rgba(15, 110, 86, .35); bottom: calc(env(safe-area-inset-bottom) + 200px); }
 .brush-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .brush { display: flex; flex-wrap: wrap; gap: 6px; }
 .brush button { flex: 1 0 52px; height: 40px; padding: 0 6px; border-radius: 9px; font-weight: 700; border: 2px solid transparent; }
@@ -98,7 +105,8 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .brush button.clear { background: var(--surface); border: 1px dashed #CBD0D8; color: var(--muted); font-weight: 400; }
 .brush button.clear.on { border: 2px solid var(--text); color: var(--text); }
 
-/* 최근 고친 것 */
+/* 고친 기록 (아래 메뉴) */
+.changes-sec { border: 0; }
 .ch { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--divider); font-size: 13px; }
 .ch:first-child { border-top: 0; }
 .ch .d { flex: 1; }
@@ -134,7 +142,7 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
     .cal { gap: 3px; }
     .cal .day, .cal .pad { height: 52px; }
     .cal .day .badge { font-size: 11px; padding: 2px 4px; }
-    .today .big { font-size: 16px; }
+    .today .big { font-size: 24px; }
     /* 휴대폰: 글자·이름 / 시간 07:00 ~ 15:00 / 색 / 지우기·저장 (시간 칸이 겹치지 않게 한 줄씩) */
     .trow { grid-template-columns: 56px minmax(0, 1fr); grid-template-areas: 'code name' 'times times' 'colors colors' 'acts acts'; }
     .trow .times input { flex: 1; width: auto; min-width: 0; }
