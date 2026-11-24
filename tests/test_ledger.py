@@ -127,6 +127,13 @@ assert call('/api/ledger/category', {'action': 'edit', 'id': food, 'name': '식�
 assert call('/api/ledger/category', {'action': 'edit', 'id': food, 'name': '식비', 'color': '#D85A30', 'icon': '아주 긴 아이콘 글'}, cookie=user)[0] == 400
 assert call('/api/ledger/category', {'action': 'edit', 'id': food, 'name': '먹거리', 'color': '#FF0000'}, cookie=user)[0] == 200
 assert next(c for c in call('/api/ledger/state?month=2026-11', cookie=user)[1]['categories'] if c['id'] == food)['icon'] == '🍜'
+# 순서 바꾸기: 보낸 순서대로, 빠진 분류는 뒤에 원래 순서대로. 없는 번호·겹친 번호는 거절
+ids = [c['id'] for c in call('/api/ledger/state?month=2026-11', cookie=user)[1]['categories']]
+assert call('/api/ledger/category', {'action': 'reorder', 'ids': [ids[1], ids[0]]}, cookie=user)[0] == 200
+assert [c['id'] for c in call('/api/ledger/state?month=2026-11', cookie=user)[1]['categories']] == [ids[1], ids[0]] + ids[2:]
+assert call('/api/ledger/category', {'action': 'reorder', 'ids': [ids[0], 99999]}, cookie=user)[0] == 400
+assert call('/api/ledger/category', {'action': 'reorder', 'ids': [ids[0], ids[0]]}, cookie=user)[0] == 400
+assert call('/api/ledger/category', {'action': 'reorder', 'ids': ids}, cookie=user)[0] == 200
 code, data, _ = call('/api/ledger/category', {'action': 'add', 'name': '여행', 'color': '#378ADD', 'icon': '✈️'}, cookie=user)
 assert code == 200 and next(c for c in call('/api/ledger/state?month=2026-11', cookie=user)[1]['categories'] if c['id'] == data['id'])['icon'] == '✈️'
 assert call('/api/ledger/category', {'action': 'delete', 'id': data['id']}, cookie=user)[0] == 200

@@ -337,6 +337,18 @@ def edit_category(category_id, name, color, icon=None):
         conn.execute("UPDATE ledger_categories SET name = ?, color = ?, icon = COALESCE(?, icon) WHERE id = ?", (name, color, icon, category_id))
 
 
+def reorder_categories(ids):
+    """분류 순서 바꾸기: ids(모든 분류 번호, 보일 순서대로). 빠진 분류는 그 뒤에 원래 순서대로"""
+    if not isinstance(ids, list) or not ids or not all(type(i) is int for i in ids) or len(set(ids)) != len(ids):
+        raise LedgerError('순서를 다시 보내 주세요.')
+    with _db() as conn, conn:
+        known = [r['id'] for r in conn.execute("SELECT id FROM ledger_categories ORDER BY position, id")]
+        if not set(ids) <= set(known):
+            raise LedgerError('없는 분류가 있어요.')
+        order = ids + [i for i in known if i not in set(ids)]
+        conn.executemany("UPDATE ledger_categories SET position = ? WHERE id = ?", [(n, i) for n, i in enumerate(order)])
+
+
 def delete_category(category_id):
     with _db() as conn, conn:
         if conn.execute("SELECT 1 FROM ledger_entries WHERE category_id = ?", (category_id,)).fetchone():

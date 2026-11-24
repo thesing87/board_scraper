@@ -52,6 +52,13 @@ def sheet():
     assert vis('sheet-wrap') and vis('amount')
 rows = lambda: js("return document.querySelectorAll('#list [data-entry]').length")
 cat_names = lambda sel='#cats .chip .cn': js(f"return [...document.querySelectorAll('{sel}')].map(c => c.textContent.trim())")
+def close_settings():
+    # 설정 페이지 → 목록 → 메인 (←를 닫힐 때까지)
+    for _ in range(3):
+        if not js("return document.getElementById('app').classList.contains('settings-open')"):
+            return
+        click('#set-back'); time.sleep(.4)
+    assert False, '설정이 닫히지 않음'
 def view(v):
     click(f'#views [data-view="{v}"]'); time.sleep(.2)
 def entries():
@@ -107,15 +114,19 @@ try:
     assert not vis('sheet-wrap')
     assert js("return document.querySelector('#who-me .av').textContent") == '임'      # 아이콘은 이름 첫 글자
     assert txt('set-dot') == '1' and not vis('admin')               # 허락을 기다리는 사람: 머리줄 '설정'에 숫자 점
-    click('#set-open'); time.sleep(.3)                                  # → 설정, 사용자 허락 탭부터
-    assert vis('set-view') and vis('admin') and txt('pending-count') == '1' and js("return location.hash") == '#settings'
+    click('#set-open'); time.sleep(.3)                                  # → 설정, 허락을 기다리는 사람이 있으면 '함께 쓰는 사람'부터
+    assert vis('set-view') and vis('admin') and not vis('set-home') and txt('set-title') == '함께 쓰는 사람' and js("return location.hash") == '#settings/users'
     assert not vis('hero') and not vis('inbox-sec') and not vis('fab')   # 설정에서는 메인 칸이 숨음
     click('[data-admin="approve"]'); time.sleep(1)
     assert '기다리는 사람 없음' in txt('pending') and '지은' in txt('members') and not vis('set-dot')
     assert 'ledger' in navs()
     # 가계부 설정에는 앱 파일 탭이 없음 (전체 설정으로 옮김)
     assert not js("return !!document.querySelector('[data-tab=appfile]')")
-    click('#set-back'); time.sleep(.5)                                  # ← 또는 뒤로가기로 메인
+    click('#set-back'); time.sleep(.5)                                  # ← 또는 뒤로가기로 목록
+    assert vis('set-home') and not vis('admin') and txt('set-title') == '설정' and js("return location.hash") == '#settings'
+    assert not vis('pending-count') and txt('row-cats') == '10'        # 목록 오른쪽에 상태 (기다리는 사람 없음, 분류 10개)
+    assert '연결 안 됨' in txt('row-hook')
+    click('#set-back'); time.sleep(.5)                                  # 한 번 더 → 메인
     assert not vis('set-view') and vis('set-open') and js("return location.hash") == ''
     # 앱 파일 올리기 (전체 설정 /yeye/#settings, 관리자): 고르기 전엔 버튼 꺼짐, APK가 아니면 거절, 올리면 받기 버튼
     d.get(BASE + '/yeye/#settings'); time.sleep(1.5)
@@ -171,17 +182,41 @@ try:
     # 원형 그래프: 소비형태가 둘이면 조각 둘, 범례에 비율
     assert js("return document.querySelectorAll('#donut path').length") == 2
     assert '74%' in txt('legend') and '26%' in txt('legend'), txt('legend')
-    # ---- 편집: 색·아이콘 바꾸기
+    # ---- 분류 편집: 입력 창의 '편집' → 설정 > 분류 (지출·수입 목록), 줄을 누르면 이름·아이콘·색
     sheet()
-    click('#cat-edit')
-    click('#cats [data-cat]')            # 식비
-    assert js("return !!document.querySelector('[data-pop]')")
-    click('[data-pop-color="#378ADD"]'); time.sleep(1)
-    click('[data-pop-icon="🍺"]'); time.sleep(1)                # 창은 열린 채
+    click('#cat-edit'); time.sleep(.4)
+    assert not vis('sheet-wrap') and vis('set-view') and txt('set-title') == '분류' and js("return location.hash") == '#settings/cats'
+    assert cat_names('#cat-admin [data-kind="expense"] .cat-row .n')[:2] == ['식비', '카페'] and len(cat_names('#cat-admin [data-kind="income"] .cat-row .n')) == 4
+    click('#cat-admin [data-ced-open]'); time.sleep(.2)            # 식비
+    assert vis('ced-name')
+    click('[data-ced-color="#378ADD"]'); time.sleep(1)
+    click('[data-ced-icon="🍺"]'); time.sleep(1)                # 고치는 칸은 열린 채
     with storage._db() as conn:
         assert tuple(conn.execute("SELECT color, icon FROM ledger_categories WHERE name = '식비'").fetchone()) == ('#378ADD', '🍺')
-    assert js("return document.querySelector('#cats [data-cat] .ci').textContent.trim()") == '🍺'
-    click('#cat-edit'); time.sleep(.2)
+    assert js("return document.querySelector('#cats [data-cat] .ci').textContent.trim()") == '🍺'   # 입력 창에도
+    typ('ced-name', '밥값'); click('[data-ced-save]'); time.sleep(1)
+    assert not js("return !!document.getElementById('ced-name')") and cat_names('#cat-admin [data-kind="expense"] .cat-row .n')[0] == '밥값'
+    js("document.querySelector('#cat-admin [data-ced-open]').click()"); typ('ced-name', '식비'); click('[data-ced-save]'); time.sleep(1)
+    # 순서 바꾸기 (⋮⋮를 끌어): 카페를 맨 앞으로 → 저장, 입력 창 순서도 → 되돌림
+    cafe_id = js("return [...document.querySelectorAll('#cat-admin .cat-row')].find(r => r.textContent.includes('카페')).dataset.cid")
+    js(f"return window.ledgerMoveCategory({cafe_id}, 0)"); time.sleep(1)
+    with storage._db() as conn:
+        assert [r[0] for r in conn.execute("SELECT name FROM ledger_categories WHERE kind = 'expense' ORDER BY position, id")][:2] == ['카페', '식비']
+    assert cat_names()[:2] == ['카페', '식비']
+    js(f"return window.ledgerMoveCategory({cafe_id}, 1)"); time.sleep(1)
+    assert cat_names()[:2] == ['식비', '카페']
+    # 설정에서 분류 추가 (이름·색이 있어야)
+    click('#cat-admin [data-cadd="income"]'); time.sleep(.2)
+    click('[data-cadd-save]'); time.sleep(.3)
+    assert txt('cadd-msg') == '이름을 넣어 주세요.'
+    typ('cadd-name', '상여'); click('[data-cadd-icon="💵"]'); click('[data-cadd-color="#378ADD"]'); click('[data-cadd-save]'); time.sleep(1)
+    with storage._db() as conn:
+        assert tuple(conn.execute("SELECT kind, icon FROM ledger_categories WHERE name = '상여'").fetchone()) == ('income', '💵')
+        assert conn.execute("DELETE FROM ledger_categories WHERE name = '상여'").rowcount == 1
+        conn.commit()
+    close_settings()
+    js("location.reload()"); time.sleep(2)
+    sheet()
     # ---- 최근 메모 드롭다운: 고르면 메모와 그 소비형태
     js("document.getElementById('memo').focus()"); time.sleep(.3)
     assert vis('memo-dd') and js("return [...document.querySelectorAll('#memo-dd .m')].map(e => e.textContent)") == ['사료', '이마트 장보기']
@@ -198,7 +233,7 @@ try:
     # ---- 수입: 고르면 입력 칸이 파랗게, 수입 종류만, 요약·기록·분석에 수입
     click('#kind-income')
     assert js("return document.getElementById('entry').classList.contains('income')") and txt('entry-title') == '수입 입력'
-    assert cat_names('#cats [data-cat] .cn') == ['급여', '부수입', '용돈', '이자·환급']
+    assert cat_names('#cats [data-cat] .cn') == ['급여', '부수입', '용돈', '이자·환급'], cat_names('#cats [data-cat] .cn')
     js("document.getElementById('memo').focus()"); time.sleep(.3)
     assert not vis('memo-dd')                                   # 수입 쪽 메모는 아직 없음
     typ('amount', '3200000'); typ('memo', '11월 월급')
@@ -324,13 +359,16 @@ try:
     assert js("return !document.getElementById('app-get').hidden") and not vis('admin')
     size = js("return fetch('/api/ledger/app.apk', {credentials: 'same-origin'}).then(r => r.status === 200 ? r.arrayBuffer() : null).then(b => b && b.byteLength)")
     assert size == os.path.getsize(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures', 'ledger-notify-1.0.apk')), size
-    click('#set-open'); time.sleep(.3)                                  # 설정 > 결제 알림 연결 (첫 탭)
-    assert vis('auto') and not vis('admin')
+    click('#set-open'); time.sleep(.3)                                  # 설정 목록 → 휴대폰 연결
+    assert vis('set-home') and not vis('auto')
+    click('#set-home [data-tab="hook"]'); time.sleep(.3)
+    assert vis('auto') and not vis('admin') and txt('conn-title') == '아직 연결되지 않았어요' and not vis('hook-url-box')
     js("window.confirm = () => true")
     click('#hook-create'); time.sleep(1)
     url = js("return document.getElementById('hook-url').value")
-    assert vis('hook-url-box') and url.startswith(BASE + '/api/ledger/hook/') and '한 번만' in txt('hook-state')
-    click('#set-back'); time.sleep(.4)
+    assert vis('hook-url-box') and url.startswith(BASE + '/api/ledger/hook/') and '한 번만' in txt('hook-state')   # 접힌 '연결 주소'가 펼쳐짐
+    assert txt('conn-title') == '휴대폰이 연결됐어요'
+    close_settings()
     md = f'{date.today().month}/{date.today().day}'
     import urllib.request
     def send(text):
@@ -357,7 +395,7 @@ try:
     rule_btn = js("return document.querySelector('#inbox [data-ib-rule]').textContent")
     assert '"블루보틀"는 늘 카페' in rule_btn, rule_btn
     click('#inbox [data-ib-rule]'); time.sleep(1)
-    assert '"블루보틀"이 든 가게' in txt('rules') and '규칙 "블루보틀" → 카페' in txt('inbox')
+    assert '블루보틀' in txt('rules') and '카페' in txt('rules') and '규칙 "블루보틀" → 카페' in txt('inbox') and txt('row-rules') == '1'
     # 늘 고치는 모드: 금액·가게·날짜 칸이 처음부터 열려 있음 ('고치기' 버튼 없음). 칸 이름은 항목마다 (ib-amount-<id>)
     iid = js("return document.querySelector('#inbox [data-item]').dataset.item")
     A, M, D = f'ib-amount-{iid}', f'ib-merchant-{iid}', f'ib-date-{iid}'
@@ -457,7 +495,7 @@ try:
     assert not js("return !!document.querySelector('#trash-list [data-ignore]')")   # 앱 밖에서는 '이런 알림 안 받기' 없음
     click('#trash-list [data-restore]'); time.sleep(1)
     assert '버린 알림이 없어요' in txt('trash-list') and js("return document.getElementById('tab-trash-n').hidden")
-    click('#set-back'); time.sleep(.4)
+    close_settings()
     assert vis('inbox-sec') and '편의점' in txt('inbox')
     click('#inbox [data-ib-del]'); time.sleep(1)
     # 취소 알림: 맞는 기록을 찾아 지움
@@ -479,7 +517,7 @@ try:
     d.get(BASE + '/ledger/'); time.sleep(2); open_all()
     assert js("return document.documentElement.classList.contains('in-app')") and vis('app-hint')   # 연결 전: 메인에 한 줄 안내
     click('#app-hint-btn'); time.sleep(.3)                              # → 설정 > 결제 알림 연결
-    assert vis('app-connect') and not vis('app-get') and '아직 연결되지' in txt('app-connect-state'), txt('app-connect-state')
+    assert vis('app-connect-btn') and vis('phone-settings-btn') and not vis('app-get') and txt('conn-title') == '아직 연결되지 않았어요', txt('conn-title')
     assert not js("const n = document.querySelector('.site-nav'); return !!n && n.offsetHeight > 0")   # 앱에서는 메뉴 줄(다른 탭) 없음
     click('#app-connect-btn'); time.sleep(1.2)
     got = js('return window.__got')
@@ -494,10 +532,12 @@ try:
     ign = js('return window.__ign') or ''
     assert '원' in ign and len(ign) <= 300, ign
     # ---- 앱의 뒤로가기(window.ledgerBack): 설정이 열려 있으면 설정부터, 그다음 열린 것을 하나씩, 닫을 게 없으면 false
-    assert vis('set-view') and js('return window.ledgerBack()') is True; time.sleep(.5)
+    assert vis('set-view') and js('return window.ledgerBack()') is True; time.sleep(.5)   # 버린 알림 → 앞 페이지(휴대폰 연결)
+    assert vis('auto') and js("return location.hash") == '#settings/hook'
+    assert js('return window.ledgerBack()') is True; time.sleep(.5)                          # → 목록
+    assert vis('set-home') and js("return location.hash") == '#settings'
+    assert js('return window.ledgerBack()') is True; time.sleep(.5)                          # 목록 → 메인
     assert not vis('set-view') and js("return location.hash") == ''
-    click('#cat-edit'); time.sleep(.2)
-    assert js('return window.ledgerBack()') is True and txt('cat-edit') == '편집'          # 편집 모드 끝
     click('#fab'); time.sleep(.2)
     assert js('return window.ledgerBack()') is True and not vis('sheet-wrap')                # 입력 창 닫힘
     assert js('return window.ledgerBack()') is False

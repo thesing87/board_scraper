@@ -157,57 +157,73 @@
                     <button type="button" class="save" id="save">저장</button>
                 </div>
             </div>
-            <!-- 설정 (머리줄 '설정' → #settings, 뒤로가기로 메인): 결제 알림 연결 · 가게 규칙 · 버린 알림 · 사용자 허락 · 앱 파일(관리자) -->
+            <!-- 설정 (머리줄 '설정' → #settings, 뒤로가기로 메인): 휴대폰 설정처럼 목록 → 줄을 누르면 그 페이지(#settings/hook 등), ←·뒤로가기로 목록 -->
             <div class="set-view" id="set-view">
-                <div class="set-head"><button type="button" class="set-back" id="set-back" aria-label="가계부로 돌아가기">←</button><span>설정</span></div>
-                <div class="set-tabs" role="tablist">
-                    <button type="button" class="set-tab" role="tab" data-tab="hook">결제 알림 연결</button>
-                    <button type="button" class="set-tab" role="tab" data-tab="rules">가게 규칙</button>
-                    <button type="button" class="set-tab" role="tab" data-tab="trash">버린 알림<span class="tab-n" id="tab-trash-n" hidden></span></button>
-                    <button type="button" class="set-tab admin-only" role="tab" data-tab="users" hidden>사용자 허락<span class="tab-n warm" id="pending-count" hidden></span></button>
+                <div class="set-head"><button type="button" class="set-back" id="set-back" aria-label="뒤로">←</button><span id="set-title">설정</span></div>
+                <div class="set-home" id="set-home">
+                    <p class="set-cap">자동 기록</p>
+                    <div class="set-grp">
+                        <button type="button" class="set-row" data-tab="hook"><span class="sico" style="background:#E1F5EE">📱</span><span class="n">휴대폰 연결<small id="row-hook"></small></span><span class="chev">›</span></button>
+                        <button type="button" class="set-row" data-tab="rules"><span class="sico" style="background:#FAEEDA">🏪</span><span class="n">가게 규칙</span><span class="v" id="row-rules"></span><span class="chev">›</span></button>
+                        <button type="button" class="set-row" data-tab="trash"><span class="sico" style="background:#F1EFE8">🗑️</span><span class="n">버린 알림</span><span class="v" id="tab-trash-n" hidden></span><span class="chev">›</span></button>
+                    </div>
+                    <p class="set-cap">가계부</p>
+                    <div class="set-grp">
+                        <button type="button" class="set-row" data-tab="cats"><span class="sico" style="background:#FAECE7">🏷️</span><span class="n">분류</span><span class="v" id="row-cats"></span><span class="chev">›</span></button>
+                        <button type="button" class="set-row admin-only" data-tab="users" hidden><span class="sico" style="background:#EEEDFE">👥</span><span class="n">함께 쓰는 사람</span><span class="tab-n warm" id="pending-count" hidden></span><span class="chev">›</span></button>
+                    </div>
+                    <div class="set-grp">
+                        <a class="set-row" id="row-all" href="/yeye/#settings"><span class="sico" style="background:#E6F1FB">⚙️</span><span class="n">전체 설정<small>앱 파일 · 로그아웃</small></span><span class="chev">›</span></a>
+                    </div>
                 </div>
-                <section class="sec set-pane" data-pane="hook" id="auto">
-                    <p class="label">내 휴대폰 연결 <span class="sec-note" id="auto-note"></span></p>
-                    <p class="hint">휴대폰의 결제 알림을 아래 연결 주소로 보내면 내 이름으로 확인 대기함에 쌓여요. 주소는 다른 사람에게 보여 주지 마세요.</p>
-                    <div class="hook-url" id="hook-url-box" hidden><input id="hook-url" readonly aria-label="연결 주소"><button type="button" class="small" id="hook-copy">복사</button></div>
-                    <p class="hint" id="hook-state"></p>
-                    <!-- YeYe홈 앱 안에서 열었을 때만: 연결 주소를 만들어 앱에 바로 넣음 -->
-                    <div class="app-connect app-only" id="app-connect"><button type="button" class="primary" id="app-connect-btn">이 휴대폰 앱에 연결</button><span class="hint" id="app-connect-state"></span></div>
-                    <!-- 앱 안에서만: 이 휴대폰의 알림 읽기 권한·연결 주소·무시할 알림·최근 알림 (앱의 화면) -->
-                    <div class="app-connect app-only"><button type="button" class="small" id="phone-settings-btn">휴대폰 알림 설정 열기</button><span class="hint">알림 읽기 권한 · 연결 주소 · 무시할 알림 · 최근 알림</span></div>
-                    <div class="row-btns"><button type="button" class="small" id="hook-create">연결 주소 만들기</button><button type="button" class="small" id="hook-test">시험 알림 보내기</button></div>
+                <!-- 휴대폰 연결: 상태 카드 하나 + 할 일 몇 줄. 설치 방법·연결 주소(매크로드로이드용)는 접어 둠 -->
+                <section class="set-pane" data-pane="hook" id="auto" hidden>
+                    <div class="conn" id="conn-card"><span class="conn-ico" id="conn-ico"></span><b id="conn-title"></b><span id="app-connect-state"></span></div>
+                    <button type="button" class="primary wide app-only" id="app-connect-btn">연결하기</button>
+                    <div class="set-grp">
+                        <button type="button" class="set-row" id="hook-test"><span class="n">시험 알림 보내기</span><span class="chev">›</span></button>
+                        <button type="button" class="set-row app-only" id="phone-settings-btn"><span class="n">알림 권한 · 무시할 알림<small>휴대폰 앱 설정</small></span><span class="chev">›</span></button>
+                    </div>
                     <div class="app-get outside-only" id="app-get" hidden><a class="app-btn" id="app-link" href="/api/ledger/app.apk">YeYe홈 앱 받기</a><span class="hint" id="app-info"></span></div>
-                    <p class="hint outside-only" id="app-none">관리자가 'YeYe홈' 앱 파일을 올리면 여기서 받을 수 있어요.</p>
-                    <ol class="steps outside-only">
-                        <li>휴대폰에서 <b>YeYe홈 앱 받기</b> → 설치 ('출처를 알 수 없는 앱' 허용)</li>
-                        <li>앱에서 <b>알림 읽기 권한</b> 켜기 — 회색이면 앱 정보 → ⋮ → '제한된 설정 허용' 뒤 다시</li>
-                        <li>위 연결 주소를 복사해 앱의 <b>붙여넣기</b></li>
-                        <li>앱의 <b>시험 알림 보내기</b> → 이 페이지 확인 대기함에 뜨면 끝</li>
-                    </ol>
-                    <details class="alt outside-only"><summary>앱 대신 매크로드로이드로</summary>
-                    <ol class="steps">
-                        <li><b>매크로드로이드</b> 앱 설치 → 새 매크로</li>
-                        <li>트리거: <b>알림</b> → 알림 받음 → 카드사 앱·문자 앱 고르기 (내용에 "승인" 포함으로 걸러도 좋아요)</li>
-                        <li>동작: <b>HTTP 요청</b> → 방식 POST, 주소는 위 연결 주소, 본문은 <code>[notification]</code> (알림 내용)</li>
-                        <li>카드 결제를 하거나 위 '시험 알림 보내기'로 대기함에 뜨는지 확인</li>
-                    </ol></details>
-                    <p class="hint">집 밖에서도 보내려면 이 페이지를 바깥 주소(DDNS)로 연 뒤 연결 주소를 만드세요.</p>
+                    <p class="hint outside-only" id="app-none">관리자가 앱 파일을 올리면 여기서 받을 수 있어요</p>
+                    <details class="set-more outside-only"><summary>설치 방법</summary>
+                        <ol class="steps">
+                            <li><b>YeYe홈 앱 받기</b> → 설치 ('출처를 알 수 없는 앱' 허용)</li>
+                            <li>앱에서 <b>알림 읽기 권한</b> 켜기 (회색이면 앱 정보 → ⋮ → '제한된 설정 허용')</li>
+                            <li>앱에서 가계부 설정 → 휴대폰 연결 → <b>연결하기</b></li>
+                            <li><b>시험 알림 보내기</b> → 확인할 결제에 뜨면 끝</li>
+                        </ol></details>
+                    <details class="set-more" id="hook-more"><summary>연결 주소 (매크로드로이드용)</summary>
+                        <p class="hint" id="hook-state"></p>
+                        <div class="hook-url" id="hook-url-box" hidden><input id="hook-url" readonly aria-label="연결 주소"><button type="button" class="small" id="hook-copy">복사</button></div>
+                        <div class="row-btns"><button type="button" class="small" id="hook-create">연결 주소 만들기</button></div>
+                        <ol class="steps">
+                            <li>매크로드로이드 → 새 매크로 → 트리거 <b>알림 받음</b> (카드사·문자 앱)</li>
+                            <li>동작 <b>HTTP 요청</b>: POST, 주소는 위 연결 주소, 본문 <code>[notification]</code></li>
+                        </ol>
+                        <p class="hint">주소는 다른 사람에게 보여 주지 마세요. 집 밖에서도 보내려면 바깥 주소(DDNS)로 연 뒤 만드세요.</p>
+                    </details>
                 </section>
-                <section class="sec set-pane" data-pane="rules" hidden>
-                    <p class="hint">가게 이름에 이 글자가 있으면 분류를 미리 골라요 (모두 함께 씀)</p>
-                    <div id="rules"></div>
-                    <div class="rule-add"><input id="rule-pattern" placeholder="가게 이름에 든 글자 (예: 스타벅스)" maxlength="20"><select id="rule-cat" aria-label="분류"></select><button type="button" class="small" id="rule-add">추가</button></div>
+                <!-- 가게 규칙: '스타벅스 → ☕ 카페 ✕' 한 줄씩, 맨 아래 한 줄에서 추가 -->
+                <section class="set-pane" data-pane="rules" hidden>
+                    <div class="set-grp" id="rules"></div>
+                    <div class="set-grp rule-add"><input id="rule-pattern" placeholder="가게 이름" maxlength="20"><select id="rule-cat" aria-label="분류"></select><button type="button" class="link-btn add-btn" id="rule-add">추가</button></div>
                     <p class="msg" id="rule-msg"></p>
+                    <p class="hint">가게 이름에 이 글자가 있으면 그 분류로 미리 골라요 (모두 함께 씀)</p>
                 </section>
-                <section class="sec set-pane" data-pane="trash" hidden>
+                <section class="set-pane" data-pane="trash" hidden>
+                    <div class="trash-list set-grp" id="trash-list"></div>
                     <p class="hint">30일 뒤 저절로 지워져요</p>
-                    <div class="trash-list" id="trash-list"></div>
                 </section>
-                <section class="sec set-pane admin-only" data-pane="users" id="admin" hidden>
-                    <p class="label">허락을 기다리는 사람</p>
-                    <div id="pending"></div>
-                    <p class="label">가계부를 함께 쓰는 사람</p>
-                    <div id="members"></div>
+                <!-- 분류: 지출·수입 목록 (아이콘·이름), 줄을 누르면 이름·아이콘·색 고치기·지우기, ⋮⋮를 끌어 순서 바꾸기 -->
+                <section class="set-pane" data-pane="cats" hidden>
+                    <div id="cat-admin"></div>
+                </section>
+                <section class="set-pane admin-only" data-pane="users" id="admin" hidden>
+                    <p class="set-cap">허락을 기다리는 사람</p>
+                    <div class="set-grp" id="pending"></div>
+                    <p class="set-cap">함께 쓰는 사람</p>
+                    <div class="set-grp" id="members"></div>
                 </section>
             </div>
         </div>

@@ -58,7 +58,9 @@
         totView: 'day', year: new Date().getFullYear(), yearData: null,
         // 자동 기록: 확인 대기함·가게 규칙·내 연결 상태, 대기함에서 고치는 중인 알림
         inbox: [], rules: [], hook: null, hookBase: '', ibDirty: {}, newCatFor: null, newCat: { name: '', color: null, msg: '' },
-        catEditing: false, popFor: null, addColor: null, addIcon: '', editId: null, ddIndex: -1,
+        addColor: null, addIcon: '', editId: null, ddIndex: -1,
+        // 설정 > 분류: 고치는 분류(cedFor), 추가하는 쪽(caddKind)과 그 값
+        cedFor: null, caddKind: null, cadd: { name: '', icon: '', color: null, msg: '' },
         // view: 아래 보기(list 내역·cal 달력·ana 분석), ibOpen: 펼쳐 고치는 대기함 항목
         view: 'list', ibOpen: new Set(),
     };
@@ -144,7 +146,7 @@
         setUsedOn(ymd(new Date()));
         $('set-open').hidden = false;
         renderSetTabs();
-        if (location.hash === '#settings') showSettings(true);
+        if (location.hash.startsWith('#settings')) { st.setTab = location.hash.split('/')[1] || null; showSettings(true); }
         if (user.admin) loadPeople();
         load();
         loadInbox();
@@ -255,11 +257,10 @@
     }
     function renderCats() {
         const cats = kindCats();
-        $('cats').classList.toggle('editing', st.catEditing);
-        $('cat-edit').textContent = st.catEditing ? '완료' : '편집';
-        $('cats').innerHTML = cats.map(c => `<span class="chip${!st.catEditing && c.id === selected() ? ' on' : ''}" data-cat="${c.id}" role="button" tabindex="0"
-                style="color:${chipFg(c.color)}">${catIcon(c)}<span class="cn">${esc(c.name)}</span>${st.popFor === c.id ? popHtml(c) : ''}</span>`).join('')
-            + (st.catEditing ? '' : '<span class="chip add" id="cat-add" role="button" tabindex="0"><span class="ci">＋</span><span class="cn">추가</span></span>');
+        $('cats').innerHTML = cats.map(c => `<span class="chip${c.id === selected() ? ' on' : ''}" data-cat="${c.id}" role="button" tabindex="0"
+                style="color:${chipFg(c.color)}">${catIcon(c)}<span class="cn">${esc(c.name)}</span></span>`).join('')
+            + '<span class="chip add" id="cat-add" role="button" tabindex="0"><span class="ci">＋</span><span class="cn">추가</span></span>';
+        if (st.me) renderCatAdmin();
     }
     function palHtml(current, attr) {
         const cur = (current || '').toUpperCase();
@@ -267,15 +268,6 @@
     }
     function iconsHtml(current, attr) {
         return ICONS.map(i => `<button type="button" class="ic${current === i ? ' on' : ''}" ${attr}="${i}" aria-label="${i}">${i}</button>`).join('');
-    }
-    function popHtml(c) {
-        return `<div class="pop" data-pop>
-            <input id="pop-name" value="${esc(c.name)}" maxlength="12" aria-label="소비형태 이름">
-            <div class="icons">${iconsHtml(iconOf(c), 'data-pop-icon')}</div>
-            <div class="pal">${palHtml(c.color, 'data-pop-color')}</div>
-            <label class="custom"><input type="color" id="pop-custom" value="${c.color.toLowerCase()}"> 다른 색</label>
-            <div class="pop-actions"><button type="button" class="primary" data-pop-save>완료</button><button type="button" class="danger" data-pop-delete>지우기</button></div>
-            <p class="msg" id="pop-msg"></p></div>`;
     }
 
     function renderAddBox() {
@@ -498,7 +490,6 @@
         document.documentElement.classList.remove('sheet-open');
         $('memo-dd').hidden = true;
         $('addbox').hidden = true;
-        st.popFor = null; st.catEditing = false;
         if (st.editId != null) { clearForm(); setUsedOn(ymd(new Date())); }
         render();
     }
@@ -552,7 +543,6 @@
         st.editId = entry.id;
         st.kind = kindOf(entry);
         st.sels[st.kind] = entry.category_id;
-        st.catEditing = false; st.popFor = null;
         $('addbox').hidden = true;
         $('amount').value = entry.amount.toLocaleString('ko-KR');
         setUsedOn(entry.used_on);
@@ -588,12 +578,8 @@
     // ==========================================
     // 소비형태: 고르기·추가·색과 이름 바꾸기
     // ==========================================
-    $('cat-edit').addEventListener('click', () => {
-        st.catEditing = !st.catEditing;
-        st.popFor = null;
-        $('addbox').hidden = true;
-        renderCats();
-    });
+    // 입력 창의 '편집' → 설정 > 분류
+    $('cat-edit').addEventListener('click', () => { closeEntry(); openSettings('cats'); });
     function openAddBox() {
         st.addColor = null; st.addIcon = '';
         $('new-name').value = '';
@@ -616,58 +602,174 @@
         load();
     });
 
-    async function saveCategory(id, color, icon) {
+    // 분류 고치기 (설정 > 분류): name·color·icon 중 준 것만 바꿈
+    async function saveCategory(id, { name, color, icon } = {}) {
         const c = st.data.categories.find(x => x.id === id);
-        const nameInput = $('pop-name');
-        const name = nameInput ? nameInput.value.trim() : c.name;
-        const { status, data } = await post('/api/ledger/category', { action: 'edit', id, name, color: color || c.color, ...(icon ? { icon } : {}) });
-        if (status !== 200) { const m = $('pop-msg'); if (m) m.textContent = msgOf(data); return false; }
-        c.name = name; if (color) c.color = color; if (icon) c.icon = icon;
+        const { status, data } = await post('/api/ledger/category', { action: 'edit', id, name: name != null ? name : c.name, color: color || c.color, ...(icon ? { icon } : {}) });
+        if (status !== 200) { const m = $('ced-msg'); if (m) m.textContent = msgOf(data); return false; }
+        if (name != null) c.name = name.trim().replace(/\s+/g, ' ');
+        if (color) c.color = color; if (icon) c.icon = icon;
         return true;
     }
 
-    // 소비형태 칸 안의 누르기 (선택·추가·편집 창)
-    $('cats').addEventListener('click', async e => {
-        const pop = e.target.closest('[data-pop]');
-        if (pop) {
-            e.stopPropagation();
-            const id = st.popFor;
-            const sw = e.target.closest('[data-pop-color]');
-            if (sw) { if (await saveCategory(id, sw.dataset.popColor)) { render(); } return; }
-            const ic = e.target.closest('[data-pop-icon]');
-            if (ic) { if (await saveCategory(id, null, ic.dataset.popIcon)) { render(); } return; }
-            if (e.target.closest('[data-pop-save]')) { if (await saveCategory(id)) { st.popFor = null; render(); } return; }
-            if (e.target.closest('[data-pop-delete]')) {
-                if (!window.confirm('이 소비형태를 지울까요?')) return;
-                const { status, data } = await post('/api/ledger/category', { action: 'delete', id });
-                if (status !== 200) { $('pop-msg').textContent = msgOf(data); return; }
-                st.popFor = null;
-                load();
-            }
-            return;
-        }
+    // 입력 창의 분류: 누르면 고르기, '＋ 추가'
+    $('cats').addEventListener('click', e => {
         if (e.target.closest('#cat-add')) { openAddBox(); return; }
         const chip = e.target.closest('[data-cat]');
         if (!chip) return;
-        const id = Number(chip.dataset.cat);
-        if (st.catEditing) { st.popFor = st.popFor === id ? null : id; renderCats(); const n = $('pop-name'); if (n) n.focus(); return; }
-        st.sels[st.kind] = id;
+        st.sels[st.kind] = Number(chip.dataset.cat);
         $('addbox').hidden = true;
         renderCats();
     });
     $('cats').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.chip')) { e.preventDefault(); e.target.click(); } });
-    // 편집 창의 '직접 고르기': 고르는 동안 미리 보이고, 손을 떼면(change) 저장
-    $('cats').addEventListener('input', e => {
-        if (e.target.id !== 'pop-custom') return;
-        const chip = e.target.closest('[data-cat]');
-        const h = e.target.value;
-        chip.style.color = chipFg(h);
-        const ci = chip.querySelector('.ci');
+
+    // ==========================================
+    // 설정 > 분류: 지출·수입 목록, 줄을 누르면 이름·아이콘·색 고치기·지우기, ⋮⋮를 끌어 순서 바꾸기, 쪽마다 '＋ 추가'
+    // ==========================================
+    function cedHtml(c) {
+        return `<div class="ced" data-ced="${c.id}">
+            <input id="ced-name" value="${esc(c.name)}" maxlength="12" aria-label="분류 이름">
+            <div class="icons">${iconsHtml(iconOf(c), 'data-ced-icon')}</div>
+            <div class="pal">${palHtml(c.color, 'data-ced-color')}</div>
+            <label class="custom"><input type="color" id="ced-custom" value="${c.color.toLowerCase()}"> 다른 색</label>
+            <div class="ced-act"><button type="button" class="primary" data-ced-save>완료</button><button type="button" class="danger" data-ced-del>지우기</button></div>
+            <p class="msg" id="ced-msg"></p></div>`;
+    }
+    function caddHtml(kind) {
+        const a = st.cadd, c = a.color;
+        return `<div class="ced" data-cadd-form="${kind}">
+            <div class="cadd-top"><span class="ci" style="background:${c ? chipBg(c) : 'var(--soft)'};color:${c ? chipFg(c) : 'var(--muted)'}">${esc(a.icon || '＋')}</span>
+                <input id="cadd-name" value="${esc(a.name)}" maxlength="12" placeholder="이름" aria-label="새 분류 이름" autocomplete="off"></div>
+            <div class="icons">${iconsHtml(a.icon, 'data-cadd-icon')}</div>
+            <div class="pal">${palHtml(c, 'data-cadd-color')}</div>
+            <div class="ced-act"><button type="button" class="primary" data-cadd-save>추가</button><button type="button" data-cadd-cancel>취소</button></div>
+            <p class="msg" id="cadd-msg">${esc(a.msg)}</p></div>`;
+    }
+    function renderCatAdmin() {
+        if (!st.data) return;
+        const used = new Set(st.data.categories.map(c => c.id));
+        if (st.cedFor != null && !used.has(st.cedFor)) st.cedFor = null;
+        $('row-cats').textContent = st.data.categories.length;
+        $('cat-admin').innerHTML = [['expense', '지출'], ['income', '수입']].map(([kind, word]) => {
+            const list = st.data.categories.filter(c => c.kind === kind);
+            return `<p class="set-cap">${word}</p><div class="set-grp cat-list" data-kind="${kind}">${list.map(c => `
+                <div class="cat-row" data-cid="${c.id}"><div class="set-row" data-ced-open="${c.id}" role="button" tabindex="0">${catIcon(c)}<span class="n">${esc(c.name)}</span>
+                    <span class="drag" data-drag aria-label="끌어서 순서 바꾸기">⋮⋮</span></div>${st.cedFor === c.id ? cedHtml(c) : ''}</div>`).join('')}
+                ${st.caddKind === kind ? caddHtml(kind) : `<button type="button" class="set-row add-row-btn" data-cadd="${kind}"><span class="ci none">＋</span><span class="n">${word} 분류 추가</span></button>`}</div>`;
+        }).join('');
+    }
+    $('cat-admin').addEventListener('click', async e => {
+        const ced = e.target.closest('[data-ced]');
+        if (ced) {
+            const id = Number(ced.dataset.ced);
+            const sw = e.target.closest('[data-ced-color]'), ic = e.target.closest('[data-ced-icon]');
+            if (sw && await saveCategory(id, { name: $('ced-name').value, color: sw.dataset.cedColor })) render();
+            else if (ic && await saveCategory(id, { name: $('ced-name').value, icon: ic.dataset.cedIcon })) render();
+            else if (e.target.closest('[data-ced-save]') && await saveCategory(id, { name: $('ced-name').value })) { st.cedFor = null; render(); }
+            else if (e.target.closest('[data-ced-del]')) {
+                if (!window.confirm(`'${catOf(id).name}' 분류를 지울까요?`)) return;
+                const { status, data } = await post('/api/ledger/category', { action: 'delete', id });
+                if (status !== 200) { $('ced-msg').textContent = msgOf(data); return; }
+                st.cedFor = null;
+                load();
+            }
+            return;
+        }
+        const form = e.target.closest('[data-cadd-form]');
+        if (form) {
+            const kind = form.dataset.caddForm;
+            st.cadd.name = $('cadd-name').value;
+            const sw = e.target.closest('[data-cadd-color]'), ic = e.target.closest('[data-cadd-icon]');
+            if (sw) { st.cadd.color = sw.dataset.caddColor; st.cadd.msg = ''; renderCatAdmin(); }
+            else if (ic) { st.cadd.icon = ic.dataset.caddIcon; renderCatAdmin(); }
+            else if (e.target.closest('[data-cadd-cancel]')) { st.caddKind = null; renderCatAdmin(); }
+            else if (e.target.closest('[data-cadd-save]')) {
+                const name = st.cadd.name.trim();
+                const say = t => { st.cadd.msg = t; $('cadd-msg').textContent = t; };
+                if (!name) return say('이름을 넣어 주세요.');
+                if (!st.cadd.color) return say('색을 골라 주세요.');
+                const { status, data } = await post('/api/ledger/category', { action: 'add', name, color: st.cadd.color, kind, icon: st.cadd.icon });
+                if (status !== 200) return say(msgOf(data));
+                st.caddKind = null;
+                load();
+            }
+            return;
+        }
+        const add = e.target.closest('[data-cadd]');
+        if (add) {
+            st.caddKind = add.dataset.cadd; st.cedFor = null;
+            st.cadd = { name: '', icon: '', color: null, msg: '' };
+            renderCatAdmin();
+            $('cadd-name').focus();
+            return;
+        }
+        if (e.target.closest('[data-drag]')) return;
+        const open = e.target.closest('[data-ced-open]');
+        if (open) {
+            const id = Number(open.dataset.cedOpen);
+            st.cedFor = st.cedFor === id ? null : id; st.caddKind = null;
+            renderCatAdmin();
+        }
+    });
+    $('cat-admin').addEventListener('keydown', e => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-ced-open]')) { e.preventDefault(); e.target.click(); }
+        if (e.key === 'Enter' && e.target.id === 'ced-name') { e.preventDefault(); $('cat-admin').querySelector('[data-ced-save]').click(); }
+    });
+    // '다른 색': 고르는 동안 미리 보이고, 손을 떼면(change) 저장
+    $('cat-admin').addEventListener('input', e => {
+        if (e.target.id !== 'ced-custom') return;
+        const ci = e.target.closest('.cat-row').querySelector('.ci'), h = e.target.value;
         ci.style.background = chipBg(h); ci.style.color = chipFg(h);
     });
-    $('cats').addEventListener('change', async e => {
-        if (e.target.id === 'pop-custom' && await saveCategory(st.popFor, e.target.value.toUpperCase())) render();
+    $('cat-admin').addEventListener('change', async e => {
+        if (e.target.id !== 'ced-custom') return;
+        const id = Number(e.target.closest('[data-ced]').dataset.ced);
+        if (await saveCategory(id, { name: $('ced-name').value, color: e.target.value.toUpperCase() })) render();
     });
+    // ⋮⋮를 끌어 같은 쪽(지출·수입) 안에서 순서 바꾸기 → 놓으면 저장
+    let drag = null;
+    $('cat-admin').addEventListener('pointerdown', e => {
+        const h = e.target.closest('[data-drag]');
+        if (!h) return;
+        e.preventDefault();
+        const row = h.closest('.cat-row');
+        drag = { row, list: row.parentElement, id: e.pointerId };
+        h.setPointerCapture(e.pointerId);
+        row.classList.add('dragging');
+    });
+    $('cat-admin').addEventListener('pointermove', e => {
+        if (!drag || e.pointerId !== drag.id) return;
+        const rows = [...drag.list.querySelectorAll(':scope > .cat-row')].filter(r => r !== drag.row);
+        const before = rows.find(r => { const b = r.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; });
+        if (before) { if (before !== drag.row.nextElementSibling) drag.list.insertBefore(drag.row, before); }
+        else { const last = rows[rows.length - 1]; if (last && last.nextElementSibling !== drag.row) last.after(drag.row); }
+    });
+    async function endDrag(e) {
+        if (!drag || e.pointerId !== drag.id) return;
+        const { row } = drag;
+        drag = null;
+        row.classList.remove('dragging');
+        await saveCatOrder();
+    }
+    $('cat-admin').addEventListener('pointerup', endDrag);
+    $('cat-admin').addEventListener('pointercancel', endDrag);
+    async function saveCatOrder() {
+        // 지출 다음 수입 순으로 모든 분류 번호
+        const ids = [...$('cat-admin').querySelectorAll('.cat-row')].map(r => Number(r.dataset.cid));
+        const before = st.data.categories.map(c => c.id);
+        if (ids.join() === before.join()) return;
+        const { status } = await post('/api/ledger/category', { action: 'reorder', ids });
+        if (status === 200) {
+            st.data.categories.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+            render();
+        } else renderCatAdmin();
+    }
+    window.ledgerMoveCategory = async (id, to) => {   // 시험용: 분류를 같은 쪽의 to번째로 옮기고 저장
+        const row = $('cat-admin').querySelector(`.cat-row[data-cid="${id}"]`), list = row.parentElement;
+        const rows = [...list.querySelectorAll(':scope > .cat-row')].filter(r => r !== row);
+        if (rows[to]) list.insertBefore(row, rows[to]); else rows[rows.length - 1].after(row);
+        await saveCatOrder();
+    };
     $('addbox').addEventListener('click', e => {
         const sw = e.target.closest('[data-add-color]');
         if (sw) { st.addColor = sw.dataset.addColor; $('add-msg').textContent = ''; renderAddBox(); }
@@ -675,7 +777,6 @@
         if (ic) { st.addIcon = ic.dataset.addIcon; renderAddBox(); }
     });
     document.addEventListener('click', e => {
-        if (st.popFor != null && !e.target.closest('[data-pop]') && !e.target.closest('[data-cat]')) { st.popFor = null; renderCats(); }
         if (!e.target.closest('.memo-wrap')) $('memo-dd').hidden = true;
     });
 
@@ -746,7 +847,6 @@
     function setKind(kind) {
         if (st.kind === kind) return;
         st.kind = kind;
-        st.catEditing = false; st.popFor = null;
         $('addbox').hidden = true;
         $('memo-dd').hidden = true;
         render();
@@ -1126,15 +1226,31 @@
     const inApp = !!window.LedgerApp;
     if (inApp) document.documentElement.classList.add('in-app');
     const appConnected = () => { try { return !!window.LedgerApp.connected(); } catch (e) { return false; } };
+    // 휴대폰 연결 카드: 앱 안이면 이 휴대폰 앱이 연결됐는지, 앱 밖이면 연결 주소(어느 휴대폰이든)가 있는지
+    const lastText = h => h && h.last_used ? `마지막 알림 ${+h.last_used.slice(5, 7)}/${+h.last_used.slice(8, 10)} ${h.last_used.slice(11, 16)}` : '';
     function renderAppConnect() {
-        if (!inApp) return;
-        const on = appConnected();
-        $('app-hint').hidden = on;
-        let ver = '';
-        try { ver = window.LedgerApp.version(); } catch (e) { /* 예전 앱 */ }
-        $('app-connect-state').textContent = on ? `✓ 이 휴대폰 앱(${ver})이 결제 알림을 보내고 있어요` : '이 휴대폰 앱은 아직 연결되지 않았어요';
-        $('app-connect-btn').textContent = on ? '다시 연결' : '이 휴대폰 앱에 연결';
-        $('app-connect-btn').className = on ? 'small' : 'primary';
+        const h = st.hook;
+        let on, title, sub;
+        if (inApp) {
+            on = appConnected();
+            $('app-hint').hidden = on;
+            let ver = '';
+            try { ver = window.LedgerApp.version(); } catch (e) { /* 예전 앱 */ }
+            title = on ? '이 휴대폰이 연결됐어요' : '아직 연결되지 않았어요';
+            sub = on ? [`이 휴대폰 앱(${ver})`, lastText(h)].filter(Boolean).join(' · ') : '연결하면 결제 알림이 확인할 결제로 와요';
+            $('app-connect-btn').textContent = on ? '다시 연결' : '연결하기';
+            $('app-connect-btn').className = on ? 'wide app-only' : 'primary wide app-only';
+        } else {
+            on = !!h;
+            title = on ? '휴대폰이 연결됐어요' : '아직 연결되지 않았어요';
+            sub = on ? lastText(h) || '아직 받은 알림 없음' : '휴대폰에 YeYe홈 앱을 받아 연결하세요';
+        }
+        $('conn-card').classList.toggle('on', on);
+        $('conn-ico').textContent = on ? '✓' : '!';
+        $('conn-title').textContent = title;
+        $('app-connect-state').textContent = sub;
+        $('row-hook').textContent = on ? ['연결됨', lastText(h)].filter(Boolean).join(' · ') : '연결 안 됨';
+        $('row-hook').classList.toggle('ok', on);
     }
     $('phone-settings-btn').addEventListener('click', () => {
         try { if (window.LedgerApp.openPhoneSettings) window.LedgerApp.openPhoneSettings(); else window.LedgerApp.openSettings(); } catch (e) { /* 예전 앱 */ }
@@ -1149,7 +1265,7 @@
         let ok = false;
         try { ok = window.LedgerApp.connect(data.url); } catch (e) { /* 예전 앱 */ }
         renderAuto();
-        if (!ok) $('app-connect-state').textContent = '앱에 넣지 못했어요 — 앱의 설정에서 가계부 주소를 확인해 주세요';
+        if (!ok) $('app-connect-state').textContent = '앱에 넣지 못했어요 · 앱을 새로 받아 주세요';
     });
 
     function renderAuto() {
@@ -1160,16 +1276,17 @@
         $('hook-state').textContent = !h ? '아직 연결 주소를 만들지 않았어요.'
             : `연결 주소 만든 때 ${h.created_at.slice(5, 16)} (…${h.hint}) · ${h.last_used ? `마지막으로 받은 알림 ${h.last_used.slice(5, 16)} · ${statusText[h.last_status] || h.last_status}` : '아직 받은 알림 없음'}`;
         $('hook-create').textContent = h ? '연결 주소 새로 만들기' : '연결 주소 만들기';
-        $('auto-note').textContent = h ? (h.last_used ? `마지막 알림 ${h.last_used.slice(5, 16)}` : '연결 주소 만듦') : '휴대폰 결제 알림을 가계부로';
         const cats = expenseCats();
         const cur = $('rule-cat').value;
-        $('rule-cat').innerHTML = cats.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+        $('rule-cat').innerHTML = cats.map(c => `<option value="${c.id}">${esc(iconOf(c))} ${esc(c.name)}</option>`).join('');
         if (cats.some(c => String(c.id) === cur)) $('rule-cat').value = cur;
+        $('row-rules').textContent = st.rules.length || '';
+        // 한 줄: 가게 글자 · 아이콘 분류 · ✕
         $('rules').innerHTML = st.rules.length ? st.rules.map(r => {
             const c = catOf(r.category_id);
-            return `<div class="rule"><span class="p">"${esc(r.pattern)}"이 든 가게</span><span>→</span><span class="chip" style="cursor:default;background:${chipBg(c.color)};color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span>
-                <button type="button" class="small" data-rule-del="${r.id}">지우기</button></div>`;
-        }).join('') : '<p class="hint">아직 규칙이 없어요. 대기함에서 "○○는 늘 ○○로"를 누르거나 아래에서 추가하세요.</p>';
+            return `<div class="set-row rule"><span class="n">${esc(r.pattern)}</span><span class="rc" style="color:${chipFg(c.color)}">${esc(iconOf(c))} ${esc(c.name)}</span>
+                <button type="button" class="x" data-rule-del="${r.id}" aria-label="'${esc(r.pattern)}' 규칙 지우기">✕</button></div>`;
+        }).join('') : '<p class="none">아직 없어요 · 확인할 결제에서 "○○는 늘 ○○"로도 만들어요</p>';
     }
     $('hook-create').addEventListener('click', async () => {
         if (st.hook && !window.confirm('새로 만들면 지금 연결 주소는 더 못 써요. 휴대폰 설정도 새 주소로 바꿔야 해요. 만들까요?')) return;
@@ -1178,6 +1295,7 @@
         st.hook = data.hook;
         $('hook-url').value = data.url;
         $('hook-url-box').hidden = false;
+        $('hook-more').open = true;
         renderAuto();
         $('hook-state').textContent = '이 주소는 지금 한 번만 보여요. 복사해서 휴대폰 설정에 넣으세요.';
     });
@@ -1216,11 +1334,9 @@
     }
     // ---- 앱의 뒤로가기: 열려 있는 것을 하나 닫으면 true (닫을 게 없으면 false → 앱이 '한 번 더 누르면 종료' 안내)
     window.ledgerBack = () => {
-        if ($('app').classList.contains('settings-open')) { closeSettings(); return true; }
+        if ($('app').classList.contains('settings-open')) { setBack(); return true; }
         if (!$('memo-dd').hidden) { $('memo-dd').hidden = true; return true; }
-        if (st.popFor != null) { st.popFor = null; renderCats(); return true; }
         if (!$('addbox').hidden) { $('addbox').hidden = true; return true; }
-        if (st.catEditing) { st.catEditing = false; renderCats(); return true; }
         if (!$('sheet-wrap').hidden) { closeEntry(); return true; }
         if (st.newCatFor != null) { st.newCatFor = null; renderInbox(); return true; }
         const swiped = $('list').querySelector('.sw-row.open');
@@ -1228,23 +1344,36 @@
         return false;
     };
     // ==========================================
-    // 설정 (머리줄 '설정' → 같은 페이지의 #settings): 결제 알림 연결 · 가게 규칙 · 버린 알림 · 사용자 허락 · 앱 파일(관리자)
-    // 주소에 #settings를 한 칸 넣어 두므로 브라우저·앱의 뒤로가기로 메인에 돌아옴
+    // 설정 (머리줄 '설정' → 같은 페이지의 #settings): 목록(휴대폰 연결 · 가게 규칙 · 버린 알림 · 분류 · 함께 쓰는 사람 · 전체 설정),
+    // 줄을 누르면 그 페이지(#settings/hook 등). 주소에 한 칸씩 넣어 두므로 ←·브라우저·앱의 뒤로가기로 목록, 다시 메인
     // ==========================================
+    const SET_TITLES = { hook: '휴대폰 연결', rules: '가게 규칙', trash: '버린 알림', cats: '분류', users: '함께 쓰는 사람' };
     function renderSetTabs() {
         const admin = !!(st.me && st.me.admin);
-        if (!admin && st.setTab === 'users') st.setTab = 'hook';
-        const tab = st.setTab || 'hook';
-        document.querySelectorAll('#set-view .set-tab').forEach(b => {
-            if (b.classList.contains('admin-only')) b.hidden = !admin;
-            b.classList.toggle('on', b.dataset.tab === tab);
-            b.setAttribute('aria-selected', String(b.dataset.tab === tab));
-        });
+        if (!SET_TITLES[st.setTab] || (!admin && st.setTab === 'users')) st.setTab = null;
+        const tab = st.setTab;
+        document.querySelectorAll('#set-view .admin-only').forEach(b => { if (!b.classList.contains('set-pane')) b.hidden = !admin; });
+        $('set-home').hidden = !!tab;
+        $('set-title').textContent = tab ? SET_TITLES[tab] : '설정';
         document.querySelectorAll('#set-view .set-pane').forEach(p => { p.hidden = p.dataset.pane !== tab; });
     }
     function showSettings(on) {
         $('app').classList.toggle('settings-open', on);
         if (on) { renderSetTabs(); window.scrollTo(0, 0); }
+    }
+    // 설정 안에서 쌓은 주소 칸 수 (메인 → #settings 1, → #settings/hook 2)
+    const setLevel = () => (history.state || {}).ledgerSet || 0;
+    function pushSet(tab) {
+        const s = history.state || {};
+        history.pushState({ ...s, navDepth: (s.navDepth || 0) + 1, ledgerSettings: 1, ledgerSet: (s.ledgerSet || 0) + 1 }, '', tab ? `#settings/${tab}` : '#settings');
+    }
+    // ← (앱의 뒤로가기도): 페이지면 목록으로, 목록이면 메인으로
+    function setBack() {
+        if (st.setTab) {
+            if (setLevel() >= 2) { history.back(); return; }
+            history.replaceState(history.state, '', '#settings');
+            st.setTab = null; renderSetTabs(); window.scrollTo(0, 0);
+        } else closeSettings();
     }
     // 앱(YeYe홈)이 부름: 위쪽 '설정' → 가계부 설정 (로그인 전이면 false → 앱이 자기 설정을 엶)
     window.appOpenSettings = () => { if (!st.me) return false; openSettings(); return true; };
@@ -1256,32 +1385,38 @@
         (function t() { const e = $('inbox-sec'); if (e && !e.hidden) e.scrollIntoView({ block: 'start' }); else if (n-- > 0) setTimeout(t, 300); })();
     };
     function openSettings(tab) {
-        if (tab) st.setTab = tab;
-        if (location.hash !== '#settings') {
-            const s = history.state || {};
-            history.pushState({ ...s, navDepth: (s.navDepth || 0) + 1, ledgerSettings: 1 }, '', '#settings');
-        }
+        if (!location.hash.startsWith('#settings')) pushSet(null);
+        if (tab && st.setTab !== tab) pushSet(tab);
+        st.setTab = tab || st.setTab || null;
+        if (!tab && setLevel() === 1) st.setTab = null;
         showSettings(true);
     }
     function closeSettings() {
-        if (location.hash === '#settings' && (history.state || {}).ledgerSettings) history.back();
-        else {
-            if (location.hash === '#settings') history.replaceState(history.state, '', location.pathname + location.search);
-            showSettings(false);
-        }
+        const lv = setLevel();
+        if (location.hash.startsWith('#settings') && lv > 0) { history.go(-lv); return; }
+        if (location.hash.startsWith('#settings')) history.replaceState(history.state, '', location.pathname + location.search);
+        st.setTab = null;
+        showSettings(false);
     }
-    window.addEventListener('popstate', () => { if (st.me) showSettings(location.hash === '#settings'); });
+    window.addEventListener('popstate', () => {
+        if (!st.me) return;
+        const on = location.hash.startsWith('#settings');
+        st.setTab = on ? location.hash.split('/')[1] || null : null;
+        showSettings(on);
+    });
     $('set-open').addEventListener('click', () => {
-        // 허락을 기다리는 사람이 있으면 그 탭부터
+        // 허락을 기다리는 사람이 있으면 그 페이지부터
         openSettings(!$('set-dot').hidden ? 'users' : null);
     });
-    $('set-back').addEventListener('click', closeSettings);
+    $('set-back').addEventListener('click', setBack);
     $('app-hint-btn').addEventListener('click', () => openSettings('hook'));
-    document.querySelector('#set-view .set-tabs').addEventListener('click', e => {
-        const b = e.target.closest('.set-tab');
+    $('set-home').addEventListener('click', e => {
+        const b = e.target.closest('[data-tab]');
         if (!b) return;
+        pushSet(b.dataset.tab);
         st.setTab = b.dataset.tab;
         renderSetTabs();
+        window.scrollTo(0, 0);
     });
 
     // 다른 화면에 갔다 오면(휴대폰에서 결제 뒤 열었을 때 등) 대기함을 새로
