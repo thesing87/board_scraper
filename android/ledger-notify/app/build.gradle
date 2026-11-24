@@ -1,6 +1,9 @@
 plugins {
     id 'com.android.application'
 }
+// 근무표 변경 알림(FCM): Firebase 콘솔에서 받은 google-services.json(git에 안 올림)이 app/ 아래에 있을 때만.
+// 없으면 알림 받기 없이 빌드됨 (앱 설정에 '받을 수 없어요'로 보임)
+if (file('google-services.json').exists()) apply plugin: 'com.google.gms.google-services'
 
 // 서명: keystore.properties(git에 안 올림)가 있으면 그 키로, 없으면 디버그 키로.
 // 같은 키로 서명해야 새 버전을 지우지 않고 덮어 설치할 수 있음
@@ -21,8 +24,8 @@ android {
         applicationId 'kr.home.ledgernotify'
         minSdk 26
         targetSdk 34
-        versionCode 12
-        versionName '1.11'
+        versionCode 13
+        versionName '1.12'
     }
 
     signingConfigs {
@@ -68,4 +71,9 @@ android {
         checkReleaseBuilds false
         abortOnError false
     }
+}
+
+dependencies {
+    implementation platform('com.google.firebase:firebase-bom:33.7.0')
+    implementation 'com.google.firebase:firebase-messaging'
 }

@@ -88,6 +88,21 @@
             android:name=".InstallReceiver"
             android:exported="false" />
 
+        <!-- 근무표 변경 알림 (FCM): 다른 사람이 근무표를 고치면 서버가 보냄 -->
+        <service
+            android:name=".DutyPush"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notify" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="duty_change" />
+
         <!-- 인터넷이 끊겨 못 보낸 알림을 연결되면 다시 보냄 -->
         <service
             android:name=".RetryJob"

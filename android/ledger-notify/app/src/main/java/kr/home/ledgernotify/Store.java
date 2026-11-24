@@ -53,6 +53,15 @@ final class Store {
     void setAlertOn(boolean on) { p.edit().putBoolean("alert", on).apply(); }
     boolean alertPendingOn() { return p.getBoolean("alert_pending", false); }
     void setAlertPendingOn(boolean on) { p.edit().putBoolean("alert_pending", on).apply(); }
+    /** 근무표 변경 알림 (FCM, DutyPush) */
+    boolean dutyPushOn() { return p.getBoolean("duty_push", true); }
+    void setDutyPushOn(boolean on) { p.edit().putBoolean("duty_push", on).apply(); }
+    /** 서버에 마지막으로 등록한 토큰·로그인 (같으면 다시 안 보냄) */
+    String pushSent() { return p.getString("push_sent", ""); }
+    long pushSentAt() { return p.getLong("push_sent_at", 0); }
+    void setPushSent(String key) { p.edit().putString("push_sent", key).putLong("push_sent_at", System.currentTimeMillis()).apply(); }
+    boolean askedDutyNotify() { return p.getBoolean("asked_duty_notify", false); }
+    void setAskedDutyNotify() { p.edit().putBoolean("asked_duty_notify", true).apply(); }
     boolean askedNotifyPermission() { return p.getBoolean("asked_notify", false); }
     void setAskedNotifyPermission() { p.edit().putBoolean("asked_notify", true).apply(); }
 

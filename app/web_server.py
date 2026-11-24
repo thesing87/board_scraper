@@ -88,6 +88,7 @@ import system_status
 import ledger
 import ledger_app
 import duty
+import duty_push
 import apt_trades
 from card_store import (
     card_benefits,
@@ -1546,7 +1547,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
     def _handle_duty(self):
         """근무표 (duty.py, 멤버 누구나): {action: set, person_id, days: {날짜: 종류 id|null}}
         · person-add|person-rename|person-delete {id, name} · type-add|type-edit|type-delete {id, code, name, start_time, end_time, color}
-        · type-save {types: [{id(없으면 더하기), code, name, start_time, end_time, color}]} 한 번에 저장 (틀리면 row로 그 줄)"""
+        · type-save {types: [{id(없으면 더하기), code, name, start_time, end_time, color}]} 한 번에 저장 (틀리면 row로 그 줄)
+        · push-token|push-token-delete {token} 휴대폰 앱의 근무표 변경 알림 받기"""
         user = self._ledger_user()
         if not user:
             return
@@ -1562,6 +1564,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             'type-edit': (has_id, lambda: duty.edit_type(b['id'], *type_args())),
             'type-delete': (has_id, lambda: duty.delete_type(b['id'])),
             'type-save': (True, lambda: duty.save_types(b.get('types'))),
+            # 휴대폰 앱(YeYe홈): 근무표 변경 알림을 받을 FCM 토큰 등록·지움 (duty_push.py)
+            'push-token': (isinstance(b.get('token'), str), lambda: {'registered': duty_push.register(self._ledger_token(), b['token'])}),
+            'push-token-delete': (isinstance(b.get('token'), str), lambda: duty_push.unregister(b['token'])),
         }
         ok, fn = handlers.get(action, (False, None))
         if not ok:
@@ -2095,6 +2100,7 @@ def run_api_server():
     httpd = ThreadedHTTPServer(server_address, KeywordAPIServer)
     threading.Thread(target=_keep_warm, daemon=True).start()
     apt_trades.start()
+    duty_push.start()
     if COLLECTOR_STALL_MINUTES:
         threading.Thread(target=_watch_collector, daemon=True).start()
     log_msg(f"[API] 웹서버 시작 (포트 {WEB_PORT})")

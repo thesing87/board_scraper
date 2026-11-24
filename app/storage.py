@@ -383,6 +383,13 @@ def _create_schema(conn):
             user_id    INTEGER REFERENCES ledger_users(id) ON DELETE SET NULL,
             changed_at TEXT NOT NULL
         );
+        -- 근무표가 바뀌면 FCM으로 알림을 받을 휴대폰 (duty_push.py). 로그인한 기기에 묶여 있어 로그아웃하거나
+        -- 허락이 취소되면 함께 지워짐
+        CREATE TABLE IF NOT EXISTS duty_push_tokens (
+            token        TEXT PRIMARY KEY,
+            session_hash TEXT NOT NULL REFERENCES ledger_sessions(token_hash) ON DELETE CASCADE,
+            updated_at   TEXT NOT NULL
+        );
 
         CREATE TABLE IF NOT EXISTS comic_progress (
             path       TEXT PRIMARY KEY,

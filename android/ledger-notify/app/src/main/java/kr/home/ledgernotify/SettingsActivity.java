@@ -53,7 +53,7 @@ public class SettingsActivity extends Activity {
     private String updateText = "";
     private boolean updateNeedsPermission;
     private EditText urlInput;
-    private Switch enabledSwitch, alertSwitch, alertPendingSwitch;
+    private Switch enabledSwitch, alertSwitch, alertPendingSwitch, dutyPushSwitch;
     private TextView alertState;
     private LinearLayout appsBox, logBox, ignoreBox;
     private EditText ignoreInput;
@@ -84,6 +84,7 @@ public class SettingsActivity extends Activity {
         urlInput.setText(store.url());
         enabledSwitch.setChecked(store.enabled());
         alertSwitch.setChecked(store.alertOn());
+        dutyPushSwitch.setChecked(store.dutyPushOn());
         alertPendingSwitch.setChecked(store.alertPendingOn());
         alertPendingSwitch.setEnabled(store.alertOn());
         showAlertState();
@@ -229,6 +230,26 @@ public class SettingsActivity extends Activity {
             if (store.alertOn() && !Notifier.allowed(this)) askNotifyPermission();
         });
         alert.addView(alertState, gap(10));
+
+        // ---- 근무표 변경 알림 (FCM, DutyPush)
+        LinearLayout dutyCard = card(root, "근무표 변경 알림");
+        dutyPushSwitch = new Switch(this);
+        dutyPushSwitch.setText("근무표 변경 알림");
+        dutyPushSwitch.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        dutyPushSwitch.setOnCheckedChangeListener((sw, on) -> {
+            if (on == store.dutyPushOn()) return;
+            store.setDutyPushOn(on);
+            if (on) {
+                DutyPush.sync(this);
+                askNotifyPermission();
+            } else {
+                DutyPush.turnOff(this);
+            }
+        });
+        dutyCard.addView(dutyPushSwitch);
+        dutyCard.addView(text(DutyPush.available(this)
+                ? "다른 사람이 근무표를 고치면 바로 알려 줘요 (내가 고친 것은 안 알려요). 누르면 근무표가 열려요."
+                : "이 앱 파일에는 알림 받기 설정(Firebase)이 들어 있지 않아 알림을 받을 수 없어요.", 12, R.color.muted), gap(2));
 
         // ---- 무시할 알림 (이 휴대폰에만)
         LinearLayout ign = card(root, "무시할 알림");

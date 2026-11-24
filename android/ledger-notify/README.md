@@ -54,6 +54,15 @@
 - 근무 색을 그대로 쓰려고 위젯 크기만 한 그림(Bitmap)을 그려 넣음(`DutyWidgets`). 누르면 앱의 근무표 탭
 - 확인은 에뮬레이터(안드로이드 14, `D:\android\avd\yeye34`)에서: 이 PC의 시험 서버를 `http://10.0.2.2:포트`로 넣고 홈 화면에 위젯을 놓아 봄
 
+## 근무표 변경 알림 (1.12부터, FCM)
+
+- 누가 근무표에서 근무를 넣거나·바꾸거나·지우면, 서버(`app/duty_push.py`)가 **고친 사람을 뺀 모두**의 휴대폰에 Firebase Cloud Messaging으로 알림을 보냄. 잇달아 고친 것은 30초 조용해지면 근무표 주인·고친 사람마다 하나로 모음 ('근무표 변경 · 예예 / 지은님이 고침 / 12/3(목) 데이 → 나이트'), 되돌린 날은 뺌
+- 앱이 로그인하면(페이지를 읽을 때·앱을 켤 때) FCM 토큰을 `/api/ledger/duty {action: push-token}`으로 등록(`DutyPush`). 토큰은 서버에서 로그인 기기에 묶여 로그아웃·허락 취소 때 함께 지워짐
+- 앱이 뒤에 있으면 시스템이 채널 '근무표 변경 알림'(`duty_change`)으로 띄우고, 앞에 있으면 앱이 띄움. 누르면 근무표 탭
+- 홈 > 설정 > '근무표 변경 알림 (이 휴대폰)'에서 끄면 서버에서 이 휴대폰 토큰을 지움
+- 빌드에는 Firebase 콘솔에서 받은 `app/google-services.json`(git에 안 올림, PC마다 복사)이 있어야 함. 없으면 알림 받기 없이 빌드되고 설정에 카드가 안 보임. 정식(`kr.home.ledgernotify`)·시험(`kr.home.ledgernotify.test`) 두 앱을 모두 Firebase에 등록한 파일이어야 qa 빌드도 됨
+- 서버는 Firebase 서비스 계정 키를 `output/fcm-service-account.json`(또는 `.env`의 `FCM_SERVICE_ACCOUNT` 경로)에서 읽음. 없으면 보내지 않음
+
 ## 앱 화면 (1.2부터)
 
 앱을 열면 가계부 페이지(`가계부 주소`, 설정에서 넣거나 연결 주소에서 만듦)가 앱 안에 뜨고 그대로 조작함.
@@ -116,7 +125,8 @@
 1. `<폴더>\keys\keystore.properties`를 이 폴더(`android/ledger-notify`)에 복사하고 `storeFile`을 그 PC 경로로 고침
    - 집 노트북: `storeFile=D:/android/keys/ledger-notify.jks`
    - 회사 PC: `storeFile=C:/android/keys/ledger-notify.jks`
-2. `local.properties`에 `sdk.dir`
+2. Firebase 설정: `<폴더>\keys\google-services.json`을 `app\google-services.json`으로 복사 (근무표 변경 알림)
+3. `local.properties`에 `sdk.dir`
    - 집 노트북: `sdk.dir=D\:/android/sdk`
    - 회사 PC: `sdk.dir=C\:/android/sdk`
 

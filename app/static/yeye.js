@@ -244,6 +244,14 @@
         let s = null;
         try { s = window.LedgerApp.phoneState ? JSON.parse(window.LedgerApp.phoneState()) : null; } catch (e) { s = null; }
         $('notify-card').hidden = !s || s.access == null;
+        // 근무표 변경 알림 (1.12부터, Firebase 설정이 든 앱만)
+        $('duty-push-card').hidden = !s || s.dutyPush == null;
+        if (!$('duty-push-card').hidden) {
+            $('ph-duty').checked = !!s.dutyPush;
+            const off = s.dutyPush && !s.notifyAllowed;
+            $('ph-duty-s').textContent = off ? '휴대폰 알림 권한이 꺼져 있어요 · 껐다 켜면 물어봐요' : '다른 사람이 근무표를 고치면 바로 알려 줘요';
+            $('ph-duty-s').className = off ? 'bad' : '';
+        }
         if ($('notify-card').hidden) return;
         $('ph-access-s').textContent = s.access ? `켜짐${s.battery ? ' · 배터리 제한 없음' : ' · 배터리 절약이 켜져 있어요'}` : '꺼짐 · 눌러서 켜 주세요';
         $('ph-access-s').className = s.access ? 'ok' : 'bad';
@@ -252,6 +260,9 @@
     }
     $('ph-alert').addEventListener('change', e => {
         try { window.LedgerApp.setAlertOn(e.target.checked); } catch (err) { /* 예전 앱 */ }
+    });
+    $('ph-duty').addEventListener('change', e => {
+        try { window.LedgerApp.setDutyPushOn(e.target.checked); } catch (err) { /* 예전 앱 */ }
     });
     // 휴대폰에서 해야 하는 것(권한·무시할 알림 고르기·최근 알림)은 앱의 결제 알림 화면에서
     $('notify-card').addEventListener('click', e => {

@@ -6,3 +6,5 @@ keystore.properties
 keystore-test.properties
 *.jks
 *.keystore
+# Firebase 설정 (근무표 변경 알림)
+google-services.json

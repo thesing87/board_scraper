@@ -152,6 +152,8 @@ DB_FILE = os.path.join(OUTPUT_DIR, 'board.db')
 # 두 프로세스가 한 파일을 함께 순환시키면 서로의 기록이 사라지므로 따로 도는 웹서버는 다른 이름을 씀 (DEBUG_LOG_NAME)
 DEBUG_LOG_FILE = os.path.join(OUTPUT_DIR, 'logs', os.environ.get('DEBUG_LOG_NAME', 'debug.log'))
 BACKUP_DIR = os.path.join(OUTPUT_DIR, 'backups')
+# 근무표 변경 알림(duty_push.py)을 FCM으로 보낼 Firebase 서비스 계정 키 (JSON). 없으면 알림을 보내지 않음
+FCM_SERVICE_ACCOUNT = (os.environ.get('FCM_SERVICE_ACCOUNT') or os.path.join(OUTPUT_DIR, 'fcm-service-account.json')).strip()
 # 수집할 때 받아 둔 글 이미지 (디시인사이드 이미지는 다른 사이트에서 열리지 않아 저장해서 보여줌, images.py)
 IMAGE_DIR = os.path.join(OUTPUT_DIR, 'images')
 # 아래 JSON 파일들은 DB 도입 이전 저장 방식으로, 최초 기동 시 DB로 이전한 뒤 *.migrated로 이름이 바뀜
