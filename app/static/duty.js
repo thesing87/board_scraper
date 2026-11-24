@@ -212,7 +212,7 @@
         $('cal-sec').classList.toggle('editing', st.editing);
         $('brush-sec').hidden = !st.editing || st.dview !== 'cal';
         $('edit-btn').textContent = st.editing ? '완료' : '고치기';
-        $('edit-fab').textContent = st.editing ? '✓' : '✎';
+        $('edit-fab').innerHTML = st.editing ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>';
         $('edit-fab').setAttribute('aria-label', st.editing ? '고치기 끝' : '고치기');
         $('edit-fab').classList.toggle('editing', st.editing);
         $('edit-label').textContent = st.editing ? `고치는 중 · ${person ? person.name : ''}` : '달력';
@@ -272,7 +272,7 @@
     $('cal').addEventListener('click', e => {
         const cell = e.target.closest('[data-day]');
         if (!cell) return;
-        if (!st.editing) { $('cal-msg').textContent = '근무를 바꾸려면 ✎를 눌러 주세요.'; return; }
+        if (!st.editing) { $('cal-msg').textContent = '근무를 바꾸려면 오른쪽 아래 연필 단추를 눌러 주세요.'; return; }
         if (!st.brush) { $('cal-msg').textContent = '아래에서 넣을 근무를 먼저 골라 주세요.'; return; }
         $('cal-msg').textContent = '';
         const day = cell.dataset.day, cur = st.data.days[day] ?? null;

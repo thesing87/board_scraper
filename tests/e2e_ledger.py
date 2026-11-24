@@ -98,6 +98,8 @@ try:
     assert js("const r = document.getElementById('views').getBoundingClientRect(); return Math.round(r.bottom) === innerHeight")
     assert js("return document.querySelector('#views .on').dataset.view") == 'list' and not js("return !!document.getElementById('all-set')")
     assert vis('fab') and not vis('sheet-wrap') and vis('pane-list') and not vis('totals') and not vis('pane-ana')
+    assert js("const b = document.getElementById('fab').getBoundingClientRect(), i = document.querySelector('#fab svg').getBoundingClientRect();"
+              "return Math.abs((b.top + b.bottom) / 2 - (i.top + i.bottom) / 2) < 1 && Math.abs((b.left + b.right) / 2 - (i.left + i.right) / 2) < 1")   # ＋는 정가운데
     assert txt('period') == f'{date.today().year}년 {date.today().month}월' and txt('m-ex-label') == '이번 달 지출'
     font = lambda sel: js(f"return getComputedStyle(document.querySelector('{sel}')).fontSize")
     assert font('body') == '14px' and font('.hero-amt') == '30px'      # PC

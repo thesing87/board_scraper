@@ -71,11 +71,15 @@ try:
     assert js(f"return document.querySelector('{cell(T)}').classList.contains('today')")
 
     # ---- 평소엔 보기만: 날짜를 눌러도 안 바뀌고 근무 고르기 줄도 없음 → 오른쪽 아래 ✎
-    assert not vis('brush-sec') and vis('edit-fab') and txt('edit-fab') == '✎'
+    fab = lambda: js("return document.getElementById('edit-fab').getAttribute('aria-label')")
+    assert not vis('brush-sec') and vis('edit-fab') and fab() == '고치기' and js("return !!document.querySelector('#edit-fab svg')")
+    # 아이콘은 단추 정가운데 (글자 기준선 때문에 처지지 않게)
+    assert js("const b = document.getElementById('edit-fab').getBoundingClientRect(), i = document.querySelector('#edit-fab svg').getBoundingClientRect();"
+              "return Math.abs((b.top + b.bottom) / 2 - (i.top + i.bottom) / 2) < 1 && Math.abs((b.left + b.right) / 2 - (i.left + i.right) / 2) < 1")
     click(cell(T)); time.sleep(.2)
-    assert '✎' in txt('cal-msg') and days() == {}
+    assert '연필 단추' in txt('cal-msg') and days() == {}
     click('#edit-fab'); time.sleep(.2)
-    assert vis('brush-sec') and txt('edit-fab') == '✓' and txt('edit-btn') == '완료' and '고치는 중 · 예예' in txt('edit-label')
+    assert vis('brush-sec') and fab() == '고치기 끝' and txt('edit-btn') == '완료' and '고치는 중 · 예예' in txt('edit-label')
     assert js("return document.getElementById('cal-sec').classList.contains('editing')")
     # 근무를 안 고르고 날짜를 누르면 안내, 고르면 바로 들어가고 잠깐 뒤 저장
     click(cell(T)); time.sleep(.2)

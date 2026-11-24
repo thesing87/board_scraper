@@ -96,7 +96,9 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .brush-sec { position: sticky; bottom: calc(env(safe-area-inset-bottom) + 64px); z-index: 5; box-shadow: 0 -4px 16px rgba(17, 24, 39, .08); }
 /* ✎ 고치기 (아래 메뉴 위, 고치는 중엔 칠하기 칸 위) */
 .fab { position: fixed; right: max(18px, calc(50vw - 342px)); bottom: calc(env(safe-area-inset-bottom) + 72px); z-index: 30; width: 56px; height: 56px; padding: 0;
-    border: 0; border-radius: 50%; background: #185FA5; color: #fff; font-size: 24px; line-height: 56px; box-shadow: 0 6px 16px rgba(24, 95, 165, .35); }
+    border: 0; border-radius: 50%; background: #185FA5; color: #fff; box-shadow: 0 6px 16px rgba(24, 95, 165, .35);
+    display: flex; align-items: center; justify-content: center; }
+.fab svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; display: block; }
 .fab.editing { background: var(--green); box-shadow: 0 6px 16px rgba(15, 110, 86, .35); bottom: calc(env(safe-area-inset-bottom) + 200px); }
 .brush-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .brush { display: flex; flex-wrap: wrap; gap: 6px; }

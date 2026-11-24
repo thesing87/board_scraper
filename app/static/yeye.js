@@ -235,9 +235,29 @@
             let v = '';
             try { v = window.LedgerApp.version(); } catch (e) { /* 예전 앱 */ }
             const newer = app && v && app.versionName !== v;
-            $('phone-state').textContent = `이 휴대폰 앱 ${v || '?'}` + (app ? (newer ? ` · 새 버전 ${app.versionName}이 있어요` : ' · 최신 버전이에요') : '');
+            $('phone-state').textContent = `YeYe홈 ${v || '?'}` + (app ? (newer ? ` · 새 버전 ${app.versionName}이 있어요` : ' · 최신 버전이에요') : '');
+            renderPhone();
         }
     }
+    // 결제 알림 (이 휴대폰): 앱이 알려 준 상태 (1.11부터, 예전 앱이면 칸을 숨김)
+    function renderPhone() {
+        let s = null;
+        try { s = window.LedgerApp.phoneState ? JSON.parse(window.LedgerApp.phoneState()) : null; } catch (e) { s = null; }
+        $('notify-card').hidden = !s || s.access == null;
+        if ($('notify-card').hidden) return;
+        $('ph-access-s').textContent = s.access ? `켜짐${s.battery ? ' · 배터리 제한 없음' : ' · 배터리 절약이 켜져 있어요'}` : '꺼짐 · 눌러서 켜 주세요';
+        $('ph-access-s').className = s.access ? 'ok' : 'bad';
+        $('ph-alert').checked = !!s.alertOn;
+        $('ph-ignore-n').textContent = s.ignores ? String(s.ignores) : '';
+    }
+    $('ph-alert').addEventListener('change', e => {
+        try { window.LedgerApp.setAlertOn(e.target.checked); } catch (err) { /* 예전 앱 */ }
+    });
+    // 휴대폰에서 해야 하는 것(권한·무시할 알림 고르기·최근 알림)은 앱의 결제 알림 화면에서
+    $('notify-card').addEventListener('click', e => {
+        if (!e.target.closest('[data-phone]')) return;
+        try { window.LedgerApp.openPhoneSettings(); } catch (err) { /* 예전 앱 */ }
+    });
     $('app-file').addEventListener('change', () => { $('app-upload').disabled = !$('app-file').files.length; $('app-msg').textContent = ''; });
     $('app-upload').addEventListener('click', async () => {
         const file = $('app-file').files[0];
@@ -264,7 +284,7 @@
         renderSettings();
     });
     $('update-check').addEventListener('click', () => {
-        try { window.LedgerApp.checkUpdate(); } catch (e) { $('phone-state').textContent = '이 앱 버전에서는 위쪽 줄의 설정에서 확인해 주세요.'; return; }
+        try { window.LedgerApp.checkUpdate(); } catch (e) { $('phone-state').textContent = '이 앱 버전에서는 새 버전을 확인할 수 없어요.'; return; }
         $('phone-state').textContent = '새 버전 확인 중…';
         // 확인 결과는 앱이 알려 줌 (몇 번 물어봄)
         let n = 0;

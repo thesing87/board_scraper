@@ -76,6 +76,16 @@ try:
     # 카드를 누르면 그 페이지로
     click('#inbox-card'); time.sleep(1.2)
     assert js("return location.pathname + location.hash") == '/ledger/#inbox' or js("return location.pathname") == '/ledger/'
+    # ---- 앱 안 (YeYe홈 1.11, window.LedgerApp 흉내): 설정에 이 휴대폰 앱·결제 알림(권한·금액 인식 알림·무시할 알림), 줄을 누르면 앱 화면
+    d.get(BASE + '/stats/'); time.sleep(.5)
+    d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source': "window.__calls = []; window.LedgerApp = {version: () => '1.11', connected: () => true, "
+        "phoneState: () => JSON.stringify({access: true, battery: false, alertOn: true, ignores: 3, connected: true}), setAlertOn: v => window.__calls.push('alert:' + v), "
+        "openPhoneSettings: () => window.__calls.push('phone'), checkUpdate: () => {}, updateText: () => ''};"})
+    d.get(BASE + '/yeye/#settings'); time.sleep(2)
+    assert vis('phone-card') and vis('notify-card') and 'YeYe홈 1.11' in txt('phone-state'), txt('phone-state')
+    assert '켜짐' in txt('ph-access-s') and '배터리 절약' in txt('ph-access-s') and js("return document.getElementById('ph-alert').checked") and txt('ph-ignore-n') == '3'
+    click('#ph-alert'); click('#ph-ignore'); time.sleep(.2)
+    assert js("return window.__calls") == ['alert:false', 'phone'], js("return window.__calls")
     # ---- 휴대폰: 넘침 없음, 아래 메뉴는 맨 아래
     d.set_window_size(390, 844); d.get(BASE + '/yeye/'); time.sleep(2)
     assert js("return document.documentElement.scrollWidth <= innerWidth + 1")

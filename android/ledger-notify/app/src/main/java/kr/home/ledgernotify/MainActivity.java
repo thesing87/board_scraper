@@ -195,7 +195,7 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(getColor(R.color.bg));
 
         // ---- 위쪽 한 줄: 제목 · 탭(홈 | 가계부 | 근무표, 아이콘 위·이름 아래, 고른 탭은 흰 밑줄) · 새로고침
-        // (설정은 각 페이지의 아래 메뉴에. 제목을 누르면 앱의 설정 화면 — 페이지를 못 열 때도 들어갈 수 있게)
+        // (설정은 각 페이지의 아래 메뉴에, 이 휴대폰의 것도 홈 > 설정. 페이지를 못 열면 위 안내 줄을 눌러 앱 설정)
         LinearLayout bar = new LinearLayout(this);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setBackgroundColor(getColor(R.color.green));
@@ -206,21 +206,28 @@ public class MainActivity extends Activity {
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setPadding(0, 0, dp(10), 0);
-        title.setOnClickListener(v -> openSettings(SettingsActivity.SECTION_ALL));
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        title.setIncludeFontPadding(false);
         bar.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
         bar.addView(tabButton(TAB_HOME, "홈", R.drawable.ic_tab_home), new LinearLayout.LayoutParams(dp(62), ViewGroup.LayoutParams.MATCH_PARENT));
         bar.addView(tabButton(TAB_LEDGER, "가계부", R.drawable.ic_tab_ledger), new LinearLayout.LayoutParams(dp(62), ViewGroup.LayoutParams.MATCH_PARENT));
         bar.addView(tabButton(TAB_DUTY, "근무표", R.drawable.ic_tab_duty), new LinearLayout.LayoutParams(dp(62), ViewGroup.LayoutParams.MATCH_PARENT));
         bar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
-        TextView refresh = barButton("↻", v -> {
+        ImageView refresh = new ImageView(this);
+        refresh.setImageResource(R.drawable.ic_refresh);
+        refresh.setColorFilter(0xFFFFFFFF);
+        refresh.setScaleType(ImageView.ScaleType.CENTER);
+        refresh.setContentDescription("새로고침");
+        TypedValue rtv = new TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, rtv, true);
+        refresh.setBackgroundResource(rtv.resourceId);
+        refresh.setOnClickListener(v -> {
             loadFailed = false;
             if (loadedSite.isEmpty()) onResume();
             else if (loaded[tab].isEmpty()) load(tab, null);
             else web.reload();
         });
-        refresh.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
-        refresh.setContentDescription("새로고침");
-        bar.addView(refresh);
+        bar.addView(refresh, new LinearLayout.LayoutParams(dp(48), ViewGroup.LayoutParams.MATCH_PARENT));
         root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)));
 
         // ---- 할 일 한 줄 (누르면 그 화면으로)
@@ -572,6 +579,32 @@ public class MainActivity extends Activity {
                     .putExtra(SettingsActivity.EXTRA_IGNORE_TEXT, t)));
         }
 
+        /** 홈 > 설정의 '결제 알림 (이 휴대폰)': 알림 읽기 권한·배터리·금액 인식 알림·무시할 알림 수·연결 */
+        @JavascriptInterface
+        public String phoneState() {
+            if (!fromLedger()) return "{}";
+            try {
+                android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
+                return new org.json.JSONObject()
+                        .put("access", SettingsActivity.hasAccess(MainActivity.this))
+                        .put("battery", pm != null && pm.isIgnoringBatteryOptimizations(getPackageName()))
+                        .put("alertOn", store.alertOn())
+                        .put("ignores", store.ignores().size())
+                        .put("connected", !store.url().isEmpty())
+                        .toString();
+            } catch (org.json.JSONException e) {
+                return "{}";
+            }
+        }
+
+        /** 홈 > 설정의 '금액 인식 알림' 켜고 끄기 (켤 때 알림 권한이 없으면 앱의 결제 알림 화면으로) */
+        @JavascriptInterface
+        public void setAlertOn(boolean on) {
+            if (!fromLedger()) return;
+            store.setAlertOn(on);
+            if (on && !Notifier.allowed(MainActivity.this)) ui.post(() -> MainActivity.this.openSettings(SettingsActivity.SECTION_PHONE));
+        }
+
         @JavascriptInterface
         public void openSettings() {
             ui.post(() -> MainActivity.this.openSettings(SettingsActivity.SECTION_PHONE));
@@ -581,21 +614,6 @@ public class MainActivity extends Activity {
     // ==========================================
     // 도우미
     // ==========================================
-    private TextView barButton(String label, View.OnClickListener on) {
-        TextView t = new TextView(this);
-        t.setText(label);
-        t.setTextColor(0xFFFFFFFF);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        t.setGravity(Gravity.CENTER);
-        t.setPadding(dp(12), 0, dp(12), 0);
-        t.setOnClickListener(on);
-        t.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        TypedValue tv = new TypedValue();
-        getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
-        t.setBackgroundResource(tv.resourceId);
-        return t;
-    }
-
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
     }
