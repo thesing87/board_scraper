@@ -95,13 +95,15 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .cal.has-ev .day, .cal.has-ev .pad { height: 120px; }
 .cal.has-ev .day { gap: 2px; overflow: hidden; }
 .cal.has-ev .day > * { flex: none; }
-.cal.has-ev .day .n { font-size: 15px; line-height: 19px; font-weight: 600; }
-.cal.has-ev .day .badge { font-size: 14px; }
+.cal.has-ev .day .n { font-size: 13px; line-height: 17px; font-weight: 600; }
+.cal.has-ev .day .badge { font-size: 12px; }
 .cal .day .badge.ph { visibility: hidden; }   /* 근무가 없는 날도 띠가 같은 높이에 오게 자리만 */
 .cal .day .evs { align-self: stretch; display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 0 1px; }
-.cal .day .evc { display: block; height: 13px; padding: 0 3px; border-left: 3px solid var(--c); background: color-mix(in srgb, var(--c) 14%, transparent);
-    font-size: 9.5px; line-height: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: clip; }
-.cal .day .evc.sp { border-left-color: transparent; background: none; }
+.cal .day .evc { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; max-height: 26px; padding: 0 3px;
+    border-left: 3px solid var(--c); background: color-mix(in srgb, var(--c) 14%, transparent);
+    font-size: 9.5px; line-height: 13px; color: var(--text); overflow: hidden; word-break: break-all; }   /* 잘리면 두 줄까지 */
+.cal .day .evc[hidden] { display: none; }
+.cal .day .evc.sp { display: block; height: 13px; border-left-color: transparent; background: none; }
 .cal .day .evc .tm { margin-right: 3px; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* 더 있는 일정 수는 일정 줄 아래 오른쪽 */
 .cal .day .evs b { align-self: flex-end; padding: 0 2px; font-size: 9px; line-height: 10px; color: var(--muted); font-weight: 700; }
@@ -194,9 +196,10 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
     .cal { gap: 3px; }
     .cal .day, .cal .pad { height: 52px; }
     .cal.has-ev .day, .cal.has-ev .pad { height: 104px; }
-    .cal.has-ev .day .n { font-size: 14px; line-height: 18px; }
-    .cal.has-ev .day .badge { font-size: 13px; }
-    .cal .day .evc { font-size: 9px; height: 12px; line-height: 12px; padding: 0 2px; border-left-width: 2px; }
+    .cal.has-ev .day .n { font-size: 12px; line-height: 16px; }
+    .cal.has-ev .day .badge { font-size: 11px; }
+    .cal .day .evc { font-size: 9px; max-height: 24px; line-height: 12px; padding: 0 2px; border-left-width: 2px; }
+    .cal .day .evc.sp { height: 12px; }
     .cal .evbar { font-size: 9px; padding: 0 3px; }
     .cal .day .evc .tm { display: none; }   /* 칸이 좁아 시각을 넣으면 이름이 안 보임 (아래 목록에 있음) */
     .cal .day .badge { font-size: 11px; padding: 2px 4px; }

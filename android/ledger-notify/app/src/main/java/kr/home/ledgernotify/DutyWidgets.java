@@ -470,30 +470,53 @@ final class DutyWidgets {
         }
 
         void message(String s) {
-            textAt(fit(s, 12, w - 24), w / 2, h / 2 + 4, 12, MUTED, false, Paint.Align.CENTER);
+            textAt(fit(s, 14, w - 24), w / 2, h / 2 + 5, 14, MUTED, false, Paint.Align.CENTER);
         }
 
         void stale(String s) {
-            textAt(s, w - 10, h - 6, 9, FAINT, false, Paint.Align.RIGHT);
+            textAt(s, w - 10, h - 6, 11, FAINT, false, Paint.Align.RIGHT);
         }
 
-        /** 일정 한 줄 높이·줄 사이 (dp). 날짜·근무보다 작게 (1.21부터) */
-        static final float EV_LINE = 10, EV_GAP = 1, EV_TEXT = 8;
+        /**
+         * 글자를 너비에 맞게 줄로 나눔 (글자 단위, 띄어쓰기가 줄 뒤쪽에 있으면 거기서), maxLines 줄까지 —
+         * 그래도 남으면 마지막 줄 끝을 '…'로 줄임 (1.22부터 잘리는 일정 이름은 아랫줄에 이어서)
+         */
+        List<String> wrap(String s, float size, float max, int maxLines) {
+            text.setTextSize(size);
+            List<String> out = new ArrayList<>();
+            String rest = s.trim();
+            while (!rest.isEmpty() && out.size() < maxLines) {
+                if (out.size() == maxLines - 1 || text.measureText(rest) <= max) {
+                    out.add(fit(rest, size, max));
+                    break;
+                }
+                int n = rest.length();
+                while (n > 1 && text.measureText(rest, 0, n) > max) n--;
+                int sp = rest.lastIndexOf(' ', n);
+                if (sp > n / 2) n = sp;
+                out.add(rest.substring(0, n).trim());
+                rest = rest.substring(n).trim();
+            }
+            return out;
+        }
 
-        /** 하루 일정 한 줄: 왼쪽 캘린더 색 띠 + 이름 */
-        void eventLine(Ev e, RectF r) {
+        /** 일정 한 줄 높이·줄 사이·글자 (dp). 1.22부터 2씩 크게 (날짜·근무 14, 일정 10) */
+        static final float EV_LINE = 12, EV_GAP = 1, EV_TEXT = 10;
+
+        /** 하루 일정: 왼쪽 캘린더 색 띠 + 이름 (lines 줄) */
+        void eventLine(Ev e, List<String> lines, RectF r) {
             fill.setColor(mix(e.color, 0xFFFFFFFF, 0.85f));
             cv.drawRect(r, fill);
             fill.setColor(e.color);
             cv.drawRect(new RectF(r.left, r.top, r.left + 2, r.bottom), fill);
-            float max = r.width() - 4;
-            if (max >= 6) {
-                text.setTypeface(Typeface.DEFAULT);
-                textAt(fitClip(e.title, EV_TEXT, max), r.left + 3.5f, r.bottom - 2.2f, EV_TEXT, TEXT, false, Paint.Align.LEFT);
+            text.setTypeface(Typeface.DEFAULT);
+            for (int i = 0; i < lines.size(); i++) {
+                float base = r.top + (i + 1) * EV_LINE + i * EV_GAP - 2.6f;
+                textAt(lines.get(i), r.left + 3.5f, base, EV_TEXT, TEXT, false, Paint.Align.LEFT);
             }
         }
 
-        /** 여러 날 일정 띠: 칸 사이 틈까지 이어서, 시작·끝 날만 모서리를 둥글게. 이름은 흰 글자 */
+        /** 여러 날 일정 띠: 칸 사이 틈까지 이어서, 시작·끝 날만 모서리를 둥글게. 이름은 흰 글자 (띠가 넓어 한 줄) */
         void eventSpan(Ev e, RectF r, boolean head, boolean tail) {
             fill.setColor(e.color);
             cv.drawRoundRect(r, 2.5f, 2.5f, fill);
@@ -502,7 +525,7 @@ final class DutyWidgets {
             float max = r.width() - 6;
             if (max >= 6) {
                 text.setTypeface(Typeface.DEFAULT_BOLD);
-                textAt(fitClip(e.title, EV_TEXT, max), r.left + 3, r.bottom - 2.2f, EV_TEXT, 0xFFFFFFFF, true, Paint.Align.LEFT);
+                textAt(fitClip(e.title, EV_TEXT, max), r.left + 3, r.bottom - 2.6f, EV_TEXT, 0xFFFFFFFF, true, Paint.Align.LEFT);
             }
         }
 
@@ -510,11 +533,11 @@ final class DutyWidgets {
         void more(int n, RectF line) {
             String s = "+" + n;
             text.setTypeface(Typeface.DEFAULT_BOLD);
-            text.setTextSize(7.5f);
+            text.setTextSize(9.5f);
             float tw = text.measureText(s) + 3;
             fill.setColor(0xF2FFFFFF);
             cv.drawRect(new RectF(line.right - tw, line.top, line.right, line.bottom), fill);
-            textAt(s, line.right - 1, line.bottom - 2.2f, 7.5f, MUTED, true, Paint.Align.RIGHT);
+            textAt(s, line.right - 1, line.bottom - 2.6f, 9.5f, MUTED, true, Paint.Align.RIGHT);
         }
 
         /** 일정 줄을 넣을 자리가 없는 칸: 맨 아래 색 띠 (하루 일정은 그 칸에, 여러 날 일정은 칸을 넘어 이어서) */
@@ -541,27 +564,26 @@ final class DutyWidgets {
             float pad = 10;
             String[] ym = r.month.split("-");
             int y = Integer.parseInt(ym[0]), mo = Integer.parseInt(ym[1]);
-            textAt(fit(mo + "월 근무 · " + r.personName, 13, w * 0.55f), pad, pad + 13, 13, TEXT, true, Paint.Align.LEFT);
+            textAt(fit(mo + "월 근무 · " + r.personName, 15, w * 0.55f), pad, pad + 15, 15, TEXT, true, Paint.Align.LEFT);
             Type t0 = r.at(r.today), t1 = r.at(addDays(r.today, 1));
             String right = "오늘 " + (t0 == null ? "–" : t0.code) + " · 내일 " + (t1 == null ? "–" : t1.code);
-            textAt(right, w - pad, pad + 12, 11, t0 == null ? MUTED : mix(t0.color, 0xFF000000, 0.4f), true, Paint.Align.RIGHT);
+            textAt(right, w - pad, pad + 14, 13, t0 == null ? MUTED : mix(t0.color, 0xFF000000, 0.4f), true, Paint.Align.RIGHT);
 
             Calendar cal = Calendar.getInstance();
             cal.clear();
             cal.set(y, mo - 1, 1);
             int first = cal.get(Calendar.DAY_OF_WEEK) - 1, last = cal.getActualMaximum(Calendar.DAY_OF_MONTH);
             int rows = (first + last + 6) / 7;
-            float top = pad + 22, colW = (w - pad * 2) / 7;
+            float top = pad + 24, colW = (w - pad * 2) / 7;
             for (int i = 0; i < 7; i++) {
-                textAt(String.valueOf(WD.charAt(i)), pad + colW * i + colW / 2, top + 10, 10, i == 0 ? SUN : i == 6 ? SAT : FAINT, false, Paint.Align.CENTER);
+                textAt(String.valueOf(WD.charAt(i)), pad + colW * i + colW / 2, top + 12, 12, i == 0 ? SUN : i == 6 ? SAT : FAINT, false, Paint.Align.CENTER);
             }
-            top += 15;
+            top += 17;
             float cellH = (h - top - pad + 2) / rows, gap = 2;
-            boolean roomy = cellH >= 30;
-            // 칸 안 자리 (모든 칸이 같아야 띠가 같은 높이): 날짜 12dp · 근무 배지 (일정이 있든 없든 같은 크기) · 일정 줄
-            // (여백을 줄여 날짜·근무를 키워도 일정 자리는 1.20보다 줄지 않게: 칸 높이 42dp부터 일정 한 줄)
-            float bh = Math.min(16, cellH - gap - 18);
-            float evTop = 14 + bh + 1, evH = cellH - gap - evTop - 1;
+            boolean roomy = cellH >= 34;
+            // 칸 안 자리 (모든 칸이 같아야 띠가 같은 높이): 날짜 14dp · 근무 배지 (일정이 있든 없든 같은 크기) · 일정 줄
+            float bh = Math.min(18, cellH - gap - 20);
+            float evTop = 16 + bh + 1, evH = cellH - gap - evTop - 1;
             int fit = roomy && evH >= EV_LINE ? (int) ((evH + EV_GAP) / (EV_LINE + EV_GAP)) : 0;
             List<Seg> segs = segments(r, first, last);
             RectF[] cells = new RectF[last + 1];
@@ -588,15 +610,23 @@ final class DutyWidgets {
                     if (g.lane >= fit) overHidden++;
                 }
                 if (roomy) {
-                    textAt(String.valueOf(day), cell.centerX(), cell.top + 12, 12, today ? GREEN : numColor, true, Paint.Align.CENTER);
-                    if (t != null) badge(t, cell.centerX(), cell.top + 14 + bh / 2, bh, cell.width() - 2, Math.min(12, bh - 4));
+                    textAt(String.valueOf(day), cell.centerX(), cell.top + 14, 14, today ? GREEN : numColor, true, Paint.Align.CENTER);
+                    if (t != null) badge(t, cell.centerX(), cell.top + 16 + bh / 2, bh, cell.width() - 2, Math.min(14, bh - 4));
                     if (fit > 0) {
-                        int from = Math.min(fit, lanes), room = fit - from;
-                        for (int i = 0; i < Math.min(room, singles.size()); i++) {
-                            float ly = cell.top + evTop + (from + i) * (EV_LINE + EV_GAP);
-                            eventLine(singles.get(i), new RectF(cell.left + 2, ly, cell.right - 2, ly + EV_LINE));
+                        // 띠 줄 다음부터 하루 일정: 이름이 잘리면 두 줄까지 (자리가 한 줄뿐이면 한 줄로 줄임)
+                        int slot = Math.min(fit, lanes), shown = 0;
+                        float tw = cell.width() - 4 - 4;
+                        for (Ev e : singles) {
+                            if (slot >= fit) break;
+                            List<String> lines = wrap(e.title, EV_TEXT, tw, Math.min(2, fit - slot));
+                            if (lines.isEmpty()) lines.add("");
+                            float ly = cell.top + evTop + slot * (EV_LINE + EV_GAP);
+                            float lh = lines.size() * EV_LINE + (lines.size() - 1) * EV_GAP;
+                            eventLine(e, lines, new RectF(cell.left + 2, ly, cell.right - 2, ly + lh));
+                            slot += lines.size();
+                            shown++;
                         }
-                        hidden[day] = Math.max(0, singles.size() - room) + overHidden;
+                        hidden[day] = singles.size() - shown + overHidden;
                     } else {
                         eventBar(singles, cell, cell.bottom - (anyMulti ? 5 : 2));
                     }
@@ -606,10 +636,10 @@ final class DutyWidgets {
                         fill.setColor(mix(t.color, 0xFFFFFFFF, 0.75f));
                         cv.drawRoundRect(cell, 4, 4, fill);
                     }
-                    text.setTextSize(11);
+                    text.setTextSize(13);
                     text.setTypeface(Typeface.DEFAULT_BOLD);
                     Paint.FontMetrics fm = text.getFontMetrics();
-                    textAt(String.valueOf(day), cell.centerX(), cell.centerY() - (fm.ascent + fm.descent) / 2, 11,
+                    textAt(String.valueOf(day), cell.centerX(), cell.centerY() - (fm.ascent + fm.descent) / 2, 13,
                             t != null ? mix(t.color, 0xFF000000, 0.5f) : today ? GREEN : numColor, true, Paint.Align.CENTER);
                     eventBar(singles, cell, cell.bottom - (anyMulti ? 5 : 2));
                 }
@@ -651,19 +681,19 @@ final class DutyWidgets {
                 String s = (!e.allDay && e.day.equals(day) ? e.start + " " : "") + e.title;
                 int left = evs.size() - i - 1;
                 text.setTypeface(Typeface.DEFAULT);
-                text.setTextSize(10);
+                text.setTextSize(12);
                 float rest = left > 0 ? text.measureText("외 " + left) + 2 : 0;
-                float avail = right - x - 8 - rest;
-                if (i > 0 && avail < 30) {
-                    textAt("외 " + (evs.size() - i), x, y, 10, FAINT, false, Paint.Align.LEFT);
+                float avail = right - x - 9 - rest;
+                if (i > 0 && avail < 34) {
+                    textAt("외 " + (evs.size() - i), x, y, 12, FAINT, false, Paint.Align.LEFT);
                     return;
                 }
                 fill.setColor(e.color);
-                cv.drawCircle(x + 3, y - 3.5f, 3, fill);
-                String shown = fit(s, 10, Math.max(12, avail));
-                x += 8 + textAt(shown, x + 8, y, 10, TEXT, false, Paint.Align.LEFT) + 6;
+                cv.drawCircle(x + 3.5f, y - 4.2f, 3.5f, fill);
+                String shown = fit(s, 12, Math.max(14, avail));
+                x += 9 + textAt(shown, x + 9, y, 12, TEXT, false, Paint.Align.LEFT) + 7;
                 if (!shown.equals(s)) {
-                    if (left > 0) textAt("외 " + left, x - 4, y, 10, FAINT, false, Paint.Align.LEFT);
+                    if (left > 0) textAt("외 " + left, x - 4, y, 12, FAINT, false, Paint.Align.LEFT);
                     return;
                 }
             }
@@ -676,68 +706,82 @@ final class DutyWidgets {
             int wd = weekday(r.today);
             String[] p = r.today.split("-");
             String label = "오늘 " + Integer.parseInt(p[1]) + "/" + Integer.parseInt(p[2]) + " (" + WD.charAt(wd) + ")" + (r.personName.isEmpty() ? "" : " · " + r.personName);
-            boolean side = w >= 150;
-            float leftW = side ? w - pad * 2 - 58 : w - pad * 2;
+            boolean side = w >= 160;
+            float leftW = side ? w - pad * 2 - 64 : w - pad * 2;
             float mid = h / 2;
-            List<Ev> evs = h >= 60 ? r.eventsAt(r.today) : new ArrayList<>();
-            // 위젯이 높으면 오늘 일정을 한 줄에 하나씩 (라벨 14 + 근무 20 + 일정 줄마다 13)
-            int lines = (int) ((h - 2 * pad - 36) / 13);
-            if (evs.size() >= 2 && lines >= 2) {
-                int n = Math.min(evs.size(), lines);
-                float top = (h - (36 + n * 13)) / 2;
-                textAt(fit(label, 10, leftW), pad, top + 10, 10, MUTED, false, Paint.Align.LEFT);
-                if (t == null) {
-                    textAt("근무 없음", pad, top + 29, 15, FAINT, false, Paint.Align.LEFT);
-                } else {
-                    float nw = textAt(fit(t.name, 16, leftW), pad, top + 29, 16, mix(t.color, 0xFF000000, 0.4f), true, Paint.Align.LEFT);
-                    if (!t.time.isEmpty() && nw + 6 + 50 <= leftW) textAt(t.time, pad + nw + 6, top + 29, 10, MUTED, false, Paint.Align.LEFT);
-                }
-                for (int i = 0; i < n; i++) {
-                    Ev e = evs.get(i);
-                    float y = top + 36 + 13 * i + 10;
-                    int rest = i == n - 1 ? evs.size() - n : 0;
-                    String more = rest > 0 ? "외 " + rest : "";
-                    text.setTypeface(Typeface.DEFAULT);
-                    text.setTextSize(10);
-                    float moreW = rest > 0 ? text.measureText(more) + 6 : 0;
-                    fill.setColor(e.color);
-                    cv.drawCircle(pad + 3, y - 3.5f, 3, fill);
+            List<Ev> evs = h >= 64 ? r.eventsAt(r.today) : new ArrayList<>();
+            // 위젯이 높으면 오늘 일정을 한 줄에 하나씩, 잘리는 이름은 두 줄까지 (라벨 16 + 근무 24 + 일정 줄마다 15)
+            int lines = (int) ((h - 2 * pad - 40) / 15);
+            if (!evs.isEmpty() && lines >= 2) {
+                List<List<String>> rowsOf = new ArrayList<>();
+                int used = 0;
+                for (Ev e : evs) {
+                    if (used >= lines) break;
                     String s = (!e.allDay && e.day.equals(r.today) ? e.start + " " : "") + e.title;
-                    textAt(fit(s, 10, leftW - 8 - moreW), pad + 8, y, 10, TEXT, false, Paint.Align.LEFT);
-                    if (rest > 0) textAt(more, pad + leftW, y, 10, FAINT, false, Paint.Align.RIGHT);
+                    List<String> l = wrap(s, 12, leftW - 9, Math.min(2, lines - used));
+                    rowsOf.add(l);
+                    used += l.size();
                 }
+                int rest = evs.size() - rowsOf.size();
+                if (rest > 0) {
+                    // '외 n' 자리만큼 마지막 줄을 다시 맞춤
+                    List<String> lastRows = rowsOf.get(rowsOf.size() - 1);
+                    text.setTextSize(12);
+                    float moreW = text.measureText("외 " + rest) + 6;
+                    lastRows.set(lastRows.size() - 1, fit(lastRows.get(lastRows.size() - 1), 12, leftW - 9 - moreW));
+                }
+                float top = (h - (40 + used * 15)) / 2;
+                textAt(fit(label, 12, leftW), pad, top + 12, 12, MUTED, false, Paint.Align.LEFT);
+                if (t == null) {
+                    textAt("근무 없음", pad, top + 33, 17, FAINT, false, Paint.Align.LEFT);
+                } else {
+                    float nw = textAt(fit(t.name, 18, leftW), pad, top + 33, 18, mix(t.color, 0xFF000000, 0.4f), true, Paint.Align.LEFT);
+                    if (!t.time.isEmpty() && nw + 6 + 60 <= leftW) textAt(t.time, pad + nw + 6, top + 33, 12, MUTED, false, Paint.Align.LEFT);
+                }
+                int row = 0;
+                for (int i = 0; i < rowsOf.size(); i++) {
+                    Ev e = evs.get(i);
+                    List<String> l = rowsOf.get(i);
+                    fill.setColor(e.color);
+                    cv.drawCircle(pad + 3.5f, top + 40 + 15 * row + 12 - 4.2f, 3.5f, fill);
+                    for (String line : l) {
+                        textAt(line, pad + 9, top + 40 + 15 * row + 12, 12, TEXT, false, Paint.Align.LEFT);
+                        row++;
+                    }
+                }
+                if (rest > 0) textAt("외 " + rest, pad + leftW, top + 40 + 15 * (row - 1) + 12, 12, FAINT, false, Paint.Align.RIGHT);
                 nextDays(r, pad, h / 2, side);
                 return;
             }
             boolean withEv = !evs.isEmpty();
-            float up = withEv ? 7 : 0;     // 오늘 일정 줄 자리만큼 위로
-            textAt(fit(label, 10, leftW), pad, mid - 12 - up, 10, MUTED, false, Paint.Align.LEFT);
+            float up = withEv ? 8 : 0;     // 오늘 일정 줄 자리만큼 위로
+            textAt(fit(label, 12, leftW), pad, mid - 14 - up, 12, MUTED, false, Paint.Align.LEFT);
             if (t == null) {
-                textAt("근무 없음", pad, mid + 6 - up, 15, FAINT, false, Paint.Align.LEFT);
+                textAt("근무 없음", pad, mid + 7 - up, 17, FAINT, false, Paint.Align.LEFT);
             } else if (withEv) {
                 // 근무 시간은 이름 옆으로 (아래 줄은 일정)
-                float nw = textAt(fit(t.name, 16, leftW), pad, mid + 7 - up, 16, mix(t.color, 0xFF000000, 0.4f), true, Paint.Align.LEFT);
-                if (!t.time.isEmpty() && nw + 6 + 50 <= leftW) textAt(t.time, pad + nw + 6, mid + 7 - up, 10, MUTED, false, Paint.Align.LEFT);
+                float nw = textAt(fit(t.name, 18, leftW), pad, mid + 8 - up, 18, mix(t.color, 0xFF000000, 0.4f), true, Paint.Align.LEFT);
+                if (!t.time.isEmpty() && nw + 6 + 60 <= leftW) textAt(t.time, pad + nw + 6, mid + 8 - up, 12, MUTED, false, Paint.Align.LEFT);
             } else {
-                textAt(fit(t.name, 16, leftW), pad, mid + 7, 16, mix(t.color, 0xFF000000, 0.4f), true, Paint.Align.LEFT);
-                if (!t.time.isEmpty() && h >= 56) textAt(t.time, pad, mid + 21, 10, MUTED, false, Paint.Align.LEFT);
+                textAt(fit(t.name, 18, leftW), pad, mid + 8, 18, mix(t.color, 0xFF000000, 0.4f), true, Paint.Align.LEFT);
+                if (!t.time.isEmpty() && h >= 60) textAt(t.time, pad, mid + 24, 12, MUTED, false, Paint.Align.LEFT);
             }
-            if (withEv) todayEvents(evs, r.today, pad, mid + 23 - up, leftW);
+            if (withEv) todayEvents(evs, r.today, pad, mid + 27 - up, leftW);
             nextDays(r, pad, mid, side);
         }
 
         /** 작은 위젯 오른쪽: 내일부터 사흘(높이가 낮으면 이틀) 근무 */
         void nextDays(Roster r, float pad, float mid, boolean side) {
             if (!side) return;
-            int n = h >= 64 ? 3 : 2;
-            float rowH = Math.min(17, (h - 12) / n), y0 = mid - rowH * n / 2;
+            int n = h >= 70 ? 3 : 2;
+            float rowH = Math.min(19, (h - 12) / n), y0 = mid - rowH * n / 2;
             for (int i = 1; i <= n; i++) {
                 String day = addDays(r.today, i);
                 Type nt = r.at(day);
                 float cy = y0 + rowH * (i - 1) + rowH / 2;
-                textAt(i == 1 ? "내일" : String.valueOf(WD.charAt(weekday(day))), w - pad - 34, cy + 4, 10, FAINT, false, Paint.Align.RIGHT);
-                if (nt != null) badge(nt, w - pad - 15, cy, rowH - 3, 30, 10);
-                else textAt("–", w - pad - 15, cy + 4, 10, FAINT, false, Paint.Align.CENTER);
+                textAt(i == 1 ? "내일" : String.valueOf(WD.charAt(weekday(day))), w - pad - 38, cy + 4.5f, 12, FAINT, false, Paint.Align.RIGHT);
+                if (nt != null) badge(nt, w - pad - 17, cy, rowH - 3, 34, 12);
+                else textAt("–", w - pad - 17, cy + 4.5f, 12, FAINT, false, Paint.Align.CENTER);
             }
         }
     }

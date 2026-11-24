@@ -215,6 +215,7 @@
         }
         $('cal').innerHTML = html;
         $('cal').classList.toggle('has-ev', !!st.cal);   // 캘린더 일정 이름 서너 줄 자리만큼 칸을 높게
+        fitCells();
         placeBars();
         $('counts').innerHTML = d.types.filter(t => counts[t.id]).map(t => `<span>${esc(t.name)}<b>${counts[t.id]}</b></span>`).join('')
             || '<span>이 달은 아직 넣은 근무가 없어요</span>';
@@ -279,7 +280,29 @@
         const hidden = Math.max(0, singles.length - room) + over.filter(g => g.lane >= max).length;
         const chip = e => `<span class="evc" style="--c:${esc(e.color)}">${!e.allDay ? `<span class="tm">${esc(e.start)}</span>` : ''}${esc(e.title)}</span>`;
         const html = '<span class="evc sp"></span>'.repeat(lanes) + singles.slice(0, room).map(chip).join('');
-        return html || hidden ? `<span class="evs">${html}${hidden ? `<b>+${hidden}</b>` : ''}</span>` : '';
+        return html || hidden ? `<span class="evs" data-hidden="${hidden}">${html}${hidden ? `<b>+${hidden}</b>` : ''}</span>` : '';
+    }
+
+    // 일정 이름은 잘리면 두 줄까지 이어 씀 → 칸에 다 안 들어가면 아래 것부터 숨기고 +n에 더함 (칸 크기가 바뀌면 다시)
+    function fitCells() {
+        if (!st.cal) return;
+        for (const evs of $('cal').querySelectorAll('.day .evs')) {
+            const day = evs.parentElement, chips = [...evs.querySelectorAll('.evc:not(.sp)')];
+            chips.forEach(c => { c.hidden = false; });
+            const bottom = day.getBoundingClientRect().bottom - 1;
+            if (bottom < 2) return;   // 안 보이는 중
+            let more = evs.querySelector('b'), extra = 0;
+            const base = Number(evs.dataset.hidden || 0);
+            const over = () => (more || evs).getBoundingClientRect().bottom > bottom + 0.5
+                || (chips.filter(c => !c.hidden).pop() || evs).getBoundingClientRect().bottom > bottom + 0.5;
+            while (over() && chips.some(c => !c.hidden)) {
+                chips.filter(c => !c.hidden).pop().hidden = true;
+                extra++;
+                if (!more) { more = document.createElement('b'); evs.appendChild(more); }
+                more.textContent = `+${base + extra}`;
+            }
+            if (!extra && more) more.textContent = base ? `+${base}` : '';
+        }
     }
 
     // 여러 날 일정 띠: 칸 사이 틈까지 덮게 달력 위에 얹음 (칸 크기가 바뀌면 다시)
@@ -304,7 +327,7 @@
     }
     if (window.ResizeObserver) new ResizeObserver(() => {
         if (!st.cal || !st.data) return;
-        if (evMax() !== st.segMax) renderCal(); else placeBars();   // 휴대폰↔넓은 화면이 바뀌면 줄 수부터 다시
+        if (evMax() !== st.segMax) renderCal(); else { fitCells(); placeBars(); }   // 휴대폰↔넓은 화면이 바뀌면 줄 수부터 다시
     }).observe($('cal'));
     function evTime(e, day) {
         if (e.allDay) return '종일';
