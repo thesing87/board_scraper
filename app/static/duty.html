@@ -79,6 +79,8 @@
                         <div class="cal" id="cal"></div>
                         <div class="counts" id="counts"></div>
                     </section>
+                    <!-- 고른 날 (처음엔 오늘): 근무와 휴대폰 캘린더 일정 (YeYe홈 앱 1.16부터, 설정에서 켰을 때만) -->
+                    <section class="sec day-sec" id="day-sec" hidden></section>
 
                     <section class="sec brush-sec" id="brush-sec" hidden>
                         <div class="brush-head"><span id="brush-hint">근무를 고르고 날짜를 누르면 들어가요</span><button type="button" class="link" id="undo" hidden>되돌리기</button></div>
@@ -116,6 +118,11 @@
                     <div class="sec-title">이 휴대폰 <span class="sub">이 기기에만 저장돼요</span></div>
                     <label class="home-person">YeYe홈 앱의 홈 탭·위젯에 처음 보일 사람
                         <select id="home-person"></select></label>
+                </section>
+                <!-- YeYe홈 앱 안에서만: 휴대폰에 연결된 구글 계정 캘린더를 달력에 함께 (서버로 보내지 않음) -->
+                <section class="sec" id="gcal-set" hidden>
+                    <div class="sec-title">구글 캘린더 <span class="sub">이 휴대폰의 캘린더 일정을 달력에 함께 보여요</span></div>
+                    <div id="gcal-body"></div>
                 </section>
             </div>
         </div>

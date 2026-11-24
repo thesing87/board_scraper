@@ -89,6 +89,24 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .cal .day.today .n { color: var(--green); font-weight: 700; }
 .cal .day .badge { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .cal .pad { height: 58px; }
+.cal .day.sel:not(.today) { border-color: var(--text); }
+/* 휴대폰 캘린더 일정: 칸 아래 색 점 (3개까지, 더 있으면 +) */
+.cal.has-ev .day, .cal.has-ev .pad { height: 66px; }
+.cal .day .evs { display: flex; gap: 2px; align-items: center; height: 6px; margin-top: auto; margin-bottom: 6px; }
+.cal .day .evs i { width: 5px; height: 5px; border-radius: 50%; }
+.cal .day .evs b { font-size: 9px; line-height: 6px; color: var(--faint); font-weight: 700; }
+.day-sec .day-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 14px; }
+.day-sec .day-head .tn { font-size: 12px; color: var(--muted); }
+.day-sec .ev { display: flex; align-items: baseline; gap: 8px; padding: 7px 0; border-top: 1px solid var(--divider); font-size: 13px; }
+.day-sec .ev i { flex: none; width: 8px; height: 8px; border-radius: 50%; align-self: center; }
+.day-sec .ev .tm { flex: none; min-width: 74px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.day-sec .ev .tt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.gcal-on { display: flex; align-items: center; gap: 8px; font-size: 14px; padding: 4px 0; }
+.gcal-on input, .gcal-row input { width: 18px; height: 18px; margin: 0; }
+.gcal-acc { margin-top: 10px; font-size: 12px; color: var(--faint); overflow-wrap: anywhere; }
+.gcal-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px; }
+.gcal-row i { flex: none; width: 10px; height: 10px; border-radius: 3px; }
+.gcal-warn { color: var(--bad); }
 .counts { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 10px; font-size: 12px; color: var(--muted); }
 .counts b { font-weight: 700; color: var(--text); margin-left: 3px; }
 

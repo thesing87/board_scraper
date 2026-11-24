@@ -124,6 +124,30 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
         super.onRequestPermissionsResult(code, perms, results);
         showBanner();
+        if (code == ASK_CALENDAR) {
+            boolean ok = results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            // '다시 묻지 않음'이라 창이 안 뜸: 앱 정보 화면에서 켜게 함
+            if (!ok && System.currentTimeMillis() - askedCalendarAt < 500
+                    && !shouldShowRequestPermissionRationale(android.Manifest.permission.READ_CALENDAR)) {
+                toast("권한 → 캘린더에서 허용해 주세요");
+                startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
+            }
+            calendarChanged();
+        }
+    }
+
+    private static final int ASK_CALENDAR = 4;
+    private long askedCalendarAt;
+
+    /** 캘린더 읽기 권한 묻기 (바로 답이 오면 '다시 묻지 않음'이라 창이 안 뜬 것) */
+    private void askCalendar() {
+        askedCalendarAt = System.currentTimeMillis();
+        requestPermissions(new String[]{android.Manifest.permission.READ_CALENDAR}, ASK_CALENDAR);
+    }
+
+    /** 근무표 페이지에 캘린더 설정·권한이 바뀌었다고 알림 (일정을 새로 읽음) */
+    private void calendarChanged() {
+        webs[TAB_DUTY].evaluateJavascript("window.appCalendarChanged && window.appCalendarChanged()", null);
     }
 
     /** 확인 대기함이 그려질 때까지 잠깐 기다렸다가 그리로 (대기함이 비었으면 그냥 첫 화면) */
@@ -138,6 +162,8 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         for (WebView w : webs) w.onResume();
+        // 앱 정보 화면에서 캘린더 권한을 켜고 돌아왔을 수 있음
+        if (!loaded[TAB_DUTY].isEmpty() && store.calendarOn()) calendarChanged();
         String site = store.site();
         if (site.isEmpty()) {
             // 처음: 가계부 주소부터 (설정 화면에서 넣으면 돌아와서 엶)
@@ -664,6 +690,55 @@ public class MainActivity extends Activity {
                 if (android.os.Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 3);
                 else startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName()));
             });
+        }
+
+        /** 근무표 설정 > 구글 캘린더 (1.16부터): {on, allowed, calendars:[{id, name, account, color, shown}]} */
+        @JavascriptInterface
+        public String calendarState() {
+            if (!fromLedger()) return "{}";
+            try {
+                return new org.json.JSONObject().put("on", store.calendarOn())
+                        .put("allowed", PhoneCalendar.allowed(MainActivity.this))
+                        .put("calendars", PhoneCalendar.calendars(MainActivity.this, store.calendarHidden())).toString();
+            } catch (org.json.JSONException e) {
+                return "{}";
+            }
+        }
+
+        /** 캘린더 일정 보이기 켜고 끄기 (켤 때 권한이 없으면 물음) */
+        @JavascriptInterface
+        public void setCalendarOn(boolean on) {
+            if (!fromLedger()) return;
+            store.setCalendarOn(on);
+            ui.post(() -> {
+                if (on && !PhoneCalendar.allowed(MainActivity.this)) MainActivity.this.askCalendar();
+                else calendarChanged();
+            });
+        }
+
+        /** 권한이 꺼져 있을 때 '허용하기' */
+        @JavascriptInterface
+        public void askCalendar() {
+            if (!fromLedger()) return;
+            ui.post(MainActivity.this::askCalendar);
+        }
+
+        /** 캘린더 하나 보이기·숨기기 */
+        @JavascriptInterface
+        public void setCalendarShown(String id, boolean shown) {
+            if (!fromLedger() || id == null) return;
+            store.setCalendarShown(id, shown);
+        }
+
+        /** from~to(yyyy-MM-dd) 일정 (PhoneCalendar.events). 꺼져 있거나 권한이 없으면 "null" */
+        @JavascriptInterface
+        public String calendarEvents(String from, String to) {
+            if (!fromLedger() || !store.calendarOn() || !PhoneCalendar.allowed(MainActivity.this)) return "null";
+            try {
+                return PhoneCalendar.events(MainActivity.this, from, to, store.calendarHidden()).toString();
+            } catch (org.json.JSONException e) {
+                return "null";
+            }
         }
 
         @JavascriptInterface

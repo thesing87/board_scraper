@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- 금액 인식 알림 (안드로이드 13 이상은 사용자가 허용해야 함) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 근무표 달력에 휴대폰 캘린더(구글 캘린더 등) 일정 보이기 (읽기만, 근무표 설정에서 켤 때 물음) -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
 
     <!-- 집 NAS를 http 주소로 쓰는 경우가 있어 평문 연결도 허용 -->
     <application

@@ -59,6 +59,15 @@ final class Store {
     /** 가계부 변경 알림 (1.14부터, FCM, DutyPush) */
     boolean ledgerPushOn() { return p.getBoolean("ledger_push", true); }
     void setLedgerPushOn(boolean on) { p.edit().putBoolean("ledger_push", on).apply(); }
+    /** 근무표 달력에 휴대폰 캘린더 일정 보이기 (1.16부터, 처음엔 꺼짐), 보이지 않을 캘린더 id들 */
+    boolean calendarOn() { return p.getBoolean("calendar_on", false); }
+    void setCalendarOn(boolean on) { p.edit().putBoolean("calendar_on", on).apply(); }
+    java.util.Set<String> calendarHidden() { return new java.util.HashSet<>(p.getStringSet("calendar_hidden", new java.util.HashSet<>())); }
+    void setCalendarShown(String id, boolean shown) {
+        java.util.Set<String> s = calendarHidden();
+        if (shown) s.remove(id); else s.add(id);
+        p.edit().putStringSet("calendar_hidden", s).apply();
+    }
     /** 근무표·가계부 변경 알림 중 하나라도 켜져 있으면 서버에 토큰을 등록해 둠 */
     boolean anyPushOn() { return dutyPushOn() || ledgerPushOn(); }
     /** 서버에 마지막으로 등록한 토큰·로그인 (같으면 다시 안 보냄) */

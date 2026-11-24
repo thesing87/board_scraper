@@ -39,6 +39,8 @@
         saveTimer: null, adding: false,
         typeDraft: null,      // 설정에서 고치는 중인 근무 종류 (모두 저장 전)
         dview: 'cal',         // 아래 메뉴: cal(오늘·달력) · history(고친 기록)
+        cal: null,            // 휴대폰 캘린더 일정 {날짜: [일정]} (YeYe홈 앱 1.16부터, 근무표 설정에서 켰을 때만. 아니면 null)
+        sel: null,            // 달력에서 누른 날 (아래 일정 칸, 없으면 오늘)
     };
 
     // ==========================================
@@ -123,6 +125,7 @@
             if (d >= data.today && d <= addDays(data.today, 3)) { if (t == null) delete data.near[d]; else data.near[d] = t; }
         }
         if (st.brush && st.brush !== 'clear' && !data.types.some(t => t.id === st.brush)) st.brush = null;
+        loadEvents();
         render();
         renderSettings();
     }
@@ -163,6 +166,7 @@
         $('changes-sec').hidden = cal;
         $('edit-fab').hidden = !cal || set || !st.data || !(st.data.people || []).length;
         if (!cal) $('brush-sec').hidden = true;
+        if (st.data) renderDay();
     }
     $('dnav').addEventListener('click', async e => {
         const b = e.target.closest('[data-dv]');
@@ -201,13 +205,102 @@
             const key = `${st.month}-${pad(day)}`, wd = (first + day - 1) % 7, tid = d.days[key];
             if (tid != null) counts[tid] = (counts[tid] || 0) + 1;
             const t = typeOf(tid);
-            html += `<div class="day${wd === 0 ? ' sun' : wd === 6 ? ' sat' : ''}${key === d.today ? ' today' : ''}" data-day="${key}" role="button" aria-label="${m}월 ${day}일${t ? ' ' + esc(t.name) : ''}">
-                <span class="n">${day}</span>${t ? `<span class="badge" style="${badgeStyle(t.color)}">${esc(t.code)}</span>` : ''}</div>`;
+            const evs = (st.cal && st.cal[key]) || [];
+            html += `<div class="day${wd === 0 ? ' sun' : wd === 6 ? ' sat' : ''}${key === d.today ? ' today' : ''}${st.cal && key === selDay() ? ' sel' : ''}" data-day="${key}" role="button" aria-label="${m}월 ${day}일${t ? ' ' + esc(t.name) : ''}${evs.length ? ` 일정 ${evs.length}개` : ''}">
+                <span class="n">${day}</span>${t ? `<span class="badge" style="${badgeStyle(t.color)}">${esc(t.code)}</span>` : ''}${evDots(evs)}</div>`;
         }
         $('cal').innerHTML = html;
+        $('cal').classList.toggle('has-ev', !!st.cal);   // 캘린더 일정 점 자리만큼 칸을 조금 높게
         $('counts').innerHTML = d.types.filter(t => counts[t.id]).map(t => `<span>${esc(t.name)}<b>${counts[t.id]}</b></span>`).join('')
             || '<span>이 달은 아직 넣은 근무가 없어요</span>';
     }
+
+    // ==========================================
+    // 휴대폰 캘린더 일정 (YeYe홈 앱 1.16부터): 휴대폰에 연결된 구글 계정 캘린더를 앱이 읽어 줌, 서버로는 안 보냄
+    // ==========================================
+    const appHas = f => { try { return !!(window.LedgerApp && window.LedgerApp[f]); } catch (e) { return false; } };
+    function loadEvents() {
+        st.cal = null;
+        if (!appHas('calendarEvents')) return;
+        const [y, m] = st.month.split('-').map(Number);
+        const from = `${st.month}-01`, to = `${st.month}-${pad(new Date(y, m, 0).getDate())}`;
+        let list = null;
+        try { list = JSON.parse(window.LedgerApp.calendarEvents(from, to)); } catch (e) { list = null; }
+        if (!Array.isArray(list)) return;
+        const map = {};
+        for (const ev of list) {
+            // 여러 날 일정은 날마다 (이 달 안만)
+            let day = ev.day < from ? from : ev.day;
+            const last = ev.endDay > to ? to : ev.endDay;
+            for (let i = 0; day <= last && i < 62; i++, day = addDays(day, 1)) (map[day] = map[day] || []).push(ev);
+        }
+        for (const k of Object.keys(map)) map[k].sort((a, b) => (b.allDay - a.allDay) || String(a.start || '').localeCompare(String(b.start || '')));
+        st.cal = map;
+    }
+    function evDots(evs) {
+        if (!evs.length) return '';
+        return `<span class="evs">${evs.slice(0, 3).map(e => `<i style="background:${esc(e.color)}"></i>`).join('')}${evs.length > 3 ? '<b>+</b>' : ''}</span>`;
+    }
+    function evTime(e, day) {
+        if (e.allDay) return '종일';
+        if (day === e.day && day === e.endDay) return `${e.start}–${e.end}`;
+        if (day === e.day) return `${e.start}부터`;
+        if (day === e.endDay) return `${e.end}까지`;
+        return '종일';
+    }
+    // 아래 일정 칸에 보일 날: 누른 날, 없으면 오늘 (오늘이 이 달일 때)
+    const selDay = () => (st.sel && st.sel.startsWith(st.month) ? st.sel : st.data.today.startsWith(st.month) ? st.data.today : null);
+    function renderDay() {
+        const sec = $('day-sec'), day = selDay();
+        sec.hidden = !st.cal || !day || st.editing || st.dview !== 'cal' || !(st.data.people || []).length;
+        if (sec.hidden) return;
+        const t = typeOf(st.data.days[day]), list = st.cal[day] || [];
+        sec.innerHTML = `<div class="day-head"><b>${short(day)}${day === st.data.today ? ' · 오늘' : ''}</b>`
+            + (t ? `<span class="badge" style="${badgeStyle(t.color)}">${esc(t.code)}</span><span class="tn">${esc(t.name)}${timeOf(t) ? ' ' + timeOf(t) : ''}</span>` : '')
+            + '</div>'
+            + (list.length ? list.map(e => `<div class="ev"><i style="background:${esc(e.color)}"></i><span class="tm">${evTime(e, day)}</span><span class="tt">${esc(e.title)}</span></div>`).join('')
+                : '<p class="hint">캘린더 일정이 없어요</p>');
+    }
+    // 근무표 설정 > 구글 캘린더 (앱 안에서만)
+    function renderGcal() {
+        const inApp = !!window.LedgerApp;
+        $('gcal-set').hidden = !inApp;
+        if (!inApp) return;
+        let s = null;
+        try { if (appHas('calendarState')) s = JSON.parse(window.LedgerApp.calendarState()); } catch (e) { s = null; }
+        if (!s || s.on == null) { $('gcal-body').innerHTML = '<p class="hint">YeYe홈 앱을 1.16 이상으로 올리면 쓸 수 있어요. (홈 &gt; 설정 &gt; 새 버전 확인)</p>'; return; }
+        let html = `<label class="gcal-on"><input type="checkbox" id="gcal-on"${s.on ? ' checked' : ''}> 달력에 캘린더 일정 보이기</label>`;
+        if (s.on && !s.allowed) {
+            html += '<p class="hint gcal-warn">캘린더를 읽을 권한이 없어 일정을 못 보여요. <button type="button" class="small" id="gcal-ask">권한 허용하기</button></p>';
+        } else if (s.on) {
+            const cals = s.calendars || [];
+            if (!cals.length) html += '<p class="hint">이 휴대폰에 캘린더가 없어요. 휴대폰 설정 &gt; 계정 &gt; 구글에서 캘린더 동기화를 켜 주세요.</p>';
+            let acc = null;
+            html += cals.map(c => {
+                const head = c.account !== acc ? `<div class="gcal-acc">${esc(c.account)}</div>` : '';
+                acc = c.account;
+                return `${head}<label class="gcal-row"><input type="checkbox" data-gcal="${esc(c.id)}"${c.shown ? ' checked' : ''}><i style="background:${esc(c.color)}"></i>${esc(c.name)}</label>`;
+            }).join('');
+        }
+        html += '<p class="hint">휴대폰에 연결된 계정의 캘린더를 읽기만 하고 서버로 보내지 않아요. 그래서 이 휴대폰에서만 보여요.</p>';
+        $('gcal-body').innerHTML = html;
+    }
+    $('gcal-body').addEventListener('change', e => {
+        try {
+            if (e.target.id === 'gcal-on') window.LedgerApp.setCalendarOn(e.target.checked);
+            else if (e.target.dataset.gcal) { window.LedgerApp.setCalendarShown(e.target.dataset.gcal, e.target.checked); window.appCalendarChanged(); }
+        } catch (err) { /* 예전 앱 */ }
+    });
+    $('gcal-body').addEventListener('click', e => {
+        if (e.target.id === 'gcal-ask') { try { window.LedgerApp.askCalendar(); } catch (err) { /* 예전 앱 */ } }
+    });
+    // 앱이 부름: 캘린더 켜고 끔·권한이 바뀜·앱으로 돌아옴 → 일정을 새로 읽음
+    window.appCalendarChanged = () => {
+        if (!st.data) return;
+        loadEvents();
+        if ((st.data.people || []).length) { renderCal(); renderDay(); }
+        renderGcal();
+    };
 
     function renderBrush() {
         const person = (st.data.people || []).find(p => p.id === st.personId);
@@ -274,7 +367,12 @@
     $('cal').addEventListener('click', e => {
         const cell = e.target.closest('[data-day]');
         if (!cell) return;
-        if (!st.editing) { $('cal-msg').textContent = '근무를 바꾸려면 오른쪽 아래 연필 단추를 눌러 주세요.'; return; }
+        if (!st.editing) {
+            // 캘린더를 켰으면 그날 일정을 아래에 (근무를 바꾸려면 연필 단추)
+            if (st.cal) { st.sel = cell.dataset.day; $('cal-msg').textContent = ''; renderCal(); renderDay(); return; }
+            $('cal-msg').textContent = '근무를 바꾸려면 오른쪽 아래 연필 단추를 눌러 주세요.';
+            return;
+        }
         if (!st.brush) { $('cal-msg').textContent = '아래에서 넣을 근무를 먼저 골라 주세요.'; return; }
         $('cal-msg').textContent = '';
         const day = cell.dataset.day, cur = st.data.days[day] ?? null;
@@ -302,6 +400,7 @@
         if (!on) { st.brush = null; st.undo = []; flush(); }
         $('cal-msg').textContent = '';
         renderBrush();
+        if (st.data && (st.data.people || []).length) renderDay();
     }
     $('edit-btn').addEventListener('click', () => setEditing(!st.editing));
 
@@ -310,11 +409,12 @@
         await flush();
         const [y, m] = st.month.split('-').map(Number);
         st.month = ymd(new Date(y, m - 1 + n, 1)).slice(0, 7);
+        st.sel = null;
         load();
     }
     $('prev').addEventListener('click', () => goMonth(-1));
     $('next').addEventListener('click', () => goMonth(1));
-    $('month-label').addEventListener('click', async () => { await flush(); st.month = ymd(new Date()).slice(0, 7); load(); });
+    $('month-label').addEventListener('click', async () => { await flush(); st.month = ymd(new Date()).slice(0, 7); st.sel = null; load(); });
 
     // ==========================================
     // 사람 고르기·더하기
@@ -550,6 +650,7 @@
         $('home-person').innerHTML = st.data.people.length
             ? st.data.people.map((p, i) => `<option value="${p.id}"${p.id === hp || (!hp && i === 0) ? ' selected' : ''}>${esc(p.name)}</option>`).join('')
             : '<option value="">(사람이 없어요)</option>';
+        renderGcal();
         if (!st.typeDraft) renderTypes();   // 고치는 중이면 칸을 다시 그리지 않음 (친 글자·커서 그대로)
         $('people-edit').innerHTML = st.data.people.map(p => `<div class="prow" data-pe="${p.id}">
             <input maxlength="20" value="${esc(p.name)}" aria-label="이름"><button type="button" class="small" data-pe-save>이름 바꾸기</button>
