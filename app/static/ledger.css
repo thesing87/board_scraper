@@ -383,7 +383,7 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
     box-shadow: 0 8px 24px rgba(17, 24, 39, .14); cursor: default; font-weight: 400; color: var(--text); text-align: left; }
 .sheet .chip:nth-child(4n) .pop, .sheet .chip:nth-child(4n-1) .pop { left: auto; right: 0; }
 .pop input:not([type=color]) { width: 100%; }
-.pop .icons { grid-template-columns: repeat(6, 1fr); }
+.pop .icons { grid-template-columns: repeat(6, 1fr); max-height: 196px; overflow-y: auto; padding: 3px; }   /* 이모지가 많아 팝업 안에서 스크롤 */
 .pop-actions { display: flex; gap: 6px; margin-top: 10px; }
 .pop-actions .primary { flex: 1; }
 /* 숫자 키패드 (휴대폰만) */
