@@ -12,6 +12,7 @@ for name in [k for k in os.environ if k.startswith('KEYWORDS_')]:
     os.environ[name] = ''
 import storage, web_server, ledger
 from selenium.webdriver import Chrome
+from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 
 storage.init_db()
@@ -217,6 +218,12 @@ try:
     assert cat_names()[:2] == ['카페', '식비']
     js(f"return window.ledgerMoveCategory({cafe_id}, 1)"); time.sleep(1)
     assert cat_names()[:2] == ['식비', '카페']
+    # 손잡이는 그림(가로줄 셋)이고 손가락 크기, 끌지 않고 톡 누르면 그 분류를 고치는 칸이 열림 (다시 누르면 닫힘)
+    assert js("const h = document.querySelector('#cat-admin [data-drag]'); return !!h.querySelector('svg') && h.offsetWidth >= 44 && h.offsetHeight >= 44")
+    tap(By.CSS_SELECTOR, '#cat-admin [data-drag]'); time.sleep(.3)
+    assert vis('ced-name') and js("return document.getElementById('ced-name').value") == '식비'
+    tap(By.CSS_SELECTOR, '#cat-admin [data-drag]'); time.sleep(.3)
+    assert not js("return !!document.getElementById('ced-name')")
     # 설정에서 분류 추가 (이름·색이 있어야)
     click('#cat-admin [data-cadd="income"]'); time.sleep(.2)
     click('[data-cadd-save]'); time.sleep(.3)

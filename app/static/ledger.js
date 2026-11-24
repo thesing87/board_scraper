@@ -655,6 +655,8 @@
             <div class="ced-act"><button type="button" class="primary" data-cadd-save>추가</button><button type="button" data-cadd-cancel>취소</button></div>
             <p class="msg" id="cadd-msg">${esc(a.msg)}</p></div>`;
     }
+    // 순서 바꾸기 손잡이: 가로줄 셋 (글자 ⋮⋮는 휴대폰 글꼴에서 뭉개져 보여 그림으로)
+    const GRIP = '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M4 6h12M4 10h12M4 14h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
     function renderCatAdmin() {
         if (!st.data) return;
         const used = new Set(st.data.categories.map(c => c.id));
@@ -664,7 +666,7 @@
             const list = st.data.categories.filter(c => c.kind === kind);
             return `<p class="set-cap">${word}</p><div class="set-grp cat-list" data-kind="${kind}">${list.map(c => `
                 <div class="cat-row" data-cid="${c.id}"><div class="set-row" data-ced-open="${c.id}" role="button" tabindex="0">${catIcon(c)}<span class="n">${esc(c.name)}</span>
-                    <span class="drag" data-drag aria-label="끌어서 순서 바꾸기">⋮⋮</span></div>${st.cedFor === c.id ? cedHtml(c) : ''}</div>`).join('')}
+                    <span class="drag" data-drag aria-label="끌어서 순서 바꾸기">${GRIP}</span></div>${st.cedFor === c.id ? cedHtml(c) : ''}</div>`).join('')}
                 ${st.caddKind === kind ? caddHtml(kind) : `<button type="button" class="set-row add-row-btn" data-cadd="${kind}"><span class="ci none">＋</span><span class="n">${word} 분류 추가</span></button>`}</div>`;
         }).join('');
     }
@@ -736,19 +738,21 @@
         const id = Number(e.target.closest('[data-ced]').dataset.ced);
         if (await saveCategory(id, { name: $('ced-name').value, color: e.target.value.toUpperCase() })) render();
     });
-    // ⋮⋮를 끌어 같은 쪽(지출·수입) 안에서 순서 바꾸기 → 놓으면 저장
+    // 손잡이를 끌어 같은 쪽(지출·수입) 안에서 순서 바꾸기 → 놓으면 저장, 끌지 않고 톡 누르면 그 분류를 고치는 칸 열기
     let drag = null;
     $('cat-admin').addEventListener('pointerdown', e => {
         const h = e.target.closest('[data-drag]');
         if (!h) return;
         e.preventDefault();
         const row = h.closest('.cat-row');
-        drag = { row, list: row.parentElement, id: e.pointerId };
+        drag = { row, list: row.parentElement, id: e.pointerId, y: e.clientY, moved: false };
         h.setPointerCapture(e.pointerId);
         row.classList.add('dragging');
     });
     $('cat-admin').addEventListener('pointermove', e => {
         if (!drag || e.pointerId !== drag.id) return;
+        if (!drag.moved && Math.abs(e.clientY - drag.y) < 6) return;   // 손가락 떨림은 끌기 아님
+        drag.moved = true;
         const rows = [...drag.list.querySelectorAll(':scope > .cat-row')].filter(r => r !== drag.row);
         const before = rows.find(r => { const b = r.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; });
         if (before) { if (before !== drag.row.nextElementSibling) drag.list.insertBefore(drag.row, before); }
@@ -756,9 +760,16 @@
     });
     async function endDrag(e) {
         if (!drag || e.pointerId !== drag.id) return;
-        const { row } = drag;
+        const { row, moved } = drag;
         drag = null;
         row.classList.remove('dragging');
+        if (!moved) {
+            if (e.type !== 'pointerup') return;
+            const id = Number(row.dataset.cid);
+            st.cedFor = st.cedFor === id ? null : id; st.caddKind = null;
+            renderCatAdmin();
+            return;
+        }
         await saveCatOrder();
     }
     $('cat-admin').addEventListener('pointerup', endDrag);

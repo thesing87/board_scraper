@@ -198,7 +198,10 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 .cat-row.dragging { opacity: .6; background: var(--soft); }
 .cat-row + .cat-row .set-row, .cat-row + .add-row-btn, .cat-row + .ced { border-top: 1px solid var(--divider); }
 .cat-row .ci { width: 34px; height: 34px; font-size: 17px; }
-.drag { padding: 6px 4px; color: var(--faint); font-size: 16px; letter-spacing: -3px; cursor: grab; touch-action: none; user-select: none; }
+/* 손잡이: 줄 높이는 그대로 두고 누르는 범위만 손가락 크기(44px)로 */
+.drag { display: flex; align-items: center; justify-content: center; flex: none; width: 44px; height: 44px; margin: -6px -12px -6px 0;
+    color: var(--faint); cursor: grab; touch-action: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+.drag:active { color: var(--muted); }
 .ced { padding: 4px 14px 12px; }
 .ced input:not([type=color]) { width: 100%; }
 .cadd-top { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
