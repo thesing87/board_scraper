@@ -91,16 +91,19 @@
 
 ## 빌드 (Windows)
 
-이 PC에는 `D:\android` 아래에 JDK 17·안드로이드 SDK 34·Gradle 8.7이 있음 (안드로이드 스튜디오 없이).
+정식 릴리즈는 `C:\android`의 도구로 함: JDK 17·안드로이드 SDK 34·Gradle 8.7·원래 서명 키(`keys`) (안드로이드 스튜디오 없이).
+집 노트북에는 같은 구성이 `D:\android`에 있음.
 
 ```powershell
-$env:JAVA_HOME = 'D:\android\jdk17'
-D:\android\gradle-8.7\bin\gradle.bat assembleRelease --no-daemon
+$env:JAVA_HOME = 'C:\android\jdk17'
+C:\android\gradle-8.7\bin\gradle.bat assembleRelease --no-daemon
 # → app\build\outputs\apk\release\app-release.apk
+C:\android\sdk\build-tools\34.0.0\apksigner.bat verify --print-certs app\build\outputs\apk\release\app-release.apk
+# → CN=Ledger Notify, 인증서 SHA-256 ddb6e2c7a013a2c3e4ee8b2b7e169eb3a74768e16a1029c1aef612222918eea8 이어야 덮어 설치됨
 ```
 
-- `local.properties`: `sdk.dir=D\:/android/sdk`
-- 서명: `keystore.properties`가 있으면 그 키로 (원본은 `D:\android\keys`, git에 안 올림). 새 버전은 **같은 키**로 서명해야 지우지 않고 덮어 설치됨 — 키를 잃어버리면 앱을 지우고 다시 설치(설정도 다시)해야 하니 `D:\android\keys`를 백업해 둘 것
+- `local.properties`: `sdk.dir`는 SDK 34가 있는 곳 (예: `C\:/android/sdk`)
+- 서명: `keystore.properties`가 있으면 그 키로 (`C:\android\keys\keystore.properties`를 이 폴더에 복사하고 `storeFile=C:/android/keys/ledger-notify.jks`로 고침, git에 안 올림). 새 버전은 **같은 키**로 서명해야 지우지 않고 덮어 설치됨 — 키를 잃어버리면 앱을 지우고 다시 설치(설정도 다시)해야 하니 `C:\android\keys`(집은 `D:\android\keys`)를 백업해 둘 것
 - 새 버전을 낼 때는 `app/build.gradle`의 `versionCode`를 올림
 
 ### 시험 앱 (qa 빌드, 정식 키가 없을 때)
