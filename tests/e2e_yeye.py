@@ -1,4 +1,4 @@
-"""YeYe홈 홈 화면(/yeye/): 인사 · 카드(오늘 근무·이번 달 지출·확인할 결제·최근 내역) → 카드 순서 바꾸기(이 기기에 저장, 바꾸는 중엔 눌러도 이동 안 함)
+﻿"""YeYe홈 홈 화면(/yeye/): 인사 · 카드(오늘 근무·이번 달 지출·확인할 결제·최근 내역) → 카드 순서 바꾸기(이 기기에 저장, 바꾸는 중엔 눌러도 이동 안 함)
 → 아래 메뉴(홈·설정, 설정 = 전체 설정) → 휴대폰 넘침 없음"""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -31,7 +31,7 @@ click = lambda sel: js("document.querySelector(arguments[0]).click()", sel)
 order = lambda: js("return [...document.querySelectorAll('#cards [data-card]')].filter(c => !c.hidden).map(c => c.dataset.card)")
 try:
     # 관리자 기기로 로그인, 기록 하나·확인할 결제 하나
-    d.get(BASE + '/yeye/'); time.sleep(1)
+    d.get(BASE + '/yeye/'); time.sleep(2)
     assert vis('auth') and not vis('hnav')                              # 로그인 전엔 아래 메뉴 없음
     js("localStorage.setItem('admin_token', arguments[0])", web_server.ADMIN_TOKEN)
     ledger.state(date.today().strftime('%Y-%m'))
@@ -48,6 +48,12 @@ try:
     assert vis('hnav') and [b.strip() for b in js("return [...document.querySelectorAll('#hnav [data-hv]')].map(b => b.textContent)")] == ['홈', '설정']
     assert js("return document.querySelector('#hnav .on').dataset.hv") == 'home'
     assert not js("return !!document.getElementById('set-open')")      # 위의 '전체 설정' 단추는 없음 (아래 메뉴로)
+    # 브라우저(PC)에서는 다른 페이지처럼 제목 줄·사이트 메뉴, 메뉴에 'YeYe홈'(지금 페이지), 가계부에서도 메뉴로 옴
+    navs = lambda: js("return [...document.querySelectorAll('.site-nav [data-nav]')].map(a => a.dataset.nav)")
+    assert js("return document.querySelector('.site-top').offsetHeight > 0") and 'yeye' in navs() and navs().index('yeye') < navs().index('ledger')
+    d.get(BASE + '/ledger/'); time.sleep(2)
+    js("document.querySelector('.site-nav [data-nav=\"yeye\"]').click()"); time.sleep(2)
+    assert js("return location.pathname") == '/yeye/' and vis('app')
     key = ledger.create_hook_key(user)
     ledger.receive_hook_detail(key, f'[삼성카드] {date.today().month}/{date.today().day} 12:30 13,000원 일시불 블루보틀 성수점')
     js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)
@@ -82,6 +88,7 @@ try:
         "phoneState: () => JSON.stringify({access: true, battery: false, alertOn: true, ignores: 3, connected: true}), setAlertOn: v => window.__calls.push('alert:' + v), "
         "openPhoneSettings: () => window.__calls.push('phone'), checkUpdate: () => {}, updateText: () => ''};"})
     d.get(BASE + '/yeye/#settings'); time.sleep(2)
+    assert not js("return document.querySelector('.site-top').offsetHeight > 0")   # 앱 안: 제목 줄·사이트 메뉴 숨김 (앱의 위쪽 탭)
     assert vis('phone-card') and vis('notify-card') and 'YeYe홈 1.11' in txt('phone-state'), txt('phone-state')
     assert '켜짐' in txt('ph-access-s') and '배터리 절약' in txt('ph-access-s') and js("return document.getElementById('ph-alert').checked") and txt('ph-ignore-n') == '3'
     click('#ph-alert'); click('#ph-ignore'); time.sleep(.2)

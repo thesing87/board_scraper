@@ -14,6 +14,8 @@
         { key: 'popular', href: '/board/#popular', label: '인기글', short: '인기글', color: '#C2410C', icon: '<path d="M12 3c.5 3 4 5.2 4 9.5a4 4 0 0 1-8 0c0-1.8.8-3 2-4 .2 1.7 1 2.6 2 2.8-.3-3 .2-5.6 0-8.3z"></path>' },
         { key: 'apt', href: '/apt/', label: '실거래가', short: '실거래', color: '#993556', icon: '<rect x="5" y="3" width="14" height="18" rx="1.5"></rect><path d="M9 7h1.5M13.5 7H15M9 11h1.5M13.5 11H15M9 15h1.5M13.5 15H15"></path>' },
         { key: 'card', adminOnly: true, href: '/card/', label: '카드', short: '카드', color: '#534AB7', icon: '<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 10h18"></path>' },
+        // YeYe홈(근무표·가계부 요약, 아래 메뉴 '설정' = 앱 파일·로그아웃): 가계부와 같은 기기에서만
+        { key: 'yeye', ledger: true, href: '/yeye/', label: 'YeYe홈', short: 'YeYe홈', color: '#0F6E56', icon: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"></path>' },
         // 가계부: 관리자 기기와 가계부에 로그인한 기기(ledger.js가 localStorage ledger_user를 남김)에서만
         { key: 'ledger', ledger: true, href: '/ledger/', label: '가계부', short: '가계부', color: '#1D9E75', icon: '<rect x="3" y="6" width="18" height="13" rx="3"></rect><path d="M3 10h13a2 2 0 0 1 0 4h-1"></path>' },
         // 근무표: 가계부와 같은 계정이라 가계부와 같은 기기에서만

@@ -14,7 +14,6 @@ button.primary { background: var(--green); border-color: var(--green); color: #f
 a { color: var(--green); }
 button.small { height: 34px; padding: 0 12px; font-size: 13px; }
 button:disabled { opacity: .6; }
-.outside-bar { display: flex; align-items: center; justify-content: space-between; margin: 4px 2px 10px; font-size: 16px; }
 /* 인사 (맨 위) */
 .greet { display: flex; flex-direction: column; gap: 2px; margin: 4px 2px 14px; }
 .greet span { font-size: 13px; color: var(--muted); }
@@ -68,7 +67,7 @@ button:disabled { opacity: .6; }
 .tgl:checked { background: var(--green); }
 .tgl:checked::after { left: 21px; }
 .rc .ci { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; font-size: 15px; flex: 0 0 auto; }
-.in-app .outside-bar { display: none !important; }
+.in-app .site-top { display: none !important; }
 html:not(.in-app) .in-app-only { display: none !important; }
 .set-top { display: flex; align-items: center; gap: 10px; margin: 2px 2px 10px; font-size: 15px; }
 .tag { font-size: 11px; background: #EEEDFE; color: #3C3489; border-radius: 4px; padding: 1px 6px; font-weight: 700; }

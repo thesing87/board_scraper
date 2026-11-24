@@ -77,7 +77,7 @@
                 if ((await req('/api/ledger/session', { action: 'login', password: token })).status === 200) { load(); return; }
             }
             st.me = null;
-            $('app').hidden = $('set-view').hidden = $('outside-bar').hidden = $('hnav').hidden = true;
+            $('app').hidden = $('set-view').hidden = $('hnav').hidden = true;
             $('auth').hidden = false;
             return;
         }
@@ -86,7 +86,7 @@
         $('auth').hidden = true;
         st.me = data.user;
         st.app = data.app;
-        $('outside-bar').hidden = $('hnav').hidden = false;
+        $('hnav').hidden = false;
         showSettings(location.hash === '#settings');
         const now = new Date();
         $('greet-date').textContent = `${now.getMonth() + 1}월 ${now.getDate()}일 ${WD[now.getDay()]}요일`;
