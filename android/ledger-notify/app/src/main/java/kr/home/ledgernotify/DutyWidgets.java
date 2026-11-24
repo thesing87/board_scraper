@@ -301,6 +301,7 @@ final class DutyWidgets {
                     e.day = o.optString("day");
                     e.allDay = o.optBoolean("allDay");
                     e.start = o.optString("start");
+                    e.endDay = o.optString("endDay");
                     try { e.color = Color.parseColor(o.optString("color")); } catch (Exception x) { e.color = 0xFF378ADD; }
                     String day = e.day.compareTo(from) < 0 ? from : e.day, last = o.optString("endDay");
                     if (last.compareTo(to) > 0) last = to;
@@ -325,9 +326,70 @@ final class DutyWidgets {
     }
 
     private static final class Ev {
-        String title, day, start;
+        String title, day, endDay, start;
         boolean allDay;
         int color;
+
+        /** 이틀 이상 이어지는 일정 (한 달 위젯에서는 칸을 가로지르는 띠) */
+        boolean multi() {
+            return !day.equals(endDay);
+        }
+    }
+
+    /** 여러 날 일정의 한 주 조각: a~b는 그 달의 날짜 숫자, lane은 그 주 안에서의 줄 */
+    private static final class Seg {
+        Ev e;
+        int a, b, lane;
+        boolean head, tail;
+    }
+
+    /**
+     * 여러 날 일정을 주마다 조각 내어 줄을 정함 (삼성 달력처럼, 근무표 페이지 duty.js weekSegments와 같은 규칙):
+     * 먼저 시작한 것, 같으면 긴 것부터 위 줄. 같은 일정은 그 주 안에서 늘 같은 줄
+     */
+    private static List<Seg> segments(Roster r, int first, int last) {
+        String from = r.month + "-01", to = String.format(Locale.ROOT, "%s-%02d", r.month, last);
+        List<Ev> multi = new ArrayList<>();
+        java.util.Set<Ev> seen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        for (List<Ev> l : r.events.values()) for (Ev e : l) if (e.multi() && seen.add(e)) multi.add(e);
+        multi.sort((x, y) -> x.day.compareTo(y.day) != 0 ? x.day.compareTo(y.day) : y.endDay.compareTo(x.endDay));
+        Map<Integer, java.util.Set<Integer>> used = new HashMap<>();
+        List<Seg> out = new ArrayList<>();
+        for (Ev e : multi) {
+            int a0 = e.day.compareTo(from) < 0 ? 1 : dayNum(e.day), z = e.endDay.compareTo(to) > 0 ? last : dayNum(e.endDay);
+            for (int a = a0; a <= z && a >= 1; ) {
+                int b = Math.min(z, a + 6 - (first + a - 1) % 7);   // 이 주 토요일까지
+                int lane = 0;
+                while (true) {
+                    boolean busy = false;
+                    for (int d = a; d <= b && !busy; d++) busy = used.containsKey(d) && used.get(d).contains(lane);
+                    if (!busy) break;
+                    lane++;
+                }
+                for (int d = a; d <= b; d++) {
+                    if (!used.containsKey(d)) used.put(d, new java.util.HashSet<>());
+                    used.get(d).add(lane);
+                }
+                Seg g = new Seg();
+                g.e = e;
+                g.a = a;
+                g.b = b;
+                g.lane = lane;
+                g.head = a == a0 && e.day.compareTo(from) >= 0;
+                g.tail = b == z && e.endDay.compareTo(to) <= 0;
+                out.add(g);
+                a = b + 1;
+            }
+        }
+        return out;
+    }
+
+    private static int dayNum(String day) {
+        try {
+            return Integer.parseInt(day.substring(8, 10));
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     private static String addDays(String day, int n) {
@@ -415,45 +477,55 @@ final class DutyWidgets {
             textAt(s, w - 10, h - 6, 9, FAINT, false, Paint.Align.RIGHT);
         }
 
-        static final float EV_LINE = 11, EV_GAP = 1;
+        /** 일정 한 줄 높이·줄 사이 (dp). 날짜·근무보다 작게 (1.21부터) */
+        static final float EV_LINE = 10, EV_GAP = 1, EV_TEXT = 8;
 
-        /** 칸 안 일정: 남는 높이만큼 한 줄에 하나씩 (왼쪽 캘린더 색 띠 + 이름). 다 못 넣으면 마지막 줄 오른쪽에 +n */
-        void eventLines(List<Ev> evs, RectF area) {
-            int fit = (int) ((area.height() + EV_GAP) / (EV_LINE + EV_GAP));
-            int n = Math.min(evs.size(), fit);
-            for (int i = 0; i < n; i++) {
-                Ev e = evs.get(i);
-                float top = area.top + i * (EV_LINE + EV_GAP);
-                RectF r = new RectF(area.left, top, area.right, top + EV_LINE);
-                fill.setColor(mix(e.color, 0xFFFFFFFF, 0.85f));
-                cv.drawRect(r, fill);
-                fill.setColor(e.color);
-                cv.drawRect(new RectF(r.left, r.top, r.left + 2, r.bottom), fill);
-                int rest = i == n - 1 ? evs.size() - n : 0;
-                String more = rest > 0 ? "+" + rest : "";
-                float moreW = 0;
-                if (rest > 0) {
-                    text.setTypeface(Typeface.DEFAULT_BOLD);
-                    text.setTextSize(8);
-                    moreW = text.measureText(more) + 2;
-                }
-                float max = r.width() - 4 - moreW;
-                if (max >= 6) {
-                    text.setTypeface(Typeface.DEFAULT);
-                    textAt(fitClip(e.title, 9, max), r.left + 3.5f, r.bottom - 2.5f, 9, TEXT, false, Paint.Align.LEFT);
-                }
-                if (rest > 0) textAt(more, r.right - 1, r.bottom - 2.5f, 8, MUTED, true, Paint.Align.RIGHT);
+        /** 하루 일정 한 줄: 왼쪽 캘린더 색 띠 + 이름 */
+        void eventLine(Ev e, RectF r) {
+            fill.setColor(mix(e.color, 0xFFFFFFFF, 0.85f));
+            cv.drawRect(r, fill);
+            fill.setColor(e.color);
+            cv.drawRect(new RectF(r.left, r.top, r.left + 2, r.bottom), fill);
+            float max = r.width() - 4;
+            if (max >= 6) {
+                text.setTypeface(Typeface.DEFAULT);
+                textAt(fitClip(e.title, EV_TEXT, max), r.left + 3.5f, r.bottom - 2.2f, EV_TEXT, TEXT, false, Paint.Align.LEFT);
             }
         }
 
-        /** 이름을 넣을 자리가 없는 칸: 맨 아래에 일정 색 띠 (3개까지 나눠서) */
-        void eventBar(List<Ev> evs, RectF cell) {
+        /** 여러 날 일정 띠: 칸 사이 틈까지 이어서, 시작·끝 날만 모서리를 둥글게. 이름은 흰 글자 */
+        void eventSpan(Ev e, RectF r, boolean head, boolean tail) {
+            fill.setColor(e.color);
+            cv.drawRoundRect(r, 2.5f, 2.5f, fill);
+            if (!head) cv.drawRect(new RectF(r.left, r.top, r.left + 3, r.bottom), fill);
+            if (!tail) cv.drawRect(new RectF(r.right - 3, r.top, r.right, r.bottom), fill);
+            float max = r.width() - 6;
+            if (max >= 6) {
+                text.setTypeface(Typeface.DEFAULT_BOLD);
+                textAt(fitClip(e.title, EV_TEXT, max), r.left + 3, r.bottom - 2.2f, EV_TEXT, 0xFFFFFFFF, true, Paint.Align.LEFT);
+            }
+        }
+
+        /** 다 못 넣은 일정 수: 칸 마지막 줄 오른쪽 (흰 바탕 위에) */
+        void more(int n, RectF line) {
+            String s = "+" + n;
+            text.setTypeface(Typeface.DEFAULT_BOLD);
+            text.setTextSize(7.5f);
+            float tw = text.measureText(s) + 3;
+            fill.setColor(0xF2FFFFFF);
+            cv.drawRect(new RectF(line.right - tw, line.top, line.right, line.bottom), fill);
+            textAt(s, line.right - 1, line.bottom - 2.2f, 7.5f, MUTED, true, Paint.Align.RIGHT);
+        }
+
+        /** 일정 줄을 넣을 자리가 없는 칸: 맨 아래 색 띠 (하루 일정은 그 칸에, 여러 날 일정은 칸을 넘어 이어서) */
+        void eventBar(List<Ev> evs, RectF cell, float bottom) {
             int n = Math.min(3, evs.size());
+            if (n == 0) return;
             float x0 = cell.left + 4, seg = (cell.width() - 8 - (n - 1)) / n;
             for (int i = 0; i < n; i++) {
                 fill.setColor(evs.get(i).color);
                 float x = x0 + i * (seg + 1);
-                cv.drawRect(new RectF(x, cell.bottom - 4, x + seg, cell.bottom - 2), fill);
+                cv.drawRect(new RectF(x, bottom - 2, x + seg, bottom), fill);
             }
         }
 
@@ -464,7 +536,7 @@ final class DutyWidgets {
             return s;
         }
 
-        /** 한 달: 제목(달·사람) · 오늘·내일 · 요일 · 날짜마다 근무 배지 */
+        /** 한 달: 제목(달·사람) · 오늘·내일 · 요일 · 날짜마다 근무 배지 · 일정 (하루 일정은 줄마다, 여러 날 일정은 이어진 띠) */
         void month(Roster r) {
             float pad = 10;
             String[] ym = r.month.split("-");
@@ -486,28 +558,47 @@ final class DutyWidgets {
             top += 15;
             float cellH = (h - top - pad + 2) / rows, gap = 2;
             boolean roomy = cellH >= 30;
+            // 칸 안 자리 (모든 칸이 같아야 띠가 같은 높이): 날짜 12dp · 근무 배지 (일정이 있든 없든 같은 크기) · 일정 줄
+            // (여백을 줄여 날짜·근무를 키워도 일정 자리는 1.20보다 줄지 않게: 칸 높이 42dp부터 일정 한 줄)
+            float bh = Math.min(16, cellH - gap - 18);
+            float evTop = 14 + bh + 1, evH = cellH - gap - evTop - 1;
+            int fit = roomy && evH >= EV_LINE ? (int) ((evH + EV_GAP) / (EV_LINE + EV_GAP)) : 0;
+            List<Seg> segs = segments(r, first, last);
+            RectF[] cells = new RectF[last + 1];
             for (int day = 1; day <= last; day++) {
                 int idx = first + day - 1, col = idx % 7, row = idx / 7;
+                cells[day] = new RectF(pad + colW * col + gap / 2, top + cellH * row + gap / 2, pad + colW * (col + 1) - gap / 2, top + cellH * (row + 1) - gap / 2);
+            }
+            int[] hidden = new int[last + 1];
+            for (int day = 1; day <= last; day++) {
+                int col = (first + day - 1) % 7;
                 String key = String.format(Locale.ROOT, "%s-%02d", r.month, day);
-                RectF cell = new RectF(pad + colW * col + gap / 2, top + cellH * row + gap / 2, pad + colW * (col + 1) - gap / 2, top + cellH * (row + 1) - gap / 2);
+                RectF cell = cells[day];
                 Type t = r.at(key);
                 boolean today = key.equals(r.today);
                 int numColor = col == 0 ? SUN : col == 6 ? SAT : MUTED;
-                List<Ev> evs = r.eventsAt(key);
+                List<Ev> singles = new ArrayList<>();
+                for (Ev e : r.eventsAt(key)) if (!e.multi()) singles.add(e);
+                int lanes = 0, overHidden = 0;
+                boolean anyMulti = false;
+                for (Seg g : segs) {
+                    if (g.a > day || day > g.b) continue;
+                    anyMulti = true;
+                    lanes = Math.max(lanes, g.lane + 1);
+                    if (g.lane >= fit) overHidden++;
+                }
                 if (roomy) {
-                    textAt(String.valueOf(day), cell.centerX(), cell.top + 11, 10, today ? GREEN : numColor, today, Paint.Align.CENTER);
-                    float below = cell.top + 15;
-                    if (t != null) {
-                        // 날짜 바로 아래, 일정이 있든 없든 같은 크기·같은 자리
-                        float bh = Math.min(16, cell.height() - 18);
-                        float cy = cell.top + 16 + bh / 2;
-                        badge(t, cell.centerX(), cy, bh, cell.width() - 2, Math.min(11, bh - 4));
-                        below = cy + bh / 2;
-                    }
-                    if (!evs.isEmpty()) {
-                        RectF area = new RectF(cell.left + 2, below + 2, cell.right - 2, cell.bottom - 2);
-                        if (area.height() >= EV_LINE) eventLines(evs, area);
-                        else eventBar(evs, cell);
+                    textAt(String.valueOf(day), cell.centerX(), cell.top + 12, 12, today ? GREEN : numColor, true, Paint.Align.CENTER);
+                    if (t != null) badge(t, cell.centerX(), cell.top + 14 + bh / 2, bh, cell.width() - 2, Math.min(12, bh - 4));
+                    if (fit > 0) {
+                        int from = Math.min(fit, lanes), room = fit - from;
+                        for (int i = 0; i < Math.min(room, singles.size()); i++) {
+                            float ly = cell.top + evTop + (from + i) * (EV_LINE + EV_GAP);
+                            eventLine(singles.get(i), new RectF(cell.left + 2, ly, cell.right - 2, ly + EV_LINE));
+                        }
+                        hidden[day] = Math.max(0, singles.size() - room) + overHidden;
+                    } else {
+                        eventBar(singles, cell, cell.bottom - (anyMulti ? 5 : 2));
                     }
                 } else {
                     // 칸이 낮으면: 근무 색을 칸에 깔고 날짜만 (근무 글자는 생략)
@@ -515,12 +606,12 @@ final class DutyWidgets {
                         fill.setColor(mix(t.color, 0xFFFFFFFF, 0.75f));
                         cv.drawRoundRect(cell, 4, 4, fill);
                     }
-                    Paint.FontMetrics fm;
-                    text.setTextSize(10);
-                    fm = text.getFontMetrics();
-                    textAt(String.valueOf(day), cell.centerX(), cell.centerY() - (fm.ascent + fm.descent) / 2, 10,
-                            t != null ? mix(t.color, 0xFF000000, 0.5f) : today ? GREEN : numColor, today || t != null, Paint.Align.CENTER);
-                    if (!evs.isEmpty()) eventBar(evs, cell);
+                    text.setTextSize(11);
+                    text.setTypeface(Typeface.DEFAULT_BOLD);
+                    Paint.FontMetrics fm = text.getFontMetrics();
+                    textAt(String.valueOf(day), cell.centerX(), cell.centerY() - (fm.ascent + fm.descent) / 2, 11,
+                            t != null ? mix(t.color, 0xFF000000, 0.5f) : today ? GREEN : numColor, true, Paint.Align.CENTER);
+                    eventBar(singles, cell, cell.bottom - (anyMulti ? 5 : 2));
                 }
                 if (today) {
                     Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -528,6 +619,26 @@ final class DutyWidgets {
                     line.setStrokeWidth(1.6f);
                     line.setColor(GREEN);
                     cv.drawRoundRect(cell, 5, 5, line);
+                }
+            }
+            // 여러 날 일정: 칸을 다 그린 뒤 위에 이어서 (줄이 없으면 맨 아래 가는 띠로 이어서)
+            for (Seg g : segs) {
+                RectF a = cells[g.a], b = cells[g.b];
+                if (fit > 0) {
+                    if (g.lane >= fit) continue;
+                    float ly = a.top + evTop + g.lane * (EV_LINE + EV_GAP);
+                    eventSpan(g.e, new RectF(a.left + 2, ly, b.right - 2, ly + EV_LINE), g.head, g.tail);
+                } else if (g.lane == 0) {
+                    fill.setColor(g.e.color);
+                    cv.drawRect(new RectF(a.left + (g.head ? 4 : 0), a.bottom - 4, b.right - (g.tail ? 4 : 0), a.bottom - 2), fill);
+                }
+            }
+            if (fit > 0) {
+                for (int day = 1; day <= last; day++) {
+                    if (hidden[day] == 0) continue;
+                    RectF c = cells[day];
+                    float ly = c.top + evTop + (fit - 1) * (EV_LINE + EV_GAP);
+                    more(hidden[day], new RectF(c.left + 2, ly, c.right - 2, ly + EV_LINE));
                 }
             }
         }

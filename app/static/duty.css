@@ -78,7 +78,7 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .nav-btn { width: 36px; padding: 0; font-size: 18px; }
 .month-btn { border: 0; background: none; font-size: 16px; font-weight: 700; }
-.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.cal { position: relative; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .cal .wd { text-align: center; font-size: 12px; color: var(--faint); padding-bottom: 2px; }
 .cal .wd.sun { color: #D85A30; } .cal .wd.sat { color: #378ADD; }
 .cal .day { height: 58px; padding: 4px 2px 0; border: 1px solid var(--divider); border-radius: 8px; background: var(--surface);
@@ -90,16 +90,25 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .cal .day .badge { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .cal .pad { height: 58px; }
 .cal .day.sel:not(.today) { border-color: var(--text); }
-/* 휴대폰 캘린더 일정: 근무 배지 아래 이름 세 개(휴대폰)·네 개까지 (왼쪽 캘린더 색 띠), 넘치면 +n */
-.cal.has-ev .day, .cal.has-ev .pad { height: 116px; }
+/* 휴대폰 캘린더 일정: 날짜·근무는 크게, 일정은 작게. 근무 배지 아래 일정 이름 세 개(휴대폰)·네 개까지 (왼쪽 캘린더 색 띠),
+   여러 날 일정은 칸을 가로지르는 띠(.evbar, 줄 자리는 칸 안의 빈 줄 .sp), 넘치면 아래 오른쪽에 +n */
+.cal.has-ev .day, .cal.has-ev .pad { height: 120px; }
 .cal.has-ev .day { gap: 2px; overflow: hidden; }
 .cal.has-ev .day > * { flex: none; }
+.cal.has-ev .day .n { font-size: 15px; line-height: 19px; font-weight: 600; }
+.cal.has-ev .day .badge { font-size: 14px; }
+.cal .day .badge.ph { visibility: hidden; }   /* 근무가 없는 날도 띠가 같은 높이에 오게 자리만 */
 .cal .day .evs { align-self: stretch; display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 0 1px; }
-.cal .day .evc { display: block; padding: 0 3px; border-left: 3px solid var(--c); background: color-mix(in srgb, var(--c) 14%, transparent);
-    font-size: 10px; line-height: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: clip; }
+.cal .day .evc { display: block; height: 13px; padding: 0 3px; border-left: 3px solid var(--c); background: color-mix(in srgb, var(--c) 14%, transparent);
+    font-size: 9.5px; line-height: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: clip; }
+.cal .day .evc.sp { border-left-color: transparent; background: none; }
 .cal .day .evc .tm { margin-right: 3px; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* 더 있는 일정 수는 일정 줄 아래 오른쪽 */
 .cal .day .evs b { align-self: flex-end; padding: 0 2px; font-size: 9px; line-height: 10px; color: var(--muted); font-weight: 700; }
+.cal .evbar { position: absolute; z-index: 1; pointer-events: none; padding: 0 4px; background: var(--c); color: #fff;
+    font-size: 9.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: clip; }
+.cal .evbar.head { border-top-left-radius: 3px; border-bottom-left-radius: 3px; }
+.cal .evbar.tail { border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
 .day-sec .day-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 14px; }
 .day-sec .day-head .tn { font-size: 12px; color: var(--muted); }
 .day-sec .ev { display: flex; align-items: baseline; gap: 8px; padding: 7px 0; border-top: 1px solid var(--divider); font-size: 13px; }
@@ -184,8 +193,11 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
     .sec { padding: 10px 11px; }
     .cal { gap: 3px; }
     .cal .day, .cal .pad { height: 52px; }
-    .cal.has-ev .day, .cal.has-ev .pad { height: 98px; }
-    .cal .day .evc { font-size: 9px; line-height: 12px; padding: 0 2px; border-left-width: 2px; }
+    .cal.has-ev .day, .cal.has-ev .pad { height: 104px; }
+    .cal.has-ev .day .n { font-size: 14px; line-height: 18px; }
+    .cal.has-ev .day .badge { font-size: 13px; }
+    .cal .day .evc { font-size: 9px; height: 12px; line-height: 12px; padding: 0 2px; border-left-width: 2px; }
+    .cal .evbar { font-size: 9px; padding: 0 3px; }
     .cal .day .evc .tm { display: none; }   /* 칸이 좁아 시각을 넣으면 이름이 안 보임 (아래 목록에 있음) */
     .cal .day .badge { font-size: 11px; padding: 2px 4px; }
     .today .big { font-size: 24px; }

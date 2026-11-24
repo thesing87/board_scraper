@@ -201,16 +201,21 @@
         let html = [...WD].map((w, i) => `<div class="wd${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}">${w}</div>`).join('');
         html += '<div class="pad"></div>'.repeat(first);
         const counts = {};
+        // 여러 날 일정: 주마다 띠 조각과 줄(lane). 칸에는 그 줄 자리만 비워 두고 띠는 그린 뒤 위에 얹음 (placeBars)
+        const max = evMax();
+        st.segs = st.cal ? weekSegments(first, last) : null;
+        st.segMax = max;
         for (let day = 1; day <= last; day++) {
             const key = `${st.month}-${pad(day)}`, wd = (first + day - 1) % 7, tid = d.days[key];
             if (tid != null) counts[tid] = (counts[tid] || 0) + 1;
             const t = typeOf(tid);
             const evs = (st.cal && st.cal[key]) || [];
             html += `<div class="day${wd === 0 ? ' sun' : wd === 6 ? ' sat' : ''}${key === d.today ? ' today' : ''}${st.cal && key === selDay() ? ' sel' : ''}" data-day="${key}" role="button" aria-label="${m}월 ${day}일${t ? ' ' + esc(t.name) : ''}${evs.length ? ` 일정 ${evs.length}개` : ''}">
-                <span class="n">${day}</span>${t ? `<span class="badge" style="${badgeStyle(t.color)}">${esc(t.code)}</span>` : ''}${evChips(evs, key)}</div>`;
+                <span class="n">${day}</span>${t ? `<span class="badge" style="${badgeStyle(t.color)}">${esc(t.code)}</span>` : st.cal ? '<span class="badge ph">&nbsp;</span>' : ''}${st.cal ? evCell(key, day, max) : ''}</div>`;
         }
         $('cal').innerHTML = html;
         $('cal').classList.toggle('has-ev', !!st.cal);   // 캘린더 일정 이름 서너 줄 자리만큼 칸을 높게
+        placeBars();
         $('counts').innerHTML = d.types.filter(t => counts[t.id]).map(t => `<span>${esc(t.name)}<b>${counts[t.id]}</b></span>`).join('')
             || '<span>이 달은 아직 넣은 근무가 없어요</span>';
     }
@@ -237,13 +242,70 @@
         for (const k of Object.keys(map)) map[k].sort((a, b) => (b.allDay - a.allDay) || String(a.start || '').localeCompare(String(b.start || '')));
         st.cal = map;
     }
-    // 칸 안 일정: 이름 세 개(휴대폰)·네 개(넓은 화면)까지 (캘린더 색 띠), 넘치면 +n. 시간 있는 일정은 그날 시작 시각을 앞에 (휴대폰처럼 칸이 좁으면 CSS가 시각을 숨김)
-    function evChips(evs, day) {
-        if (!evs.length) return '';
-        const chip = e => `<span class="evc" style="--c:${esc(e.color)}">${!e.allDay && e.day === day ? `<span class="tm">${esc(e.start)}</span>` : ''}${esc(e.title)}</span>`;
-        const max = window.matchMedia('(max-width: 560px)').matches ? 3 : 4;   // 휴대폰 3개, 넓은 화면 4개
-        return `<span class="evs">${evs.slice(0, max).map(chip).join('')}${evs.length > max ? `<b>+${evs.length - max}</b>` : ''}</span>`;
+    // 칸 안 일정 줄 수: 휴대폰 3줄, 넓은 화면 4줄 (여러 날 일정 띠도 한 줄씩 차지)
+    const evMax = () => (window.matchMedia('(max-width: 560px)').matches ? 3 : 4);
+
+    /**
+     * 여러 날 일정을 주마다 조각 내어 줄(lane)을 정함 (삼성 달력처럼): 먼저 시작한 것, 같으면 긴 것부터 위 줄.
+     * 같은 일정은 그 주 안에서 늘 같은 줄. 반환: [{e, a, b, lane, head, tail}] (a~b는 이 달의 날짜 숫자)
+     */
+    function weekSegments(first, last) {
+        const from = `${st.month}-01`, to = `${st.month}-${pad(last)}`;
+        const seen = new Set(), multi = [];
+        for (const k of Object.keys(st.cal)) for (const e of st.cal[k]) if (e.day !== e.endDay && !seen.has(e)) { seen.add(e); multi.push(e); }
+        multi.sort((x, y) => (x.day < y.day ? -1 : x.day > y.day ? 1 : 0) || (x.endDay > y.endDay ? -1 : x.endDay < y.endDay ? 1 : 0));
+        const num = v => Number(v.slice(8)), used = {}, segs = [];
+        for (const e of multi) {
+            const a0 = e.day < from ? 1 : num(e.day), z = e.endDay > to ? last : num(e.endDay);
+            for (let a = a0; a <= z;) {
+                const b = Math.min(z, a + 6 - (first + a - 1) % 7);   // 이 주 토요일까지
+                let lane = 0;
+                while ([...Array(b - a + 1).keys()].some(i => (used[a + i] || []).includes(lane))) lane++;
+                for (let d = a; d <= b; d++) (used[d] = used[d] || []).push(lane);
+                segs.push({ e, a, b, lane, head: a === a0 && e.day >= from, tail: b === z && e.endDay <= to });
+                a = b + 1;
+            }
+        }
+        return segs;
     }
+
+    // 칸 안 일정: 여러 날 일정 띠 자리(빈 줄) 다음에 하루 일정 이름 (캘린더 색 띠), 넘치면 +n.
+    // 시간 있는 일정은 시작 시각을 앞에 (휴대폰처럼 칸이 좁으면 CSS가 시각을 숨김)
+    function evCell(key, day, max) {
+        const singles = (st.cal[key] || []).filter(e => e.day === e.endDay);
+        const over = (st.segs || []).filter(g => g.a <= day && day <= g.b);
+        const lanes = Math.min(max, over.reduce((n, g) => Math.max(n, g.lane + 1), 0));
+        const room = max - lanes;
+        const hidden = Math.max(0, singles.length - room) + over.filter(g => g.lane >= max).length;
+        const chip = e => `<span class="evc" style="--c:${esc(e.color)}">${!e.allDay ? `<span class="tm">${esc(e.start)}</span>` : ''}${esc(e.title)}</span>`;
+        const html = '<span class="evc sp"></span>'.repeat(lanes) + singles.slice(0, room).map(chip).join('');
+        return html || hidden ? `<span class="evs">${html}${hidden ? `<b>+${hidden}</b>` : ''}</span>` : '';
+    }
+
+    // 여러 날 일정 띠: 칸 사이 틈까지 덮게 달력 위에 얹음 (칸 크기가 바뀌면 다시)
+    function placeBars() {
+        const cal = $('cal');
+        cal.querySelectorAll('.evbar').forEach(el => el.remove());
+        if (!st.cal || !st.segs || !st.segs.length) return;
+        const rc = cal.getBoundingClientRect();
+        if (!rc.width) return;   // 안 보이는 중 (보이면 ResizeObserver가 다시 부름)
+        for (const g of st.segs) {
+            if (g.lane >= st.segMax) continue;
+            const c0 = cal.querySelector(`[data-day="${st.month}-${pad(g.a)}"]`), c1 = cal.querySelector(`[data-day="${st.month}-${pad(g.b)}"]`);
+            const sp = c0 && c0.querySelectorAll('.evc.sp')[g.lane];
+            if (!sp || !c1) continue;
+            const r0 = c0.getBoundingClientRect(), r1 = c1.getBoundingClientRect(), rs = sp.getBoundingClientRect();
+            const el = document.createElement('span');
+            el.className = `evbar${g.head ? ' head' : ''}${g.tail ? ' tail' : ''}`;
+            el.style.cssText = `left:${r0.left - rc.left + 2}px;width:${r1.right - r0.left - 4}px;top:${rs.top - rc.top}px;height:${rs.height}px;--c:${g.e.color}`;
+            el.textContent = g.e.title;
+            cal.appendChild(el);
+        }
+    }
+    if (window.ResizeObserver) new ResizeObserver(() => {
+        if (!st.cal || !st.data) return;
+        if (evMax() !== st.segMax) renderCal(); else placeBars();   // 휴대폰↔넓은 화면이 바뀌면 줄 수부터 다시
+    }).observe($('cal'));
     function evTime(e, day) {
         if (e.allDay) return '종일';
         if (day === e.day && day === e.endDay) return `${e.start}–${e.end}`;
