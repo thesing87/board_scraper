@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 새 버전 자동 업데이트: 가계부에 관리자가 올린 앱(연결 주소/app)을 확인해 지금보다 새것이면 받아(sha256 확인) 설치.
  * 설치는 PackageInstaller로 — 안드로이드 12부터는 앱이 자기 자신을 고치는 것이라 묻지 않고 설치될 수 있고,
  * 그 밖에는 '업데이트' 확인 창이 한 번 뜸(InstallReceiver → confirm, 보이는 앱 화면 안에서). 확인 창에서 취소하면
- * 하루 동안 자동으로는 다시 묻지 않음 — 뜨자마자(3초 안) 닫힌 것은 취소로 치지 않고 다시 띄움 (2번까지)
+ * 그 버전만 하루 동안 자동으로는 다시 묻지 않음 — 뜨자마자(3초 안) 닫힌 것은 취소로 치지 않고 다시 띄움 (2번까지)
  */
 final class Updater {
     interface Listener {
@@ -115,6 +115,7 @@ final class Updater {
         JSONObject app = reply.optJSONObject("app");
         long own = ownVersion(c);
         if (app == null || app.optLong("versionCode") <= own) {
+            if (s.updateDeclinedAt() != 0) s.clearUpdateDeclined();   // 새 버전으로 바뀜: 예전 취소는 필요 없음
             l.onStatus("최신 버전이에요", false);
             return;
         }
@@ -133,11 +134,14 @@ final class Updater {
             l.onStatus("새 버전 " + name + "이 있어요. 설치하려면 아래에서 '이 앱의 설치 허용'을 켜 주세요", true);
             return;
         }
-        if (auto && System.currentTimeMillis() - s.updateDeclinedAt() < DECLINE_WAIT_MS) {
+        // 취소는 그 버전에만: 더 새 버전이 나오면 바로 다시 묻고, 예전 앱이 남긴 (버전 없는) 취소는 무시
+        long ver = app.optLong("versionCode");
+        if (auto && s.updateDeclinedVersion() == ver && System.currentTimeMillis() - s.updateDeclinedAt() < DECLINE_WAIT_MS) {
             l.onStatus("새 버전 " + name + "이 있어요 — '새 버전 확인'을 누르면 설치해요", false);
             return;
         }
         l.onStatus("새 버전 " + name + " 설치 중… (앱이 잠깐 닫혀요)", false);
+        installingVersion = ver;
         install(c, apk);
     }
 
@@ -156,6 +160,8 @@ final class Updater {
     private static long confirmShownAt;
     private static int quickCloses;
     private static boolean retryOnResume;
+    /** 설치 창을 띄운 새 버전 (취소하면 이 버전만 하루 동안 자동으로 묻지 않음) */
+    private static volatile long installingVersion;
 
     /** 화면 onResume 맨 앞에서: 기다리던 확인 창을 띄우거나, 저절로 닫힌 뒤면 곧바로 다시 확인하게 함 */
     static void resumed(Activity a) {
@@ -202,7 +208,7 @@ final class Updater {
         confirmShownAt = 0;
         boolean quick = shown > 0 && System.currentTimeMillis() - shown < QUICK_CLOSE_MS;
         if (!quick) {
-            s.setUpdateDeclinedAt(System.currentTimeMillis());
+            s.setUpdateDeclined(System.currentTimeMillis(), installingVersion);
             s.setUpdateMessage("업데이트를 취소했어요 — 하루 동안은 자동으로 묻지 않아요");
             return;
         }

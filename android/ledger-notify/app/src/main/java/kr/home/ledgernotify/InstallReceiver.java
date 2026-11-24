@@ -18,6 +18,7 @@ public class InstallReceiver extends BroadcastReceiver {
         }
         if (status == PackageInstaller.STATUS_SUCCESS) {
             s.setUpdateMessage("");
+            s.clearUpdateDeclined();
             return;
         }
         if (status == PackageInstaller.STATUS_FAILURE_ABORTED) {

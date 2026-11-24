@@ -79,11 +79,16 @@ final class Store {
     boolean askedNotifyPermission() { return p.getBoolean("asked_notify", false); }
     void setAskedNotifyPermission() { p.edit().putBoolean("asked_notify", true).apply(); }
 
-    // ---------- 업데이트: 설치 결과 글, 확인 창을 취소한 때
+    // ---------- 업데이트: 설치 결과 글, 확인 창을 취소한 때와 그 버전
     String updateMessage() { return p.getString("update_msg", ""); }
     void setUpdateMessage(String m) { p.edit().putString("update_msg", m).commit(); }
     long updateDeclinedAt() { return p.getLong("update_declined", 0); }
-    void setUpdateDeclinedAt(long t) { p.edit().putLong("update_declined", t).commit(); }
+    /** 취소한 새 버전 (1.19부터 — 그 전에 남은 취소는 버전이 0이라 막지 않음) */
+    long updateDeclinedVersion() { return p.getLong("update_declined_ver", 0); }
+    void setUpdateDeclined(long t, long versionCode) {
+        p.edit().putLong("update_declined", t).putLong("update_declined_ver", versionCode).commit();
+    }
+    void clearUpdateDeclined() { p.edit().remove("update_declined").remove("update_declined_ver").commit(); }
 
     // ---------- 알림을 보낸 앱 (앱마다 끌 수 있음). {pkg: {label, on, last}}
     JSONObject apps() { return obj("apps"); }
