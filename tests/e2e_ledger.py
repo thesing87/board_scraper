@@ -430,6 +430,7 @@ try:
     assert not vis('undo') and not js("return !!document.getElementById('trash-btn')") and txt('tab-trash-n') == '1' and not vis('trash-list')
     click('#set-open'); time.sleep(.3); click('[data-tab="trash"]'); time.sleep(.2)
     assert vis('set-view') and vis('trash-list') and '편의점' in txt('trash-list') and '버림' in txt('trash-list')
+    assert not js("return !!document.querySelector('#trash-list [data-ignore]')")   # 앱 밖에서는 '이런 알림 안 받기' 없음
     click('#trash-list [data-restore]'); time.sleep(1)
     assert '버린 알림이 없어요' in txt('trash-list') and js("return document.getElementById('tab-trash-n').hidden")
     click('#set-back'); time.sleep(.4)
@@ -448,7 +449,7 @@ try:
     click('#inbox [data-ib-del]'); time.sleep(1)
     assert not vis('inbox-sec')
     # ---- YeYe홈 앱 안에서 열었을 때 (앱이 넣는 window.LedgerApp 흉내): 앱 받기 안내는 숨고 '이 휴대폰 앱에 연결' → 새 연결 주소를 앱에 넣음
-    d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source': "window.__got = []; window.confirm = () => true; window.LedgerApp = {version: () => '1.2', connected: () => window.__got.length > 0, connect: u => { window.__got.push(u); return true; }, openSettings: () => {}};"})
+    d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source': "window.__got = []; window.confirm = () => true; window.LedgerApp = {version: () => '1.2', connected: () => window.__got.length > 0, connect: u => { window.__got.push(u); return true; }, openSettings: () => {}, pickIgnore: t => { window.__ign = t; }};"})
     d.get(BASE + '/ledger/'); time.sleep(2); open_all()
     assert js("return document.documentElement.classList.contains('in-app')") and vis('app-hint')   # 연결 전: 메인에 한 줄 안내
     click('#app-hint-btn'); time.sleep(.3)                              # → 설정 > 결제 알림 연결
@@ -460,6 +461,12 @@ try:
     assert '이 휴대폰 앱(1.2)' in txt('app-connect-state') and txt('app-connect-btn') == '다시 연결' and js("return document.getElementById('app-hint').hidden")
     with urllib.request.urlopen(urllib.request.Request(got[0], data='[삼성카드] 승인 3,300원 앱연결'.encode(), method='POST', headers={'Content-Type': 'text/plain'})) as r:
         assert r.status == 200                                          # 앱에 넣은 새 주소로 받아짐
+    # 버린 알림의 '이런 알림 안 받기' (앱 1.9 이상, pickIgnore가 있을 때만): 그 알림의 원래 글을 앱에 넘김
+    click('[data-tab="trash"]'); time.sleep(.3)
+    assert vis('trash-list') and js("return document.querySelectorAll('#trash-list [data-ignore]').length") >= 1, txt('trash-list')
+    click('#trash-list [data-ignore]'); time.sleep(.3)
+    ign = js('return window.__ign') or ''
+    assert '원' in ign and len(ign) <= 300, ign
     # ---- 앱의 뒤로가기(window.ledgerBack): 설정이 열려 있으면 설정부터, 그다음 열린 것을 하나씩, 닫을 게 없으면 false
     assert vis('set-view') and js('return window.ledgerBack()') is True; time.sleep(.5)
     assert not vis('set-view') and js("return location.hash") == ''

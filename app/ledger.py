@@ -595,10 +595,12 @@ def discarded(user):
     with _db() as conn, conn:
         conn.execute("DELETE FROM ledger_inbox WHERE discarded_at IS NOT NULL AND discarded_at < datetime(?, ?)",
                      (_now(), f'-{DISCARD_KEEP_DAYS} days'))
-        rows = conn.execute("""SELECT id, amount, merchant, card, used_on, used_time, is_cancel, discarded_at FROM ledger_inbox
+        rows = conn.execute("""SELECT id, raw, amount, merchant, card, used_on, used_time, is_cancel, discarded_at FROM ledger_inbox
                                WHERE user_id = ? AND discarded_at IS NOT NULL ORDER BY discarded_at DESC, id DESC LIMIT 100""",
                             (user['id'],)).fetchall()
-    return [{**{k: r[k] for k in ('id', 'amount', 'merchant', 'card', 'used_on', 'used_time', 'discarded_at')}, 'cancel': bool(r['is_cancel'])}
+    # raw: 받은 알림 글 (앱의 '이런 알림 안 받기'에서 낱말을 고를 때, 300자까지)
+    return [{**{k: r[k] for k in ('id', 'amount', 'merchant', 'card', 'used_on', 'used_time', 'discarded_at')},
+             'cancel': bool(r['is_cancel']), 'raw': (r['raw'] or '')[:300]}
             for r in rows]
 
 

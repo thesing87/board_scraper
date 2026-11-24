@@ -125,6 +125,7 @@ assert call('/api/ledger/inbox', {'action': 'confirm', 'id': star}, cookie=user)
 code, data = call('/api/ledger/inbox', {'action': 'discard', 'id': emart}, cookie=user)
 assert code == 200 and emart not in [x['id'] for x in data['items']] and [x['id'] for x in data['discarded']] == [emart], data
 assert data['discarded'][0]['merchant'] == '이마트 성수점' and data['discarded'][0]['discarded_at']
+assert '이마트' in data['discarded'][0]['raw'] and len(data['discarded'][0]['raw']) <= 300   # 앱의 '이런 알림 안 받기'용 원래 글
 assert call('/api/ledger/inbox', {'action': 'confirm', 'id': emart}, cookie=user)[0] == 400                  # 버린 것은 확정 못 함
 assert call('/api/ledger/inbox', {'action': 'restore', 'id': emart}, cookie=admin)[0] == 400                 # 남의 것
 assert call('/api/ledger/inbox', {'action': 'restore', 'id': coupang}, cookie=user)[0] == 400                # 대기 중인 것

@@ -61,6 +61,8 @@ public class SettingsActivity extends Activity {
 
     /** 어느 설정을 보일지: 앱(홈 탭의 '설정': 주소·버전·로그아웃), 휴대폰 결제 알림(가계부 설정에서), 모두(처음 쓸 때) */
     static final String EXTRA_SECTION = "section";
+    /** 이 글로 곧바로 '이런 알림 안 받기' 낱말 고르기 창을 띄움 (가계부의 버린 알림에서) */
+    static final String EXTRA_IGNORE_TEXT = "ignore_text";
     static final String SECTION_APP = "app", SECTION_PHONE = "phone", SECTION_ALL = "all";
     private String section = SECTION_ALL;
 
@@ -71,6 +73,8 @@ public class SettingsActivity extends Activity {
         String sec = getIntent().getStringExtra(EXTRA_SECTION);
         if (SECTION_APP.equals(sec) || SECTION_PHONE.equals(sec)) section = sec;
         setContentView(build());
+        String ignoreText = getIntent().getStringExtra(EXTRA_IGNORE_TEXT);
+        if (b == null && ignoreText != null && !ignoreText.trim().isEmpty()) ui.post(() -> pickIgnore(ignoreText));
     }
 
     @Override
@@ -342,8 +346,10 @@ public class SettingsActivity extends Activity {
                     l.optBoolean("ok") ? R.color.green : R.color.bad);
             item.addView(head);
             item.addView(text(l.optString("text"), 13, R.color.text));
-            // 보낸 결제 알림이면 '이런 알림 안 받기' (그 알림 글의 낱말로 무시할 표현 넣기)
-            String full = l.optString("full", "");
+            // 보낸 결제 알림이면 '이런 알림 안 받기' (그 알림 글의 낱말로 무시할 표현 넣기).
+            // 1.4 이하에서 쌓인 기록은 글 전체(full)가 없어 미리보기 글로
+            String full0 = l.optString("full", "");
+            final String full = full0.isEmpty() ? l.optString("text", "") : full0;
             if (!l.optBoolean("filtered") && !"시험".equals(l.optString("app")) && !full.isEmpty()) {
                 Button no = button("이런 알림 안 받기", v -> pickIgnore(full));
                 no.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);

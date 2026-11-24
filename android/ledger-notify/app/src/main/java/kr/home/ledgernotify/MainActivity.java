@@ -565,6 +565,16 @@ public class MainActivity extends Activity {
             });
         }
 
+        /** 가계부 설정 > 버린 알림의 '이런 알림 안 받기': 그 알림 글로 낱말 고르기 창 (무시할 알림 설정 화면 위에) */
+        @JavascriptInterface
+        public void pickIgnore(String text) {
+            if (!fromLedger() || text == null || text.trim().isEmpty()) return;
+            String t = text.length() > 300 ? text.substring(0, 300) : text;
+            ui.post(() -> startActivity(new Intent(MainActivity.this, SettingsActivity.class)
+                    .putExtra(SettingsActivity.EXTRA_SECTION, SettingsActivity.SECTION_PHONE)
+                    .putExtra(SettingsActivity.EXTRA_IGNORE_TEXT, t)));
+        }
+
         @JavascriptInterface
         public void openSettings() {
             ui.post(() -> MainActivity.this.openSettings(SettingsActivity.SECTION_PHONE));

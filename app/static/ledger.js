@@ -796,12 +796,22 @@
             const min = Math.max(0, Math.round((Date.now() - new Date(at.replace(' ', 'T'))) / 60000));
             return min < 1 ? '방금' : min < 60 ? `${min}분 전` : min < 1440 ? `${Math.floor(min / 60)}시간 전` : `${Math.floor(min / 1440)}일 전`;
         };
+        // YeYe홈 앱 1.9 이상 안에서만: '이런 알림 안 받기' → 앱의 낱말 고르기 창 (무시할 표현은 휴대폰에만 저장)
+        const canIgnore = appCanIgnore();
         $('trash-list').innerHTML = list.map(x => `
             <div class="tr"><div class="m"><b>${x.cancel ? '취소 ' : ''}${won(x.amount)}</b> ${esc(x.merchant || '가게 이름 없음')}
                 <small>${+x.used_on.slice(5, 7)}/${+x.used_on.slice(8)} ${esc(x.used_time)} · ${esc(x.card || '카드')} · ${ago(x.discarded_at)} 버림</small></div>
-                <button type="button" data-restore="${x.id}">되살리기</button></div>`).join('');
+                <span class="bt">${canIgnore && x.raw ? `<button type="button" data-ignore="${x.id}">이런 알림 안 받기</button>` : ''}
+                <button type="button" data-restore="${x.id}">되살리기</button></span></div>`).join('');
     }
+    function appCanIgnore() { try { return !!window.LedgerApp && typeof window.LedgerApp.pickIgnore === 'function'; } catch (e) { return false; } }
     $('trash-list').addEventListener('click', async e => {
+        const ig = e.target.closest('[data-ignore]');
+        if (ig) {
+            const x = (st.discarded || []).find(d => d.id === Number(ig.dataset.ignore));
+            try { if (x) window.LedgerApp.pickIgnore(x.raw); } catch (err) { /* 예전 앱 */ }
+            return;
+        }
         const b = e.target.closest('[data-restore]');
         if (b) await inboxPost({ action: 'restore', id: Number(b.dataset.restore) });
     });
