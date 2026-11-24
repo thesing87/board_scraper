@@ -64,6 +64,10 @@ public class SettingsActivity extends Activity {
     /** 이 글로 곧바로 '이런 알림 안 받기' 낱말 고르기 창을 띄움 (가계부의 버린 알림에서) */
     static final String EXTRA_IGNORE_TEXT = "ignore_text";
     static final String SECTION_APP = "app", SECTION_PHONE = "phone", SECTION_ALL = "all";
+    /** 홈 > 설정의 결제 알림 줄 하나씩 (1.13부터): 그 칸만 보임 */
+    static final String SECTION_ACCESS = "access", SECTION_LINK = "link", SECTION_IGNORE = "ignore",
+            SECTION_APPS = "apps", SECTION_LOGS = "logs";
+    static final List<String> ONE_SECTIONS = java.util.Arrays.asList(SECTION_ACCESS, SECTION_LINK, SECTION_IGNORE, SECTION_APPS, SECTION_LOGS);
     private String section = SECTION_ALL;
 
     @Override
@@ -71,7 +75,7 @@ public class SettingsActivity extends Activity {
         super.onCreate(b);
         store = new Store(this);
         String sec = getIntent().getStringExtra(EXTRA_SECTION);
-        if (SECTION_APP.equals(sec) || SECTION_PHONE.equals(sec)) section = sec;
+        if (SECTION_APP.equals(sec) || SECTION_PHONE.equals(sec) || ONE_SECTIONS.contains(sec)) section = sec;
         setContentView(build());
         String ignoreText = getIntent().getStringExtra(EXTRA_IGNORE_TEXT);
         if (b == null && ignoreText != null && !ignoreText.trim().isEmpty()) ui.post(() -> pickIgnore(ignoreText));
@@ -144,13 +148,12 @@ public class SettingsActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(16), dp(16), dp(16), dp(24));
 
-        boolean app = !SECTION_PHONE.equals(section), phone = !SECTION_APP.equals(section);
-        TextView title = text(SECTION_APP.equals(section) ? "앱 설정" : SECTION_PHONE.equals(section) ? "휴대폰 결제 알림 설정" : "YeYe홈 설정", 22, R.color.text);
+        boolean one = ONE_SECTIONS.contains(section);
+        boolean app = SECTION_APP.equals(section) || SECTION_ALL.equals(section), phone = !SECTION_APP.equals(section) && !one;
+        TextView title = text(titleFor(section), 22, R.color.text);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title);
-        root.addView(text(SECTION_APP.equals(section)
-                ? "앱 전체에 쓰는 설정이에요. 가계부·근무표 설정은 그 탭에서 위쪽 '설정'을 누르세요."
-                : "카드 결제 알림을 가계부의 확인 대기함으로 보내요. 결제 알림처럼 보이는 글만 보내고, 다른 알림은 휴대폰 밖으로 나가지 않아요.", 13, R.color.muted), gap(4));
+        root.addView(text(introFor(section), 13, R.color.muted), gap(4));
 
         // ---- 앱 버전·업데이트
         LinearLayout ver = card(root, "앱 버전 " + Updater.ownVersionName(this));
@@ -253,7 +256,7 @@ public class SettingsActivity extends Activity {
 
         // ---- 무시할 알림 (이 휴대폰에만)
         LinearLayout ign = card(root, "무시할 알림");
-        ign.addView(text("알림 글에 이 표현이 있으면 가계부로 보내지 않아요 (이 휴대폰에만, 띄어쓰기는 무시). 아래 '최근 알림'의 '이런 알림 안 받기'로도 넣을 수 있어요.", 12, R.color.muted));
+        ign.addView(text("알림 글에 이 표현이 있으면 가계부로 보내지 않아요 (이 휴대폰에만, 띄어쓰기는 무시). '최근 알림'의 '이런 알림 안 받기'로도 넣을 수 있어요.", 12, R.color.muted));
         ignoreBox = new LinearLayout(this);
         ignoreBox.setOrientation(LinearLayout.VERTICAL);
         ign.addView(ignoreBox, gap(6));
@@ -290,7 +293,15 @@ public class SettingsActivity extends Activity {
         // 들어온 곳에 따라 보일 칸만 (상태 갱신은 모든 칸에 그대로)
         ver.setVisibility(app ? View.VISIBLE : View.GONE);
         out.setVisibility(SECTION_APP.equals(section) ? View.VISIBLE : View.GONE);
+        dutyCard.setVisibility(one ? View.GONE : View.VISIBLE);
         for (View v : new View[]{perm, link, alert, ign, apps, logs}) v.setVisibility(phone ? View.VISIBLE : View.GONE);
+        // 결제 알림 줄 하나로 들어왔으면 그 칸만 (칸 제목은 화면 제목과 같아 숨김)
+        if (one) {
+            LinearLayout only = SECTION_ACCESS.equals(section) ? perm : SECTION_LINK.equals(section) ? link
+                    : SECTION_IGNORE.equals(section) ? ign : SECTION_APPS.equals(section) ? apps : logs;
+            only.setVisibility(View.VISIBLE);
+            only.getChildAt(0).setVisibility(View.GONE);
+        }
 
         ScrollView sv = new ScrollView(this);
         sv.addView(root);
@@ -474,7 +485,7 @@ public class SettingsActivity extends Activity {
         String now = new SimpleDateFormat("M/d HH:mm", Locale.KOREA).format(new Date());
         Sender.sendTest(this, "[YeYe홈 앱] 시험 승인 1,000원 일시불 " + now + " 앱 연결 시험", () -> ui.post(() -> {
             refresh();
-            toast("보냈어요 — 아래 '최근 보낸 알림'과 가계부 확인 대기함을 보세요");
+            toast("보냈어요 — 가계부 확인 대기함과 '최근 알림'을 보세요");
         }));
     }
 
@@ -506,6 +517,31 @@ public class SettingsActivity extends Activity {
     static boolean hasAccess(android.content.Context c) {
         String on = Settings.Secure.getString(c.getContentResolver(), "enabled_notification_listeners");
         return on != null && on.contains(new ComponentName(c, NotifyListener.class).flattenToString());
+    }
+
+    private static String titleFor(String sec) {
+        switch (sec) {
+            case SECTION_APP: return "앱 설정";
+            case SECTION_PHONE: return "휴대폰 결제 알림 설정";
+            case SECTION_ACCESS: return "알림 읽기 권한";
+            case SECTION_LINK: return "결제 알림 연결";
+            case SECTION_IGNORE: return "무시할 알림";
+            case SECTION_APPS: return "결제 알림을 보낸 앱";
+            case SECTION_LOGS: return "최근 알림";
+            default: return "YeYe홈 설정";
+        }
+    }
+
+    private static String introFor(String sec) {
+        switch (sec) {
+            case SECTION_APP: return "앱 전체에 쓰는 설정이에요. 가계부·근무표 설정은 그 탭에서 위쪽 '설정'을 누르세요.";
+            case SECTION_ACCESS: return "휴대폰에 뜨는 결제 알림을 읽으려면 이 권한이 있어야 해요. 배터리 절약을 끄면 앱이 멈추지 않아요.";
+            case SECTION_LINK: return "이 휴대폰의 결제 알림을 보낼 가계부 주소예요.";
+            case SECTION_IGNORE: return "가계부로 보내지 않을 알림을 표현으로 골라요.";
+            case SECTION_APPS: return "결제 알림을 보낸 앱마다 보낼지 고를 수 있어요.";
+            case SECTION_LOGS: return "이 휴대폰이 읽은 결제 알림과 보낸 결과예요.";
+            default: return "카드 결제 알림을 가계부의 확인 대기함으로 보내요. 결제 알림처럼 보이는 글만 보내고, 다른 알림은 휴대폰 밖으로 나가지 않아요.";
+        }
     }
 
     // ==========================================

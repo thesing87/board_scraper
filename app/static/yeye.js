@@ -255,6 +255,8 @@
         if ($('notify-card').hidden) return;
         $('ph-access-s').textContent = s.access ? `켜짐${s.battery ? ' · 배터리 제한 없음' : ' · 배터리 절약이 켜져 있어요'}` : '꺼짐 · 눌러서 켜 주세요';
         $('ph-access-s').className = s.access ? 'ok' : 'bad';
+        $('ph-link-s').textContent = s.connected ? '가계부에 연결됨' : '아직 연결 안 됨 · 눌러서 주소 넣기';
+        $('ph-link-s').className = s.connected ? 'ok' : 'bad';
         $('ph-alert').checked = !!s.alertOn;
         $('ph-ignore-n').textContent = s.ignores ? String(s.ignores) : '';
     }
@@ -264,10 +266,14 @@
     $('ph-duty').addEventListener('change', e => {
         try { window.LedgerApp.setDutyPushOn(e.target.checked); } catch (err) { /* 예전 앱 */ }
     });
-    // 휴대폰에서 해야 하는 것(권한·무시할 알림 고르기·최근 알림)은 앱의 결제 알림 화면에서
+    // 휴대폰에서 해야 하는 것(권한·연결·무시할 알림·보낸 앱·최근 알림)은 앱 화면에서, 줄마다 그 칸만 (1.13부터, 예전 앱은 전체 화면)
     $('notify-card').addEventListener('click', e => {
-        if (!e.target.closest('[data-phone]')) return;
-        try { window.LedgerApp.openPhoneSettings(); } catch (err) { /* 예전 앱 */ }
+        const row = e.target.closest('[data-phone]');
+        if (!row) return;
+        try {
+            if (window.LedgerApp.openPhoneSection) window.LedgerApp.openPhoneSection(row.dataset.phone);
+            else window.LedgerApp.openPhoneSettings();
+        } catch (err) { /* 예전 앱 */ }
     });
     $('app-file').addEventListener('change', () => { $('app-upload').disabled = !$('app-file').files.length; $('app-msg').textContent = ''; });
     $('app-upload').addEventListener('click', async () => {

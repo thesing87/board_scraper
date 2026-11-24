@@ -91,8 +91,14 @@ try:
     assert not js("return document.querySelector('.site-top').offsetHeight > 0")   # 앱 안: 제목 줄·사이트 메뉴 숨김 (앱의 위쪽 탭)
     assert vis('phone-card') and vis('notify-card') and 'YeYe홈 1.11' in txt('phone-state'), txt('phone-state')
     assert '켜짐' in txt('ph-access-s') and '배터리 절약' in txt('ph-access-s') and js("return document.getElementById('ph-alert').checked") and txt('ph-ignore-n') == '3'
+    assert '연결됨' in txt('ph-link-s')
     click('#ph-alert'); click('#ph-ignore'); time.sleep(.2)
-    assert js("return window.__calls") == ['alert:false', 'phone'], js("return window.__calls")
+    assert js("return window.__calls") == ['alert:false', 'phone'], js("return window.__calls")   # 예전 앱(1.12까지): 전체 화면
+    # 1.13부터: 줄마다 그 칸만 보이는 화면
+    js("window.LedgerApp.openPhoneSection = s => window.__calls.push('sec:' + s); window.__calls = []")
+    for r in ('access', 'link', 'ignore', 'apps', 'logs'): click('#ph-' + r)
+    time.sleep(.2)
+    assert js("return window.__calls") == ['sec:access', 'sec:link', 'sec:ignore', 'sec:apps', 'sec:logs'], js("return window.__calls")
     # ---- 휴대폰: 넘침 없음, 아래 메뉴는 맨 아래
     d.set_window_size(390, 844); d.get(BASE + '/yeye/'); time.sleep(2)
     assert js("return document.documentElement.scrollWidth <= innerWidth + 1")

@@ -565,6 +565,14 @@ public class MainActivity extends Activity {
             ui.post(() -> MainActivity.this.openSettings(SettingsActivity.SECTION_PHONE));
         }
 
+        /** 홈 > 설정의 결제 알림 줄 하나 (1.13부터): access·link·ignore·apps·logs 중 그 칸만 보이는 화면 */
+        @JavascriptInterface
+        public void openPhoneSection(String section) {
+            if (!fromLedger()) return;
+            String s = SettingsActivity.ONE_SECTIONS.contains(section) ? section : SettingsActivity.SECTION_PHONE;
+            ui.post(() -> MainActivity.this.openSettings(s));
+        }
+
         /** 전체 설정의 '새 버전 확인' (결과는 updateText로 물어봄) */
         @JavascriptInterface
         public void checkUpdate() {
@@ -593,7 +601,7 @@ public class MainActivity extends Activity {
             if (!fromLedger() || text == null || text.trim().isEmpty()) return;
             String t = text.length() > 300 ? text.substring(0, 300) : text;
             ui.post(() -> startActivity(new Intent(MainActivity.this, SettingsActivity.class)
-                    .putExtra(SettingsActivity.EXTRA_SECTION, SettingsActivity.SECTION_PHONE)
+                    .putExtra(SettingsActivity.EXTRA_SECTION, SettingsActivity.SECTION_IGNORE)
                     .putExtra(SettingsActivity.EXTRA_IGNORE_TEXT, t)));
         }
 
@@ -622,8 +630,7 @@ public class MainActivity extends Activity {
         public void setAlertOn(boolean on) {
             if (!fromLedger()) return;
             store.setAlertOn(on);
-            if (on && !Notifier.allowed(MainActivity.this)) ui.post(() -> MainActivity.this.openSettings(SettingsActivity.SECTION_PHONE));
-        }
+            if (on && !Notifier.allowed(MainActivity.this)) ui.post(() -> MainActivity.this.openSettings(SettingsActivity.SECTION_PHONE));        }
 
         /** 홈 > 설정의 '근무표 변경 알림' 켜고 끄기 (끄면 서버에서 이 휴대폰 토큰을 지움, 켤 때 알림 권한이 없으면 물음) */
         @JavascriptInterface
