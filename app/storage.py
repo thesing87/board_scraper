@@ -1074,16 +1074,29 @@ def fm_seen_init(board, keyword, seen_max):
         row = conn.execute("SELECT seen_max, read_ids FROM fm_seen WHERE board = ? AND keyword = ?", (board, keyword)).fetchone()
         return row['seen_max'], json.loads(row['read_ids'])
 
+def _trim_fm_read_ids(ids, found_ids):
+    """읽은 글 번호를 MAX_FM_READ_IDS개로 줄임. 글을 열면 모든 키워드에 적히므로(어느 키워드의 글인지 모름) 다른 키워드의 글이
+    대부분인데, 번호순으로 오래된 것부터 버리면 이 키워드에서 찾은 새 글의 읽음이 밀려나 다시 새 글로 떴음.
+    그래서 이 키워드 검색에서 찾은 글(found_ids)의 읽음은 남기고, 찾은 적 없는 글의 읽음을 오래된 것부터 버림"""
+    ids = sorted(set(ids))
+    if len(ids) <= MAX_FM_READ_IDS:
+        return ids
+    found = set(found_ids)
+    mine = [i for i in ids if i in found]
+    others = [i for i in ids if i not in found]
+    keep = set(mine[-MAX_FM_READ_IDS:]) | set(others[len(others) - max(0, MAX_FM_READ_IDS - len(mine)):])
+    return [i for i in ids if i in keep]
+
 def fm_seen_read(post_no):
     """글 하나를 읽음으로: 그 글이 새 글인 모든 키워드에 (같은 글이 여러 키워드에 걸려도 함께). 바뀐 키워드 수"""
     post_no = int(post_no)
     changed = 0
     with _db() as conn, conn:
-        for r in conn.execute("SELECT board, keyword, read_ids FROM fm_seen WHERE seen_max < ?", (post_no,)).fetchall():
+        for r in conn.execute("SELECT board, keyword, read_ids, found_ids FROM fm_seen WHERE seen_max < ?", (post_no,)).fetchall():
             ids = json.loads(r['read_ids'] or '[]')
             if post_no in ids:
                 continue
-            ids = sorted(ids + [post_no])[-MAX_FM_READ_IDS:]
+            ids = _trim_fm_read_ids(ids + [post_no], json.loads(r['found_ids'] or '[]'))
             conn.execute("UPDATE fm_seen SET read_ids = ?, updated_at = ? WHERE board = ? AND keyword = ?",
                          (json.dumps(ids), _now(), r['board'], r['keyword']))
             changed += 1
