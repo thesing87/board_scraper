@@ -66,6 +66,15 @@ final class DutyWidgets {
         return prefs(c).getInt("p_" + id, 0);
     }
 
+    /** 배경 투명도 % (0 = 흰 배경 그대로, 100 = 배경 없음). 위젯마다, 놓을 때·길게 눌러 다시 설정할 때 고름 (1.25부터) */
+    static void setTransparency(Context c, int id, int percent) {
+        prefs(c).edit().putInt("a_" + id, Math.max(0, Math.min(100, percent))).apply();
+    }
+
+    static int transparency(Context c, int id) {
+        return prefs(c).getInt("a_" + id, 0);
+    }
+
     /** 근무표 설정 > 이 휴대폰 > 처음 보일 사람 (위젯을 놓을 때 맨 위에 보임) */
     static void setDefaultPerson(Context c, int personId) {
         prefs(c).edit().putInt("default_person", personId).apply();
@@ -77,7 +86,7 @@ final class DutyWidgets {
 
     static void forget(Context c, int[] ids) {
         SharedPreferences.Editor e = prefs(c).edit();
-        for (int id : ids) e.remove("p_" + id).remove("c_" + id).remove("e_" + id).remove("v_" + id);
+        for (int id : ids) e.remove("p_" + id).remove("c_" + id).remove("e_" + id).remove("v_" + id).remove("a_" + id);
         e.apply();
     }
 
@@ -241,7 +250,7 @@ final class DutyWidgets {
         Canvas cv = new Canvas(bmp);
         cv.scale(scale, scale);
         Painter p = new Painter(cv, wdp, hdp);
-        p.background();
+        p.background(transparency(c, id));
 
         String cached = prefs(c).getString("c_" + id, null);
         String err = prefs(c).getString("e_" + id, null);
@@ -283,9 +292,42 @@ final class DutyWidgets {
                 v.setOnClickPendingIntent(R.id.duty_nav_next, navIntent(c, id, 1));
                 v.setOnClickPendingIntent(R.id.duty_nav_back, navIntent(c, id, 0));
             }
+            // 날짜마다 누를 자리 (1.25부터): 그 날짜를 앱 근무표에서 (그 사람·그 달로 가서 그날을 고름). 빈 칸은 그냥 앱 열기
+            boolean grid = p.gridMonth != null;
+            v.setViewVisibility(R.id.duty_days, grid ? android.view.View.VISIBLE : android.view.View.GONE);
+            if (grid) {
+                int person = data.optInt("person_id");
+                for (int row = 0; row < 6; row++) {
+                    v.setViewVisibility(ROW_IDS[row], row < p.gridRows ? android.view.View.VISIBLE : android.view.View.GONE);
+                    if (row >= p.gridRows) continue;
+                    for (int col = 0; col < 7; col++) {
+                        int day = row * 7 + col - p.gridFirst + 1;
+                        int cell = DAY_IDS[row * 7 + col];
+                        if (day < 1 || day > p.gridLast) {
+                            v.setOnClickPendingIntent(cell, openPi);
+                            continue;
+                        }
+                        String key = String.format(Locale.ROOT, "%s-%02d", p.gridMonth, day);
+                        Intent at = new Intent(c, MainActivity.class).putExtra(MainActivity.EXTRA_TAB, MainActivity.TAB_DUTY)
+                                .putExtra(MainActivity.EXTRA_DAY, key).putExtra(MainActivity.EXTRA_PERSON, person)
+                                .setData(android.net.Uri.parse("duty-day://" + id + "/" + key))   // 날짜마다 다른 PendingIntent
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                        v.setOnClickPendingIntent(cell, PendingIntent.getActivity(c, 0, at, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+                    }
+                }
+            }
         }
         m.updateAppWidget(id, v);
     }
+
+    private static final int[] ROW_IDS = {R.id.duty_r0, R.id.duty_r1, R.id.duty_r2, R.id.duty_r3, R.id.duty_r4, R.id.duty_r5};
+    private static final int[] DAY_IDS = {
+            R.id.duty_d0, R.id.duty_d1, R.id.duty_d2, R.id.duty_d3, R.id.duty_d4, R.id.duty_d5, R.id.duty_d6,
+            R.id.duty_d7, R.id.duty_d8, R.id.duty_d9, R.id.duty_d10, R.id.duty_d11, R.id.duty_d12, R.id.duty_d13,
+            R.id.duty_d14, R.id.duty_d15, R.id.duty_d16, R.id.duty_d17, R.id.duty_d18, R.id.duty_d19, R.id.duty_d20,
+            R.id.duty_d21, R.id.duty_d22, R.id.duty_d23, R.id.duty_d24, R.id.duty_d25, R.id.duty_d26, R.id.duty_d27,
+            R.id.duty_d28, R.id.duty_d29, R.id.duty_d30, R.id.duty_d31, R.id.duty_d32, R.id.duty_d33, R.id.duty_d34,
+            R.id.duty_d35, R.id.duty_d36, R.id.duty_d37, R.id.duty_d38, R.id.duty_d39, R.id.duty_d40, R.id.duty_d41};
 
     private static PendingIntent navIntent(Context c, int id, int step) {
         Intent i = new Intent(c, DutyMonthWidget.class).setAction(ACTION_NAV)
@@ -513,10 +555,18 @@ final class DutyWidgets {
             this.h = h;
         }
 
-        void background() {
-            fill.setColor(0xFFFFFFFF);
-            cv.drawRoundRect(new RectF(0, 0, w, h), 16, 16, fill);
+        /** 흰 배경의 불투명도 (0~255). 위젯마다 고른 투명도(1.25부터)를 뺀 값 */
+        int bgAlpha = 255;
+
+        void background(int transparency) {
+            bgAlpha = Math.round(255 * (100 - Math.max(0, Math.min(100, transparency))) / 100f);
+            fill.setColor(Color.argb(bgAlpha, 255, 255, 255));
+            if (bgAlpha > 0) cv.drawRoundRect(new RectF(0, 0, w, h), 16, 16, fill);
         }
+
+        /** 달력이 차지한 자리 (위젯 위에 날짜마다 누를 자리를 겹치려고): 그린 달, 1일의 요일, 마지막 날, 주 수. 안 그렸으면 month null */
+        String gridMonth;
+        int gridFirst, gridLast, gridRows;
 
         float textAt(String s, float x, float y, float size, int color, boolean bold, Paint.Align align) {
             text.setTextSize(size);
@@ -623,7 +673,7 @@ final class DutyWidgets {
             text.setTypeface(Typeface.DEFAULT_BOLD);
             text.setTextSize(10.5f);
             float tw = text.measureText(s) + 3;
-            fill.setColor(0xF2FFFFFF);
+            fill.setColor(Color.argb(Math.round(bgAlpha * 0.95f), 255, 255, 255));
             cv.drawRect(new RectF(line.right - tw, line.top, line.right, line.bottom), fill);
             textAt(s, line.right - 1, line.bottom - EV_BASE, 10.5f, MUTED, true, Paint.Align.RIGHT);
         }
@@ -739,6 +789,17 @@ final class DutyWidgets {
             float bh = Math.min(19, cellH - gap - 21);
             float evTop = 17 + bh + 1, evH = cellH - gap - evTop - 1;
             int fit = roomy && evH >= EV_LINE ? (int) ((evH + EV_GAP) / (EV_LINE + EV_GAP)) : 0;
+            gridMonth = r.month;
+            gridFirst = first;
+            gridLast = last;
+            gridRows = rows;
+            // 구분선 (1.25부터): 주마다 가로선, 날짜 사이 옅은 세로선 — 칸 사이 틈 한가운데
+            Paint div = new Paint();
+            div.setStrokeWidth(1);
+            div.setColor(0x24111827);
+            for (int row = 0; row < rows; row++) cv.drawLine(pad, top + cellH * row, w - pad, top + cellH * row, div);
+            div.setColor(0x10111827);
+            for (int col = 1; col < 7; col++) cv.drawLine(pad + colW * col, top + 2, pad + colW * col, top + cellH * rows - 2, div);
             List<Seg> segs = segments(r, first, last);
             RectF[] cells = new RectF[last + 1];
             for (int day = 1; day <= last; day++) {

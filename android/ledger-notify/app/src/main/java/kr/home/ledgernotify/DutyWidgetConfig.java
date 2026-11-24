@@ -10,15 +10,19 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.view.View;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 근무표 위젯을 홈 화면에 놓을 때(또는 길게 눌러 다시 설정할 때): 누구 근무표를 보일지 고름.
- * 사람이 한 명뿐이면 묻지 않고 그 사람으로. 앱에서 로그인하지 않았으면 안내만 하고 위젯은 놓지 않음
+ * 근무표 위젯을 홈 화면에 놓을 때(또는 길게 눌러 다시 설정할 때): 누구 근무표를 보일지, 배경 투명도(1.25부터)를 고르고 '완료'.
+ * 사람이 한 명뿐이면 사람은 묻지 않음. 앱에서 로그인하지 않았으면 안내만 하고 위젯은 놓지 않음
  */
 public class DutyWidgetConfig extends Activity {
     private int widgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
@@ -79,11 +83,6 @@ public class DutyWidgetConfig extends Activity {
             addButton("닫기", this::finish);
             return;
         }
-        if (people.length() == 1) {
-            choose(people.optJSONObject(0).optInt("id"));
-            return;
-        }
-        msg.setText("위젯마다 따로 고를 수 있어요. 나중에 위젯을 길게 눌러 바꿀 수도 있어요.");
         int current = DutyWidgets.person(this, widgetId), first = DutyWidgets.defaultPerson(this);
         // '처음 보일 사람'(근무표 설정 > 이 휴대폰)을 맨 위에
         java.util.List<JSONObject> list = new java.util.ArrayList<>();
@@ -91,14 +90,73 @@ public class DutyWidgetConfig extends Activity {
             JSONObject p = people.optJSONObject(i);
             if (p.optInt("id") == first) list.add(0, p); else list.add(p);
         }
-        for (JSONObject p : list) {
-            int id = p.optInt("id");
-            addButton(p.optString("name") + (id == current ? "  ✓" : ""), () -> choose(id));
+        RadioGroup group = new RadioGroup(this);
+        boolean any = false;
+        for (JSONObject p : list) if (p.optInt("id") == current) any = true;
+        for (int i = 0; i < list.size(); i++) {
+            JSONObject p = list.get(i);
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setTag(p.optInt("id"));
+            rb.setText(p.optString("name"));
+            rb.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            rb.setTextColor(0xFF111827);
+            rb.setPadding(dp(4), dp(6), 0, dp(6));
+            group.addView(rb);
+            if (any ? p.optInt("id") == current : i == 0) rb.setChecked(true);
         }
+        if (list.size() > 1) {
+            msg.setText("위젯마다 따로 고를 수 있어요. 나중에 위젯을 길게 눌러 바꿀 수도 있어요.");
+            box.addView(group);
+        } else {
+            msg.setText("나중에 위젯을 길게 눌러 바꿀 수 있어요.");
+        }
+
+        // 배경 투명도: 0~100%, 10%씩 (흰 배경만 투명해지고 글자·근무 색은 그대로)
+        LinearLayout row = new LinearLayout(this);
+        row.setPadding(0, dp(14), 0, 0);
+        TextView label = new TextView(this);
+        label.setText("배경 투명도");
+        label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        label.setTextColor(0xFF111827);
+        row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView value = new TextView(this);
+        value.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        value.setTextColor(0xFF0F6E56);
+        value.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        row.addView(value);
+        box.addView(row);
+        SeekBar bar = new SeekBar(this);
+        bar.setMax(10);
+        bar.setProgress(Math.round(DutyWidgets.transparency(this, widgetId) / 10f));
+        value.setText(bar.getProgress() * 10 + "%");
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar s, int v, boolean user) { value.setText(v * 10 + "%"); }
+            @Override public void onStartTrackingTouch(SeekBar s) {}
+            @Override public void onStopTrackingTouch(SeekBar s) {}
+        });
+        box.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout ends = new LinearLayout(this);
+        for (String t : new String[]{"불투명", "투명"}) {
+            TextView e = new TextView(this);
+            e.setText(t);
+            e.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            e.setTextColor(0xFF8B919C);
+            e.setGravity("투명".equals(t) ? Gravity.END : Gravity.START);
+            ends.addView(e, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        }
+        box.addView(ends);
+
+        int only = list.get(0).optInt("id");
+        addButton("완료", () -> {
+            View on = group.findViewById(group.getCheckedRadioButtonId());
+            choose(on != null ? (int) on.getTag() : only, bar.getProgress() * 10);
+        });
     }
 
-    private void choose(int personId) {
-        DutyWidgets.setPerson(this, widgetId, personId);
+    private void choose(int personId, int transparency) {
+        DutyWidgets.setTransparency(this, widgetId, transparency);
+        if (personId != DutyWidgets.person(this, widgetId)) DutyWidgets.setPerson(this, widgetId, personId);
         AppWidgetManager m = AppWidgetManager.getInstance(this);
         new Thread(() -> DutyWidgets.update(getApplicationContext(), m, new int[]{widgetId}, true)).start();
         setResult(RESULT_OK, new Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId));

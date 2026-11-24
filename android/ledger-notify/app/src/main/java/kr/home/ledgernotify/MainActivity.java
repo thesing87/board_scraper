@@ -44,6 +44,8 @@ public class MainActivity extends Activity implements Updater.Host {
     private static final String[] PATHS = {"/ledger/", "/duty/", "/yeye/"};
     /** 이 탭으로 열기 (근무표 위젯을 누름) */
     static final String EXTRA_TAB = "tab";
+    /** 근무표에서 이 날짜(yyyy-MM-dd)를 열기, 그 사람 근무표로 (한 달 위젯에서 날짜를 누름, 1.25부터) */
+    static final String EXTRA_DAY = "day", EXTRA_PERSON = "person";
     /** 앱 설정에서 로그아웃함: 돌아오면 세 페이지를 모두 다시 읽음 */
     static volatile boolean reloadPages;
 
@@ -72,6 +74,7 @@ public class MainActivity extends Activity implements Updater.Host {
         store = new Store(this);
         setContentView(build());
         openInbox = getIntent().getBooleanExtra(Notifier.EXTRA_INBOX, false);
+        takeDutyDay(getIntent());
         // 홈부터 (금액 인식 알림·가계부 변경 알림을 눌러 열면 가계부, 근무표 위젯·근무표 변경 알림을 눌러 열면 근무표)
         selectTab(openInbox || isLedgerPush(getIntent()) ? TAB_LEDGER : isDutyPush(getIntent()) ? TAB_DUTY : getIntent().getIntExtra(EXTRA_TAB, TAB_HOME));
         DutyPush.ensureChannel(this);
@@ -117,7 +120,31 @@ public class MainActivity extends Activity implements Updater.Host {
             webs[TAB_LEDGER].reload();
         } else if (intent.hasExtra(EXTRA_TAB)) {
             selectTab(intent.getIntExtra(EXTRA_TAB, TAB_HOME));
+            if (takeDutyDay(intent) && dutyLoaded) openDutyDay();
         }
+    }
+
+    /** 위젯에서 누른 날짜 (근무표 페이지가 다 읽히면 그 날짜로) */
+    private String dutyDay;
+    private int dutyPerson;
+    private boolean dutyLoaded;
+
+    private boolean takeDutyDay(Intent i) {
+        String day = i.getStringExtra(EXTRA_DAY);
+        if (day == null || !day.matches("\\d{4}-\\d{2}-\\d{2}")) return false;
+        dutyDay = day;
+        dutyPerson = i.getIntExtra(EXTRA_PERSON, 0);
+        i.removeExtra(EXTRA_DAY);   // 화면을 돌려 다시 만들어도 또 가지 않게
+        return true;
+    }
+
+    /** 근무표 페이지에 그 날짜를 열라고 함 (페이지가 아직 준비 중이면 잠깐씩 기다렸다가) */
+    private void openDutyDay() {
+        if (dutyDay == null) return;
+        String js = "(function t(n){if(window.appOpenDay){window.appOpenDay('" + dutyDay + "'," + dutyPerson + ");}"
+                + "else if(n>0){setTimeout(function(){t(n-1);},300);}})(30)";
+        dutyDay = null;
+        webs[TAB_DUTY].evaluateJavascript(js, null);
     }
 
     @Override
@@ -488,6 +515,10 @@ public class MainActivity extends Activity implements Updater.Host {
             showBanner();
             DutyPush.sync(MainActivity.this);
             if (view == webs[TAB_LEDGER]) scrollToInbox();
+            if (view == webs[TAB_DUTY]) {
+                dutyLoaded = true;
+                openDutyDay();
+            }
         }
 
         @Override

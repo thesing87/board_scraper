@@ -812,6 +812,28 @@
     // 앱(YeYe홈)이 부름: 위쪽 '설정' → 근무표 설정, 다른 탭으로 감 → 고치기 끝
     window.appOpenSettings = () => { if (!st.me) return false; flush(); openSettings(); return true; };
     window.appTabHidden = () => { if (st.editing) setEditing(false); else flush(); };
+    // 앱(1.25부터)이 부름: 한 달 위젯에서 날짜를 누름 → 그 사람·그 달로 가서 그날을 고름 (아래에 그날 근무·일정)
+    window.appOpenDay = async (day, person) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+        // 앱을 막 열었으면 로그인·처음 읽기가 끝날 때까지 잠깐 기다림 (그 뒤에 그 날짜로)
+        for (let i = 0; i < 40 && !(st.me && st.data); i++) await new Promise(r => setTimeout(r, 250));
+        if (!st.me || !st.data) return false;
+        if (!$('set-view').hidden) closeSettings();
+        if (st.editing) setEditing(false);
+        await flush();
+        st.dview = 'cal';
+        st.sel = day;
+        const samePerson = !person || person === st.personId;
+        if (st.data && samePerson && st.month === day.slice(0, 7)) { render(); }
+        else {
+            st.month = day.slice(0, 7);
+            if (person) st.personId = person;
+            await load();
+        }
+        const sec = $('day-sec');
+        if (sec && !sec.hidden) sec.scrollIntoView({ block: 'center' });
+        return true;
+    };
     if (window.LedgerApp) document.documentElement.classList.add('in-app');
 
     // 다른 화면에 갔다 오면 새로 (다른 멤버가 고쳤을 수 있음). 떠날 때는 칠한 것을 바로 저장
