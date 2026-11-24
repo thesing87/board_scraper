@@ -56,7 +56,7 @@ public class DutyWidgetConfig extends Activity {
 
     private void load() {
         try {
-            JSONObject d = DutyWidgets.fetch(this, 0);
+            JSONObject d = DutyWidgets.fetch(this, 0, DutyWidgets.thisMonth());
             JSONArray people = d.optJSONArray("people");
             ui.post(() -> show(people));
         } catch (Exception e) {

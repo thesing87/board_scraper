@@ -16,6 +16,7 @@ public class DutyTodayWidget extends AppWidgetProvider {
             Context app = c.getApplicationContext();
             new Thread(() -> {
                 try {
+                    DutyWidgets.resetViews(app);
                     AppWidgetManager m = AppWidgetManager.getInstance(app);
                     DutyWidgets.update(app, m, m.getAppWidgetIds(new android.content.ComponentName(app, DutyMonthWidget.class)), true);
                     DutyWidgets.update(app, m, m.getAppWidgetIds(new android.content.ComponentName(app, DutyTodayWidget.class)), true);

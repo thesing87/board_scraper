@@ -9,7 +9,7 @@
     android:targetCellHeight="4"
     android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="10800000"
-    android:initialLayout="@layout/duty_widget"
+    android:initialLayout="@layout/duty_month_widget"
     android:configure="kr.home.ledgernotify.DutyWidgetConfig"
     android:widgetFeatures="reconfigurable"
     android:widgetCategory="home_screen"
