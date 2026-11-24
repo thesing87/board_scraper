@@ -39,7 +39,7 @@ import java.util.List;
 import java.util.Locale;
 
 /** 설정 화면: 권한 상태·연결 주소·시험 보내기·앱별 끄기·최근 보낸 알림 */
-public class SettingsActivity extends Activity {
+public class SettingsActivity extends Activity implements Updater.Host {
     private static final String HOOK_PATH = "/api/ledger/hook/";
 
     private Store store;
@@ -84,6 +84,7 @@ public class SettingsActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        Updater.resumed(this);   // 기다리던 업데이트 확인 창 (autoDue보다 먼저)
         if (hasAccess(this)) NotificationListenerService.requestRebind(new ComponentName(this, NotifyListener.class));
         urlInput.setText(store.url());
         enabledSwitch.setChecked(store.enabled());
@@ -127,7 +128,8 @@ public class SettingsActivity extends Activity {
         }).start();
     }
 
-    private void checkUpdate(boolean auto) {
+    @Override
+    public void checkUpdate(boolean auto) {
         Updater.check(this, auto, (text, needPermission) -> ui.post(() -> {
             updateText = text;
             updateNeedsPermission = needPermission;
@@ -138,6 +140,7 @@ public class SettingsActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        Updater.paused(this);
         ui.removeCallbacks(tick);
     }
 

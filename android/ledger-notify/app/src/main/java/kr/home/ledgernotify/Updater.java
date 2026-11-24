@@ -1,5 +1,6 @@
 package kr.home.ledgernotify;
 
+import android.app.Activity;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -16,6 +17,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.MessageDigest;
@@ -26,7 +28,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * 새 버전 자동 업데이트: 가계부에 관리자가 올린 앱(연결 주소/app)을 확인해 지금보다 새것이면 받아(sha256 확인) 설치.
  * 설치는 PackageInstaller로 — 안드로이드 12부터는 앱이 자기 자신을 고치는 것이라 묻지 않고 설치될 수 있고,
- * 그 밖에는 '업데이트' 확인 창이 한 번 뜸(InstallReceiver). 확인 창에서 취소하면 하루 동안 자동으로는 다시 묻지 않음
+ * 그 밖에는 '업데이트' 확인 창이 한 번 뜸(InstallReceiver → confirm, 보이는 앱 화면 안에서). 확인 창에서 취소하면
+ * 하루 동안 자동으로는 다시 묻지 않음 — 뜨자마자(3초 안) 닫힌 것은 취소로 치지 않고 다시 띄움 (2번까지)
  */
 final class Updater {
     interface Listener {
@@ -138,8 +141,92 @@ final class Updater {
         install(c, apk);
     }
 
+    // ---------- 확인 창 (모두 UI 스레드에서: 화면 onResume·onPause, InstallReceiver.onReceive)
+    /** 확인 창을 띄울 수 있는 앱 화면 (MainActivity·SettingsActivity) */
+    interface Host {
+        void checkUpdate(boolean auto);
+    }
+
+    /** 확인 창이 뜨고 이 안에 닫히면 사람이 취소한 게 아니라 저절로 닫힌 것으로 봄 */
+    private static final long QUICK_CLOSE_MS = 3000;
+    /** 저절로 닫히면 바로 다시 띄우는 횟수 (계속 닫히면 그만 — '새 버전 확인'을 눌러야 함) */
+    private static final int QUICK_RETRIES = 2;
+    private static WeakReference<Activity> front = new WeakReference<>(null);
+    private static Intent pendingConfirm;
+    private static long confirmShownAt;
+    private static int quickCloses;
+    private static boolean retryOnResume;
+
+    /** 화면 onResume 맨 앞에서: 기다리던 확인 창을 띄우거나, 저절로 닫힌 뒤면 곧바로 다시 확인하게 함 */
+    static void resumed(Activity a) {
+        front = new WeakReference<>(a);
+        if (pendingConfirm != null) {
+            Intent i = pendingConfirm;
+            pendingConfirm = null;
+            showConfirm(a, i);
+        } else if (retryOnResume) {
+            retryOnResume = false;
+            synchronized (Updater.class) { lastAuto = 0; }
+        }
+    }
+
+    static void paused(Activity a) {
+        if (front.get() == a) front = new WeakReference<>(null);
+    }
+
+    /**
+     * 시스템의 '업데이트' 확인 창. 앱 밖(새 작업)으로 띄우면 앱이 막 켜지는 중에 앱 화면이 그 위로 올라와
+     * 창이 저절로 닫히곤 해서, 보이는 앱 화면 안에서 띄움. 앱 화면이 없으면 다음에 앱을 열 때 띄움
+     */
+    static void confirm(Context c, Intent i) {
+        Activity a = front.get();
+        if (a == null || a.isFinishing()) {
+            pendingConfirm = i;
+            return;
+        }
+        showConfirm(a, i);
+    }
+
+    private static void showConfirm(Activity a, Intent i) {
+        try {
+            a.startActivity(i);
+            confirmShownAt = System.currentTimeMillis();
+        } catch (RuntimeException e) {
+            new Store(a).setUpdateMessage("업데이트 확인 창을 열지 못했어요 — '새 버전 확인'을 다시 눌러 주세요");
+        }
+    }
+
+    /** 확인 창이 취소로 끝남: 사람이 누른 취소면 하루 동안 묻지 않고, 저절로 닫혔으면 다시 띄움 */
+    static void aborted(Store s) {
+        long shown = confirmShownAt;
+        confirmShownAt = 0;
+        boolean quick = shown > 0 && System.currentTimeMillis() - shown < QUICK_CLOSE_MS;
+        if (!quick) {
+            s.setUpdateDeclinedAt(System.currentTimeMillis());
+            s.setUpdateMessage("업데이트를 취소했어요 — 하루 동안은 자동으로 묻지 않아요");
+            return;
+        }
+        if (quickCloses >= QUICK_RETRIES) {
+            s.setUpdateMessage("업데이트 창이 자꾸 닫혀요 — '새 버전 확인'을 눌러 주세요");
+            return;
+        }
+        quickCloses++;
+        s.setUpdateMessage("");
+        Activity a = front.get();
+        if (a instanceof Host && !a.isFinishing()) {
+            synchronized (Updater.class) { lastAuto = System.currentTimeMillis(); }
+            ((Host) a).checkUpdate(true);
+        } else {
+            retryOnResume = true;   // 앱 화면으로 돌아오면 다시 확인
+        }
+    }
+
     private static void install(Context c, File apk) throws Exception {
         PackageInstaller pi = c.getPackageManager().getPackageInstaller();
+        // 저절로 닫히거나 앱이 꺼져 끝나지 않은 예전 설치는 치움
+        for (PackageInstaller.SessionInfo old : pi.getMySessions()) {
+            try { pi.abandonSession(old.getSessionId()); } catch (RuntimeException ignored) { }
+        }
         PackageInstaller.SessionParams p = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
         p.setAppPackageName(c.getPackageName());
         p.setSize(apk.length());

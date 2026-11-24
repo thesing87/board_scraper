@@ -38,7 +38,7 @@ import android.widget.Toast;
  * 페이지는 window.LedgerApp(Bridge)로 이 앱을 알아보고, 가계부의 '이 휴대폰 앱에 연결'을 누르면 연결 주소를 넘겨줌.
  * 다른 주소의 링크는 브라우저로 엶 (앱 안에는 홈·가계부·근무표만)
  */
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements Updater.Host {
     private static final int PICK_FILE = 1;
     static final int TAB_LEDGER = 0, TAB_DUTY = 1, TAB_HOME = 2;
     private static final String[] PATHS = {"/ledger/", "/duty/", "/yeye/"};
@@ -161,6 +161,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        Updater.resumed(this);   // 기다리던 업데이트 확인 창 (autoDue보다 먼저)
         for (WebView w : webs) w.onResume();
         // 앱 정보 화면에서 캘린더 권한을 켜고 돌아왔을 수 있음
         if (!loaded[TAB_DUTY].isEmpty() && store.calendarOn()) calendarChanged();
@@ -187,6 +188,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        Updater.paused(this);
         for (WebView w : webs) w.onPause();
         CookieManager.getInstance().flush();   // 가계부 로그인 쿠키를 바로 저장
         // 앱에서 로그인했거나 근무표를 봤으면 위젯도 새로 (위젯이 있을 때만)
@@ -223,7 +225,8 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void checkUpdate(boolean auto) {
+    @Override
+    public void checkUpdate(boolean auto) {
         Updater.check(this, auto, (text, needPermission) -> ui.post(() -> {
             updateText = text;
             updateNeedsPermission = needPermission;
