@@ -516,8 +516,8 @@ final class DutyWidgets {
             }
         }
 
-        /** 여러 날 일정 띠: 칸 사이 틈까지 이어서, 시작·끝 날만 모서리를 둥글게. 이름은 흰 글자 (띠가 넓어 한 줄) */
-        void eventSpan(Ev e, RectF r, boolean head, boolean tail) {
+        /** 여러 날 일정 띠: 칸 사이 틈까지 이어서, 시작·끝 날만 모서리를 둥글게. 이름은 흰 글자, 잘리면 그 줄 높이만큼(두 줄까지) */
+        void eventSpan(Ev e, RectF r, boolean head, boolean tail, int lines) {
             fill.setColor(e.color);
             cv.drawRoundRect(r, 2.5f, 2.5f, fill);
             if (!head) cv.drawRect(new RectF(r.left, r.top, r.left + 3, r.bottom), fill);
@@ -525,8 +525,19 @@ final class DutyWidgets {
             float max = r.width() - 6;
             if (max >= 6) {
                 text.setTypeface(Typeface.DEFAULT_BOLD);
-                textAt(fitClip(e.title, EV_TEXT, max), r.left + 3, r.bottom - 2.6f, EV_TEXT, 0xFFFFFFFF, true, Paint.Align.LEFT);
+                List<String> l = wrap(e.title, EV_TEXT, max, lines);
+                for (int i = 0; i < l.size(); i++) {
+                    float base = r.top + (i + 1) * EV_LINE + i * EV_GAP - 2.6f;
+                    textAt(l.get(i), r.left + 3, base, EV_TEXT, 0xFFFFFFFF, true, Paint.Align.LEFT);
+                }
             }
+        }
+
+        /** 띠 이름이 한 줄에 다 들어가는지 (굵은 글자 기준) */
+        boolean spanFits(Ev e, float width) {
+            text.setTypeface(Typeface.DEFAULT_BOLD);
+            text.setTextSize(EV_TEXT);
+            return text.measureText(e.title) <= width - 6;
         }
 
         /** 다 못 넣은 일정 수: 칸 마지막 줄 오른쪽 (흰 바탕 위에) */
@@ -591,9 +602,17 @@ final class DutyWidgets {
                 int idx = first + day - 1, col = idx % 7, row = idx / 7;
                 cells[day] = new RectF(pad + colW * col + gap / 2, top + cellH * row + gap / 2, pad + colW * (col + 1) - gap / 2, top + cellH * (row + 1) - gap / 2);
             }
+            // 띠 줄 높이 (주마다): 그 주 그 줄의 띠 이름 중 하나라도 한 줄에 안 들어가면 두 줄
+            Map<Integer, Integer> laneH = new HashMap<>();
+            for (Seg g : segs) {
+                int key = ((first + g.a - 1) / 7) * 100 + g.lane;
+                RectF a = cells[g.a], b = cells[g.b];
+                int need = spanFits(g.e, (b.right - 2) - (a.left + 2)) ? 1 : 2;
+                laneH.put(key, Math.max(need, laneH.containsKey(key) ? laneH.get(key) : 1));
+            }
             int[] hidden = new int[last + 1];
             for (int day = 1; day <= last; day++) {
-                int col = (first + day - 1) % 7;
+                int col = (first + day - 1) % 7, week = (first + day - 1) / 7;
                 String key = String.format(Locale.ROOT, "%s-%02d", r.month, day);
                 RectF cell = cells[day];
                 Type t = r.at(key);
@@ -607,14 +626,14 @@ final class DutyWidgets {
                     if (g.a > day || day > g.b) continue;
                     anyMulti = true;
                     lanes = Math.max(lanes, g.lane + 1);
-                    if (g.lane >= fit) overHidden++;
+                    if (laneSlot(laneH, week, g.lane) + laneHeight(laneH, week, g.lane) > fit) overHidden++;
                 }
                 if (roomy) {
                     textAt(String.valueOf(day), cell.centerX(), cell.top + 14, 14, today ? GREEN : numColor, true, Paint.Align.CENTER);
                     if (t != null) badge(t, cell.centerX(), cell.top + 16 + bh / 2, bh, cell.width() - 2, Math.min(14, bh - 4));
                     if (fit > 0) {
                         // 띠 줄 다음부터 하루 일정: 이름이 잘리면 두 줄까지 (자리가 한 줄뿐이면 한 줄로 줄임)
-                        int slot = Math.min(fit, lanes), shown = 0;
+                        int slot = Math.min(fit, laneSlot(laneH, week, lanes)), shown = 0;
                         float tw = cell.width() - 4 - 4;
                         for (Ev e : singles) {
                             if (slot >= fit) break;
@@ -655,9 +674,10 @@ final class DutyWidgets {
             for (Seg g : segs) {
                 RectF a = cells[g.a], b = cells[g.b];
                 if (fit > 0) {
-                    if (g.lane >= fit) continue;
-                    float ly = a.top + evTop + g.lane * (EV_LINE + EV_GAP);
-                    eventSpan(g.e, new RectF(a.left + 2, ly, b.right - 2, ly + EV_LINE), g.head, g.tail);
+                    int week = (first + g.a - 1) / 7, slot = laneSlot(laneH, week, g.lane), lh = laneHeight(laneH, week, g.lane);
+                    if (slot + lh > fit) continue;
+                    float ly = a.top + evTop + slot * (EV_LINE + EV_GAP);
+                    eventSpan(g.e, new RectF(a.left + 2, ly, b.right - 2, ly + lh * EV_LINE + (lh - 1) * EV_GAP), g.head, g.tail, lh);
                 } else if (g.lane == 0) {
                     fill.setColor(g.e.color);
                     cv.drawRect(new RectF(a.left + (g.head ? 4 : 0), a.bottom - 4, b.right - (g.tail ? 4 : 0), a.bottom - 2), fill);
@@ -671,6 +691,19 @@ final class DutyWidgets {
                     more(hidden[day], new RectF(c.left + 2, ly, c.right - 2, ly + EV_LINE));
                 }
             }
+        }
+
+        /** 그 주 그 띠 줄의 높이 (1 또는 2줄) */
+        static int laneHeight(Map<Integer, Integer> laneH, int week, int lane) {
+            Integer v = laneH.get(week * 100 + lane);
+            return v == null ? 1 : v;
+        }
+
+        /** 그 주 그 띠 줄이 시작하는 줄 자리 (위 띠 줄들의 높이를 더함) */
+        static int laneSlot(Map<Integer, Integer> laneH, int week, int lane) {
+            int n = 0;
+            for (int l = 0; l < lane; l++) n += laneHeight(laneH, week, l);
+            return n;
         }
 
         /** 오늘 일정 한 줄: '● 10:00 병원 ● 19:00 운동 외 1' (자리가 모자라면 '외 n') */

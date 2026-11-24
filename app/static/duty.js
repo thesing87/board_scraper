@@ -205,13 +205,16 @@
         const max = evMax();
         st.segs = st.cal ? weekSegments(first, last) : null;
         st.segMax = max;
+        // 이름이 잘려 두 줄이 된 띠 줄 {'주-줄': true} — 달·폭이 바뀌면 다시 잼 (placeBars가 재서 넣고 다시 그림)
+        const twoKey = `${st.month}|${Math.round($('cal').clientWidth)}`;
+        if (st.twoKey !== twoKey) { st.twoKey = twoKey; st.two = {}; }
         for (let day = 1; day <= last; day++) {
             const key = `${st.month}-${pad(day)}`, wd = (first + day - 1) % 7, tid = d.days[key];
             if (tid != null) counts[tid] = (counts[tid] || 0) + 1;
             const t = typeOf(tid);
             const evs = (st.cal && st.cal[key]) || [];
             html += `<div class="day${wd === 0 ? ' sun' : wd === 6 ? ' sat' : ''}${key === d.today ? ' today' : ''}${st.cal && key === selDay() ? ' sel' : ''}" data-day="${key}" role="button" aria-label="${m}월 ${day}일${t ? ' ' + esc(t.name) : ''}${evs.length ? ` 일정 ${evs.length}개` : ''}">
-                <span class="n">${day}</span>${t ? `<span class="badge" style="${badgeStyle(t.color)}">${esc(t.code)}</span>` : st.cal ? '<span class="badge ph">&nbsp;</span>' : ''}${st.cal ? evCell(key, day, max) : ''}</div>`;
+                <span class="n">${day}</span>${t ? `<span class="badge" style="${badgeStyle(t.color)}">${esc(t.code)}</span>` : st.cal ? '<span class="badge ph">&nbsp;</span>' : ''}${st.cal ? evCell(key, day, max, Math.floor((first + day - 1) / 7)) : ''}</div>`;
         }
         $('cal').innerHTML = html;
         $('cal').classList.toggle('has-ev', !!st.cal);   // 캘린더 일정 이름 서너 줄 자리만큼 칸을 높게
@@ -263,23 +266,31 @@
                 let lane = 0;
                 while ([...Array(b - a + 1).keys()].some(i => (used[a + i] || []).includes(lane))) lane++;
                 for (let d = a; d <= b; d++) (used[d] = used[d] || []).push(lane);
-                segs.push({ e, a, b, lane, head: a === a0 && e.day >= from, tail: b === z && e.endDay <= to });
+                segs.push({ e, a, b, lane, week: Math.floor((first + a - 1) / 7), head: a === a0 && e.day >= from, tail: b === z && e.endDay <= to });
                 a = b + 1;
             }
         }
         return segs;
     }
 
-    // 칸 안 일정: 여러 날 일정 띠 자리(빈 줄) 다음에 하루 일정 이름 (캘린더 색 띠), 넘치면 +n.
-    // 시간 있는 일정은 시작 시각을 앞에 (휴대폰처럼 칸이 좁으면 CSS가 시각을 숨김)
-    function evCell(key, day, max) {
+    // 칸 안 일정: 여러 날 일정 띠 자리(빈 줄, 이름이 두 줄인 띠는 두 줄) 다음에 하루 일정 이름 (캘린더 색 띠), 넘치면 +n.
+    // 줄 수(max)는 한 줄짜리 기준 — 두 줄짜리 띠는 두 칸을 씀. 시간 있는 일정은 시작 시각을 앞에 (휴대폰처럼 칸이 좁으면 CSS가 시각을 숨김)
+    function evCell(key, day, max, week) {
         const singles = (st.cal[key] || []).filter(e => e.day === e.endDay);
         const over = (st.segs || []).filter(g => g.a <= day && day <= g.b);
-        const lanes = Math.min(max, over.reduce((n, g) => Math.max(n, g.lane + 1), 0));
-        const room = max - lanes;
-        const hidden = Math.max(0, singles.length - room) + over.filter(g => g.lane >= max).length;
+        const lanes = over.reduce((n, g) => Math.max(n, g.lane + 1), 0);
+        let used = 0, spacers = '', shownLanes = 0;
+        for (let l = 0; l < lanes; l++) {
+            const two = !!(st.two && st.two[`${week}-${l}`]), h = two ? 2 : 1;
+            if (used + h > max) break;
+            spacers += `<span class="evc sp${two ? ' two' : ''}"></span>`;
+            used += h;
+            shownLanes++;
+        }
+        const room = max - used;
+        const hidden = Math.max(0, singles.length - room) + over.filter(g => g.lane >= shownLanes).length;
         const chip = e => `<span class="evc" style="--c:${esc(e.color)}">${!e.allDay ? `<span class="tm">${esc(e.start)}</span>` : ''}${esc(e.title)}</span>`;
-        const html = '<span class="evc sp"></span>'.repeat(lanes) + singles.slice(0, room).map(chip).join('');
+        const html = spacers + singles.slice(0, room).map(chip).join('');
         return html || hidden ? `<span class="evs" data-hidden="${hidden}">${html}${hidden ? `<b>+${hidden}</b>` : ''}</span>` : '';
     }
 
@@ -312,22 +323,33 @@
         if (!st.cal || !st.segs || !st.segs.length) return;
         const rc = cal.getBoundingClientRect();
         if (!rc.width) return;   // 안 보이는 중 (보이면 ResizeObserver가 다시 부름)
+        let grew = false;
         for (const g of st.segs) {
-            if (g.lane >= st.segMax) continue;
             const c0 = cal.querySelector(`[data-day="${st.month}-${pad(g.a)}"]`), c1 = cal.querySelector(`[data-day="${st.month}-${pad(g.b)}"]`);
             const sp = c0 && c0.querySelectorAll('.evc.sp')[g.lane];
             if (!sp || !c1) continue;
             const r0 = c0.getBoundingClientRect(), r1 = c1.getBoundingClientRect(), rs = sp.getBoundingClientRect();
             const el = document.createElement('span');
-            el.className = `evbar${g.head ? ' head' : ''}${g.tail ? ' tail' : ''}`;
+            const two = sp.classList.contains('two');
+            el.className = `evbar${two ? ' two' : ''}${g.head ? ' head' : ''}${g.tail ? ' tail' : ''}`;
             el.style.cssText = `left:${r0.left - rc.left + 2}px;width:${r1.right - r0.left - 4}px;top:${rs.top - rc.top}px;height:${rs.height}px;--c:${g.e.color}`;
             el.textContent = g.e.title;
             cal.appendChild(el);
+            // 한 줄에 이름이 다 안 들어가면 그 주의 그 줄을 두 줄로 (다시 그림)
+            if (!two && el.scrollWidth > el.clientWidth + 1) { st.two[`${g.week}-${g.lane}`] = true; grew = true; }
         }
+        if (grew) renderCal();
     }
+    let resizeWait = 0;
     if (window.ResizeObserver) new ResizeObserver(() => {
         if (!st.cal || !st.data) return;
-        if (evMax() !== st.segMax) renderCal(); else { fitCells(); placeBars(); }   // 휴대폰↔넓은 화면이 바뀌면 줄 수부터 다시
+        // 크기가 다 바뀐 뒤에 한 번 (바뀌는 도중의 폭으로 두 줄 띠를 정하지 않게).
+        // 휴대폰↔넓은 화면이 바뀌거나 폭이 바뀌면 줄 수·두 줄 띠부터 다시
+        clearTimeout(resizeWait);
+        resizeWait = setTimeout(() => {
+            if (evMax() !== st.segMax || `${st.month}|${Math.round($('cal').clientWidth)}` !== st.twoKey) renderCal();
+            else { fitCells(); placeBars(); }
+        }, 150);
     }).observe($('cal'));
     function evTime(e, day) {
         if (e.allDay) return '종일';
