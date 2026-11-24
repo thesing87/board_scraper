@@ -219,7 +219,7 @@ def state(month):
         _seed_categories(conn)
         entries = conn.execute("""SELECT id, user_id, amount, used_on, category_id, memo, created_at FROM ledger_entries
                                   WHERE used_on >= ? AND used_on < ? ORDER BY used_on DESC, id DESC""", (start, end)).fetchall()
-        cats = conn.execute("SELECT id, name, color, kind FROM ledger_categories ORDER BY position, id").fetchall()
+        cats = conn.execute("SELECT id, name, color, kind, icon FROM ledger_categories ORDER BY position, id").fetchall()
         members = conn.execute("""SELECT id, name, is_admin FROM ledger_users
                                   WHERE status = 'approved' OR id IN (SELECT DISTINCT user_id FROM ledger_entries)
                                   ORDER BY is_admin DESC, id""").fetchall()
@@ -302,27 +302,39 @@ def _category_values(name, color):
     return name, color.upper()
 
 
-def add_category(name, color, kind='expense'):
+ICON_MAX = 8   # 이모지 하나 (여러 글자로 된 이모지까지)
+
+
+def _icon_value(icon):
+    icon = str(icon or '').strip()
+    if len(icon) > ICON_MAX or any(c.isspace() for c in icon):
+        raise LedgerError('아이콘을 다시 골라 주세요.')
+    return icon
+
+
+def add_category(name, color, kind='expense', icon=''):
     name, color = _category_values(name, color)
+    icon = _icon_value(icon)
     if kind not in KINDS:
         raise LedgerError('지출인지 수입인지 골라 주세요.')
     with _db() as conn, conn:
         if conn.execute("SELECT 1 FROM ledger_categories WHERE name = ?", (name,)).fetchone():
             raise LedgerError('이미 있는 이름이에요.')
         position = conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM ledger_categories").fetchone()[0]
-        return conn.execute("INSERT INTO ledger_categories(name, color, kind, position, created_at) VALUES(?, ?, ?, ?, ?)",
-                            (name, color, kind, position, _now())).lastrowid
+        return conn.execute("INSERT INTO ledger_categories(name, color, kind, position, created_at, icon) VALUES(?, ?, ?, ?, ?, ?)",
+                            (name, color, kind, position, _now(), icon)).lastrowid
 
 
-def edit_category(category_id, name, color):
-    """이름·색 바꾸기 (기록은 소비형태 번호로 이어져 있어 이름을 바꿔도 함께 바뀜)"""
+def edit_category(category_id, name, color, icon=None):
+    """이름·색(·아이콘, None이면 그대로) 바꾸기 (기록은 소비형태 번호로 이어져 있어 이름을 바꿔도 함께 바뀜)"""
     name, color = _category_values(name, color)
+    icon = None if icon is None else _icon_value(icon)
     with _db() as conn, conn:
         if not conn.execute("SELECT 1 FROM ledger_categories WHERE id = ?", (category_id,)).fetchone():
             raise LedgerError('없는 소비형태예요.')
         if conn.execute("SELECT 1 FROM ledger_categories WHERE name = ? AND id != ?", (name, category_id)).fetchone():
             raise LedgerError('이미 있는 이름이에요.')
-        conn.execute("UPDATE ledger_categories SET name = ?, color = ? WHERE id = ?", (name, color, category_id))
+        conn.execute("UPDATE ledger_categories SET name = ?, color = ?, icon = COALESCE(?, icon) WHERE id = ?", (name, color, icon, category_id))
 
 
 def delete_category(category_id):

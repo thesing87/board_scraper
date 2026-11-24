@@ -34,6 +34,21 @@
         return '#' + c.map(v => Math.round(v + (t - v) * f).toString(16).padStart(2, '0')).join('');
     }
     const chipBg = h => mix(h, true, 0.84), chipFg = h => mix(h, false, 0.45);
+    // 분류 아이콘: 고른 이모지, 없으면 이름으로 짐작, 그것도 없으면 이름 첫 글자
+    const ICONS = ['🍚', '☕', '🚌', '🧺', '🛍️', '💊', '🏠', '📱', '🎁', '🎬', '📚', '🐶', '✈️', '🚗', '💡', '🍺', '💄', '👶', '📦', '💳', '💰', '💵', '🎉', '🏦'];
+    const GUESS = [[/식|밥|외식|배달/, '🍚'], [/카페|커피/, '☕'], [/교통|버스|지하철|택시/, '🚌'], [/생활|마트|장보/, '🧺'], [/쇼핑|옷/, '🛍️'],
+        [/의료|병원|약|건강/, '💊'], [/주거|월세|관리비|집/, '🏠'], [/통신|휴대폰|폰/, '📱'], [/경조|선물/, '🎁'], [/문화|여가|취미|영화/, '🎬'],
+        [/교육|학원|책/, '📚'], [/반려|강아지|고양이|펫/, '🐶'], [/여행/, '✈️'], [/차|주유|주차/, '🚗'], [/공과|전기|가스|수도/, '💡'], [/술/, '🍺'],
+        [/미용|화장/, '💄'], [/육아|아이/, '👶'], [/급여|월급/, '💰'], [/부수입/, '💵'], [/용돈/, '🎉'], [/이자|환급/, '🏦']];
+    function iconOf(c) {
+        if (c.icon) return c.icon;
+        const g = GUESS.find(([re]) => re.test(c.name || ''));
+        return g ? g[1] : [...(c.name || '?')][0];
+    }
+    const catIcon = c => `<span class="ci" style="background:${chipBg(c.color)};color:${chipFg(c.color)}" aria-hidden="true">${esc(iconOf(c))}</span>`;
+    // 휴대폰(손가락): 금액은 화면 아래 숫자 키패드로 (휴대폰 자판을 띄우지 않음)
+    const touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    if (touch) document.documentElement.classList.add('touch');
 
     const st = {
         me: null, data: null, mode: 'month', day: new Date(), who: 0,
@@ -43,7 +58,9 @@
         totView: 'day', year: new Date().getFullYear(), yearData: null,
         // 자동 기록: 확인 대기함·가게 규칙·내 연결 상태, 대기함에서 고치는 중인 알림
         inbox: [], rules: [], hook: null, hookBase: '', ibDirty: {}, newCatFor: null, newCat: { name: '', color: null, msg: '' },
-        catEditing: false, popFor: null, addColor: null, editId: null, ddIndex: -1,
+        catEditing: false, popFor: null, addColor: null, addIcon: '', editId: null, ddIndex: -1,
+        // view: 아래 보기(list 내역·cal 달력·ana 분석), ibOpen: 펼쳐 고치는 대기함 항목
+        view: 'list', ibOpen: new Set(),
     };
 
     // ==========================================
@@ -206,7 +223,20 @@
         renderFilter();
         renderSummary();
         renderTotals();
+        renderViews();
     }
+    function renderViews() {
+        document.querySelectorAll('#views [data-view]').forEach(b => {
+            b.classList.toggle('on', b.dataset.view === st.view);
+            b.setAttribute('aria-selected', String(b.dataset.view === st.view));
+        });
+        document.querySelectorAll('#app .pane').forEach(p => { p.hidden = p.dataset.pane !== st.view; });
+        $('type-seg').hidden = st.view !== 'list';   // 지출·수입 거르기는 내역에만 (달력·분석은 자기 단추)
+    }
+    $('views').addEventListener('click', e => {
+        const b = e.target.closest('[data-view]');
+        if (b) { st.view = b.dataset.view; renderViews(); }
+    });
 
     function renderEntryHead() {
         const editing = st.editId != null, income = st.kind === 'income';
@@ -217,8 +247,6 @@
         $('kind-expense').setAttribute('aria-checked', String(!income));
         $('kind-income').setAttribute('aria-checked', String(income));
         $('entry-title').textContent = editing ? '기록 고치기' : income ? '수입 입력' : '지출 입력';
-        $('entry-note').textContent = editing ? '고친 뒤 저장을 누르세요' : `${st.me.name} 이름으로 기록돼요`;
-        $('save').textContent = editing ? '저장' : '입력';
         $('edit-row').hidden = !editing;
     }
 
@@ -227,29 +255,32 @@
     }
     function renderCats() {
         const cats = kindCats();
-        const word = st.kind === 'income' ? '수입 종류' : '소비형태';
         $('cats').classList.toggle('editing', st.catEditing);
-        $('cat-hint').textContent = st.catEditing ? `바꿀 ${word}를 누르세요` : `${word} — 누르면 선택, 없으면 추가`;
-        $('cat-edit').textContent = st.catEditing ? '편집 끝' : '색·이름 편집';
+        $('cat-edit').textContent = st.catEditing ? '완료' : '편집';
         $('cats').innerHTML = cats.map(c => `<span class="chip${!st.catEditing && c.id === selected() ? ' on' : ''}" data-cat="${c.id}" role="button" tabindex="0"
-                style="background:${chipBg(c.color)};color:${chipFg(c.color)}">${chipHtml(c)}${st.popFor === c.id ? popHtml(c) : ''}</span>`).join('')
-            + (st.catEditing ? '' : '<span class="chip add" id="cat-add" role="button" tabindex="0">＋ 추가</span>');
+                style="color:${chipFg(c.color)}">${catIcon(c)}<span class="cn">${esc(c.name)}</span>${st.popFor === c.id ? popHtml(c) : ''}</span>`).join('')
+            + (st.catEditing ? '' : '<span class="chip add" id="cat-add" role="button" tabindex="0"><span class="ci">＋</span><span class="cn">추가</span></span>');
     }
     function palHtml(current, attr) {
         const cur = (current || '').toUpperCase();
         return PRESET.map(h => `<button type="button" class="sw${cur === h ? ' on' : ''}" ${attr}="${h}" style="background:${h}" aria-label="${h}">${cur === h ? '✓' : ''}</button>`).join('');
     }
+    function iconsHtml(current, attr) {
+        return ICONS.map(i => `<button type="button" class="ic${current === i ? ' on' : ''}" ${attr}="${i}" aria-label="${i}">${i}</button>`).join('');
+    }
     function popHtml(c) {
         return `<div class="pop" data-pop>
             <input id="pop-name" value="${esc(c.name)}" maxlength="12" aria-label="소비형태 이름">
+            <div class="icons">${iconsHtml(iconOf(c), 'data-pop-icon')}</div>
             <div class="pal">${palHtml(c.color, 'data-pop-color')}</div>
-            <label class="custom"><input type="color" id="pop-custom" value="${c.color.toLowerCase()}"> 직접 고르기</label>
+            <label class="custom"><input type="color" id="pop-custom" value="${c.color.toLowerCase()}"> 다른 색</label>
             <div class="pop-actions"><button type="button" class="primary" data-pop-save>완료</button><button type="button" class="danger" data-pop-delete>지우기</button></div>
             <p class="msg" id="pop-msg"></p></div>`;
     }
 
     function renderAddBox() {
         $('add-pal').innerHTML = palHtml(st.addColor, 'data-add-color');
+        $('add-icons').innerHTML = iconsHtml(st.addIcon, 'data-add-icon');
         const name = $('new-name').value.trim() || '새 소비형태';
         const pv = $('new-preview');
         if (st.addColor) {
@@ -262,24 +293,18 @@
     }
 
     function renderFilter() {
-        $('mode-day').classList.toggle('on', st.mode === 'day');
-        $('mode-month').classList.toggle('on', st.mode === 'month');
         $('type-seg').querySelectorAll('[data-type]').forEach(b => b.classList.toggle('on', b.dataset.type === st.type));
         $('ana-seg').querySelectorAll('[data-ana]').forEach(b => b.classList.toggle('on', b.dataset.ana === st.ana));
         const d = st.day;
-        // 기간 (해도 함께): 월별 '2026년 11월', 일별 '2026.11.23 (일)'
+        // 기간: 월별 '2026년 11월', 일별(달력에서 날짜를 누름) '11월 23일 (일)' — 누르면 이 달 전체로
         $('period').textContent = st.mode === 'day'
-            ? `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()} (${'일월화수목금토'[d.getDay()]})`
+            ? `${d.getMonth() + 1}월 ${d.getDate()}일 (${'일월화수목금토'[d.getDay()]})`
             : `${d.getFullYear()}년 ${d.getMonth() + 1}월`;
-        $('mode-btn').textContent = `${st.mode === 'day' ? '일별' : '월별'} ▾`;
+        $('period').classList.toggle('day', st.mode === 'day');
         const members = st.data.members;
         if (st.who && !members.some(m => m.id === st.who)) st.who = 0;
-        $('people').innerHTML = `<button type="button" class="pp all${!st.who ? ' on' : ''}" data-who="0">모두</button>`
-            + members.map(m => `<button type="button" class="pp${st.who === m.id ? ' on' : ''}" data-who="${m.id}">${avatarOf(m.id, m.name)}${esc(m.name)}</button>`).join('');
-        // '전체 ▾' 단추: 고른 사람·종류를 보여 주고, 거른 상태면 파랗게
-        const picked = [st.who ? nameOf(st.who) : '', { expense: '지출만', income: '수입만' }[st.type] || ''].filter(Boolean);
-        $('pick-btn').textContent = `${picked.length ? picked.join(' · ') : '전체'} ▾`;
-        $('pick-btn').classList.toggle('on', picked.length > 0);
+        $('people').innerHTML = `<button type="button" class="pp all${!st.who ? ' on' : ''}" data-who="0">전체</button>`
+            + members.map(m => `<button type="button" class="pp${st.who === m.id ? ' on' : ''}" data-who="${m.id}">${esc(m.name)}</button>`).join('');
     }
 
     function renderSummary() {
@@ -287,27 +312,25 @@
         const sumOf = kind => scope.filter(e => kindOf(e) === kind).reduce((t, e) => t + e.amount, 0);
         const inSum = sumOf('income'), exSum = sumOf('expense'), left = inSum - exSum;
         const whoName = st.who ? nameOf(st.who) : '';
-        const when = `${st.mode === 'day' ? '이날' : '이 달'}`;
-        $('m-in-label').textContent = `${when} 수입${whoName ? ` · ${whoName}` : ''}`;
+        const when = st.mode === 'day' ? '이날' : ym(st.day) === ym(new Date()) ? '이번 달' : `${st.day.getMonth() + 1}월`;
         $('m-ex-label').textContent = `${when} 지출${whoName ? ` · ${whoName}` : ''}`;
-        $('m-in').textContent = `+${won(inSum)}`;
-        $('m-ex').textContent = `−${won(exSum)}`;
+        $('m-in').textContent = won(inSum);
+        $('m-ex').textContent = won(exSum);
         $('m-left').textContent = `${left < 0 ? '−' : ''}${won(Math.abs(left))}`;
-        $('m-left').className = left < 0 ? 'minus' : left > 0 ? 'plus' : '';
-        $('m2').textContent = `${list.length}건`;
+        $('m-left').className = left < 0 ? 'minus' : '';
+        // 수입 대비 지출 막대 (수입이 없으면 지출이 있을 때 가득)
+        $('m-bar').style.width = `${inSum ? Math.min(100, Math.round(exSum / inSum * 100)) : exSum ? 100 : 0}%`;
         // 분석: 고른 쪽(지출·수입)의 분류별 합계
         const sums = new Map();
         scope.filter(e => kindOf(e) === st.ana).forEach(e => sums.set(e.category_id, (sums.get(e.category_id) || 0) + e.amount));
         const parts = [...sums.entries()].sort((a, b) => b[1] - a[1]);
         const total = parts.reduce((t, p) => t + p[1], 0);
-        // 접힌 '분석 · 달력' 줄의 요약: 가장 많은 소비형태
-        $('ana-note').textContent = parts.length ? `가장 많음: ${catOf(parts[0][0]).name} ${Math.round(parts[0][1] / total * 100)}%` : '';
         renderDonut(parts, total, whoName ? `${whoName} ${st.ana === 'income' ? '수입' : '지출'}` : st.ana === 'income' ? '수입' : '지출');
         $('legend').innerHTML = parts.length ? parts.map(([id, v]) => {
             const c = catOf(id), pct = Math.round(v / total * 100);
-            return `<div class="lg"><div class="lg-top"><span class="dot" style="background:${c.color}"></span><span class="n">${esc(c.name)}</span>
+            return `<div class="lg"><div class="lg-top">${catIcon(c)}<span class="n">${esc(c.name)}</span>
                 <span class="p">${pct}%</span><span class="w">${won(v)}</span></div><div class="lg-bar"><i style="width:${pct}%;background:${c.color}"></i></div></div>`;
-        }).join('') : `<p class="empty">이 기간에는 ${st.ana === 'income' ? '수입' : '지출'} 기록이 없어요</p>`;
+        }).join('') : `<p class="empty">${st.ana === 'income' ? '수입' : '지출'} 기록이 없어요</p>`;
         renderList(list);
     }
 
@@ -424,8 +447,8 @@
         if (!b) return;
         if (st.mode === 'day' && ymd(st.day) === b.dataset.day) { st.mode = 'month'; }
         else { st.mode = 'day'; const [y, m, d] = b.dataset.day.split('-').map(Number); st.day = new Date(y, m - 1, d); }
+        st.view = 'list';   // 그날 내역이 보이게
         render();
-        $('list-fold').open = true;   // 그날 기록이 보이게
     });
     // 월별의 달: 그 달을 월별로 보고 합계는 그 달 달력으로
     function openMonth(month) {
@@ -439,24 +462,23 @@
     $('mtable').addEventListener('click', e => { const r = e.target.closest('[data-month]'); if (r) openMonth(Number(r.dataset.month)); });
 
     function canEdit(e) { return st.me && (st.me.admin || e.user_id === st.me.id); }
+    // 내역: 날짜별 묶음 ('24일 월요일' + 그날 합계). 한 줄은 분류 아이콘 · 메모(없으면 분류) · '분류 · 사람' · 금액,
+    // 칸 바탕은 쓴 사람의 색. 내 기록은 누르면 고치기, 휴대폰에서 왼쪽으로 밀면 '지우기'
     function renderList(list) {
-        if (!list.length) { $('count').textContent = '0건'; $('list').innerHTML = '<p class="empty">이 기간에는 기록이 없어요</p>'; return; }
+        if (!list.length) { $('list').innerHTML = '<p class="empty">기록이 없어요</p>'; return; }
         const days = [...new Set(list.map(e => e.used_on))];
-        $('count').textContent = `${list.length}건`;   // (기간 합계는 바로 위 수입·지출·남은 돈 칸에)
         $('list').innerHTML = days.map(day => {
             const items = list.filter(e => e.used_on === day);
-            const dayIn = items.filter(e => kindOf(e) === 'income').reduce((t, e) => t + e.amount, 0);
-            const dayEx = items.filter(e => kindOf(e) === 'expense').reduce((t, e) => t + e.amount, 0);
-            const net = dayIn - dayEx;
-            const head = `<div class="dayh"><b>${+day.slice(5, 7)}월 ${+day.slice(8)}일</b>${dayIn ? `<span>수입 <span class="plus">+${won(dayIn)}</span></span>` : ''}`
-                + `${dayEx ? `<span>지출 <span class="minus">−${won(dayEx)}</span></span>` : ''}<span class="net">합계 ${signed(net)}</span></div>`;
+            const net = items.reduce((t, e) => t + (kindOf(e) === 'income' ? e.amount : -e.amount), 0);
+            const [y, m, dd] = day.split('-').map(Number);
+            const head = `<div class="dayh"><b>${dd}일 ${'일월화수목금토'[new Date(y, m - 1, dd).getDay()]}요일</b><span class="net">${signed(net)}</span></div>`;
             return head + items.map(e => {
                 const c = catOf(e.category_id), mine = canEdit(e), income = c.kind === 'income';
-                // 칸 전체를 쓴 사람의 색으로 (왼쪽에 같은 계열 진한 띠)
-                return `<button type="button" class="it u${mine ? ' mine' : ''}${st.editId === e.id ? ' editing' : ''}" data-entry="${e.id}" style="${userTint(e.user_id)}"${mine ? ' title="눌러서 고치기"' : ' tabindex="-1"'}>
-                    <span class="txt"><span class="memo${e.memo ? '' : ' no-memo'}">${esc(e.memo || c.name)}</span>
-                    <span class="line2"><span class="cat" style="color:${chipFg(c.color)}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span>${income ? '<span class="in-tag">수입</span>' : ''}<span class="sep">·</span>${whoTag(e.user_id)}</span></span>
-                    <span class="amt ${income ? 'plus' : 'minus'}">${income ? '+' : '−'}${won(e.amount)}</span></button>`;
+                return `<div class="sw-row">${mine ? `<button type="button" class="sw-del" data-del="${e.id}">지우기</button>` : ''}
+                    <div class="it u${mine ? ' mine' : ''}${st.editId === e.id ? ' editing' : ''}" data-entry="${e.id}" style="${userTint(e.user_id)}"${mine ? ' role="button" tabindex="0"' : ''}>
+                    ${catIcon(c)}<span class="txt"><span class="memo${e.memo ? '' : ' no-memo'}">${esc(e.memo || c.name)}</span>
+                    <span class="line2"><span class="cat">${esc(c.name)}</span><span class="sep">·</span>${whoTag(e.user_id)}</span></span>
+                    <span class="amt ${income ? 'plus' : 'minus'}">${income ? '+' : '−'}${won(e.amount)}</span></div></div>`;
             }).join('');
         }).join('');
     }
@@ -465,6 +487,37 @@
     // 입력·고치기
     // ==========================================
     function amountValue() { return parseInt(($('amount').value || '').replace(/[^0-9]/g, ''), 10) || 0; }
+    if (touch) { $('amount').readOnly = true; $('amount').setAttribute('inputmode', 'none'); }
+    function openEntry() {
+        $('sheet-wrap').hidden = false;
+        document.documentElement.classList.add('sheet-open');
+        if (!touch) setTimeout(() => $('amount').focus(), 30);
+    }
+    function closeEntry() {
+        $('sheet-wrap').hidden = true;
+        document.documentElement.classList.remove('sheet-open');
+        $('memo-dd').hidden = true;
+        $('addbox').hidden = true;
+        st.popFor = null; st.catEditing = false;
+        if (st.editId != null) { clearForm(); setUsedOn(ymd(new Date())); }
+        render();
+    }
+    $('fab').addEventListener('click', () => {
+        if (st.editId != null) { clearForm(); setUsedOn(ymd(new Date())); }
+        render();
+        openEntry();
+    });
+    $('entry-close').addEventListener('click', closeEntry);
+    $('sheet-wrap').addEventListener('click', e => { if (e.target === $('sheet-wrap')) closeEntry(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('sheet-wrap').hidden && $('memo-dd').hidden) closeEntry(); });
+    $('keypad').addEventListener('click', e => {
+        const b = e.target.closest('[data-key]');
+        if (!b) return;
+        let v = $('amount').value.replace(/[^0-9]/g, '');
+        v = b.dataset.key === 'back' ? v.slice(0, -1) : (v + b.dataset.key).replace(/^0+/, '');
+        $('amount').value = v;
+        $('amount').dispatchEvent(new Event('input', { bubbles: true }));
+    });
     $('amount').addEventListener('input', () => {
         $('entry-msg').textContent = '';
         const v = $('amount').value.replace(/[^0-9]/g, '').slice(0, 10);
@@ -490,8 +543,8 @@
         if (status === 401) { showAuth('login'); return; }
         if (status !== 200) { $('entry-msg').textContent = msgOf(data); return; }
         clearForm();
+        closeEntry();
         await load();
-        $('amount').focus();
     });
     $('amount').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('save').click(); } });
 
@@ -506,31 +559,31 @@
         $('memo').value = entry.memo || '';
         $('entry-msg').textContent = '';
         render();
-        $('entry').open = true;   // 접혀 있으면 펼쳐서 고치기
-        $('entry').scrollIntoView({ block: 'start', behavior: 'smooth' });
+        openEntry();
     }
     $('used-on').addEventListener('input', showUsedOn);
     $('used-on').addEventListener('change', showUsedOn);
     // 칸 어디를 눌러도 달력 (PC 크롬은 아이콘을 눌러야만 열림)
     $('used-on').addEventListener('click', e => { try { e.target.showPicker(); } catch (err) { /* 지원 안 함 */ } });
-    $('edit-cancel').addEventListener('click', () => { clearForm(); setUsedOn(ymd(new Date())); render(); });
+    $('edit-cancel').addEventListener('click', closeEntry);
     $('edit-delete').addEventListener('click', async () => {
-        if (st.editId == null) return;
+        if (st.editId != null && await deleteEntry(st.editId)) { clearForm(); closeEntry(); }
+    });
+    async function deleteEntry(id) {
         // 지울 기록을 확인 창에 보여 줌: 날짜 · 메모(없으면 소비형태) / 소비형태 · 금액 · 쓴 사람
-        const e = st.data.entries.find(x => x.id === st.editId);
+        const e = st.data.entries.find(x => x.id === id);
         let detail = '';
         if (e) {
             const c = catOf(e.category_id), income = c.kind === 'income';
             detail = `\n\n${+e.used_on.slice(5, 7)}월 ${+e.used_on.slice(8)}일 · ${e.memo || c.name}\n`
                 + `${c.name} · ${income ? '+' : '−'}${won(e.amount)} · ${nameOf(e.user_id)}\n\n지우면 되돌릴 수 없어요.`;
         }
-        if (!window.confirm('이 기록을 지울까요?' + detail)) return;
-        const { status, data } = await post('/api/ledger/entry', { action: 'delete', id: st.editId });
-        if (status !== 200) { $('entry-msg').textContent = msgOf(data); return; }
-        clearForm();
-        setUsedOn(ymd(new Date()));
-        load();
-    });
+        if (!window.confirm('이 기록을 지울까요?' + detail)) return false;
+        const { status, data } = await post('/api/ledger/entry', { action: 'delete', id });
+        if (status !== 200) { const m = msgOf(data); if (!$('sheet-wrap').hidden) $('entry-msg').textContent = m; else window.alert(m); return false; }
+        await load();
+        return true;
+    }
 
     // ==========================================
     // 소비형태: 고르기·추가·색과 이름 바꾸기
@@ -542,7 +595,7 @@
         renderCats();
     });
     function openAddBox() {
-        st.addColor = null;
+        st.addColor = null; st.addIcon = '';
         $('new-name').value = '';
         $('add-msg').textContent = '';
         $('addbox').hidden = false;
@@ -556,20 +609,20 @@
         const name = $('new-name').value.trim();
         if (!name) { $('add-msg').textContent = '이름을 넣어 주세요.'; return; }
         if (!st.addColor) { $('add-msg').textContent = '색을 골라 주세요.'; return; }
-        const { status, data } = await post('/api/ledger/category', { action: 'add', name, color: st.addColor, kind: st.kind });
+        const { status, data } = await post('/api/ledger/category', { action: 'add', name, color: st.addColor, kind: st.kind, icon: st.addIcon });
         if (status !== 200) { $('add-msg').textContent = msgOf(data); return; }
         st.sels[st.kind] = data.id;
         $('addbox').hidden = true;
         load();
     });
 
-    async function saveCategory(id, color) {
+    async function saveCategory(id, color, icon) {
         const c = st.data.categories.find(x => x.id === id);
         const nameInput = $('pop-name');
         const name = nameInput ? nameInput.value.trim() : c.name;
-        const { status, data } = await post('/api/ledger/category', { action: 'edit', id, name, color: color || c.color });
+        const { status, data } = await post('/api/ledger/category', { action: 'edit', id, name, color: color || c.color, ...(icon ? { icon } : {}) });
         if (status !== 200) { const m = $('pop-msg'); if (m) m.textContent = msgOf(data); return false; }
-        c.name = name; if (color) c.color = color;
+        c.name = name; if (color) c.color = color; if (icon) c.icon = icon;
         return true;
     }
 
@@ -581,6 +634,8 @@
             const id = st.popFor;
             const sw = e.target.closest('[data-pop-color]');
             if (sw) { if (await saveCategory(id, sw.dataset.popColor)) { render(); } return; }
+            const ic = e.target.closest('[data-pop-icon]');
+            if (ic) { if (await saveCategory(id, null, ic.dataset.popIcon)) { render(); } return; }
             if (e.target.closest('[data-pop-save]')) { if (await saveCategory(id)) { st.popFor = null; render(); } return; }
             if (e.target.closest('[data-pop-delete]')) {
                 if (!window.confirm('이 소비형태를 지울까요?')) return;
@@ -606,8 +661,9 @@
         if (e.target.id !== 'pop-custom') return;
         const chip = e.target.closest('[data-cat]');
         const h = e.target.value;
-        chip.style.background = chipBg(h); chip.style.color = chipFg(h);
-        chip.querySelector('.dot').style.background = h;
+        chip.style.color = chipFg(h);
+        const ci = chip.querySelector('.ci');
+        ci.style.background = chipBg(h); ci.style.color = chipFg(h);
     });
     $('cats').addEventListener('change', async e => {
         if (e.target.id === 'pop-custom' && await saveCategory(st.popFor, e.target.value.toUpperCase())) render();
@@ -615,6 +671,8 @@
     $('addbox').addEventListener('click', e => {
         const sw = e.target.closest('[data-add-color]');
         if (sw) { st.addColor = sw.dataset.addColor; $('add-msg').textContent = ''; renderAddBox(); }
+        const ic = e.target.closest('[data-add-icon]');
+        if (ic) { st.addIcon = ic.dataset.addIcon; renderAddBox(); }
     });
     document.addEventListener('click', e => {
         if (st.popFor != null && !e.target.closest('[data-pop]') && !e.target.closest('[data-cat]')) { st.popFor = null; renderCats(); }
@@ -683,26 +741,8 @@
     }
     $('prev').addEventListener('click', () => moveDay(-1));
     $('next').addEventListener('click', () => moveDay(1));
-    $('mode-day').addEventListener('click', () => {
-        if (st.mode === 'day') return;
-        st.mode = 'day';
-        // 이 달을 보다가 일별로 바꾸면: 오늘이 이 달이면 오늘, 아니면 그 달 1일
-        const today = new Date();
-        if (ym(today) === ym(st.day)) st.day = today;
-        render();
-    });
-    $('mode-month').addEventListener('click', () => { st.mode = 'month'; render(); });
-    // 거르기 고르기 창: 단추를 누르면 열고 닫음, 창 밖을 누르면 닫음. 일별·월별은 고르면 닫고, 종류·사람은 둘 다 고를 수 있게 열어 둠
-    function setPop(id, open) {
-        $(id).hidden = !open;
-        $(id === 'mode-pop' ? 'mode-btn' : 'pick-btn').setAttribute('aria-expanded', String(open));
-    }
-    const closePops = () => { setPop('mode-pop', false); setPop('pick-pop', false); };
-    $('mode-btn').addEventListener('click', () => { const open = $('mode-pop').hidden; closePops(); setPop('mode-pop', open); });
-    $('pick-btn').addEventListener('click', () => { const open = $('pick-pop').hidden; closePops(); setPop('pick-pop', open); });
-    $('mode-pop').addEventListener('click', e => { if (e.target.closest('button')) setPop('mode-pop', false); });
-    // (누른 단추가 다시 그려져 문서에서 빠져도 알 수 있게, 누른 순간의 경로로)
-    document.addEventListener('click', e => { if (!e.composedPath().some(n => n.classList && n.classList.contains('filter'))) closePops(); });
+    // 일별(달력에서 날짜를 누른 때)이면 기간을 눌러 이 달 전체로
+    $('period').addEventListener('click', () => { if (st.mode === 'day') { st.mode = 'month'; render(); } });
     function setKind(kind) {
         if (st.kind === kind) return;
         st.kind = kind;
@@ -710,7 +750,7 @@
         $('addbox').hidden = true;
         $('memo-dd').hidden = true;
         render();
-        $('amount').focus();
+        if (!touch) $('amount').focus();
     }
     $('kind-expense').addEventListener('click', () => setKind('expense'));
     $('kind-income').addEventListener('click', () => setKind('income'));
@@ -720,11 +760,46 @@
         const b = e.target.closest('[data-who]');
         if (b) { st.who = Number(b.dataset.who); render(); }
     });
-    $('list').addEventListener('click', e => {
+    $('list').addEventListener('click', async e => {
+        const del = e.target.closest('[data-del]');
+        if (del) { await deleteEntry(Number(del.dataset.del)); return; }
+        if (Date.now() - (st.swipedAt || 0) < 400) return;
+        const opened = $('list').querySelector('.sw-row.open');
+        if (opened) { opened.classList.remove('open'); return; }   // 밀어 둔 줄이 있으면 먼저 닫기만
         const b = e.target.closest('[data-entry]');
         if (!b) return;
         const entry = st.data.entries.find(x => x.id === Number(b.dataset.entry));
         if (entry && canEdit(entry)) startEdit(entry);
+    });
+    $('list').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.it.mine')) { e.preventDefault(); e.target.click(); } });
+    // 휴대폰: 내 기록 줄을 왼쪽으로 밀면 '지우기'가 나옴 (반쯤 넘게 밀면 열린 채로)
+    let swipe = null;
+    $('list').addEventListener('touchstart', e => {
+        const it = e.target.closest('.it.mine');
+        $('list').querySelectorAll('.sw-row.open').forEach(r => { if (!it || r !== it.parentElement) r.classList.remove('open'); });
+        if (!it) return;
+        const t = e.touches[0];
+        swipe = { it, x: t.clientX, y: t.clientY, dx: 0, moving: false, open: it.parentElement.classList.contains('open') };
+    }, { passive: true });
+    $('list').addEventListener('touchmove', e => {
+        if (!swipe) return;
+        const t = e.touches[0], dx = t.clientX - swipe.x, dy = t.clientY - swipe.y;
+        if (!swipe.moving && Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }   // 위아래로 넘기는 중
+        swipe.moving = true;
+        swipe.it.parentElement.classList.add('swiping');
+        swipe.dx = Math.max(-84, Math.min(0, dx + (swipe.open ? -84 : 0)));
+        swipe.it.style.transition = 'none';
+        swipe.it.style.transform = `translateX(${swipe.dx}px)`;
+    }, { passive: true });
+    $('list').addEventListener('touchend', () => {
+        if (!swipe) return;
+        const { it, dx, moving } = swipe;
+        swipe = null;
+        it.style.transition = ''; it.style.transform = '';
+        it.parentElement.classList.remove('swiping');
+        if (!moving) return;
+        it.parentElement.classList.toggle('open', dx < -42);
+        st.swipedAt = Date.now();   // 민 뒤 손을 뗄 때 생기는 누르기는 고치기로 가지 않게
     });
 
     // ==========================================
@@ -869,16 +944,24 @@
             // 고른 분류가 없으면 지난 기록의 추천 (같은 가게로 가장 많이 쓴 분류, 그대로 확정하면 그 분류로)
             const sug = !x.cancel && x.category_id == null && x.suggest && catOf(x.suggest.category_id).id != null ? x.suggest : null;
             const cat = x.category_id != null ? x.category_id : sug ? sug.category_id : null;
+            const open = st.ibOpen.has(x.id);
             let note;
-            if (x.cancel) note = x.match ? `<span class="note bad">결제 취소 · ${+x.match.used_on.slice(5, 7)}/${+x.match.used_on.slice(8)}의 같은 결제를 찾았어요 — 확정하면 그 기록을 지워요</span>`
-                : '<span class="note bad">결제 취소 · 맞는 기록을 찾지 못했어요 — 확정하면 이 알림만 지워요</span>';
-            else if (sug) note = `<span class="note rec">지난 기록 '${esc(sug.memo)}' ${sug.count}번 → ${esc(catOf(sug.category_id).name)}</span>`;
-            else if (x.category_id == null) note = '<span class="note">규칙에 없는 가게 — 분류를 골라 주세요</span>';
-            else note = `<span class="note">${rule && rule.category_id === x.category_id ? `규칙 "${esc(rule.pattern)}" → ` : ''}${esc(catOf(x.category_id).name)}</span>`;
-            // 취소 알림은 고칠 것이 없음: 금액·가게 한 줄만
-            const top = x.cancel ? `<div class="top"><span class="amt cancel">취소 ${won(x.amount)}</span><span class="shop">${esc(x.merchant || '가게 이름 없음')}</span>
-                <span class="meta">· ${esc(x.card || '카드')} · ${day} ${esc(x.used_time)}</span></div>`
-                : `<div class="top"><span class="meta">${esc(x.card || '카드')} · ${day} ${esc(x.used_time)}</span></div>`;
+            if (x.cancel) note = x.match ? `<span class="note bad">${+x.match.used_on.slice(5, 7)}/${+x.match.used_on.slice(8)} 같은 결제를 찾았어요 · 확정하면 지워요</span>`
+                : '<span class="note bad">맞는 기록이 없어요 · 확정하면 알림만 지워요</span>';
+            else if (sug) note = `<span class="note rec">추천 ${esc(catOf(sug.category_id).name)} · '${esc(sug.memo)}' ${sug.count}번</span>`;
+            else if (x.category_id == null) note = '<span class="note">분류를 골라 주세요</span>';
+            else note = rule && rule.category_id === x.category_id ? `<span class="note">규칙 "${esc(rule.pattern)}" → ${esc(catOf(x.category_id).name)}</span>` : '';
+            const c = cat != null ? catOf(cat) : null;
+            const row = `<div class="ib-row" data-ib-toggle role="button" tabindex="0" aria-expanded="${open}">
+                ${c ? catIcon(c) : `<span class="ci none" aria-hidden="true">${x.cancel ? '↩' : '?'}</span>`}
+                <span class="ib-m"><span class="shop">${esc(shop || '가게 이름 없음')}</span><small>${day} ${esc(x.used_time)} · ${esc(x.card || '카드')}${c ? ` · ${esc(c.name)}` : ''}</small></span>
+                <span class="amt${x.cancel ? ' cancel' : ''}">${x.cancel ? '취소 ' : '−'}${won(x.amount)}</span>
+                <button type="button" class="ib-ok" data-ib-ok aria-label="${x.cancel ? '취소 확정' : '확정'}"${!x.cancel && cat == null ? ' disabled' : ''}>✓</button>
+                <button type="button" class="ib-x" data-ib-del aria-label="버리기">✕</button></div>`;
+            // 접힌 채로도 분류는 바로 고를 수 있게: 분류가 없으면 줄 아래에 분류 한 줄 (옆으로 밀기)
+            const quick = !x.cancel && cat == null ? `<div class="ib-quick">${expenseCats().map(c => `<span class="chip" data-ib-cat="${c.id}"
+                style="background:${chipBg(c.color)};color:${chipFg(c.color)}">${esc(iconOf(c))} ${esc(c.name)}</span>`).join('')}</div>` : '';
+            if (!open) return `<div class="ib" data-item="${x.id}">${row}${quick}</div>`;
             // 금액·가게 칸 오른쪽 X: 한 번에 지우고 바로 입력 (글자가 있을 때만 보임). 휴대폰은 윗줄 금액·날짜, 아랫줄 가게 한 줄 전부
             const fields = x.cancel ? '' : `<div class="edit">
                 <span class="clr-wrap e-amt"><input id="ib-amount-${x.id}" data-f="amount" inputmode="numeric" value="${esc(t ? t.amount : x.amount.toLocaleString('ko-KR'))}" placeholder="금액" aria-label="금액">
@@ -896,11 +979,9 @@
                     <span id="nb-prev">${nbPreviewHtml()}</span></div>
                 <p class="msg" id="nb-msg">${esc(st.newCat.msg || '')}</p></div>` : '';
             const canRule = !x.cancel && cat != null && shop && !(rule && rule.category_id === cat);
-            return `<div class="ib" data-item="${x.id}"><div class="body">
-                ${top}${note}${fields}${chips}${newCat}<span class="raw">${esc(x.raw)}</span>
-                <div class="btns"><button type="button" class="primary" data-ib-ok${!x.cancel && cat == null ? ' disabled' : ''}>${x.cancel ? '취소 확정' : '확정'}</button>
-                    ${canRule ? `<button type="button" data-ib-rule>"${esc(suggestPattern(shop))}"는 늘 ${esc(catOf(cat).name)}로</button>` : ''}
-                    <button type="button" data-ib-del>버리기</button></div></div></div>`;
+            return `<div class="ib open" data-item="${x.id}">${row}<div class="body">
+                ${note}${fields}${chips}${newCat}<span class="raw">${esc(x.raw)}</span>
+                ${canRule ? `<div class="btns"><button type="button" class="small" data-ib-rule>"${esc(suggestPattern(shop))}"는 늘 ${esc(catOf(cat).name)}</button></div>` : ''}</div></div>`;
         }).join('');
         if (focus && $(focus)) $(focus).focus();
     }
@@ -959,10 +1040,16 @@
         if (e.target.closest('[data-ib-ok]')) {
             // 고친 금액·가게·날짜도 함께 (서버가 고친 뒤 확정)
             const v = item.cancel ? null : ibValues(id);
-            if (await inboxPost({ action: 'confirm', id, ...(ibChanged(item, v) ? v : {}) })) { delete st.ibDirty[id]; load(); }
+            if (await inboxPost({ action: 'confirm', id, ...(ibChanged(item, v) ? v : {}) })) { delete st.ibDirty[id]; st.ibOpen.delete(id); load(); }
             return;
         }
-        if (e.target.closest('[data-ib-del]')) { if (await inboxPost({ action: 'discard', id })) { delete st.ibDirty[id]; showUndo(item); } return; }
+        if (e.target.closest('[data-ib-del]')) { if (await inboxPost({ action: 'discard', id })) { delete st.ibDirty[id]; st.ibOpen.delete(id); showUndo(item); } return; }
+        // 줄(가게·금액)을 누르면 펼치고 접기 (칸 값은 접기 전에 저장)
+        if (e.target.closest('[data-ib-toggle]')) {
+            if (st.ibOpen.has(id)) { await saveIbFields(id); st.ibOpen.delete(id); } else st.ibOpen.add(id);
+            renderInbox();
+            return;
+        }
         if (e.target.closest('[data-ib-rule]')) {
             const cat = item.category_id != null ? item.category_id : item.suggest && item.suggest.category_id;
             const v = ibValues(id);
@@ -1032,7 +1119,7 @@
     });
     $('inbox-all').addEventListener('click', async () => {
         const data = await inboxPost({ action: 'confirm_all' });
-        if (data) { $('inbox-msg').textContent = data.confirmed ? '' : '확정할 수 있는 결제가 없어요 (분류를 먼저 골라 주세요)'; load(); }
+        if (data) { $('inbox-msg').textContent = data.confirmed ? '' : '분류를 고른 결제가 없어요'; load(); }
     });
 
     // ---- YeYe홈 앱 안에서 열었을 때 (앱이 window.LedgerApp을 넣어 줌)
@@ -1130,13 +1217,14 @@
     // ---- 앱의 뒤로가기: 열려 있는 것을 하나 닫으면 true (닫을 게 없으면 false → 앱이 '한 번 더 누르면 종료' 안내)
     window.ledgerBack = () => {
         if ($('app').classList.contains('settings-open')) { closeSettings(); return true; }
-        if (!$('mode-pop').hidden || !$('pick-pop').hidden) { closePops(); return true; }
         if (!$('memo-dd').hidden) { $('memo-dd').hidden = true; return true; }
         if (st.popFor != null) { st.popFor = null; renderCats(); return true; }
         if (!$('addbox').hidden) { $('addbox').hidden = true; return true; }
         if (st.catEditing) { st.catEditing = false; renderCats(); return true; }
+        if (!$('sheet-wrap').hidden) { closeEntry(); return true; }
         if (st.newCatFor != null) { st.newCatFor = null; renderInbox(); return true; }
-        if (st.editId != null) { $('edit-cancel').click(); return true; }
+        const swiped = $('list').querySelector('.sw-row.open');
+        if (swiped) { swiped.classList.remove('open'); return true; }
         return false;
     };
     // ==========================================

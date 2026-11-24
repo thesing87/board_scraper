@@ -58,126 +58,105 @@
 
         <div id="app" hidden>
             <!-- 앱 안에서 열었는데 아직 연결 전이면: 한 줄 안내 (누르면 설정 > 결제 알림 연결) -->
-            <div class="app-hint" id="app-hint" hidden><span>이 휴대폰 앱이 아직 가계부에 연결되지 않았어요</span><button type="button" class="small primary" id="app-hint-btn">연결하기</button></div>
-
-            <!-- 결제 알림 자동 기록: 휴대폰에서 받은 결제를 확정 전까지 쌓아 둠 (ledger.py inbox) -->
-            <section class="sec inbox" id="inbox-sec" hidden>
-                <div class="sec-head"><span>확인 대기함</span><span class="badge warm" id="inbox-count"></span>
-                    <span class="sec-note">휴대폰 결제 알림에서 읽음 · 확정하면 기록돼요</span></div>
+            <div class="app-hint" id="app-hint" hidden><span>휴대폰 앱이 아직 연결되지 않았어요</span><button type="button" class="small primary" id="app-hint-btn">연결하기</button></div>
+            <!-- 맨 위 요약: ‹ 기간 › · 지출(크게) · 수입·남음(작게) · 수입 대비 지출 막대. 일별일 때 기간을 누르면 이 달로 -->
+            <section class="hero" id="hero">
+                <div class="period">
+                    <button type="button" class="icon" id="prev" aria-label="이전">‹</button>
+                    <button type="button" class="period-label" id="period"></button>
+                    <button type="button" class="icon" id="next" aria-label="다음">›</button>
+                </div>
+                <div class="hero-label" id="m-ex-label">이번 달 지출</div>
+                <div class="hero-amt" id="m-ex">–</div>
+                <div class="hero-sub"><span><span id="m-in-label">수입</span> <b class="plus" id="m-in">–</b></span><span>남음 <b id="m-left">–</b></span></div>
+                <div class="hero-bar" aria-hidden="true"><i id="m-bar"></i></div>
+            </section>
+            <!-- 확인할 결제 (휴대폰 결제 알림, ledger.py inbox): 한 줄에 ✓ 확정 · ✕ 버리기, 줄을 누르면 고치기 -->
+            <section class="inbox" id="inbox-sec" hidden>
+                <div class="inbox-head"><span>확인할 결제 <b id="inbox-count"></b></span><button type="button" class="link-btn" id="inbox-all">모두 확정 ›</button></div>
                 <div id="inbox"></div>
-                <div class="inbox-foot"><button type="button" class="primary small" id="inbox-all">모두 확정</button><span class="hint">분류가 정해진 결제와 지울 기록을 찾은 취소만</span>
-                    <span class="msg" id="inbox-msg"></span></div>
+                <p class="msg" id="inbox-msg"></p>
             </section>
             <!-- 버린 직후 5초: 되돌리기 -->
             <div class="undo" id="undo" hidden role="status"><span id="undo-msg"></span><button type="button" id="undo-btn">되돌리기</button></div>
-
-            <!-- 입력 (기록을 누르면 고치기). 접는 칸: 늘 접힌 채로 시작, 기록을 눌러 고치면 저절로 펼침 -->
-            <details class="sec entry fold" id="entry">
-                <summary class="sec-head"><span id="entry-title">지출 입력</span><span class="sec-note" id="entry-note"></span></summary>
-                <div class="sec-body">
-                    <!-- 지출·수입 고르기 (고른 쪽에 따라 입력 칸 색과 분류가 바뀜) -->
-                    <div class="kind" role="radiogroup" aria-label="지출 또는 수입">
-                        <button type="button" class="ex" id="kind-expense" role="radio">− 지출</button>
-                        <button type="button" class="in" id="kind-income" role="radio">＋ 수입</button>
+            <!-- 보기: 내역 · 달력 · 분석 (위에 붙어 다님) -->
+            <div class="views" id="views" role="tablist">
+                <button type="button" role="tab" data-view="list">내역</button>
+                <button type="button" role="tab" data-view="cal">달력</button>
+                <button type="button" role="tab" data-view="ana">분석</button>
+            </div>
+            <!-- 거르기: 사람 칩 · 지출/수입 -->
+            <div class="filter">
+                <div class="people" id="people"></div>
+                <div class="seg" id="type-seg"><button type="button" data-type="all">모두</button><button type="button" data-type="expense">지출</button><button type="button" data-type="income">수입</button></div>
+            </div>
+            <!-- 내역: 날짜별 묶음 (머리줄에 그날 합계), 줄을 누르면 고치기, 왼쪽으로 밀면 지우기 -->
+            <section class="pane" data-pane="list" id="pane-list"><div id="list"></div></section>
+            <!-- 달력: 일별(이 달 달력, 날짜를 누르면 그날 내역)·월별(올해 달마다, 달을 누르면 그 달) -->
+            <section class="pane totals" data-pane="cal" id="totals" hidden>
+                <div class="pane-head">
+                    <div class="seg small" id="tot-seg"><button type="button" data-tot="day">일별</button><button type="button" data-tot="month">월별</button></div>
+                    <span class="year-nav" id="year-nav" hidden><button type="button" class="icon sm" id="y-prev" aria-label="이전 해">‹</button><span id="y-label"></span><button type="button" class="icon sm" id="y-next" aria-label="다음 해">›</button></span>
+                </div>
+                <div id="tot-day"><div class="cal" id="cal"></div></div>
+                <div id="tot-month" hidden>
+                    <div class="ymet">
+                        <div><span id="y-in-label">올해 수입</span><b class="plus" id="y-in">–</b></div>
+                        <div><span>올해 지출</span><b class="minus" id="y-ex">–</b></div>
+                        <div><span>올해 합계</span><b id="y-net">–</b></div>
                     </div>
-                    <div class="row2">
-                        <input id="amount" inputmode="numeric" placeholder="금액 (원)" class="amount" autocomplete="off">
-                        <!-- 날짜: 휴대폰 기본 모양(2026. 11. 23. + 아이콘)은 칸에 안 들어가 '11/23 (일)'처럼 짧게 보이고, 누르면 휴대폰 달력 -->
+                    <svg id="mbars" width="100%" height="176" viewBox="0 0 360 176" role="img" aria-label="달마다 수입과 지출 막대"></svg>
+                    <p class="keys"><span class="key in"></span>수입 <span class="key ex"></span>지출</p>
+                    <table class="mt"><thead><tr><th>달</th><th>수입</th><th>지출</th><th>합계</th></tr></thead><tbody id="mtable"></tbody></table>
+                </div>
+            </section>
+            <!-- 분석: 분류별 원형 그래프와 비율 -->
+            <section class="pane" data-pane="ana" id="pane-ana" hidden>
+                <div class="pane-head"><div class="seg small" id="ana-seg"><button type="button" data-ana="expense">지출</button><button type="button" data-ana="income">수입</button></div></div>
+                <div class="chart">
+                    <svg id="donut" width="170" height="170" viewBox="0 0 170 170" role="img" aria-label="분류별 원형 그래프"></svg>
+                    <div id="legend"></div>
+                </div>
+            </section>
+            <!-- 입력: 오른쪽 아래 ＋ → 아래에서 올라오는 창 (기록을 누르면 고치기로 열림) -->
+            <button type="button" class="fab" id="fab" aria-label="입력">＋</button>
+            <div class="sheet-wrap" id="sheet-wrap" hidden>
+                <div class="sheet entry" id="entry" role="dialog" aria-modal="true" aria-labelledby="entry-title">
+                    <div class="sheet-head">
+                        <button type="button" class="icon" id="entry-close" aria-label="닫기">✕</button>
+                        <div class="kind" role="radiogroup" aria-label="지출 또는 수입">
+                            <button type="button" class="ex" id="kind-expense" role="radio">지출</button>
+                            <button type="button" class="in" id="kind-income" role="radio">수입</button>
+                        </div>
+                        <!-- 날짜: 휴대폰 기본 모양은 칸에 안 들어가 '11/23 (일)'처럼 짧게 보이고, 누르면 휴대폰 달력 -->
                         <label class="date-wrap"><span class="date-show" id="used-on-show" aria-hidden="true"></span><input id="used-on" type="date" aria-label="날짜"></label>
                     </div>
-                    <div class="cat-head"><span id="cat-hint">소비형태 — 누르면 선택, 없으면 추가</span><button type="button" class="small" id="cat-edit">색·이름 편집</button></div>
+                    <span class="sr-only" id="entry-title">지출 입력</span>
+                    <div class="amt-row"><input id="amount" inputmode="numeric" placeholder="0" class="amount" autocomplete="off" aria-label="금액"><span class="won">원</span></div>
+                    <div class="memo-wrap">
+                        <input id="memo" placeholder="메모" maxlength="60" autocomplete="off" aria-label="메모">
+                        <div class="dd" id="memo-dd" hidden></div>
+                    </div>
                     <div class="cats" id="cats"></div>
+                    <div class="cat-tools"><button type="button" class="link-btn" id="cat-edit">편집</button></div>
                     <div class="addbox" id="addbox" hidden>
-                        <div class="add-row"><input id="new-name" placeholder="새 소비형태 이름 (예: 반려동물)" maxlength="12"><span class="hint">미리보기</span><span class="chip" id="new-preview"></span></div>
-                        <p class="hint">색을 골라 주세요</p>
+                        <div class="add-row"><input id="new-name" placeholder="이름" maxlength="12"><span class="chip" id="new-preview"></span></div>
+                        <div class="icons" id="add-icons"></div>
                         <div class="pal" id="add-pal"></div>
-                        <label class="custom"><input type="color" id="add-custom" value="#5B8DEF"> 원하는 색 직접 고르기</label>
-                        <div class="add-row"><button type="button" class="primary" id="add-ok">추가하고 선택</button><button type="button" id="add-cancel">취소</button><span class="msg" id="add-msg"></span></div>
+                        <label class="custom"><input type="color" id="add-custom" value="#5B8DEF"> 다른 색</label>
+                        <div class="add-row"><button type="button" class="primary" id="add-ok">추가</button><button type="button" id="add-cancel">취소</button><span class="msg" id="add-msg"></span></div>
                     </div>
-                    <div class="memo-row">
-                        <div class="memo-wrap">
-                            <input id="memo" placeholder="메모 — 누르면 최근 메모" maxlength="60" autocomplete="off">
-                            <div class="dd" id="memo-dd" hidden></div>
-                        </div>
-                        <button type="button" class="save" id="save">입력</button>
-                    </div>
-                    <div class="edit-row" id="edit-row" hidden>
-                        <button type="button" id="edit-cancel">고치기 취소</button>
-                        <button type="button" class="danger" id="edit-delete">이 기록 지우기</button>
+                    <div class="keypad" id="keypad" aria-hidden="true">
+                        <button type="button" data-key="1">1</button><button type="button" data-key="2">2</button><button type="button" data-key="3">3</button>
+                        <button type="button" data-key="4">4</button><button type="button" data-key="5">5</button><button type="button" data-key="6">6</button>
+                        <button type="button" data-key="7">7</button><button type="button" data-key="8">8</button><button type="button" data-key="9">9</button>
+                        <button type="button" data-key="00">00</button><button type="button" data-key="0">0</button><button type="button" data-key="back" aria-label="지우기">⌫</button>
                     </div>
                     <p class="msg" id="entry-msg" role="alert"></p>
-                </div>
-            </details>
-
-            <!-- 거르기: 일별·월별, 기간, 누구의 소비인지 -->
-            <!-- 한 줄: ‹ 기간 › · '월별 ▾'(일별·월별) · '전체 ▾'(종류·사람 고르기 창) -->
-            <div class="filter">
-                <div class="period">
-                    <button type="button" class="icon" id="prev" aria-label="이전">‹</button>
-                    <span id="period"></span>
-                    <button type="button" class="icon" id="next" aria-label="다음">›</button>
-                </div>
-                <button type="button" class="fbtn" id="mode-btn" aria-haspopup="true" aria-expanded="false">월별 ▾</button>
-                <button type="button" class="fbtn" id="pick-btn" aria-haspopup="true" aria-expanded="false">전체 ▾</button>
-                <div class="fpop" id="mode-pop" hidden>
-                    <div class="seg"><button type="button" id="mode-day">일별</button><button type="button" id="mode-month">월별</button></div>
-                </div>
-                <div class="fpop" id="pick-pop" hidden>
-                    <p class="flabel">종류</p>
-                    <div class="seg" id="type-seg"><button type="button" data-type="all">모두</button><button type="button" data-type="expense">지출만</button><button type="button" data-type="income">수입만</button></div>
-                    <p class="flabel">사람</p>
-                    <div class="people" id="people"></div>
+                    <div class="edit-row" id="edit-row" hidden><button type="button" class="danger" id="edit-delete">지우기</button><button type="button" id="edit-cancel">취소</button></div>
+                    <button type="button" class="save" id="save">저장</button>
                 </div>
             </div>
-            <!-- 이 기간 합계: 거르기 바로 아래 (기간·사람을 바꾸면 바로 보이게) -->
-            <div class="metrics">
-                <div class="metric"><span id="m-in-label">이 달 수입</span><b class="plus" id="m-in">–</b></div>
-                <div class="metric"><span id="m-ex-label">이 달 지출</span><b class="minus" id="m-ex">–</b></div>
-                <div class="metric"><span>남은 돈 (수입−지출)</span><b id="m-left">–</b></div>
-                <div class="metric"><span>기록</span><b id="m2">–</b></div>
-            </div>
-
-            <!-- 분석 · 달력 (접는 칸, 펼치면 PC는 둘이 나란히) -->
-            <details class="sec fold" id="ana-fold">
-                <summary class="sec-head"><span>분석 · 달력</span><span class="sec-note" id="ana-note"></span></summary>
-                <div class="fold-grid">
-                <section class="sec">
-                    <div class="sec-head plain"><span>분석</span>
-                        <div class="seg small" id="ana-seg"><button type="button" data-ana="expense">지출</button><button type="button" data-ana="income">수입</button></div></div>
-                    <div class="sec-body chart">
-                        <svg id="donut" width="170" height="170" viewBox="0 0 170 170" role="img" aria-label="소비형태별 원형 그래프"></svg>
-                        <div id="legend"></div>
-                    </div>
-                </section>
-                <!-- 합계: 일별(달력, 날짜를 누르면 그날 기록)·월별(올해 달마다, 달을 누르면 그 달) -->
-                <section class="sec totals" id="totals">
-                    <div class="sec-head plain"><span>합계</span>
-                        <div class="seg small left" id="tot-seg"><button type="button" data-tot="day">일별</button><button type="button" data-tot="month">월별</button></div>
-                        <span class="year-nav" id="year-nav" hidden><button type="button" class="icon sm" id="y-prev" aria-label="이전 해">‹</button><span id="y-label"></span><button type="button" class="icon sm" id="y-next" aria-label="다음 해">›</button></span>
-                    </div>
-                    <div id="tot-day">
-                        <div class="cal" id="cal"></div>
-                        <p class="hint cal-hint">날짜를 누르면 그날 기록만 보여요 · 막대 길이는 그날 지출</p>
-                    </div>
-                    <div id="tot-month" class="sec-body" hidden>
-                        <div class="ymet">
-                            <div><span id="y-in-label">올해 수입</span><b class="plus" id="y-in">–</b></div>
-                            <div><span>올해 지출</span><b class="minus" id="y-ex">–</b></div>
-                            <div><span>올해 합계</span><b id="y-net">–</b></div>
-                        </div>
-                        <svg id="mbars" width="100%" height="176" viewBox="0 0 360 176" role="img" aria-label="달마다 수입과 지출 막대"></svg>
-                        <p class="hint"><span class="key in"></span>수입 <span class="key ex"></span>지출 · 달을 누르면 그 달로</p>
-                        <table class="mt"><thead><tr><th>달</th><th>수입</th><th>지출</th><th>합계</th></tr></thead><tbody id="mtable"></tbody></table>
-                    </div>
-                </section>
-                </div>
-            </details>
-            <!-- 기록 (접는 칸, 달력의 날짜를 누르면 저절로 펼침) -->
-            <details class="sec fold" id="list-fold">
-                <summary class="sec-head"><span>기록</span><span class="sec-note" id="count"></span></summary>
-                <div id="list"></div>
-            </details>
-
             <!-- 설정 (머리줄 '설정' → #settings, 뒤로가기로 메인): 결제 알림 연결 · 가게 규칙 · 버린 알림 · 사용자 허락 · 앱 파일(관리자) -->
             <div class="set-view" id="set-view">
                 <div class="set-head"><button type="button" class="set-back" id="set-back" aria-label="가계부로 돌아가기">←</button><span>설정</span></div>
@@ -215,13 +194,13 @@
                     <p class="hint">집 밖에서도 보내려면 이 페이지를 바깥 주소(DDNS)로 연 뒤 연결 주소를 만드세요.</p>
                 </section>
                 <section class="sec set-pane" data-pane="rules" hidden>
-                    <p class="hint">가게 이름에 이 글자가 들어 있으면 확인 대기함에서 분류를 미리 골라 둬요. 규칙은 모두 함께 써요.</p>
+                    <p class="hint">가게 이름에 이 글자가 있으면 분류를 미리 골라요 (모두 함께 씀)</p>
                     <div id="rules"></div>
                     <div class="rule-add"><input id="rule-pattern" placeholder="가게 이름에 든 글자 (예: 스타벅스)" maxlength="20"><select id="rule-cat" aria-label="분류"></select><button type="button" class="small" id="rule-add">추가</button></div>
                     <p class="msg" id="rule-msg"></p>
                 </section>
                 <section class="sec set-pane" data-pane="trash" hidden>
-                    <p class="hint">버린 알림은 30일 동안 여기 있다가 저절로 지워져요. 되살리면 확인 대기함으로 돌아가요.</p>
+                    <p class="hint">30일 뒤 저절로 지워져요</p>
                     <div class="trash-list" id="trash-list"></div>
                 </section>
                 <section class="sec set-pane admin-only" data-pane="users" id="admin" hidden>

@@ -303,7 +303,8 @@ def _create_schema(conn):
             color      TEXT NOT NULL,
             kind       TEXT NOT NULL DEFAULT 'expense',
             position   INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            icon       TEXT NOT NULL DEFAULT ''   -- 분류 아이콘 (이모지 하나, 비어 있으면 화면이 이름으로 짐작)
         );
         -- 지출·수입 기록 (used_on: YYYY-MM-DD, amount: 원). 지출인지 수입인지는 분류(category)의 kind
         CREATE TABLE IF NOT EXISTS ledger_entries (
@@ -517,6 +518,9 @@ def _migrate_legacy_files(conn):
 
 def _add_missing_columns(conn):
     """이미 만들어진 DB에 나중에 추가된 컬럼을 보충"""
+    if 'icon' not in {row['name'] for row in conn.execute("PRAGMA table_info(ledger_categories)")}:
+        conn.execute("ALTER TABLE ledger_categories ADD COLUMN icon TEXT NOT NULL DEFAULT ''")
+        log_msg("[DB] ledger_categories.icon 컬럼 추가")
     if 'discarded_at' not in {row['name'] for row in conn.execute("PRAGMA table_info(ledger_inbox)")}:
         conn.execute("ALTER TABLE ledger_inbox ADD COLUMN discarded_at TEXT")
         log_msg("[DB] ledger_inbox.discarded_at 컬럼 추가")

@@ -121,7 +121,15 @@ assert call('/api/ledger/entry', {'action': 'edit', 'id': e2, 'amount': 6100, 'u
 assert call('/api/ledger/entry', {'action': 'delete', 'id': e2}, cookie=admin)[0] == 200   # 관리자는 남의 기록도
 assert [e['memo'] for e in call('/api/ledger/state?month=2026-11', cookie=user)[1]['entries']] == ['이마트 장보기']
 # 소비형태: 이름 바꾸면 기록도 따라감, 기록에 쓰인 것은 못 지움
+# 아이콘(이모지): 처음엔 비어 있음(화면이 이름으로 짐작), 고르면 저장, 아이콘 없이 이름·색만 고치면 아이콘은 그대로, 긴 글은 거절
+assert next(c for c in call('/api/ledger/state?month=2026-11', cookie=user)[1]['categories'] if c['id'] == food)['icon'] == ''
+assert call('/api/ledger/category', {'action': 'edit', 'id': food, 'name': '식비', 'color': '#D85A30', 'icon': '🍜'}, cookie=user)[0] == 200
+assert call('/api/ledger/category', {'action': 'edit', 'id': food, 'name': '식비', 'color': '#D85A30', 'icon': '아주 긴 아이콘 글'}, cookie=user)[0] == 400
 assert call('/api/ledger/category', {'action': 'edit', 'id': food, 'name': '먹거리', 'color': '#FF0000'}, cookie=user)[0] == 200
+assert next(c for c in call('/api/ledger/state?month=2026-11', cookie=user)[1]['categories'] if c['id'] == food)['icon'] == '🍜'
+code, data, _ = call('/api/ledger/category', {'action': 'add', 'name': '여행', 'color': '#378ADD', 'icon': '✈️'}, cookie=user)
+assert code == 200 and next(c for c in call('/api/ledger/state?month=2026-11', cookie=user)[1]['categories'] if c['id'] == data['id'])['icon'] == '✈️'
+assert call('/api/ledger/category', {'action': 'delete', 'id': data['id']}, cookie=user)[0] == 200
 st = call('/api/ledger/state?month=2026-11', cookie=user)[1]
 assert next(c for c in st['categories'] if c['id'] == st['entries'][0]['category_id'])['name'] == '먹거리'
 assert call('/api/ledger/category', {'action': 'delete', 'id': food}, cookie=user)[1]['message'] == '❌ 기록에 쓰인 소비형태는 지울 수 없어요.'

@@ -1,6 +1,7 @@
-"""가계부 화면(/ledger/): 가입 요청 → 허락 전 로그인 안내 → 관리자 기기는 자동 로그인·사용자 허락 → 입력(금액·소비형태·메모)
-→ 소비형태 추가(색을 골라야)·색 바꾸기 → 최근 메모 드롭다운(소비형태도 함께) → 일별·월별·사람 거르기·원형 그래프 →
-내 기록 고치기·지우기, 남의 기록은 못 고침 → 메뉴의 가계부는 로그인한 기기에만, 휴대폰 넘침 없음"""
+"""가계부 화면(/ledger/): 가입 요청 → 허락 전 로그인 안내 → 관리자 기기는 자동 로그인·사용자 허락 →
+메인(맨 위 요약 · 확인할 결제 · 내역/달력/분석 · 사람 칩) → ＋ 입력 창(금액·분류 아이콘·메모) → 분류 추가(색·아이콘)·색 바꾸기 →
+메모 자동완성 → 일별(달력의 날짜)·월별·사람 거르기·원형 그래프 → 내 기록 고치기·지우기, 남의 기록은 못 고침 →
+메뉴의 가계부는 로그인한 기기에만, 휴대폰 넘침 없음"""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common  # noqa: F401  (경로)
@@ -26,6 +27,9 @@ o = Options()
 for a in ['--headless=new', '--window-size=1280,900']:
     o.add_argument(a)
 d = Chrome(options=o)
+# 헤드리스 크롬은 손가락 기기(pointer: coarse)로 나타나 PC 화면을 시험할 수 없음 → 마우스 PC로 (키패드 없음·금액 칸에 커서)
+d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source':
+    "const mm = window.matchMedia.bind(window); window.matchMedia = q => /pointer:\s*coarse/.test(q) ? mm('(max-width: 0px)') : mm(q);"})
 js = d.execute_script
 vis = lambda i: js(f"const e = document.getElementById('{i}'); return !!e && !e.hidden && e.offsetHeight > 0")
 txt = lambda i: js(f"return document.getElementById('{i}').textContent.replace(/\\s+/g, ' ').trim()")
@@ -40,8 +44,16 @@ def tap(by, value):
     js("arguments[0].scrollIntoView({block: 'center'})", el); time.sleep(.1)
     el.click()
 def open_all():
-    # 지출 입력·분석과 달력·기록은 접는 칸이고 늘 접힌 채로 시작 → 시험에서는 모두 펼쳐 둠
-    js("['entry', 'ana-fold', 'list-fold'].forEach(i => document.getElementById(i).open = true)")
+    # (예전: 접는 칸을 모두 펼침) 이제 접는 칸이 없음
+    pass
+def sheet():
+    # 오른쪽 아래 ＋ → 입력 창
+    click('#fab'); time.sleep(.3)
+    assert vis('sheet-wrap') and vis('amount')
+rows = lambda: js("return document.querySelectorAll('#list [data-entry]').length")
+cat_names = lambda sel='#cats .chip .cn': js(f"return [...document.querySelectorAll('{sel}')].map(c => c.textContent.trim())")
+def view(v):
+    click(f'#views [data-view="{v}"]'); time.sleep(.2)
 def entries():
     with storage._db() as conn:
         return [dict(r) for r in conn.execute("SELECT * FROM ledger_entries ORDER BY id")]
@@ -70,36 +82,34 @@ try:
     d.get(BASE + '/ledger/'); time.sleep(2)
     assert vis('app') and not vis('auth') and '임기범' in txt('who-me')
     # 메인에는 매일 쓰는 것만: 결제 알림 연결·사용자 허락·버린 알림 목록은 머리줄 '설정' 화면에 (처음엔 닫힘).
-    # 지출 입력·분석과 달력·기록은 접힌 채로 시작 (머리 줄은 보임)
     assert vis('set-open') and not vis('set-view') and not vis('auto') and not vis('admin')
-    assert js("return ['entry', 'ana-fold', 'list-fold'].map(i => document.getElementById(i).open)") == [False, False, False]
-    # 지출 입력의 날짜는 짧게 '11/23 (일)' (휴대폰 기본 모양은 칸에 안 들어감), 금액·날짜 칸은 메모 칸과 같은 높이
+    # 순서: 맨 위 요약 → 보기(내역·달력·분석) → 거르기(사람 칩·지출/수입) → 내역. 입력 창은 ＋를 누를 때만
+    order = js("return [...document.querySelectorAll('#hero, #views, #app .filter, #pane-list')].map(e => e.id || e.className)")
+    assert order == ['hero', 'views', 'filter', 'pane-list'], order
+    assert vis('fab') and not vis('sheet-wrap') and vis('pane-list') and not vis('totals') and not vis('pane-ana')
+    assert txt('period') == f'{date.today().year}년 {date.today().month}월' and txt('m-ex-label') == '이번 달 지출'
+    font = lambda sel: js(f"return getComputedStyle(document.querySelector('{sel}')).fontSize")
+    assert font('body') == '14px' and font('.hero-amt') == '30px'      # PC
+    # 보기: 달력·분석을 누르면 그 칸만
+    view('cal'); assert vis('totals') and not vis('pane-list') and not vis('type-seg')
+    view('ana'); assert vis('pane-ana') and not vis('totals')
+    view('list'); assert vis('pane-list') and vis('type-seg')
+    # ＋ → 입력 창: 날짜는 짧게 '11/23 (일)', ✕로 닫힘, PC는 키패드 없음(자판으로)
+    sheet()
     import datetime as _dt
     _t = _dt.date.today()
     assert txt('used-on-show') == f"{_t.month}/{_t.day} ({'월화수목금토일'[_t.weekday()]})", txt('used-on-show')
     js("const i = document.getElementById('used-on'); i.value = '2025-12-31'; i.dispatchEvent(new Event('change', {bubbles: true}))")
     assert txt('used-on-show') == '25/12/31'
     js("const i = document.getElementById('used-on'); i.value = arguments[0]; i.dispatchEvent(new Event('input', {bubbles: true}))", _t.isoformat())
-    js("document.getElementById('entry').open = true")
-    h = lambda i: js(f"return Math.round(document.getElementById('{i}').getBoundingClientRect().height)")
-    assert h('amount') == h('used-on') == h('memo') == 38, (h('amount'), h('used-on'), h('memo'))
-    assert js("return getComputedStyle(document.getElementById('amount')).fontSize") == '16px'
-    js("document.getElementById('entry').open = false")
-    # 순서: 지출 입력 → 거르기 → 수입·지출·남은 돈·기록 칸 → 분석·달력 → 기록
-    order = js("return [...document.querySelectorAll('#entry, #app .filter, #app .metrics, #ana-fold, #list-fold')].map(e => e.id || e.className)")
-    assert order == ['entry', 'filter', 'metrics', 'ana-fold', 'list-fold'], order
-    font = lambda sel: js(f"return getComputedStyle(document.querySelector('{sel}')).fontSize")
-    assert font('body') == '14px' and font('.metric b') == '19px'      # PC는 그대로
-    seen = lambda i: js(f"return document.getElementById('{i}').checkVisibility()")
-    assert seen('entry-title') and not seen('amount') and not seen('list') and not seen('cal'), [seen(i) for i in ('entry-title', 'amount', 'list', 'cal')]
-    click('#entry > summary'); time.sleep(.2)
-    assert seen('amount')
-    open_all()
+    assert not vis('keypad') and js("return document.activeElement.id") == 'amount', (vis('keypad'), js("return document.activeElement.id"))
+    click('#entry-close'); time.sleep(.2)
+    assert not vis('sheet-wrap')
     assert js("return document.querySelector('#who-me .av').textContent") == '임'      # 아이콘은 이름 첫 글자
     assert txt('set-dot') == '1' and not vis('admin')               # 허락을 기다리는 사람: 머리줄 '설정'에 숫자 점
     click('#set-open'); time.sleep(.3)                                  # → 설정, 사용자 허락 탭부터
     assert vis('set-view') and vis('admin') and txt('pending-count') == '1' and js("return location.hash") == '#settings'
-    assert not vis('entry') and not vis('inbox-sec')                    # 설정에서는 메인 칸이 숨음
+    assert not vis('hero') and not vis('inbox-sec') and not vis('fab')   # 설정에서는 메인 칸이 숨음
     click('[data-admin="approve"]'); time.sleep(1)
     assert '기다리는 사람 없음' in txt('pending') and '지은' in txt('members') and not vis('set-dot')
     assert 'ledger' in navs()
@@ -126,40 +136,51 @@ try:
     assert '1.0 · 24KB' in txt('app-info') and js("return document.getElementById('app-link').getAttribute('href')") == '/api/ledger/app.apk'
     print('ADMIN OK')
 
-    # ---- 입력: 금액(쉼표), 소비형태, 메모
-    assert [c for c in js("return [...document.querySelectorAll('#cats .chip')].map(c => c.textContent.trim())")][:6] == ['식비', '카페', '교통', '생활', '쇼핑', '의료']
+    # ---- 입력: 금액(쉼표), 분류(아이콘 + 이름), 메모. 저장하면 창이 닫힘
+    sheet()
+    assert cat_names()[:6] == ['식비', '카페', '교통', '생활', '쇼핑', '의료'], cat_names()
+    assert [x.strip() for x in js("return [...document.querySelectorAll('#cats .chip .ci')].map(c => c.textContent)")][:3] == ['🍚', '☕', '🚌']   # 이름으로 짐작한 아이콘
     typ('amount', '42000')
     assert js("return document.getElementById('amount').value") == '42,000'
     typ('memo', '이마트 장보기')
     click('#save'); time.sleep(1.2)
     e = entries()
     assert len(e) == 1 and e[0]['amount'] == 42000 and e[0]['memo'] == '이마트 장보기' and e[0]['used_on'] == TODAY
-    assert txt('m-ex') == '−42,000원' and txt('m2') == '1건' and txt('m-in') == '+0원' and txt('m-left') == '−42,000원'
-    # 금액 없이 입력하면 안내
+    assert not vis('sheet-wrap')
+    assert txt('m-ex') == '42,000원' and rows() == 1 and txt('m-in') == '0원' and txt('m-left') == '−42,000원'
+    assert js("return document.getElementById('m-bar').style.width") == '100%'   # 수입 없이 지출만
+    # 금액 없이 저장하면 안내
+    sheet()
     click('#save'); time.sleep(.3)
-    assert txt('entry-msg') == '금액을 넣어 주세요.'
-    # ---- 소비형태 추가: 색을 골라야, 미리보기, 추가하면 바로 선택
+    assert txt('entry-msg') == '금액을 넣어 주세요.' and vis('sheet-wrap')
+    # ---- 분류 추가: 색을 골라야, 아이콘 고르기, 미리보기, 추가하면 바로 선택
     click('#cat-add')
-    assert vis('addbox')
+    assert vis('addbox') and vis('add-icons')
     typ('new-name', '반려동물'); click('#add-ok'); time.sleep(.3)
     assert txt('add-msg') == '색을 골라 주세요.'
     click('[data-add-color="#2BA7B8"]')
-    assert '반려동물' in txt('new-preview')
+    click('[data-add-icon="🐶"]')
+    assert '반려동물' in txt('new-preview') and js("return document.querySelector('[data-add-icon=\"🐶\"]').classList.contains('on')")
     click('#add-ok'); time.sleep(1)
-    assert js("return document.querySelector('#cats .chip.on').textContent.trim()") == '반려동물'
+    assert js("return document.querySelector('#cats .chip.on .cn').textContent.trim()") == '반려동물'
+    with storage._db() as conn:
+        assert conn.execute("SELECT icon FROM ledger_categories WHERE name = '반려동물'").fetchone()[0] == '🐶'
     typ('amount', '15000'); typ('memo', '사료')
     click('#save'); time.sleep(1.2)
-    assert txt('m-ex') == '−57,000원' and txt('m2') == '2건'
+    assert txt('m-ex') == '57,000원' and rows() == 2
     # 원형 그래프: 소비형태가 둘이면 조각 둘, 범례에 비율
     assert js("return document.querySelectorAll('#donut path').length") == 2
     assert '74%' in txt('legend') and '26%' in txt('legend'), txt('legend')
-    # ---- 색·이름 편집: 색 바꾸기
+    # ---- 편집: 색·아이콘 바꾸기
+    sheet()
     click('#cat-edit')
     click('#cats [data-cat]')            # 식비
     assert js("return !!document.querySelector('[data-pop]')")
     click('[data-pop-color="#378ADD"]'); time.sleep(1)
+    click('[data-pop-icon="🍺"]'); time.sleep(1)                # 창은 열린 채
     with storage._db() as conn:
-        assert conn.execute("SELECT color FROM ledger_categories WHERE name = '식비'").fetchone()[0] == '#378ADD'
+        assert tuple(conn.execute("SELECT color, icon FROM ledger_categories WHERE name = '식비'").fetchone()) == ('#378ADD', '🍺')
+    assert js("return document.querySelector('#cats [data-cat] .ci').textContent.trim()") == '🍺'
     click('#cat-edit'); time.sleep(.2)
     # ---- 최근 메모 드롭다운: 고르면 메모와 그 소비형태
     js("document.getElementById('memo').focus()"); time.sleep(.3)
@@ -170,26 +191,26 @@ try:
     js("const m = document.getElementById('memo'); m.value = '사'; m.dispatchEvent(new Event('input', {bubbles: true}))"); time.sleep(.2)
     assert js("return [...document.querySelectorAll('#memo-dd .m')].map(e => e.textContent)") == ['사료'], js("return document.getElementById('memo-dd').textContent")
     js("const m = document.getElementById('memo'); m.value = '이마트 장보기'; m.dispatchEvent(new Event('input', {bubbles: true}))")
-    assert js("return document.querySelector('#cats .chip.on').textContent.trim()") == '식비'
+    assert js("return document.querySelector('#cats .chip.on .cn').textContent.trim()") == '식비'
     typ('memo', '')
     print('ENTRY OK')
 
     # ---- 수입: 고르면 입력 칸이 파랗게, 수입 종류만, 요약·기록·분석에 수입
     click('#kind-income')
     assert js("return document.getElementById('entry').classList.contains('income')") and txt('entry-title') == '수입 입력'
-    assert js("return [...document.querySelectorAll('#cats [data-cat]')].map(c => c.textContent.trim())") == ['급여', '부수입', '용돈', '이자·환급']
+    assert cat_names('#cats [data-cat] .cn') == ['급여', '부수입', '용돈', '이자·환급']
     js("document.getElementById('memo').focus()"); time.sleep(.3)
     assert not vis('memo-dd')                                   # 수입 쪽 메모는 아직 없음
     typ('amount', '3200000'); typ('memo', '11월 월급')
     click('#save'); time.sleep(1.2)
-    assert txt('m-in') == '+3,200,000원' and txt('m-ex') == '−57,000원' and txt('m-left') == '3,143,000원'
-    assert js("return document.getElementById('m-left').className") == 'plus'
+    assert txt('m-in') == '3,200,000원' and txt('m-ex') == '57,000원' and txt('m-left') == '3,143,000원'
+    assert js("return document.getElementById('m-left').className") == '' and js("return document.getElementById('m-bar').style.width") == '2%'
     first = js("return document.querySelector('#list [data-entry]').textContent.replace(/\\s+/g, ' ')")
-    assert '급여' in first and '수입' in first and '+3,200,000원' in first, first
-    assert '+3,200,000원' in txt('list') and '−57,000원' in txt('list')      # 날짜 머리줄: 수입·지출
+    assert '급여' in first and '+3,200,000원' in first, first
+    assert '+3,143,000원' in txt('list')      # 날짜 머리줄: 그날 합계
     # 기록 거르기: 수입만
     click('#type-seg [data-type="income"]'); time.sleep(.3)
-    assert txt('count') == '1건' and txt('m-ex') == '−57,000원'          # 요약은 그대로
+    assert rows() == 1 and txt('m-ex') == '57,000원'          # 요약은 그대로
     click('#type-seg [data-type="all"]')
     # 분석: 수입
     click('#ana-seg [data-ana="income"]'); time.sleep(.3)
@@ -198,21 +219,27 @@ try:
     # 수입 기록을 누르면 수입 쪽으로 고치기
     click('#kind-expense'); time.sleep(.2)
     click('#list [data-entry]'); time.sleep(.3)
-    assert txt('entry-title') == '기록 고치기' and js("return document.getElementById('entry').classList.contains('income')")
-    click('#edit-cancel'); click('#kind-expense'); time.sleep(.2)
-    # 기록 줄: 메모가 첫 줄(크게), 분류·이름은 아래 작은 줄, 메모가 없으면 첫 줄에 분류 이름(흐리게), 날짜 머리줄에 수입·지출·합계
+    assert vis('sheet-wrap') and txt('entry-title') == '기록 고치기' and js("return document.getElementById('entry').classList.contains('income')")
+    click('#edit-cancel'); time.sleep(.2)
+    assert not vis('sheet-wrap')
+    click('#kind-expense'); time.sleep(.2)
+    # 기록 줄: 분류 아이콘 · 메모가 첫 줄(크게), 분류·이름은 아래 작은 줄, 날짜 머리줄은 '24일 월요일'과 그날 합계
     row = js("const b = [...document.querySelectorAll('#list [data-entry]')].find(x => x.textContent.includes('사료')); return [b.querySelector('.memo').textContent.trim(), b.querySelector('.line2 .who-tag').textContent.trim(), b.querySelector('.memo').offsetTop < b.querySelector('.line2').offsetTop, parseFloat(getComputedStyle(b.querySelector('.memo')).fontSize) > parseFloat(getComputedStyle(b.querySelector('.who-tag')).fontSize)]")
     assert row == ['사료', '임임기범', True, True], row
     head = js("return document.querySelector('#list .dayh').textContent.replace(/\\s+/g, ' ').trim()")
-    assert '수입 +3,200,000원' in head and '지출 −57,000원' in head and '합계 +3,143,000원' in head, head
+    assert head == f"{_t.day}일 {'월화수목금토일'[_t.weekday()]}요일+3,143,000원", head
+    assert js("return [...document.querySelectorAll('#list .it .ci')].length") == rows()
     # 합계(일별 달력): 오늘 칸에 수입·지출, 누르면 그날 기록만, 다시 누르면 이 달
     cell = js(f"return document.querySelector('#cal [data-day=\"{TODAY}\"]').textContent.replace(/\\s+/g, ' ').trim()")
     assert '+320만' in cell and '−5.7만' in cell, cell
-    click(f'#cal [data-day="{TODAY}"]'); time.sleep(.3)
+    view('cal')
+    click(f'#cal [data-day="{TODAY}"]'); time.sleep(.3)      # 그날 내역으로
     assert '이날' in txt('m-ex-label') and js(f"return document.querySelector('#cal [data-day=\"{TODAY}\"]').classList.contains('sel')")
-    click(f'#cal [data-day="{TODAY}"]'); time.sleep(.3)
-    assert '이 달' in txt('m-ex-label')
+    assert vis('pane-list') and txt('period').startswith(f'{_t.month}월 {_t.day}일 (')
+    click('#period'); time.sleep(.3)                          # 기간을 누르면 이 달 전체
+    assert '이번 달' in txt('m-ex-label')
     # 합계(월별): 올해 수입·지출·합계, 달마다 표, 달을 누르면 그 달로
+    view('cal')
     click('#tot-seg [data-tot="month"]'); time.sleep(1.2)
     assert vis('tot-month') and not vis('tot-day') and txt('y-in') == '+3,200,000원' and txt('y-ex') == '−57,000원'
     month_no = int(TODAY[5:7])
@@ -222,17 +249,20 @@ try:
     assert txt('y-in') == '+0원' and '–' not in txt('y-label')
     click('#y-next'); time.sleep(1)
     js("document.querySelector('#mtable tr.cur').click()"); time.sleep(1)
-    assert vis('tot-day') and '이 달' in txt('m-ex-label')
+    assert vis('tot-day') and '이번 달' in txt('m-ex-label')
+    view('list')
     print('INCOME OK')
 
     # ---- 내 기록 고치기·지우기
     pick = "[...document.querySelectorAll('#list [data-entry]')].find(b => b.textContent.includes('사료')).click()"
-    js("document.getElementById('entry').open = false")
-    js(pick)                               # 사료 15,000원
-    assert js("return document.getElementById('entry').open")
-    assert vis('edit-row') and txt('entry-title') == '기록 고치기' and js("return document.getElementById('amount').value") == '15,000'
+    js(pick)                               # 사료 15,000원 → 고치기 창
+    assert vis('sheet-wrap') and vis('edit-row') and txt('entry-title') == '기록 고치기' and js("return document.getElementById('amount').value") == '15,000'
     typ('amount', '16000'); click('#save'); time.sleep(1.2)
-    assert [x['amount'] for x in entries()] == [42000, 16000, 3200000] and not vis('edit-row')
+    assert [x['amount'] for x in entries()] == [42000, 16000, 3200000] and not vis('sheet-wrap')
+    # 줄의 '지우기'(휴대폰에서 왼쪽으로 밀면 나옴): 확인 창에서 취소하면 그대로
+    js("window.confirm = () => false")
+    js("[...document.querySelectorAll('#list [data-del]')].find(b => b.parentElement.textContent.includes('사료')).click()"); time.sleep(.5)
+    assert len(entries()) == 3
     js(pick)
     # 지우기 확인 창에 지울 기록 내용 (날짜·메모·소비형태·금액·쓴 사람), 취소하면 그대로
     js("window.__asked = []; window.confirm = m => { window.__asked.push(m); return false; }"); click('#edit-delete'); time.sleep(.5)
@@ -253,45 +283,34 @@ try:
     assert js("return document.querySelector('[data-tab=users]').hidden")   # 관리자 탭 없음
     assert not js("return document.querySelector('#list [data-entry]').classList.contains('mine')")
     click('#list [data-entry]'); time.sleep(.3)
-    assert not vis('edit-row')
+    assert not vis('sheet-wrap') and not js("return !!document.querySelector('#list [data-del]')")   # 남의 기록: 고치기·지우기 없음
     typ('amount', '5600'); typ('memo', '스타벅스'); click('#cats [data-cat]:nth-child(2)')   # 카페
     click('#save'); time.sleep(1.2)
-    assert txt('m2') == '3건'
-    # 거르기는 한 줄: ‹ 기간(해 포함) › · '월별 ▾' · '전체 ▾' (종류·사람은 고르기 창 안)
-    assert txt('period') == f'{date.today().year}년 {date.today().month}월' and txt('mode-btn') == '월별 ▾' and txt('pick-btn') == '전체 ▾'
-    assert not vis('pick-pop') and not vis('people')
-    tops = js("return ['prev', 'period', 'next', 'mode-btn', 'pick-btn'].map(i => Math.round(document.getElementById(i).getBoundingClientRect().top + document.getElementById(i).offsetHeight / 2))")
-    assert max(tops) - min(tops) <= 2, tops
-    # 사람 거르기: 지은만 (창을 열고 고르면 창은 열린 채, 단추는 '지은 ▾' 파랗게, 창 밖을 누르면 닫힘)
-    tap('id', 'pick-btn'); time.sleep(.3)
-    assert vis('pick-pop') and vis('people')
+    assert rows() == 3
+    # 사람 칩: 지은만 (칩이 검게), 요약도 지은 것
+    assert [b.strip() for b in js("return [...document.querySelectorAll('#people [data-who]')].map(b => b.textContent)")] == ['전체', '임기범', '지은']
     jieun = js("return [...document.querySelectorAll('#people [data-who]')].find(b => b.textContent.includes('지은')).dataset.who")
     tap('css selector', f'#people [data-who="{jieun}"]'); time.sleep(.3)
-    assert vis('pick-pop') and txt('pick-btn') == '지은 ▾' and js("return document.getElementById('pick-btn').classList.contains('on')")
-    assert txt('m-ex') == '−5,600원' and '지은' in txt('m-ex-label') and txt('count') == '1건'
-    tap('id', 'count'); time.sleep(.3)
-    assert not vis('pick-pop')
+    assert js(f"return document.querySelector('#people [data-who=\"{jieun}\"]').classList.contains('on')")
+    assert txt('m-ex') == '5,600원' and '지은' in txt('m-ex-label') and rows() == 1
     click('#people [data-who="0"]'); time.sleep(.3)
-    # 기록 칸은 쓴 사람의 색 (프로필 동그라미의 연한 색 + 왼쪽 띠), 사람마다 다름
-    rows = js("return [...document.querySelectorAll('#list .it')].map(b => [b.textContent.includes('지은'), getComputedStyle(b).backgroundColor, getComputedStyle(b).boxShadow])")
-    colors = {who: bg for who, bg, _ in rows}
-    assert len(colors) == 2 and all(bg != 'rgba(0, 0, 0, 0)' for bg in colors.values()) and 'inset' in rows[0][2], rows
-    assert all(colors[who] == bg for who, bg, _ in rows), rows
-    # 기록 칸에는 합계 띠 없음 (기간 합계는 위 수입·지출·남은 돈 칸), 접힌 줄은 건수만
-    assert not js("return document.querySelector('#list .list-sum')") and txt('count') == '3건'
+    # 기록 칸은 쓴 사람의 색, 사람마다 다름
+    colrows = js("return [...document.querySelectorAll('#list .it')].map(b => [b.textContent.includes('지은'), getComputedStyle(b).backgroundColor])")
+    colors = {who: bg for who, bg in colrows}
+    assert len(colors) == 2 and all(bg != 'rgba(0, 0, 0, 0)' for bg in colors.values()), colrows
+    assert all(colors[who] == bg for who, bg in colrows), colrows
+    assert not js("return document.querySelector('#list .list-sum')") and rows() == 3
     click('#type-seg [data-type="expense"]'); time.sleep(.3)
     click(f'#people [data-who="{jieun}"]'); time.sleep(.3)
-    assert txt('pick-btn') == '지은 · 지출만 ▾' and txt('count') == '1건'
+    assert rows() == 1
     click('#people [data-who="0"]'); click('#type-seg [data-type="all"]'); time.sleep(.3)
-    # 일별: 오늘 기록, 하루 앞으로 가면 없음
-    tap('id', 'mode-btn'); time.sleep(.2)
-    tap('id', 'mode-day'); time.sleep(.3)
+    # 일별(달력의 날짜): 오늘 기록, 하루 앞으로 가면 없음, 기간을 누르면 이 달
+    view('cal'); click(f'#cal [data-day="{TODAY}"]'); time.sleep(.3)
     t = date.today()
-    assert not vis('mode-pop') and txt('mode-btn') == '일별 ▾' and txt('period').startswith(f'{t.year}.{t.month}.{t.day} (')
-    assert txt('m2') == '3건' and '이날' in txt('m-ex-label')
+    assert txt('period').startswith(f'{t.month}월 {t.day}일 (') and rows() == 3 and '이날' in txt('m-ex-label')
     click('#prev'); time.sleep(1)
-    assert txt('m2') == '0건' and '기록이 없어요' in txt('list')
-    click('#mode-month'); time.sleep(.3)
+    assert rows() == 0 and '기록이 없어요' in txt('list')
+    click('#period'); time.sleep(.3)
     # 다른 페이지 메뉴에도 가계부 (이 기기는 가계부에 로그인)
     d.get(BASE + '/'); time.sleep(1)
     assert 'ledger' in navs() and 'card' not in navs()
@@ -319,7 +338,9 @@ try:
             return r.status
     assert send(f'[삼성카드] 지*님 {md} 12:41 4,800원 일시불 블루보틀 성수점') == 200
     js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)
-    assert vis('inbox-sec') and txt('inbox-count') == '1' and '블루보틀 성수점' in txt('inbox') and '규칙에 없는 가게' in txt('inbox')
+    # 한 줄(가게·때·카드 / 금액 / ✓ / ✕), 분류가 없으면 줄 아래 분류 한 줄 (접힌 채로 바로 고름)
+    assert vis('inbox-sec') and txt('inbox-count') == '1' and '블루보틀 성수점' in txt('inbox') and js("return !!document.querySelector('#inbox .ib-quick')")
+    assert not js("return !!document.querySelector('#inbox .body')")
     # 기록·분류(state)가 대기함보다 늦게 와도 대기함 내용이 나옴 (알림을 눌러 앱을 열 때 자주 그럼)
     slow = d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source':
         "const f0 = window.fetch; window.fetch = (u, o) => String(u).includes('/api/ledger/state') ? new Promise(r => setTimeout(r, 1500)).then(() => f0(u, o)) : f0(u, o);"})
@@ -330,9 +351,11 @@ try:
     assert js("return document.querySelector('#inbox [data-ib-ok]').disabled")
     cafe = js("return [...document.querySelectorAll('#inbox [data-ib-cat]')].find(c => c.textContent.includes('카페')).dataset.ibCat")
     click(f'#inbox [data-ib-cat="{cafe}"]'); time.sleep(1)
-    assert not js("return document.querySelector('#inbox [data-ib-ok]').disabled")
+    assert not js("return document.querySelector('#inbox [data-ib-ok]').disabled") and not js("return !!document.querySelector('#inbox .ib-quick')")
+    assert '카페' in js("return document.querySelector('#inbox .ib-m small').textContent")
+    click('#inbox [data-ib-toggle]'); time.sleep(.3)            # 줄을 누르면 펼쳐 고치기
     rule_btn = js("return document.querySelector('#inbox [data-ib-rule]').textContent")
-    assert '"블루보틀"는 늘 카페로' in rule_btn, rule_btn
+    assert '"블루보틀"는 늘 카페' in rule_btn, rule_btn
     click('#inbox [data-ib-rule]'); time.sleep(1)
     assert '"블루보틀"이 든 가게' in txt('rules') and '규칙 "블루보틀" → 카페' in txt('inbox')
     # 늘 고치는 모드: 금액·가게·날짜 칸이 처음부터 열려 있음 ('고치기' 버튼 없음). 칸 이름은 항목마다 (ib-amount-<id>)
@@ -370,7 +393,7 @@ try:
     d.set_window_size(400, 860); time.sleep(.5)
     # 휴대폰 폭: 가계부 안의 글자 1px 작게 (위쪽 사이트 메뉴는 그대로)
     font = lambda sel: js(f"return getComputedStyle(document.querySelector('{sel}')).fontSize")
-    assert font('body') == '13px' and font('.metric b') == '15px', (font('body'), font('.metric b'))
+    assert font('body') == '13px' and font('.hero-amt') == '29px', (font('body'), font('.hero-amt'))
     assert box('e-amt')[0] == box('e-date')[0] < box('e-shop')[0] and box('e-shop')[1] > 250, (box('e-amt'), box('e-shop'), box('e-date'))
     assert js("return document.documentElement.scrollWidth <= window.innerWidth")
     d.set_window_size(1280, 900); time.sleep(.5)
@@ -405,13 +428,14 @@ try:
     # 다음 알림은 규칙으로 바로 분류 → 모두 확정
     assert send(f'[삼성카드] {md} 15:00 6,100원 일시불 블루보틀 한남점') == 200
     js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)
-    assert '규칙 "블루보틀" → 카페' in txt('inbox')
+    assert '카페' in txt('inbox') and not js("return document.querySelector('#inbox [data-ib-ok]').disabled")
     click('#inbox-all'); time.sleep(1.5)
     assert not vis('inbox-sec') and entries()[-1]['amount'] == 6100
     # 규칙이 없어도 같은 가게의 지난 기록('이마트 장보기' → 식비)으로 분류를 미리 골라 둠 → 바로 확정
     assert send(f'[삼성카드] {md} 18:20 7,700원 일시불 이마트 장보기') == 200
     js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)
-    assert "지난 기록 '이마트 장보기'" in txt('inbox') and '→ 식비' in txt('inbox'), txt('inbox')
+    click('#inbox [data-ib-toggle]'); time.sleep(.3)
+    assert "추천 식비 · '이마트 장보기'" in txt('inbox'), txt('inbox')
     assert js("return document.querySelector('#inbox .chip.on').textContent.trim()") == '식비'
     assert not js("return document.querySelector('#inbox [data-ib-ok]').disabled")
     click('#inbox [data-ib-ok]'); time.sleep(1.5)
@@ -439,7 +463,9 @@ try:
     # 취소 알림: 맞는 기록을 찾아 지움
     assert send(f'[삼성카드] 승인취소 6,100원 블루보틀 한남점 {md} 15:10') == 200
     js("document.dispatchEvent(new Event('visibilitychange'))"); time.sleep(1.2)
-    assert '같은 결제를 찾았어요' in txt('inbox') and '취소 확정' in txt('inbox')
+    assert js("return document.querySelector('#inbox [data-ib-ok]').getAttribute('aria-label')") == '취소 확정'
+    click('#inbox [data-ib-toggle]'); time.sleep(.3)
+    assert '같은 결제를 찾았어요' in txt('inbox'), txt('inbox')
     n = len(entries())
     click('#inbox [data-ib-ok]'); time.sleep(1.5)
     assert len(entries()) == n - 1 and not vis('inbox-sec')
@@ -471,7 +497,9 @@ try:
     assert vis('set-view') and js('return window.ledgerBack()') is True; time.sleep(.5)
     assert not vis('set-view') and js("return location.hash") == ''
     click('#cat-edit'); time.sleep(.2)
-    assert js('return window.ledgerBack()') is True and txt('cat-edit') == '색·이름 편집'          # 편집 모드 끝
+    assert js('return window.ledgerBack()') is True and txt('cat-edit') == '편집'          # 편집 모드 끝
+    click('#fab'); time.sleep(.2)
+    assert js('return window.ledgerBack()') is True and not vis('sheet-wrap')                # 입력 창 닫힘
     assert js('return window.ledgerBack()') is False
     print('AUTO OK')
 
@@ -479,6 +507,8 @@ try:
     d.set_window_size(390, 844); time.sleep(.3)
     d.get(BASE + '/ledger/'); time.sleep(2); open_all()
     assert vis('app') and js("return document.documentElement.scrollWidth <= innerWidth + 1")
+    click('#fab'); time.sleep(.3)
+    assert js("return document.documentElement.scrollWidth <= innerWidth + 1")
     # 스크립트 오류 없음 (로그인 전 401·허락 전 403 같은 응답 코드 기록은 정상)
     logs = d.get_log('browser')
     assert not [m for m in logs if m['level'] == 'SEVERE' and 'Failed to load resource' not in m['message']], logs
