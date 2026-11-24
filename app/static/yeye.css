@@ -90,7 +90,8 @@ html:not(.in-app) .in-app-only { display: none !important; }
 .more { font-size: 12px; color: var(--green); }
 .none { color: var(--faint); font-size: 13px; }
 
-.badge { display: inline-block; min-width: 28px; padding: 2px 6px; border-radius: 5px; font-size: 12px; font-weight: 700; text-align: center; white-space: nowrap; }
+.badge { display: inline-block; min-width: 28px; padding: 2px 6px; border-radius: 5px; font-size: 12px; font-weight: 700; text-align: center; white-space: nowrap;
+    line-height: 1.45; }   /* 줄 높이를 정해 둠: 휴대폰은 한글·영어 글꼴이 달라 'D'가 '휴'보다 낮았음 (근무표 페이지와 같이 한글 높이에 맞춤) */
 .badge.blank { color: var(--faint); background: var(--soft); font-weight: 400; }
 .who { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--divider); }
 .who:first-child { border-top: 0; padding-top: 0; }
