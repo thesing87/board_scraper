@@ -60,7 +60,8 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .today .next { display: flex; gap: 6px; }
 .today .next div { text-align: center; font-size: 11px; color: var(--muted); min-width: 38px; }
 .today .next .badge { display: block; margin-top: 3px; }
-.badge { display: inline-block; min-width: 26px; padding: 2px 6px; border-radius: 5px; font-size: 12px; font-weight: 700; text-align: center; white-space: nowrap; }
+.badge { display: inline-block; min-width: 26px; padding: 2px 6px; border-radius: 5px; font-size: 12px; font-weight: 700; text-align: center; white-space: nowrap;
+    line-height: 1.45; }   /* 줄 높이를 정해 둠: 휴대폰은 한글·영어 글꼴이 달라 'D'가 '휴'보다 낮았음 (한글 글꼴 높이 1.45em에 맞춤) */
 .badge.blank { color: var(--faint); background: var(--soft); font-weight: 400; }
 
 /* 달력: 흰 카드, 평소엔 보기만, 고치는 중엔 초록 테두리 (✎로 시작·✓로 끝) */
@@ -78,6 +79,10 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .nav-btn { width: 36px; padding: 0; font-size: 18px; }
 .month-btn { border: 0; background: none; font-size: 16px; font-weight: 700; }
+.month-mid { display: flex; align-items: center; gap: 4px; }
+/* 오늘로: 이번 달이면 옅게, 다른 달을 볼 때는 초록 */
+.today-btn { height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; color: var(--faint); }
+.today-btn.away { border-color: #9FE1CB; background: #E1F5EE; color: var(--green); font-weight: 700; }
 .cal { position: relative; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .cal .wd { text-align: center; font-size: 12px; color: var(--faint); padding-bottom: 2px; }
 .cal .wd.sun { color: #D85A30; } .cal .wd.sat { color: #378ADD; }

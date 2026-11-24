@@ -197,6 +197,7 @@
         const d = st.data;
         const [y, m] = st.month.split('-').map(Number);
         $('month-label').textContent = `${y}년 ${m}월`;
+        $('today-btn').classList.toggle('away', st.month !== ymd(new Date()).slice(0, 7));   // 다른 달을 볼 때는 눈에 띄게
         const first = new Date(y, m - 1, 1).getDay(), last = new Date(y, m, 0).getDate();
         let html = [...WD].map((w, i) => `<div class="wd${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}">${w}</div>`).join('');
         html += '<div class="pad"></div>'.repeat(first);
@@ -524,7 +525,17 @@
     }
     $('prev').addEventListener('click', () => goMonth(-1));
     $('next').addEventListener('click', () => goMonth(1));
-    $('month-label').addEventListener('click', async () => { await flush(); st.month = ymd(new Date()).slice(0, 7); st.sel = null; load(); });
+    // 오늘로: 이번 달로 가서 오늘 날짜를 고름 (아래에 오늘 일정). 달 이름을 눌러도 같음
+    async function goToday() {
+        await flush();
+        const month = ymd(new Date()).slice(0, 7);
+        st.sel = null;
+        if (st.month === month && st.data) { renderCal(); renderDay(); return; }
+        st.month = month;
+        load();
+    }
+    $('month-label').addEventListener('click', goToday);
+    $('today-btn').addEventListener('click', goToday);
 
     // ==========================================
     // 사람 고르기·더하기
