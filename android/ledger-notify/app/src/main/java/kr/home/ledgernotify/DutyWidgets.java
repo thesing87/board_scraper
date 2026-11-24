@@ -793,13 +793,11 @@ final class DutyWidgets {
             gridFirst = first;
             gridLast = last;
             gridRows = rows;
-            // 구분선 (1.25부터): 주마다 가로선, 날짜 사이 옅은 세로선 — 칸 사이 틈 한가운데
+            // 구분선 (1.25부터): 주마다 가로선 — 칸 사이 틈 한가운데 (날짜 사이 세로선은 1.26에서 뺌)
             Paint div = new Paint();
             div.setStrokeWidth(1);
             div.setColor(0x24111827);
             for (int row = 0; row < rows; row++) cv.drawLine(pad, top + cellH * row, w - pad, top + cellH * row, div);
-            div.setColor(0x10111827);
-            for (int col = 1; col < 7; col++) cv.drawLine(pad + colW * col, top + 2, pad + colW * col, top + cellH * rows - 2, div);
             List<Seg> segs = segments(r, first, last);
             RectF[] cells = new RectF[last + 1];
             for (int day = 1; day <= last; day++) {
