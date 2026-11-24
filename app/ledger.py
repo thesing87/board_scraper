@@ -6,9 +6,11 @@
 - 기록은 로그인한 사람 모두가 함께 봄. 고치기·지우기는 쓴 사람과 관리자만
 - 분류(지출의 소비형태·수입의 종류)는 모두가 함께 쓰고, 색은 사람이 직접 고름. 기록에 쓰인 분류는 지우지 못함.
   기록이 지출인지 수입인지는 그 분류의 kind(expense·income)로 정함
+- 기록을 넣거나·고치거나·지우면(대기함 확정 포함) ledger_changes에 남김 → 고친 사람을 뺀 모두의 휴대폰에 알림 (ledger_push.py)
 """
 import hashlib
 import hmac
+import json
 import re
 import secrets
 from datetime import date
@@ -263,12 +265,27 @@ def _entry_values(amount, used_on, category_id, memo, conn):
     return amount, used_on, category_id, memo
 
 
+def _snapshot(conn, entry_id):
+    """변경 기록(ledger_changes)에 남길 그때의 기록 (분류 이름도 그때 것으로)"""
+    r = conn.execute("""SELECT e.amount, e.used_on, e.memo, e.user_id, c.name AS category, c.kind FROM ledger_entries e
+                        JOIN ledger_categories c ON c.id = e.category_id WHERE e.id = ?""", (entry_id,)).fetchone()
+    return json.dumps(dict(r), ensure_ascii=False) if r else None
+
+
+def _log_change(conn, entry_id, actor_id, before, after):
+    """누가 기록을 넣거나·고치거나·지움 (before·after는 _snapshot, 없으면 None). 휴대폰 알림(ledger_push.py)이 읽음"""
+    conn.execute("INSERT INTO ledger_changes(entry_id, user_id, before, after, changed_at) VALUES(?, ?, ?, ?, ?)",
+                 (entry_id, actor_id, before, after, _now()))
+
+
 def add_entry(user, amount, used_on, category_id, memo):
     with _db() as conn, conn:
         values = _entry_values(amount, used_on, category_id, memo, conn)
         now = _now()
-        return conn.execute("""INSERT INTO ledger_entries(user_id, amount, used_on, category_id, memo, created_at, updated_at)
-                               VALUES(?, ?, ?, ?, ?, ?, ?)""", (user['id'], *values, now, now)).lastrowid
+        entry_id = conn.execute("""INSERT INTO ledger_entries(user_id, amount, used_on, category_id, memo, created_at, updated_at)
+                                   VALUES(?, ?, ?, ?, ?, ?, ?)""", (user['id'], *values, now, now)).lastrowid
+        _log_change(conn, entry_id, user['id'], None, _snapshot(conn, entry_id))
+        return entry_id
 
 
 def _own_entry(conn, user, entry_id):
@@ -283,14 +300,18 @@ def edit_entry(user, entry_id, amount, used_on, category_id, memo):
     with _db() as conn, conn:
         _own_entry(conn, user, entry_id)
         values = _entry_values(amount, used_on, category_id, memo, conn)
+        before = _snapshot(conn, entry_id)
         conn.execute("UPDATE ledger_entries SET amount = ?, used_on = ?, category_id = ?, memo = ?, updated_at = ? WHERE id = ?",
                      (*values, _now(), entry_id))
+        _log_change(conn, entry_id, user['id'], before, _snapshot(conn, entry_id))
 
 
 def delete_entry(user, entry_id):
     with _db() as conn, conn:
         _own_entry(conn, user, entry_id)
+        before = _snapshot(conn, entry_id)
         conn.execute("DELETE FROM ledger_entries WHERE id = ?", (entry_id,))
+        _log_change(conn, entry_id, user['id'], before, None)
 
 
 def _category_values(name, color):
@@ -564,7 +585,9 @@ def _confirm_row(conn, row, history=None):
     if row['is_cancel']:
         match = _cancel_match(conn, row)
         if match:
+            before = _snapshot(conn, match['id'])
             conn.execute("DELETE FROM ledger_entries WHERE id = ?", (match['id'],))
+            _log_change(conn, match['id'], row['user_id'], before, None)
     else:
         # 분류를 고르지 않았으면 지난 기록의 추천으로 (화면에 미리 골라 보여 준 것)
         suggest = _suggest(history if history is not None else _history_map(conn), row)
@@ -572,9 +595,10 @@ def _confirm_row(conn, row, history=None):
         if category_id is None:
             raise LedgerError('분류를 골라 주세요.')
         now = _now()
-        conn.execute("""INSERT INTO ledger_entries(user_id, amount, used_on, category_id, memo, created_at, updated_at)
-                        VALUES(?, ?, ?, ?, ?, ?, ?)""", (row['user_id'], row['amount'], row['used_on'], category_id,
-                                                        row['merchant'][:MEMO_MAX], now, now))
+        entry_id = conn.execute("""INSERT INTO ledger_entries(user_id, amount, used_on, category_id, memo, created_at, updated_at)
+                                   VALUES(?, ?, ?, ?, ?, ?, ?)""", (row['user_id'], row['amount'], row['used_on'], category_id,
+                                                                   row['merchant'][:MEMO_MAX], now, now)).lastrowid
+        _log_change(conn, entry_id, row['user_id'], None, _snapshot(conn, entry_id))
     conn.execute("DELETE FROM ledger_inbox WHERE id = ?", (row['id'],))
 
 

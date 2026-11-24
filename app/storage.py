@@ -385,10 +385,22 @@ def _create_schema(conn):
         );
         -- 근무표가 바뀌면 FCM으로 알림을 받을 휴대폰 (duty_push.py). 로그인한 기기에 묶여 있어 로그아웃하거나
         -- 허락이 취소되면 함께 지워짐
+        -- duty·ledger: 근무표 변경 알림·가계부 변경 알림(ledger_push.py)을 받을지. 예전 앱(1.13까지)은 근무표만
         CREATE TABLE IF NOT EXISTS duty_push_tokens (
             token        TEXT PRIMARY KEY,
             session_hash TEXT NOT NULL REFERENCES ledger_sessions(token_hash) ON DELETE CASCADE,
-            updated_at   TEXT NOT NULL
+            updated_at   TEXT NOT NULL,
+            duty         INTEGER NOT NULL DEFAULT 1,
+            ledger       INTEGER NOT NULL DEFAULT 0
+        );
+        -- 가계부 기록을 누가 넣거나·고치거나·지웠는지 (before·after: 그때의 기록 JSON, 없으면 NULL). 휴대폰 알림용, 오래된 것은 지움
+        CREATE TABLE IF NOT EXISTS ledger_changes (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id   INTEGER NOT NULL,
+            user_id    INTEGER REFERENCES ledger_users(id) ON DELETE SET NULL,
+            before     TEXT,
+            after      TEXT,
+            changed_at TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS comic_progress (
@@ -535,6 +547,12 @@ def _add_missing_columns(conn):
         # 가계부 수입: 그전까지의 분류는 모두 지출
         conn.execute("ALTER TABLE ledger_categories ADD COLUMN kind TEXT NOT NULL DEFAULT 'expense'")
         log_msg("[DB] ledger_categories.kind 컬럼 추가")
+    push_columns = {row['name'] for row in conn.execute("PRAGMA table_info(duty_push_tokens)")}
+    for name, default in (('duty', 1), ('ledger', 0)):
+        if name not in push_columns:
+            # 휴대폰 알림 종류 (앱 1.14부터 고름). 그전 앱은 근무표만
+            conn.execute(f"ALTER TABLE duty_push_tokens ADD COLUMN {name} INTEGER NOT NULL DEFAULT {default}")
+            log_msg(f"[DB] duty_push_tokens.{name} 컬럼 추가")
     if 'found_ids' not in {row['name'] for row in conn.execute("PRAGMA table_info(fm_seen)")}:
         conn.execute("ALTER TABLE fm_seen ADD COLUMN found_ids TEXT NOT NULL DEFAULT '[]'")
         log_msg("[DB] fm_seen.found_ids 컬럼 추가")

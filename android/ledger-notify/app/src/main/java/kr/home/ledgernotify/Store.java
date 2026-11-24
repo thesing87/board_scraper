@@ -56,6 +56,11 @@ final class Store {
     /** 근무표 변경 알림 (FCM, DutyPush) */
     boolean dutyPushOn() { return p.getBoolean("duty_push", true); }
     void setDutyPushOn(boolean on) { p.edit().putBoolean("duty_push", on).apply(); }
+    /** 가계부 변경 알림 (1.14부터, FCM, DutyPush) */
+    boolean ledgerPushOn() { return p.getBoolean("ledger_push", true); }
+    void setLedgerPushOn(boolean on) { p.edit().putBoolean("ledger_push", on).apply(); }
+    /** 근무표·가계부 변경 알림 중 하나라도 켜져 있으면 서버에 토큰을 등록해 둠 */
+    boolean anyPushOn() { return dutyPushOn() || ledgerPushOn(); }
     /** 서버에 마지막으로 등록한 토큰·로그인 (같으면 다시 안 보냄) */
     String pushSent() { return p.getString("push_sent", ""); }
     long pushSentAt() { return p.getLong("push_sent_at", 0); }

@@ -72,17 +72,17 @@ public class MainActivity extends Activity {
         store = new Store(this);
         setContentView(build());
         openInbox = getIntent().getBooleanExtra(Notifier.EXTRA_INBOX, false);
-        // 홈부터 (금액 인식 알림을 눌러 열면 가계부, 근무표 위젯·근무표 변경 알림을 눌러 열면 근무표)
-        selectTab(openInbox ? TAB_LEDGER : isDutyPush(getIntent()) ? TAB_DUTY : getIntent().getIntExtra(EXTRA_TAB, TAB_HOME));
+        // 홈부터 (금액 인식 알림·가계부 변경 알림을 눌러 열면 가계부, 근무표 위젯·근무표 변경 알림을 눌러 열면 근무표)
+        selectTab(openInbox || isLedgerPush(getIntent()) ? TAB_LEDGER : isDutyPush(getIntent()) ? TAB_DUTY : getIntent().getIntExtra(EXTRA_TAB, TAB_HOME));
         DutyPush.ensureChannel(this);
         // 금액 인식 알림을 띄우려면 (안드로이드 13 이상) 알림 권한: 알림 읽기 권한을 켠 뒤 처음 한 번만 물음
         if (android.os.Build.VERSION.SDK_INT >= 33 && store.alertOn() && !Notifier.allowed(this)
                 && !store.askedNotifyPermission() && SettingsActivity.hasAccess(this)) {
             store.setAskedNotifyPermission();
             requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 2);
-        } else if (android.os.Build.VERSION.SDK_INT >= 33 && store.dutyPushOn() && !Notifier.allowed(this)
+        } else if (android.os.Build.VERSION.SDK_INT >= 33 && store.anyPushOn() && !Notifier.allowed(this)
                 && !store.askedDutyNotify() && !store.site().isEmpty()) {
-            // 근무표 변경 알림: 처음 한 번만 물음
+            // 근무표·가계부 변경 알림: 처음 한 번만 물음
             store.setAskedDutyNotify();
             requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 3);
         }
@@ -90,7 +90,12 @@ public class MainActivity extends Activity {
 
     /** 앱이 뒤에 있을 때 시스템이 띄운 근무표 변경 알림을 누름 (FCM 데이터가 extras로 옴) */
     private static boolean isDutyPush(Intent i) {
-        return "duty".equals(i.getStringExtra(DutyPush.EXTRA_KIND));
+        return DutyPush.KIND_DUTY.equals(i.getStringExtra(DutyPush.EXTRA_KIND));
+    }
+
+    /** 가계부 변경 알림을 누름 (1.14부터) */
+    private static boolean isLedgerPush(Intent i) {
+        return DutyPush.KIND_LEDGER.equals(i.getStringExtra(DutyPush.EXTRA_KIND));
     }
 
     /** 금액 인식 알림을 누름: 가계부를 새로 읽고 확인 대기함으로 */
@@ -107,6 +112,9 @@ public class MainActivity extends Activity {
         } else if (isDutyPush(intent)) {
             selectTab(TAB_DUTY);
             webs[TAB_DUTY].reload();
+        } else if (isLedgerPush(intent) && !loadedSite.isEmpty()) {
+            selectTab(TAB_LEDGER);
+            webs[TAB_LEDGER].reload();
         } else if (intent.hasExtra(EXTRA_TAB)) {
             selectTab(intent.getIntExtra(EXTRA_TAB, TAB_HOME));
         }
@@ -618,6 +626,7 @@ public class MainActivity extends Activity {
                         .put("ignores", store.ignores().size())
                         .put("connected", !store.url().isEmpty())
                         .put("dutyPush", DutyPush.available(MainActivity.this) ? store.dutyPushOn() : null)
+                        .put("ledgerPush", DutyPush.available(MainActivity.this) ? store.ledgerPushOn() : null)
                         .put("notifyAllowed", Notifier.allowed(MainActivity.this))
                         .toString();
             } catch (org.json.JSONException e) {
@@ -637,12 +646,21 @@ public class MainActivity extends Activity {
         public void setDutyPushOn(boolean on) {
             if (!fromLedger() || on == store.dutyPushOn()) return;
             store.setDutyPushOn(on);
-            if (!on) {
-                DutyPush.turnOff(MainActivity.this);
-                return;
-            }
-            DutyPush.sync(MainActivity.this);
-            if (!Notifier.allowed(MainActivity.this)) ui.post(() -> {
+            pushChanged(on);
+        }
+
+        /** 홈 > 설정의 '가계부 변경 알림' 켜고 끄기 (1.14부터) */
+        @JavascriptInterface
+        public void setLedgerPushOn(boolean on) {
+            if (!fromLedger() || on == store.ledgerPushOn()) return;
+            store.setLedgerPushOn(on);
+            pushChanged(on);
+        }
+
+        /** 켜거나 끈 것을 서버에 알리고, 켰는데 알림 권한이 없으면 물음 */
+        private void pushChanged(boolean on) {
+            DutyPush.changed(MainActivity.this);
+            if (on && !Notifier.allowed(MainActivity.this)) ui.post(() -> {
                 if (android.os.Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 3);
                 else startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName()));
             });

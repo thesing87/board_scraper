@@ -53,7 +53,7 @@ public class SettingsActivity extends Activity {
     private String updateText = "";
     private boolean updateNeedsPermission;
     private EditText urlInput;
-    private Switch enabledSwitch, alertSwitch, alertPendingSwitch, dutyPushSwitch;
+    private Switch enabledSwitch, alertSwitch, alertPendingSwitch, dutyPushSwitch, ledgerPushSwitch;
     private TextView alertState;
     private LinearLayout appsBox, logBox, ignoreBox;
     private EditText ignoreInput;
@@ -89,6 +89,7 @@ public class SettingsActivity extends Activity {
         enabledSwitch.setChecked(store.enabled());
         alertSwitch.setChecked(store.alertOn());
         dutyPushSwitch.setChecked(store.dutyPushOn());
+        ledgerPushSwitch.setChecked(store.ledgerPushOn());
         alertPendingSwitch.setChecked(store.alertPendingOn());
         alertPendingSwitch.setEnabled(store.alertOn());
         showAlertState();
@@ -234,25 +235,35 @@ public class SettingsActivity extends Activity {
         });
         alert.addView(alertState, gap(10));
 
-        // ---- 근무표 변경 알림 (FCM, DutyPush)
-        LinearLayout dutyCard = card(root, "근무표 변경 알림");
+        // ---- 근무표·가계부 변경 알림 (FCM, DutyPush)
+        LinearLayout dutyCard = card(root, "근무표·가계부 변경 알림");
         dutyPushSwitch = new Switch(this);
         dutyPushSwitch.setText("근무표 변경 알림");
         dutyPushSwitch.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         dutyPushSwitch.setOnCheckedChangeListener((sw, on) -> {
             if (on == store.dutyPushOn()) return;
             store.setDutyPushOn(on);
-            if (on) {
-                DutyPush.sync(this);
-                askNotifyPermission();
-            } else {
-                DutyPush.turnOff(this);
-            }
+            DutyPush.changed(this);
+            if (on) askNotifyPermission();
         });
         dutyCard.addView(dutyPushSwitch);
         dutyCard.addView(text(DutyPush.available(this)
                 ? "다른 사람이 근무표를 고치면 바로 알려 줘요 (내가 고친 것은 안 알려요). 누르면 근무표가 열려요."
                 : "이 앱 파일에는 알림 받기 설정(Firebase)이 들어 있지 않아 알림을 받을 수 없어요.", 12, R.color.muted), gap(2));
+        ledgerPushSwitch = new Switch(this);
+        ledgerPushSwitch.setText("가계부 변경 알림");
+        ledgerPushSwitch.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        ledgerPushSwitch.setOnCheckedChangeListener((sw, on) -> {
+            if (on == store.ledgerPushOn()) return;
+            store.setLedgerPushOn(on);
+            DutyPush.changed(this);
+            if (on) askNotifyPermission();
+        });
+        dutyCard.addView(ledgerPushSwitch, gap(12));
+        if (DutyPush.available(this)) {
+            dutyCard.addView(text("다른 사람이 가계부에 기록을 넣거나 고치거나 지우면 알려 줘요 (결제 알림 확정 포함). 누르면 가계부가 열려요.",
+                    12, R.color.muted), gap(2));
+        }
 
         // ---- 무시할 알림 (이 휴대폰에만)
         LinearLayout ign = card(root, "무시할 알림");

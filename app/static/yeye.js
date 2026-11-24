@@ -251,6 +251,12 @@
             const off = s.dutyPush && !s.notifyAllowed;
             $('ph-duty-s').textContent = off ? '휴대폰 알림 권한이 꺼져 있어요 · 껐다 켜면 물어봐요' : '다른 사람이 근무표를 고치면 바로 알려 줘요';
             $('ph-duty-s').className = off ? 'bad' : '';
+            // 가계부 변경 알림 (1.14부터)
+            $('ph-ledger-row').hidden = s.ledgerPush == null;
+            $('ph-ledger').checked = !!s.ledgerPush;
+            const offL = s.ledgerPush && !s.notifyAllowed;
+            $('ph-ledger-s').textContent = offL ? '휴대폰 알림 권한이 꺼져 있어요 · 껐다 켜면 물어봐요' : '다른 사람이 가계부 기록을 넣거나 고치거나 지우면 알려 줘요';
+            $('ph-ledger-s').className = offL ? 'bad' : '';
         }
         if ($('notify-card').hidden) return;
         $('ph-access-s').textContent = s.access ? `켜짐${s.battery ? ' · 배터리 제한 없음' : ' · 배터리 절약이 켜져 있어요'}` : '꺼짐 · 눌러서 켜 주세요';
@@ -262,6 +268,9 @@
     }
     $('ph-alert').addEventListener('change', e => {
         try { window.LedgerApp.setAlertOn(e.target.checked); } catch (err) { /* 예전 앱 */ }
+    });
+    $('ph-ledger').addEventListener('change', e => {
+        try { window.LedgerApp.setLedgerPushOn(e.target.checked); } catch (err) { /* 예전 앱 */ }
     });
     $('ph-duty').addEventListener('change', e => {
         try { window.LedgerApp.setDutyPushOn(e.target.checked); } catch (err) { /* 예전 앱 */ }

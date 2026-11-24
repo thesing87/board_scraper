@@ -35,17 +35,19 @@ _TOKEN_RE = re.compile(r'^[A-Za-z0-9_:\-.]+$')
 # ==========================================
 # 토큰 (휴대폰)
 # ==========================================
-def register(session_token, fcm_token):
-    """로그인한 기기의 FCM 토큰을 등록 (같은 토큰이 다른 로그인으로 오면 옮김). 올바르면 True"""
+def register(session_token, fcm_token, duty=True, ledger=False):
+    """로그인한 기기의 FCM 토큰을 등록 (같은 토큰이 다른 로그인으로 오면 옮김). 올바르면 True.
+    duty·ledger: 근무표·가계부 변경 알림을 받을지 (앱 1.14부터 보냄, 그전 앱은 근무표만)"""
     fcm_token = str(fcm_token or '').strip()
     if not session_token or not fcm_token or len(fcm_token) > TOKEN_MAX or not _TOKEN_RE.fullmatch(fcm_token):
         return False
     with _db() as conn, conn:
         if not conn.execute("SELECT 1 FROM ledger_sessions WHERE token_hash = ?", (_token_hash(session_token),)).fetchone():
             return False
-        conn.execute("""INSERT INTO duty_push_tokens(token, session_hash, updated_at) VALUES(?, ?, ?)
-                        ON CONFLICT(token) DO UPDATE SET session_hash = excluded.session_hash, updated_at = excluded.updated_at""",
-                     (fcm_token, _token_hash(session_token), _now()))
+        conn.execute("""INSERT INTO duty_push_tokens(token, session_hash, updated_at, duty, ledger) VALUES(?, ?, ?, ?, ?)
+                        ON CONFLICT(token) DO UPDATE SET session_hash = excluded.session_hash, updated_at = excluded.updated_at,
+                                                         duty = excluded.duty, ledger = excluded.ledger""",
+                     (fcm_token, _token_hash(session_token), _now(), int(bool(duty)), int(bool(ledger))))
     return True
 
 
@@ -54,11 +56,12 @@ def unregister(fcm_token):
         conn.execute("DELETE FROM duty_push_tokens WHERE token = ?", (str(fcm_token or ''),))
 
 
-def _recipients(conn):
-    """[(토큰, 사람 id)] 허락받은 사람의 로그인한 기기만"""
+def recipients(conn, kind='duty'):
+    """[(토큰, 사람 id)] 허락받은 사람의 로그인한 기기 중 그 알림(duty·ledger)을 켠 것만"""
+    column = {'duty': 'duty', 'ledger': 'ledger'}[kind]
     return [(r['token'], r['user_id']) for r in conn.execute(
-        """SELECT t.token, s.user_id FROM duty_push_tokens t JOIN ledger_sessions s ON s.token_hash = t.session_hash
-           JOIN ledger_users u ON u.id = s.user_id WHERE u.status = 'approved'""")]
+        f"""SELECT t.token, s.user_id FROM duty_push_tokens t JOIN ledger_sessions s ON s.token_hash = t.session_hash
+            JOIN ledger_users u ON u.id = s.user_id WHERE u.status = 'approved' AND t.{column} = 1""")]
 
 
 # ==========================================
@@ -102,7 +105,7 @@ def collect(now=None):
                                          ORDER BY id DESC LIMIT 1""", (r['person_id'], r['day'], cursor)).fetchone()
                 g['days'][r['day']] = [before['type_id'] if before else None, None]
             g['days'][r['day']][1] = r['type_id']
-        tokens = _recipients(conn)
+        tokens = recipients(conn, 'duty')
     messages = []
     for (person_id, user_id), g in groups.items():
         lines = []
@@ -181,7 +184,7 @@ def _account():
     global _missing_warned
     if not os.path.isfile(FCM_SERVICE_ACCOUNT):
         if not _missing_warned:
-            log_msg(f"[근무표 알림] Firebase 서비스 계정 키({FCM_SERVICE_ACCOUNT})가 없어 휴대폰 알림을 보내지 않습니다.", "WARN")
+            log_msg(f"[휴대폰 알림] Firebase 서비스 계정 키({FCM_SERVICE_ACCOUNT})가 없어 휴대폰 알림을 보내지 않습니다.", "WARN")
             _missing_warned = True
         return None
     with open(FCM_SERVICE_ACCOUNT, encoding='utf-8') as f:
@@ -207,15 +210,16 @@ def _access_token(account):
 
 
 def _payload(token, m):
+    """m에 channel·data가 있으면 그것으로 (가계부 알림, ledger_push.py), 없으면 근무표 알림"""
     return {'message': {
         'token': token,
         'notification': {'title': m['title'], 'body': m['body']},
-        'data': {'kind': 'duty', 'person_id': str(m['person_id'])},
-        'android': {'priority': 'high', 'notification': {'channel_id': CHANNEL, 'icon': 'ic_notify'}},
+        'data': m.get('data') or {'kind': 'duty', 'person_id': str(m['person_id'])},
+        'android': {'priority': 'high', 'notification': {'channel_id': m.get('channel') or CHANNEL, 'icon': 'ic_notify'}},
     }}
 
 
-def send(messages):
+def send(messages, label='근무표 알림'):
     """알림 보내기. 없어진 토큰(앱을 지움 등)은 지움. 보낸 개수"""
     if not messages:
         return 0
@@ -225,7 +229,7 @@ def send(messages):
     try:
         bearer = _access_token(account)
     except Exception as e:
-        log_msg(f"[근무표 알림] Firebase 인증 실패: {short_err(e)}", "ERROR")
+        log_msg(f"[{label}] Firebase 인증 실패: {short_err(e)}", "ERROR")
         return 0
     url = f"https://fcm.googleapis.com/v1/projects/{account['project_id']}/messages:send"
     sent = 0
@@ -234,19 +238,19 @@ def send(messages):
             try:
                 res = requests.post(url, json=_payload(token, m), headers={'Authorization': f'Bearer {bearer}'}, timeout=15)
             except Exception as e:
-                log_msg(f"[근무표 알림] 보내기 실패: {short_err(e)}", "WARN")
+                log_msg(f"[{label}] 보내기 실패: {short_err(e)}", "WARN")
                 continue
             if res.status_code == 200:
                 sent += 1
             elif res.status_code == 404 or 'UNREGISTERED' in res.text or (res.status_code == 400 and 'registration token' in res.text):
                 unregister(token)
-                log_msg("[근무표 알림] 없어진 휴대폰 토큰을 지움", "DEBUG")
+                log_msg(f"[{label}] 없어진 휴대폰 토큰을 지움", "DEBUG")
             else:
                 if res.status_code == 401:
                     _access['token'] = ''
-                log_msg(f"[근무표 알림] FCM 거절({res.status_code}): {short_err(res.text)}", "WARN")
+                log_msg(f"[{label}] FCM 거절({res.status_code}): {short_err(res.text)}", "WARN")
     if sent:
-        log_msg(f"[근무표 알림] {len(messages)}건을 휴대폰 {sent}곳에 보냄")
+        log_msg(f"[{label}] {len(messages)}건을 휴대폰 {sent}곳에 보냄")
     return sent
 
 
