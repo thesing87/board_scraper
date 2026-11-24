@@ -184,6 +184,8 @@
         render();
         // 대기함이 먼저 와서 분류 목록 없이 칸만 열렸으면 이제 내용까지 (알림을 눌러 열 때 기록 쪽이 늦게 오는 일이 잦음)
         if (st.inbox) renderInbox();
+        openPending();
+        if (st.search && st.search.q) runSearch();   // 찾은 기록을 고치거나 지웠으면 결과도 새로
     }
 
     // ==========================================
@@ -322,18 +324,49 @@
         $('m-left').className = left < 0 ? 'minus' : '';
         // 수입 대비 지출 막대 (수입이 없으면 지출이 있을 때 가득)
         $('m-bar').style.width = `${inSum ? Math.min(100, Math.round(exSum / inSum * 100)) : exSum ? 100 : 0}%`;
-        // 분석: 고른 쪽(지출·수입)의 분류별 합계
-        const sums = new Map();
+        // 지난달과 비교 (달로 볼 때만): 지출 합계 차이
+        const prev = prevScope();
+        $('m-cmp').hidden = !prev;
+        if (prev) {
+            const d = exSum - prev.filter(e => kindOf(e) === 'expense').reduce((t, e) => t + e.amount, 0);
+            const than = prev.sameDay ? `지난달 ${prev.sameDay}일까지보다` : '지난달보다';
+            $('m-cmp').innerHTML = !d ? `<b class="cmp-eq">${than} 같아요</b>`
+                : `<b class="${d > 0 ? 'cmp-up' : 'cmp-dn'}">${d > 0 ? '▲' : '▼'} ${won(Math.abs(d))}</b> ${than} ${d > 0 ? '더 썼어요' : '덜 썼어요'}`;
+        }
+        // 분석: 고른 쪽(지출·수입)의 분류별 합계 (지난달 그 분류와 차이·눈금)
+        const sums = new Map(), prevSums = new Map();
         scope.filter(e => kindOf(e) === st.ana).forEach(e => sums.set(e.category_id, (sums.get(e.category_id) || 0) + e.amount));
+        if (prev) prev.filter(e => kindOf(e) === st.ana).forEach(e => prevSums.set(e.category_id, (prevSums.get(e.category_id) || 0) + e.amount));
         const parts = [...sums.entries()].sort((a, b) => b[1] - a[1]);
         const total = parts.reduce((t, p) => t + p[1], 0);
         renderDonut(parts, total, whoName ? `${whoName} ${st.ana === 'income' ? '수입' : '지출'}` : st.ana === 'income' ? '수입' : '지출');
+        const income = st.ana === 'income';
+        const diffOf = id => {
+            if (!prev) return '';
+            const p = prevSums.get(id) || 0, d = sums.get(id) - p;
+            if (!p) return '<span class="d cmp-up">새로</span>';
+            if (Math.abs(d) < Math.max(1000, p * 0.05)) return '<span class="d cmp-eq">비슷</span>';
+            // 지출은 더 쓰면 빨강, 수입은 더 들어오면 초록
+            return `<span class="d ${(d > 0) !== income ? 'cmp-up' : 'cmp-dn'}">${d > 0 ? '▲' : '▼'}${shortWon(Math.abs(d))}</span>`;
+        };
         $('legend').innerHTML = parts.length ? parts.map(([id, v]) => {
-            const c = catOf(id), pct = Math.round(v / total * 100);
-            return `<div class="lg"><div class="lg-top">${catIcon(c)}<span class="n">${esc(c.name)}</span>
-                <span class="p">${pct}%</span><span class="w">${won(v)}</span></div><div class="lg-bar"><i style="width:${pct}%;background:${c.color}"></i></div></div>`;
-        }).join('') : `<p class="empty">${st.ana === 'income' ? '수입' : '지출'} 기록이 없어요</p>`;
+            const c = catOf(id), pct = Math.round(v / total * 100), p = prevSums.get(id) || 0;
+            const tick = prev && p ? `<u style="left:${Math.min(100, p / total * 100).toFixed(1)}%" title="지난달 ${won(p)}"></u>` : '';
+            return `<div class="lg"><div class="lg-top">${catIcon(c)}<span class="n">${esc(c.name)}</span>${diffOf(id)}
+                <span class="p">${pct}%</span><span class="w">${won(v)}</span></div><div class="lg-bar"><i style="width:${pct}%;background:${c.color}"></i>${tick}</div></div>`;
+        }).join('') + (prev ? `<p class="lg-note">눈금 = 지난달${prev.sameDay ? ` ${prev.sameDay}일까지` : ''} 그 분류 · ▲ 늘어남 ▼ 줄어듦</p>` : '')
+            : `<p class="empty">${st.ana === 'income' ? '수입' : '지출'} 기록이 없어요</p>`;
         renderList(list);
+    }
+
+    // 비교할 지난달 기록 (사람 거르기를 따름). 이번 달을 보는 중이면 지난달도 오늘 날짜까지만(sameDay), 일별로 볼 때는 비교 안 함(null)
+    function prevScope() {
+        const p = st.data.prev;
+        if (st.mode !== 'month' || !p || p.month === ym(st.day)) return null;
+        const now = new Date(), current = ym(st.day) === ym(now);
+        const list = p.entries.filter(e => (!st.who || e.user_id === st.who) && (!current || +e.used_on.slice(8) <= now.getDate()));
+        list.sameDay = current ? now.getDate() : 0;
+        return list;
     }
 
     function renderDonut(parts, total, whoName) {
@@ -474,15 +507,109 @@
             const net = items.reduce((t, e) => t + (kindOf(e) === 'income' ? e.amount : -e.amount), 0);
             const [y, m, dd] = day.split('-').map(Number);
             const head = `<div class="dayh"><b>${dd}일 ${'일월화수목금토'[new Date(y, m - 1, dd).getDay()]}요일</b><span class="net">${signed(net)}</span></div>`;
-            return head + items.map(e => {
-                const c = catOf(e.category_id), mine = canEdit(e), income = c.kind === 'income';
-                return `<div class="sw-row">${mine ? `<button type="button" class="sw-del" data-del="${e.id}">지우기</button>` : ''}
-                    <div class="it u${mine ? ' mine' : ''}${st.editId === e.id ? ' editing' : ''}" data-entry="${e.id}" style="${userTint(e.user_id)}"${mine ? ' role="button" tabindex="0"' : ''}>
-                    ${catIcon(c)}<span class="txt"><span class="memo${e.memo ? '' : ' no-memo'}">${esc(e.memo || c.name)}</span>
-                    <span class="line2"><span class="cat">${esc(c.name)}</span><span class="sep">·</span>${whoTag(e.user_id)}</span></span>
-                    <span class="amt ${income ? 'plus' : 'minus'}">${income ? '+' : '−'}${won(e.amount)}</span></div></div>`;
-            }).join('');
+            return head + items.map(e => rowHtml(e)).join('');
         }).join('');
+    }
+    // 기록 한 줄 (내역·찾기 결과). mark: 찾은 글자를 노랗게, dated: 둘째 줄 앞에 날짜
+    function rowHtml(e, mark, dated) {
+        const c = catOf(e.category_id), mine = canEdit(e), income = c.kind === 'income';
+        const hl = s => mark ? markText(s, mark) : esc(s);
+        const day = dated ? `<span class="cat">${+e.used_on.slice(5, 7)}/${+e.used_on.slice(8)}</span><span class="sep">·</span>` : '';
+        return `<div class="sw-row">${mine ? `<button type="button" class="sw-del" data-del="${e.id}">지우기</button>` : ''}
+            <div class="it u${mine ? ' mine' : ''}${st.editId === e.id ? ' editing' : ''}" data-entry="${e.id}" style="${userTint(e.user_id)}"${mine ? ' role="button" tabindex="0"' : ''}>
+            ${catIcon(c)}<span class="txt"><span class="memo${e.memo ? '' : ' no-memo'}">${hl(e.memo || c.name)}</span>
+            <span class="line2">${day}<span class="cat">${hl(c.name)}</span><span class="sep">·</span>${whoTag(e.user_id)}</span></span>
+            <span class="amt ${income ? 'plus' : 'minus'}">${income ? '+' : '−'}${won(e.amount)}</span></div></div>`;
+    }
+    // 찾은 글자를 노랗게 (띄어쓰기·대소문자 무시하고 맞춘 자리)
+    function markText(s, q) {
+        const key = q.replace(/\s+/g, '').toLowerCase();
+        if (!key) return esc(s);
+        const chars = [...s], flat = [], pos = [];
+        chars.forEach((ch, i) => { if (!/\s/.test(ch)) { flat.push(ch.toLowerCase()); pos.push(i); } });
+        const at = flat.join('').indexOf(key);
+        if (at < 0) return esc(s);
+        const a = pos[at], b = pos[at + [...key].length - 1] + 1;
+        return esc(chars.slice(0, a).join('')) + `<mark>${esc(chars.slice(a, b).join(''))}</mark>` + esc(chars.slice(b).join(''));
+    }
+
+    // ==========================================
+    // 모든 달에서 찾기: 치는 대로 잠깐 기다렸다가 서버에서 (메모·분류 이름·금액). 달마다 묶어 건수·합계
+    // ==========================================
+    function openSearch(on) {
+        st.search = on ? (st.search || { q: '', entries: [], more: false }) : null;
+        $('app').classList.toggle('searching', on);
+        $('search-sec').hidden = !on;
+        if (on) { window.scrollTo(0, 0); $('search-q').focus(); renderSearch(); }
+        else { $('search-q').value = ''; render(); }
+    }
+    async function runSearch() {
+        if (!st.search) return;
+        const q = $('search-q').value.trim();
+        if (!q) { st.search = { q: '', entries: [], more: false }; renderSearch(); return; }
+        const seq = (st.searchSeq = (st.searchSeq || 0) + 1);
+        const { status, data } = await get(`/api/ledger/search?q=${encodeURIComponent(q)}`);
+        if (seq !== st.searchSeq || !st.search) return;   // 그 사이 더 쳤거나 닫음
+        if (status === 401) { showAuth('login'); return; }
+        if (status !== 200) { $('search-sum').textContent = '찾지 못했어요. 잠시 뒤 다시 해 주세요.'; return; }
+        st.search = data;
+        renderSearch();
+    }
+    function renderSearch() {
+        const s = st.search;
+        if (!s) return;
+        if (!s.q) { $('search-sum').textContent = '모든 달의 기록에서 메모·가게·분류 이름·금액으로 찾아요.'; $('search-list').innerHTML = ''; return; }
+        const list = s.entries;
+        if (!list.length) { $('search-sum').textContent = ''; $('search-list').innerHTML = `<p class="empty">'${esc(s.q)}'에 맞는 기록이 없어요</p>`; return; }
+        const sum = kind => list.filter(e => kindOf(e) === kind).reduce((t, e) => t + e.amount, 0);
+        const ex = sum('expense'), inc = sum('income');
+        const months = [...new Set(list.map(e => e.used_on.slice(0, 7)))];
+        const thisYear = String(new Date().getFullYear());
+        const monthName = m => `${m.slice(0, 4) === thisYear ? '' : `${m.slice(0, 4)}년 `}${+m.slice(5)}월`;
+        const span = months.length > 1 ? ` · ${monthName(months[months.length - 1])}~${monthName(months[0])}` : '';
+        $('search-sum').textContent = `${list.length}건${s.more ? '+ (최근 것만)' : ''}${ex ? ` · 지출 ${won(ex)}` : ''}${inc ? ` · 수입 ${won(inc)}` : ''}${span}`;
+        $('search-list').innerHTML = months.map(m => {
+            const items = list.filter(e => e.used_on.startsWith(m));
+            const net = items.reduce((t, e) => t + (kindOf(e) === 'income' ? e.amount : -e.amount), 0);
+            const [y, mo] = m.split('-').map(Number);
+            return `<div class="mh"><b>${y === new Date().getFullYear() ? '' : `${y}년 `}${mo}월</b><span class="net">${signed(net)}</span></div>`
+                + items.map(e => rowHtml(e, s.q, true)).join('');
+        }).join('');
+    }
+    $('search-open').addEventListener('click', () => openSearch(true));
+    $('search-close').addEventListener('click', () => openSearch(false));
+    let searchWait = 0;
+    $('search-q').addEventListener('input', () => { clearTimeout(searchWait); searchWait = setTimeout(runSearch, 250); });
+    $('search-q').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(searchWait); runSearch(); $('search-q').blur(); } });
+    $('search-list').addEventListener('click', e => {
+        const del = e.target.closest('[data-del]');
+        if (del) { deleteEntry(Number(del.dataset.del)); return; }
+        const b = e.target.closest('[data-entry]');
+        const entry = b && st.search && st.search.entries.find(x => x.id === Number(b.dataset.entry));
+        if (entry && canEdit(entry)) startEdit(entry);
+    });
+    $('search-list').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.it.mine')) { e.preventDefault(); e.target.click(); } });
+
+    // 홈 탭 '최근 기록'에서 눌러 옴 (/ledger/?entry=id&day=YYYY-MM-DD): 그 달로 가서 내 기록이면 고치기, 아니면 그 줄을 반짝
+    const opening = (() => {
+        const q = new URLSearchParams(location.search), id = Number(q.get('entry')), day = q.get('day') || '';
+        if (!id) return null;
+        history.replaceState(history.state, '', location.pathname + location.hash);
+        return /^\d{4}-\d{2}-\d{2}$/.test(day) ? { id, day } : { id, day: '' };
+    })();
+    if (opening && opening.day) { const [y, m, d] = opening.day.split('-').map(Number); st.day = new Date(y, m - 1, d); st.mode = 'month'; }
+    function openPending() {
+        if (!opening || opening.done) return;
+        opening.done = true;
+        const entry = st.data.entries.find(x => x.id === opening.id);
+        if (!entry) return;
+        st.view = 'list';
+        st.type = 'all';
+        st.who = 0;
+        render();
+        if (canEdit(entry)) { startEdit(entry); return; }
+        const row = $('list').querySelector(`[data-entry="${entry.id}"]`);
+        if (row) { row.scrollIntoView({ block: 'center' }); row.classList.add('flash'); }
     }
 
     // ==========================================
@@ -571,7 +698,7 @@
     });
     async function deleteEntry(id) {
         // 지울 기록을 확인 창에 보여 줌: 날짜 · 메모(없으면 소비형태) / 소비형태 · 금액 · 쓴 사람
-        const e = st.data.entries.find(x => x.id === id);
+        const e = st.data.entries.find(x => x.id === id) || (st.search && st.search.entries.find(x => x.id === id));
         let detail = '';
         if (e) {
             const c = catOf(e.category_id), income = c.kind === 'income';
@@ -1362,6 +1489,7 @@
         if (st.newCatFor != null) { st.newCatFor = null; renderInbox(); return true; }
         const swiped = $('list').querySelector('.sw-row.open');
         if (swiped) { swiped.classList.remove('open'); return true; }
+        if (st.search) { openSearch(false); return true; }
         return false;
     };
     // ==========================================

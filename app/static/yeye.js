@@ -1,6 +1,8 @@
 // YeYe홈 앱의 홈 탭 (/yeye/): 근무표·가계부 요약 (서버 /api/ledger/home, 가계부 로그인)
 // - 근무표: 사람마다 오늘·내일, '처음 보일 사람'(근무표 설정 > 이 휴대폰, localStorage duty_home_person)의 오늘부터 7일
-// - 가계부: 이번 달 지출·수입, 내 확인 대기함 건수, 최근 기록 3건
+// - 가계부: 이번 달 지출·수입, 내 확인 대기함 건수, 최근 기록 3건 (달과 상관없이, 누르면 가계부에서 그 기록)
+// - 오늘 일정: 앱 안에서 근무표 설정의 휴대폰 캘린더를 켰으면 근무 카드 아래에 (LedgerApp.calendarEvents, 서버로는 안 보냄)
+// - 불러오지 못하면(연결 끊김 등) 이 기기에 둔 마지막 답(localStorage home_cache)을 흐리게 보이고 '다시 시도', 인터넷이 되면 저절로
 // - 카드를 누르면 그 페이지로 (앱은 그 탭으로 바꿈). 앱이 홈 탭을 다시 보일 때 window.homeRefresh()로 새로
 // - 전체 설정(#settings, 앱 홈 탭의 위쪽 '설정' = window.appOpenSettings): 앱 파일(관리자는 APK 올리기, 앱 밖에서는 앱 받기),
 //   이 휴대폰 앱(버전·새 버전 확인, 앱 안에서만), 로그아웃
@@ -48,13 +50,21 @@
     const iconOf = (icon, name) => icon || (GUESS.find(([re]) => re.test(name || '')) || [0, [...(name || '?')][0]])[1];
     const kb = n => n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`;
 
+    // 연결이 안 되면 status 0 (예외를 내지 않음)
     async function req(url, body) {
-        const res = await fetch(url, body ? { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
-            : { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+        let res;
+        try {
+            res = await fetch(url, body ? { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+                : { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+        } catch (e) { return { status: 0, data: {} }; }
         let data = {};
         try { data = await res.json(); } catch (e) { /* 본문 없음 */ }
         return { status: res.status, data };
     }
+    // 마지막으로 받은 홈 답 (이 기기에만, 로그아웃하면 지움)
+    const CACHE_KEY = 'home_cache';
+    function saveCache(data) { try { localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), data })); } catch (e) { /* 저장 불가 */ } }
+    function readCache() { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); } catch (e) { return null; } }
 
     // ---- 로그인 (가계부 계정)
     $('login-form').addEventListener('submit', async e => {
@@ -84,8 +94,19 @@
             $('auth').hidden = false;
             return;
         }
-        if (status !== 200) { $('msg').textContent = '불러오지 못했어요. 잠시 뒤 다시 해 주세요.'; return; }
+        if (status !== 200) { showStale(status); return; }
+        saveCache(data);
+        showHome(data, null);
+    }
+    // 받은 답(또는 마지막으로 받은 답)으로 그림. staleAt: 마지막 답을 보이는 중이면 그때 (ms)
+    function showHome(data, staleAt) {
         $('msg').textContent = '';
+        $('stale').hidden = !staleAt;
+        $('app').classList.toggle('is-stale', !!staleAt);
+        if (staleAt) {
+            const t = new Date(staleAt), today = t.toDateString() === new Date().toDateString();
+            $('stale-msg').textContent = `연결이 안 돼요 · ${today ? '' : `${t.getMonth() + 1}/${t.getDate()} `}${pad(t.getHours())}:${pad(t.getMinutes())}에 받은 내용이에요`;
+        }
         $('auth').hidden = true;
         st.me = data.user;
         st.app = data.app;
@@ -100,6 +121,18 @@
         renderOrdering();
         renderSettings();
     }
+    // 불러오지 못함: 마지막 답이 있으면 그것을 흐리게, 없으면 안내만. 둘 다 '다시 시도'
+    function showStale(status) {
+        const cache = readCache();
+        if (cache && cache.data && cache.data.user) { showHome(cache.data, cache.at); return; }
+        $('auth').hidden = true;
+        $('app').hidden = false;
+        $('stale').hidden = false;
+        $('app').classList.add('is-stale');
+        $('stale-msg').textContent = status ? '불러오지 못했어요 · 잠시 뒤 다시 해 주세요' : '연결이 안 돼요 · 인터넷을 확인해 주세요';
+    }
+    $('stale-retry').addEventListener('click', () => { $('stale-msg').textContent = '다시 불러오는 중…'; load(); });
+    window.addEventListener('online', () => { if (!$('stale').hidden) load(); });
     window.homeRefresh = load;
 
     function renderDuty(d) {
@@ -107,7 +140,7 @@
         d.types.forEach(t => { types[t.id] = t; });
         const badge = id => types[id] ? `<span class="badge" style="${badgeStyle(types[id].color)}">${esc(types[id].code)}</span>` : '<span class="badge blank">–</span>';
         $('duty-title').textContent = '오늘 근무';
-        if (!d.people.length) { $('duty-body').innerHTML = '<p class="none">아직 근무표가 없어요</p>'; return; }
+        if (!d.people.length) { $('duty-body').innerHTML = '<p class="none">아직 근무표가 없어요</p>' + todayEvents(); return; }
         // 처음 보일 사람은 크게 (가계부의 이번 달 지출처럼), 다른 사람은 한 줄씩
         const who = d.people.find(p => p.id === d.person_id) || d.people[0];
         const big = p => {
@@ -124,7 +157,23 @@
             const day = parse(w.day);
             return `<div><div class="d${i === 0 ? ' today' : ''}">${i === 0 ? '오늘' : WD[day.getDay()]}</div>${badge(w.type_id)}</div>`;
         }).join('');
-        $('duty-body').innerHTML = big(who) + (d.person_id === who.id ? `<div class="week"><div class="row">${week}</div></div>` : '') + (rows ? `<div class="others">${rows}</div>` : '');
+        $('duty-body').innerHTML = big(who) + (d.person_id === who.id ? `<div class="week"><div class="row">${week}</div></div>` : '') + todayEvents() + (rows ? `<div class="others">${rows}</div>` : '');
+    }
+
+    // 오늘 일정 (휴대폰 캘린더): 종일 일정 먼저, 그다음 시각 순으로 세 개까지, 넘치면 '외 n개'. 캘린더를 안 켰거나 일정이 없으면 비움
+    const EV_SHOWN = 3;
+    function todayEvents() {
+        let list = null;
+        const now = new Date(), day = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+        try { if (window.LedgerApp && window.LedgerApp.calendarEvents) list = JSON.parse(window.LedgerApp.calendarEvents(day, day)); } catch (e) { list = null; }
+        if (!Array.isArray(list)) return '';
+        list = list.filter(e => e && e.day <= day && day <= (e.endDay || e.day));
+        if (!list.length) return '';
+        list.sort((a, b) => (b.allDay - a.allDay) || String(a.start || '').localeCompare(String(b.start || '')));
+        const time = e => e.allDay || e.day !== day ? '종일' : esc(e.start || '');
+        return `<div class="today-ev"><div class="lbl">오늘 일정</div>${list.slice(0, EV_SHOWN).map(e =>
+            `<div class="ev"><i style="background:${esc(e.color || '#378ADD')}"></i><span class="tm">${time(e)}</span><span class="tt">${esc(e.title || '(제목 없음)')}</span></div>`).join('')}`
+            + (list.length > EV_SHOWN ? `<div class="more">외 ${list.length - EV_SHOWN}개</div>` : '') + '</div>';
     }
 
     function renderLedger(l) {
@@ -134,9 +183,19 @@
             <div class="bar"><i style="width:${pct}%"></i></div><div class="sub">수입 <b class="in">${won(l.income)}원</b> · 남음 <b>${won(l.income - l.expense)}원</b></div>`;
         $('inbox-n').textContent = l.inbox || '';
         st.inboxN = l.inbox;
-        $('recent-body').innerHTML = l.recent.length ? l.recent.map(r => `<div class="rc"><span class="ci" style="background:${mix(r.color || '#888780', true, 0.84)}">${esc(iconOf(r.icon, r.category))}</span>
-                <span class="m">${esc(r.memo)}</span><span class="a${r.kind === 'income' ? ' in' : ''}">${r.kind === 'income' ? '+' : '−'}${won(r.amount)}</span></div>`).join('')
-            : '<p class="none">이번 달 기록이 아직 없어요</p>';
+        // 최근 기록: 날짜(오늘·어제·11/22) · 분류 · 쓴 사람, 누르면 가계부에서 그 기록 (내 기록은 고치기)
+        $('recent-body').innerHTML = l.recent.length ? l.recent.map(r => `<div class="rc go" data-go="/ledger/?entry=${Number(r.id) || 0}&day=${esc(r.used_on)}" role="link" tabindex="0">
+                <span class="ci" style="background:${mix(r.color || '#888780', true, 0.84)}">${esc(iconOf(r.icon, r.category))}</span>
+                <span class="m">${esc(r.memo)}<small>${dayLabel(r.used_on)} · ${esc(r.category)}${r.who ? ` · ${esc(r.who)}` : ''}</small></span>
+                <span class="a${r.kind === 'income' ? ' in' : ''}">${r.kind === 'income' ? '+' : '−'}${won(r.amount)}</span></div>`).join('')
+            : '<p class="none">아직 기록이 없어요</p>';
+    }
+    function dayLabel(s) {
+        if (!s) return '';
+        const d = parse(s), t = new Date();
+        t.setHours(0, 0, 0, 0);
+        const n = Math.round((t - d) / 86400000);
+        return n === 0 ? '오늘' : n === 1 ? '어제' : d.getFullYear() === t.getFullYear() ? `${d.getMonth() + 1}/${d.getDate()}` : `${String(d.getFullYear()).slice(2)}/${d.getMonth() + 1}/${d.getDate()}`;
     }
 
     // ==========================================
@@ -326,7 +385,7 @@
     });
     $('logout').addEventListener('click', async () => {
         await req('/api/ledger/session', { action: 'logout' });
-        try { localStorage.removeItem('ledger_user'); } catch (e) { /* 저장 불가 */ }
+        try { localStorage.removeItem('ledger_user'); localStorage.removeItem(CACHE_KEY); } catch (e) { /* 저장 불가 */ }
         // 앱 안이면 가계부·근무표 탭도 다시 읽음
         try { if (window.LedgerApp && window.LedgerApp.loggedOut) window.LedgerApp.loggedOut(); } catch (e) { /* 예전 앱 */ }
         if (location.hash === '#settings') history.replaceState(null, '', location.pathname);

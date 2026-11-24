@@ -39,6 +39,8 @@
 
         <div id="app" hidden>
             <div class="greet"><span id="greet-date"></span><b id="greet-name"></b></div>
+            <!-- 불러오지 못했을 때: 마지막으로 받은 내용을 흐리게 보이고 '다시 시도' (인터넷이 다시 되면 저절로) -->
+            <div class="stale" id="stale" hidden role="status"><span id="stale-msg"></span><button type="button" id="stale-retry">다시 시도</button></div>
             <!-- 순서 바꾸는 중: 카드마다 ⋮⋮, 끌어서 옮기고 '완료' (이 기기에 저장) -->
             <div class="order-bar" id="order-bar" hidden><b>카드 순서</b><button type="button" class="link-btn" id="order-done">완료</button></div>
             <div id="cards">
@@ -54,7 +56,7 @@
                     <div class="head"><b>확인할 결제 <span id="inbox-n"></span></b><span class="more">보기 ›</span><span class="drag" aria-hidden="true">⋮⋮</span></div>
                 </div>
                 <div class="card go" id="recent-card" data-card="recent" data-go="/ledger/" role="link" tabindex="0">
-                    <div class="head"><b>최근 내역</b><span class="drag" aria-hidden="true">⋮⋮</span></div>
+                    <div class="head"><b>최근 기록</b><span class="drag" aria-hidden="true">⋮⋮</span></div>
                     <div id="recent-body"></div>
                 </div>
             </div>

@@ -69,6 +69,8 @@
                 <div class="hero-amt" id="m-ex">–</div>
                 <div class="hero-sub"><span><span id="m-in-label">수입</span> <b class="plus" id="m-in">–</b></span><span>남음 <b id="m-left">–</b></span></div>
                 <div class="hero-bar" aria-hidden="true"><i id="m-bar"></i></div>
+                <!-- 지난달과 비교: 이번 달이면 지난달 같은 날까지, 지난 달이면 그 전달 전체와 -->
+                <div class="hero-cmp" id="m-cmp" hidden></div>
             </section>
             <!-- 확인할 결제 (휴대폰 결제 알림, ledger.py inbox): 한 줄에 ✓ 확정 · ✕ 버리기, 줄을 누르면 고치기 -->
             <section class="inbox" id="inbox-sec" hidden>
@@ -82,7 +84,18 @@
             <div class="filter">
                 <div class="people" id="people"></div>
                 <div class="seg" id="type-seg"><button type="button" data-type="all">모두</button><button type="button" data-type="expense">지출</button><button type="button" data-type="income">수입</button></div>
+                <button type="button" class="icon search-btn" id="search-open" aria-label="모든 달에서 찾기"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button>
             </div>
+            <!-- 모든 달에서 찾기 (ledger.py search): 메모·가게·분류 이름·금액, 달마다 묶어 건수·합계, 누르면 고치기 -->
+            <section class="search-sec" id="search-sec" hidden>
+                <div class="search-bar">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+                    <input id="search-q" type="search" enterkeyhint="search" maxlength="40" placeholder="메모·가게·분류·금액" autocomplete="off">
+                    <button type="button" class="link-btn" id="search-close">닫기</button>
+                </div>
+                <p class="search-sum" id="search-sum"></p>
+                <div id="search-list"></div>
+            </section>
             <!-- 내역: 날짜별 묶음 (머리줄에 그날 합계), 줄을 누르면 고치기, 왼쪽으로 밀면 지우기 -->
             <section class="pane" data-pane="list" id="pane-list"><div id="list"></div></section>
             <!-- 달력: 일별(이 달 달력, 날짜를 누르면 그날 내역)·월별(올해 달마다, 달을 누르면 그 달) -->

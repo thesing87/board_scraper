@@ -25,6 +25,8 @@ MEMO_MAX = 60
 CATEGORY_NAME_MAX = 12
 AMOUNT_MAX = 10 ** 10
 MEMO_LIMIT = 1000   # 메모 자동완성용: 지금까지 쓴 메모(최근 순, 메모마다 마지막에 쓴 분류)
+SEARCH_LIMIT = 300  # 모든 달 검색: 최근 것부터 이만큼까지
+SEARCH_Q_MAX = 40
 PBKDF2_ROUNDS = 120_000
 COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
 DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
@@ -227,11 +229,51 @@ def state(month):
                                   ORDER BY is_admin DESC, id""").fetchall()
         memos = conn.execute("""SELECT memo, category_id, MAX(id) AS last_id FROM ledger_entries WHERE memo != ''
                                 GROUP BY memo ORDER BY last_id DESC LIMIT ?""", (MEMO_LIMIT,)).fetchall()
+        # 지난달과 비교 (요약·분석): 지난달 기록은 사람·분류·날짜·금액만 (사람 거르기·같은 날까지 합계는 화면에서)
+        y, m = int(month[:4]), int(month[5:7])
+        prev = f'{y - 1}-12' if m == 1 else f'{y}-{m - 1:02d}'
+        prev_rows = conn.execute("""SELECT user_id, category_id, used_on, amount FROM ledger_entries
+                                    WHERE used_on >= ? AND used_on < ?""", (f'{prev}-01', f'{prev}-99')).fetchall()
     return {'month': month,
             'entries': [dict(r) for r in entries],
+            'prev': {'month': prev, 'entries': [dict(r) for r in prev_rows]},
             'categories': [dict(r) for r in cats],
             'members': [{'id': r['id'], 'name': r['name'], 'admin': bool(r['is_admin'])} for r in members],
             'memos': [{'memo': r['memo'], 'category_id': r['category_id']} for r in memos]}
+
+
+def _search_like(text):
+    """LIKE 안에서 글자 그대로 찾게 % _ \\ 를 막음"""
+    return '%' + text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+
+
+def search(q):
+    """모든 달에서 찾기: 메모·분류 이름에 q가 들어 있거나(띄어쓰기·대소문자 무시), q가 숫자면 그 금액.
+    최근 것부터 SEARCH_LIMIT건. 돌려줌 {q, entries, more(더 있는지)}"""
+    q = ' '.join(str(q or '').split())[:SEARCH_Q_MAX]
+    if not q:
+        return {'q': '', 'entries': [], 'more': False}
+    like = _search_like(q.replace(' ', '').lower())
+    digits = q.replace(',', '').replace('원', '').strip()
+    amount = int(digits) if digits.isdigit() and len(digits) <= 11 else -1
+    with _db() as conn:
+        rows = conn.execute("""SELECT e.id, e.user_id, e.amount, e.used_on, e.category_id, e.memo, e.created_at
+                               FROM ledger_entries e JOIN ledger_categories c ON c.id = e.category_id
+                               WHERE lower(replace(e.memo, ' ', '')) LIKE ? ESCAPE '\\'
+                                  OR lower(replace(c.name, ' ', '')) LIKE ? ESCAPE '\\' OR e.amount = ?
+                               ORDER BY e.used_on DESC, e.id DESC LIMIT ?""", (like, like, amount, SEARCH_LIMIT + 1)).fetchall()
+    return {'q': q, 'entries': [dict(r) for r in rows[:SEARCH_LIMIT]], 'more': len(rows) > SEARCH_LIMIT}
+
+
+def recent(limit=3):
+    """앱 홈 탭 '최근 기록': 달과 상관없이 쓴 날 최근 순(같은 날이면 나중에 넣은 것), 쓴 사람 이름·분류와 함께"""
+    with _db() as conn:
+        rows = conn.execute("""SELECT e.id, e.amount, e.used_on, e.memo, e.user_id, COALESCE(u.name, '') AS who,
+                                      c.name AS category, c.kind, c.color, c.icon
+                               FROM ledger_entries e JOIN ledger_categories c ON c.id = e.category_id
+                               LEFT JOIN ledger_users u ON u.id = e.user_id
+                               ORDER BY e.used_on DESC, e.id DESC LIMIT ?""", (limit,)).fetchall()
+    return [dict(r) for r in rows]
 
 
 def year_totals(year):

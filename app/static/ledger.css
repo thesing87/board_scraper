@@ -231,6 +231,10 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 .hero-sub b { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
 .hero-bar { height: 6px; margin-top: 12px; border-radius: 3px; background: #E5E7EB; overflow: hidden; }
 .hero-bar i { display: block; height: 100%; width: 0; border-radius: 3px; background: #E24B4A; transition: width .3s; }
+/* 지난달과 비교: ▲ 더 씀(빨강) ▼ 덜 씀(초록) */
+.hero-cmp { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.hero-cmp b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.cmp-up { color: #A32D2D; } .cmp-dn { color: #0F6E56; } .cmp-eq { color: var(--faint); }
 
 
 /* 거르기: 사람 칩 · 지출/수입 */
@@ -319,8 +323,25 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 .lg-top .n { flex: 1; }
 .lg-top .p { color: var(--muted); font-size: 12px; }
 .lg-top .w { min-width: 72px; text-align: right; font-variant-numeric: tabular-nums; }
-.lg-bar { height: 4px; border-radius: 2px; background: var(--soft); margin: 4px 0 0 36px; }
+.lg-bar { position: relative; height: 4px; border-radius: 2px; background: var(--soft); margin: 4px 0 0 36px; }
 .lg-bar i { display: block; height: 4px; border-radius: 2px; }
+/* 지난달 그 분류 자리 (눈금)와 차이 */
+.lg-bar u { position: absolute; top: -2px; width: 2px; height: 8px; margin-left: -1px; border-radius: 1px; background: #5F6673; }
+.lg-top .d { font-size: 11px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lg-note { margin: 8px 0 0; font-size: 11px; color: var(--faint); }
+/* 모든 달에서 찾기 */
+.search-btn { flex: 0 0 auto; width: 34px; height: 34px; padding: 0; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; }
+.search-btn svg, .search-bar svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.search-bar { display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; height: 44px; border: 1px solid #CBD0D8; border-radius: 12px; background: var(--surface); color: var(--muted); }
+.search-bar input { flex: 1; min-width: 0; height: 40px; border: 0; outline: 0; background: none; font-size: 15px; color: var(--text); }
+.search-sum { margin: 8px 4px 0; font-size: 12.5px; color: var(--muted); }
+.search-sec .mh { display: flex; align-items: baseline; gap: 10px; padding: 14px 4px 6px; font-size: 12.5px; color: var(--muted); }
+.search-sec .mh b { flex: 1; font-weight: 600; }
+.search-sec mark { background: #FAC775; color: inherit; border-radius: 2px; }
+#app.searching .hero, #app.searching .inbox, #app.searching .filter, #app.searching .pane, #app.searching .app-hint, #app.searching .fab { display: none !important; }
+/* 홈 탭에서 눌러 온 기록 (잠깐 반짝) */
+.it.flash { animation: flash 1.6s ease-out; }
+@keyframes flash { 0%, 40% { box-shadow: 0 0 0 2px #EF9F27; } 100% { box-shadow: 0 0 0 2px transparent; } }
 
 /* ＋ 입력 단추 */
 .fab { position: fixed; right: max(18px, calc(50vw - 342px)); bottom: calc(env(safe-area-inset-bottom) + 72px); z-index: 30; width: 56px; height: 56px; padding: 0;

@@ -1298,6 +1298,9 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                               filename=ledger_app.download_name(app))
         elif pure_path == '/api/ledger/year':
             self._send_data(200, ledger.year_totals(query.get('year', [''])[0]))
+        elif pure_path == '/api/ledger/search':
+            # 모든 달에서 찾기 (메모·분류 이름·금액)
+            self._send_data(200, ledger.search(query.get('q', [''])[0]))
         elif pure_path == '/api/ledger/admin' and user['admin']:
             self._send_data(200, ledger.people())
         elif pure_path == '/api/ledger/home':
@@ -1314,19 +1317,14 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
 
     @staticmethod
     def _ledger_summary(user):
-        """이번 달 지출·수입 합계, 내 확인 대기함 건수, 최근 기록 3건 (분류 이름·색과 함께)"""
+        """이번 달 지출·수입 합계, 내 확인 대기함 건수, 최근 기록 3건 (달과 상관없이, 쓴 사람·분류 이름·색과 함께)"""
         st = ledger.state('')
         cats = {c['id']: c for c in st['categories']}
         total = {'expense': 0, 'income': 0}
         for e in st['entries']:
             kind = cats.get(e['category_id'], {}).get('kind', 'expense')
             total[kind] = total.get(kind, 0) + e['amount']
-        recent = []
-        for e in st['entries'][:3]:
-            c = cats.get(e['category_id'], {})
-            recent.append({'memo': e['memo'] or c.get('name', ''), 'amount': e['amount'], 'used_on': e['used_on'],
-                           'kind': c.get('kind', 'expense'), 'category': c.get('name', ''), 'color': c.get('color', '#888780'),
-                           'icon': c.get('icon', '')})
+        recent = [{**r, 'memo': r['memo'] or r['category'], 'color': r['color'] or '#888780'} for r in ledger.recent(3)]
         return {'month': st['month'], 'expense': total['expense'], 'income': total['income'],
                 'inbox': len(ledger.inbox(user)), 'recent': recent}
 

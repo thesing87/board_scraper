@@ -17,6 +17,8 @@
     const PRESET = ['#EF9F27', '#D4537E', '#534AB7', '#888780', '#1D9E75', '#378ADD', '#E24B4A', '#D85A30', '#639922', '#2BA7B8', '#9B5DE5', '#5F5E5A'];
     const WD = '일월화수목금토';
     const SAVE_DELAY = 500;
+    const RETRY_DELAY = 10000;   // 저장 실패(연결 끊김 등) 뒤 다시 보낼 때까지
+    const hasPending = () => Object.values(st.pending).some(d => Object.keys(d).length);
 
     const pad = n => String(n).padStart(2, '0');
     const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -34,7 +36,7 @@
         me: null, data: null, month: ymd(new Date()).slice(0, 7), personId: Number(storageGet(PERSON_KEY, 0)) || null,
         editing: false,       // '고치기'를 누른 동안만 날짜를 눌러 근무를 넣음
         brush: null,          // 고른 근무 종류 id, 'clear'(지우기), null(안 고름)
-        pending: {},          // 저장 전 바뀐 날 {날짜: 종류 id|null}
+        pending: {},          // 저장 전 바뀐 날 {사람 id: {날짜: 종류 id|null}} — 저장에 실패하면 남겨 두고 다시 보냄
         undo: [],             // [{person, day, prev}]
         saveTimer: null, adding: false,
         typeDraft: null,      // 설정에서 고치는 중인 근무 종류 (모두 저장 전)
@@ -120,11 +122,13 @@
         st.personId = data.person_id;
         storageSet(PERSON_KEY, data.person_id ? String(data.person_id) : '');
         // 저장 전 칠한 것은 화면에 그대로
-        for (const [d, t] of Object.entries(st.pending)) {
+        for (const [d, t] of Object.entries(st.pending[data.person_id] || {})) {
             if (d.startsWith(st.month)) { if (t == null) delete data.days[d]; else data.days[d] = t; }
             if (d >= data.today && d <= addDays(data.today, 3)) { if (t == null) delete data.near[d]; else data.near[d] = t; }
         }
         if (st.brush && st.brush !== 'clear' && !data.types.some(t => t.id === st.brush)) st.brush = null;
+        // 저장하지 못하고 남은 것이 있으면 (다시 로그인한 뒤 등) 곧 다시 보냄
+        if (hasPending() && !st.saving) { clearTimeout(st.saveTimer); st.saveTimer = setTimeout(flush, SAVE_DELAY); }
         loadEvents();
         render();
         renderSettings();
@@ -453,23 +457,49 @@
         if (recordUndo) st.undo.push({ person: st.personId, day, prev });
         if (tid == null) delete d.days[day]; else d.days[day] = tid;
         if (day >= d.today && day <= addDays(d.today, 3)) { if (tid == null) delete d.near[day]; else d.near[day] = tid; }
-        st.pending[day] = tid;
+        (st.pending[st.personId] = st.pending[st.personId] || {})[day] = tid;
         clearTimeout(st.saveTimer);
         st.saveTimer = setTimeout(flush, SAVE_DELAY);
         renderToday(); renderCal(); renderBrush();
     }
+    // 사람마다 모아 둔 것을 보냄. 연결이 끊겼거나 서버가 잠깐 안 되면(응답 없음·5xx·429) 칠한 것을 그대로 남겨 두고
+    // 잠시 뒤·온라인이 되면·화면에 돌아오면 다시 보냄 (예전에는 보내기 전에 비워서 실패하면 조용히 사라졌음).
+    // 서버가 거절한 것(없는 사람·근무 종류 등)만 버리고 서버 것으로 다시 그림
     async function flush() {
         clearTimeout(st.saveTimer);
-        const days = st.pending, person = st.personId;
-        if (!Object.keys(days).length || !person) return;
+        if (st.saving) { await st.saving; if (hasPending()) return flush(); return; }
+        const jobs = Object.entries(st.pending).filter(([, d]) => Object.keys(d).length);
+        if (!jobs.length) return;
         st.pending = {};
-        const { status, data } = await act({ action: 'set', person_id: person, days });
-        if (status !== 200) { $('cal-msg').textContent = msgOf(data); load(); return; }
+        let failed = false, rejected = null, auth = false;
+        st.saving = (async () => {
+            for (const [person, days] of jobs) {
+                let status = 0, data = {};
+                try { ({ status, data } = await act({ action: 'set', person_id: Number(person), days })); } catch (e) { status = 0; }
+                if (status === 200) continue;
+                if (status === 0 || status >= 500 || status === 429 || status === 401) {
+                    // 남겨 둠 (그 사이 다시 칠한 날은 새로 칠한 것이 이김)
+                    st.pending[person] = { ...days, ...(st.pending[person] || {}) };
+                    failed = true;
+                    if (status === 401) auth = true;
+                } else rejected = data;
+            }
+        })();
+        try { await st.saving; } finally { st.saving = null; }
+        if (auth) { showAuth(); return; }
+        if (failed) {
+            $('cal-msg').textContent = '저장하지 못했어요 · 연결되면 다시 저장할게요 (칠한 것은 그대로 있어요)';
+            clearTimeout(st.saveTimer);
+            st.saveTimer = setTimeout(flush, RETRY_DELAY);
+        }
+        if (rejected) { $('cal-msg').textContent = msgOf(rejected); load(); return; }
+        if (failed) return;
         $('cal-msg').textContent = '';
         tellApp();
         // 최근 고친 것만 새로 (칠하는 중에 달력을 다시 그리지 않음)
-        if (!Object.keys(st.pending).length) refreshChanges();
+        if (!hasPending()) refreshChanges();
     }
+    window.addEventListener('online', () => { if (hasPending()) flush(); });
     async function refreshChanges() {
         const { status, data } = await get(`/api/ledger/duty?month=${st.month}&person=${st.personId}`);
         if (status === 200 && st.data && data.person_id === st.personId) { st.data.changes = data.changes; renderChanges(); }
@@ -840,16 +870,18 @@
     document.addEventListener('visibilitychange', () => {
         if (!st.me) return;
         if (document.visibilityState === 'hidden') flush();
-        else if (!Object.keys(st.pending).length && $('set-view').hidden) load();
+        else if (hasPending()) flush();
+        else if ($('set-view').hidden) load();
     });
     window.addEventListener('pagehide', () => {
-        const days = st.pending;
-        if (!Object.keys(days).length || !st.personId) return;
-        st.pending = {};
-        try {
-            fetch('/api/ledger/duty', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'set', person_id: st.personId, days }) });
-        } catch (e) { /* 보내지 못함 */ }
+        // 떠날 때는 남은 것을 한 번 더 보내 봄 (못 보내면 다음에 열 때는 없음 — 이 페이지 안에만 모아 둠)
+        for (const [person, days] of Object.entries(st.pending)) {
+            if (!Object.keys(days).length) continue;
+            try {
+                fetch('/api/ledger/duty', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'set', person_id: Number(person), days }) });
+            } catch (e) { /* 보내지 못함 */ }
+        }
     });
 
     boot();
