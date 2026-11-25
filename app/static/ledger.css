@@ -269,10 +269,7 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 .dayh b { flex: 1; font-weight: 600; }
 .dayh .net { font-weight: 600; font-variant-numeric: tabular-nums; }
 .sw-row { position: relative; overflow: hidden; border-radius: 12px; margin-bottom: 4px; }
-.sw-del { position: absolute; top: 0; right: 0; bottom: 0; width: 84px; height: auto; border: 0; border-radius: 0; background: #E24B4A; color: #fff; font-weight: 700; }
-.it { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface); font-size: 13px; transition: transform .2s; touch-action: pan-y; }
-.sw-row.open .it { transform: translateX(-84px); }
-.sw-row:not(.open):not(.swiping) .sw-del { visibility: hidden; }
+.it { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface); font-size: 13px; }
 .it.mine { cursor: pointer; }
 .it .txt { flex: 1; min-width: 0; }
 /* 메모가 첫 줄(크게), 분류·이름은 아래 작은 줄. 메모가 없으면 첫 줄에 분류 이름을 흐리게 */

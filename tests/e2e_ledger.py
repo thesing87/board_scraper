@@ -415,10 +415,8 @@ try:
     js("window.homeRefresh()"); time.sleep(1)
     assert '16,000' in txt('list')
     print('PHOTO OK')
-    # 줄의 '지우기'(휴대폰에서 왼쪽으로 밀면 나옴): 확인 창에서 취소하면 그대로
-    js("window.confirm = () => false")
-    js("[...document.querySelectorAll('#list [data-del]')].find(b => b.parentElement.textContent.includes('사료')).click()"); time.sleep(.5)
-    assert len(entries()) == 3
+    # 줄에는 '지우기'가 없음 (밀어서 지우기 없앰, 지우기는 고치기 창에서)
+    assert not js("return !!document.querySelector('#list [data-del], #list .sw-del')")
     js(pick)
     # 지우기 확인 창에 지울 기록 내용 (날짜·메모·소비형태·금액·쓴 사람), 취소하면 그대로
     js("window.__asked = []; window.confirm = m => { window.__asked.push(m); return false; }"); click('#edit-delete'); time.sleep(.5)
@@ -684,10 +682,10 @@ try:
     js("window.scrollTo(0, 0)"); time.sleep(.2)
     g = js("const r = document.getElementById('m-ex').getBoundingClientRect(); return window.appGesture(r.left + 2, r.top + r.height / 2)")
     assert g == 'hv', g
-    mine = js("const e = document.querySelector('.sw-row[data-own-swipe] .it'); if (!e) return null; e.scrollIntoView({block: 'center'}); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]")
-    if mine:
+    mine = js("const e = document.querySelector('#list .it.mine'); if (!e) return null; e.scrollIntoView({block: 'center'}); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]")
+    if mine:   # 내 기록 줄 위에서도 양쪽으로 탭 넘기기 (밀어서 지우기 없앰)
         g = js("return window.appGesture(arguments[0], arguments[1])", *mine)
-        assert 'h' not in g and 'r' in g, g   # 내 기록 줄: 왼쪽 밀기는 '지우기', 오른쪽 밀기만 탭 넘기기
+        assert g.startswith('h'), g
     g = js("const r = document.getElementById('people').getBoundingClientRect(); const p = document.getElementById('people'); return p.scrollWidth > p.clientWidth + 1 ? window.appGesture(r.left + 5, r.top + r.height / 2) : 'skip'")
     assert g == 'skip' or 'h' not in g, g
     js("window.scrollTo(0, 0)")

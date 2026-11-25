@@ -518,7 +518,7 @@
         const c = catOf(e.category_id), mine = canEdit(e), income = c.kind === 'income';
         const hl = s => mark ? markText(s, mark) : esc(s);
         const day = dated ? `<span class="cat">${+e.used_on.slice(5, 7)}/${+e.used_on.slice(8)}</span><span class="sep">·</span>` : '';
-        return `<div class="sw-row"${mine ? ' data-own-swipe="left"' : ''}>${mine ? `<button type="button" class="sw-del" data-del="${e.id}">지우기</button>` : ''}
+        return `<div class="sw-row">
             <div class="it u${mine ? ' mine' : ''}${st.editId === e.id ? ' editing' : ''}" data-entry="${e.id}" style="${userTint(e.user_id)}"${mine ? ' role="button" tabindex="0"' : ''}>
             ${catIcon(c)}<span class="txt"><span class="memo${e.memo ? '' : ' no-memo'}">${hl(e.memo || c.name)}</span>
             <span class="line2">${day}<span class="cat">${hl(c.name)}</span><span class="sep">·</span>${whoTag(e.user_id)}</span></span>
@@ -592,8 +592,6 @@
     $('search-q').addEventListener('input', () => { clearTimeout(searchWait); searchWait = setTimeout(runSearch, 250); });
     $('search-q').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(searchWait); runSearch(); $('search-q').blur(); } });
     $('search-list').addEventListener('click', e => {
-        const del = e.target.closest('[data-del]');
-        if (del) { deleteEntry(Number(del.dataset.del)); return; }
         const view = e.target.closest('[data-view]');
         if (view) { const x = st.search && st.search.entries.find(y => y.id === Number(view.dataset.view)); if (x) openViewer(x.photos.map(id => photoUrl(id)), 0); return; }
         const b = e.target.closest('[data-entry]');
@@ -1229,11 +1227,6 @@
         if (b) { st.who = Number(b.dataset.who); render(); }
     });
     $('list').addEventListener('click', async e => {
-        const del = e.target.closest('[data-del]');
-        if (del) { await deleteEntry(Number(del.dataset.del)); return; }
-        if (Date.now() - (st.swipedAt || 0) < 400) return;
-        const opened = $('list').querySelector('.sw-row.open');
-        if (opened) { opened.classList.remove('open'); return; }   // 밀어 둔 줄이 있으면 먼저 닫기만
         const view = e.target.closest('[data-view]');
         if (view) { const x = st.data.entries.find(y => y.id === Number(view.dataset.view)); if (x) openViewer(x.photos.map(id => photoUrl(id)), 0); return; }
         const b = e.target.closest('[data-entry]');
@@ -1242,43 +1235,6 @@
         if (entry && canEdit(entry)) startEdit(entry);
     });
     $('list').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.it.mine')) { e.preventDefault(); e.target.click(); } });
-    // 휴대폰: 내 기록 줄을 왼쪽으로 밀면 '지우기'가 나옴 (반쯤 넘게 밀면 열린 채로)
-    let swipe = null;
-    $('list').addEventListener('touchstart', e => {
-        const it = e.target.closest('.it.mine');
-        $('list').querySelectorAll('.sw-row.open').forEach(r => { if (!it || r !== it.parentElement) r.classList.remove('open'); });
-        if (!it) return;
-        const t = e.touches[0];
-        swipe = { it, x: t.clientX, y: t.clientY, dx: 0, moving: false, open: it.parentElement.classList.contains('open') };
-    }, { passive: true });
-    $('list').addEventListener('touchmove', e => {
-        if (!swipe) return;
-        const t = e.touches[0], dx = t.clientX - swipe.x, dy = t.clientY - swipe.y;
-        if (!swipe.moving && Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }   // 위아래로 넘기는 중
-        swipe.moving = true;
-        swipe.it.parentElement.classList.add('swiping');
-        swipe.dx = Math.max(-84, Math.min(0, dx + (swipe.open ? -84 : 0)));
-        swipe.it.style.transition = 'none';
-        swipe.it.style.transform = `translateX(${swipe.dx}px)`;
-    }, { passive: true });
-    $('list').addEventListener('touchend', () => {
-        if (!swipe) return;
-        const { it, dx, moving } = swipe;
-        swipe = null;
-        it.style.transition = ''; it.style.transform = '';
-        it.parentElement.classList.remove('swiping');
-        if (!moving) return;
-        it.parentElement.classList.toggle('open', dx < -42);
-        st.swipedAt = Date.now();   // 민 뒤 손을 뗄 때 생기는 누르기는 고치기로 가지 않게
-    });
-    // 앱(1.31부터)이 탭 넘기기를 시작하면 touchcancel: 민 줄을 원래대로
-    $('list').addEventListener('touchcancel', () => {
-        if (!swipe) return;
-        const { it } = swipe;
-        swipe = null;
-        it.style.transition = ''; it.style.transform = '';
-        it.parentElement.classList.remove('swiping');
-    });
 
     // ==========================================
     // 관리자: 사용자 허락
@@ -1730,8 +1686,6 @@
         if (!$('addbox').hidden) { $('addbox').hidden = true; return true; }
         if (!$('sheet-wrap').hidden) { closeEntry(); return true; }
         if (st.newCatFor != null) { st.newCatFor = null; renderInbox(); return true; }
-        const swiped = $('list').querySelector('.sw-row.open');
-        if (swiped) { swiped.classList.remove('open'); return true; }
         if (st.search) { openSearch(false); return true; }
         if (inboxOpen()) { closeInbox(); return true; }
         return false;
