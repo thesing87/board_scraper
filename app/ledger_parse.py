@@ -22,9 +22,14 @@ CANCEL_WORDS = ('취소', '환불')
 NOT_PAY_BEFORE = ('누적', '잔액', '한도', '잔여', '총', '합계', '포인트', '캐시백', '할인')
 # 가게가 아닌 조각
 NOISE_RE = re.compile(
-    r'\[[^\]]*\]|\([^)]*\d[^)]*\)|(?:승인|결제|사용|출금|취소|환불|체크|일시불|이용|안내|알림|완료|해외|국내|온라인|체크카드|신용카드|Web발신)'
-    r'|\d+\s*개월|할부\s*\d*\s*(?:개월)?|누적\s*[\d,]+\s*원?|잔액\s*[\d,]+\s*원?|한도\s*[\d,]+\s*원?|[\d,]+\s*원'
+    r'\[[^\]]*\]|\([^)]*\d[^)]*\)|(?:승인|결제|사용|입출금|출금|취소|환불|체크|일시불|이용|안내|알림|완료|해외|국내|온라인|체크카드|신용카드|Web발신)'
+    r'|\d+\s*개월|할부\s*\d*\s*(?:개월)?|누적\s*[\d,]+\s*원?|잔액\s*[\d,]+\s*원?|한도\s*[\d,]+\s*원?|[￦₩]?\s*[\d,]+\s*원|[￦₩]'
     r'|\d{1,2}[/.-]\d{1,2}(?:\s*\([월화수목금토일]\))?|\d{1,2}:\d{2}|[가-힣]\*[가-힣*]*\s*님?|님')
+# '사용처 지자체세입금' · '이용처 : 스타벅스' 처럼 이름표가 붙은 가게 (하나카드 등)
+LABEL_RE = re.compile(r'(?:사용처|이용처|가맹점명?|상호명?)\s*[:：]?\s*([^\n]+)')
+# '주식회사 케이에프씨코리아에서 결제했어요' (삼성월렛·페이 알림)
+WHERE_RE = re.compile(r'([^\s,.]+(?:\s[^\s,.]+)?)에서\s*(?:결제|사용|이용|승인)')
+COMPANY_RE = re.compile(r'^\s*(?:\(주\)|㈜|주식회사)\s*|\s*(?:\(주\)|㈜|주식회사)\s*$')
 
 
 def _card(text):
@@ -75,7 +80,24 @@ def _when(text, now):
     return used_on.isoformat(), hhmm or now.strftime('%H:%M')
 
 
+def _company(name):
+    """앞뒤의 '주식회사·(주)'를 뺌 (빼고 두 글자 넘게 남을 때만)"""
+    rest = COMPANY_RE.sub('', name).strip()
+    return rest if len(rest) >= 2 else name
+
+
 def _merchant(text, card):
+    # 이름표가 붙었거나 'OO에서 결제'면 그 자리를 그대로 (군더더기를 지우다 '사용처'의 '사용'까지 지우던 것)
+    for regex in (LABEL_RE, WHERE_RE):
+        m = regex.search(text)
+        if m:
+            name = re.sub(r'\s+', ' ', m.group(1)).strip(' -·:,.')
+            if len(re.findall(r'[가-힣A-Za-z]', name)) >= 2:
+                return _company(name)[:40]
+    return _company(_merchant_pieces(text, card) or card)
+
+
+def _merchant_pieces(text, card):
     # 줄·세로줄로 나눔 ('/'는 날짜 11/25에도 쓰여 나누지 않음)
     pieces = [p.strip() for p in re.split(r'[\n|│]+', text) if p.strip()]
     cands = []

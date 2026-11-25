@@ -23,6 +23,19 @@ CASES = [
 for text, amount, merchant, card, day, hhmm, cancel in CASES:
     p = parse(text, NOW)
     assert p == {'amount': amount, 'merchant': merchant, 'card': card, 'used_on': day, 'time': hhmm, 'cancel': cancel}, (text, p)
+# 가게 이름이 잘못 읽히던 실제 알림 모양: 이름표('사용처')의 '사용'을 지움, '￦'이 남음, 'OO에서 결제', '입출금'의 '입'이 남음, 앞의 '주식회사'
+MERCHANTS = [
+    ('하나카드\n[Web발신] 금액 100,000원\n카드 하나1*2*\n손님명 홍*동\n거래종류 신용\n거래구분 일시불\n사용처 지자체세입금(네이\n거래시간 11/25 14:27\n누적금액 100,000원', '지자체세입금(네이'),
+    ('e hi-pass 사용 알림\n인카페이먼트 e hi-pass 통행료 ￦2,500원 결제', '인카페이먼트 e hi-pass 통행료'),
+    ('14,500원 결제 완료\n삼성월렛 포인트 7,706원을 사용하여 주식회사 케이에프씨코리아에서 결제했어요.', '케이에프씨코리아'),
+    ('545,743원 삼성카드 입출금(1234)\r\n11.23 20:14 잔액  10,000원', '삼성카드'),
+    ('200,000원 토뱅 홍길동 입출금(1234)\r\n11.23 21:16 잔액  10,000원', '토뱅 홍길동'),
+    ('삼성카드\n삼성가족1234승인 홍*동\n149,328원 일시불\n11/24 11:22 주식회사파밀레모\n누적500,000원', '파밀레모'),
+    ('[삼성카드] 이용처 : 스타벅스 강남점\n결제금액 : 5,600원', '스타벅스 강남점'),
+]
+for text, merchant in MERCHANTS:
+    p = parse(text, NOW)
+    assert p and p['merchant'] == merchant, (text, p)
 assert parse('오늘 날씨 맑음', NOW) is None and parse('카카오톡: 내일 3,000원 갚을게', NOW) is None and parse('', NOW) is None
 assert parse('[삼성카드] 결제 예정 금액 안내 누적 412,300원', NOW) is None   # 누적 금액뿐
 assert rule_key('(주)스타 벅스') == '스타벅스' and suggest_pattern('스타벅스 강남점') == '스타벅스' and suggest_pattern('쿠팡이츠') == '쿠팡이츠'
