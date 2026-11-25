@@ -6,16 +6,20 @@
 - 기록은 로그인한 사람 모두가 함께 봄. 고치기·지우기는 쓴 사람과 관리자만
 - 분류(지출의 소비형태·수입의 종류)는 모두가 함께 쓰고, 색은 사람이 직접 고름. 기록에 쓰인 분류는 지우지 못함.
   기록이 지출인지 수입인지는 그 분류의 kind(expense·income)로 정함
-- 기록을 넣거나·고치거나·지우면(대기함 확정 포함) ledger_changes에 남김 → 고친 사람을 뺀 모두의 휴대폰에 알림 (ledger_push.py)
+- 기록을 넣거나·고치거나·지우면(대기함 확정 포함, 사진을 붙이거나 빼도) ledger_changes에 남김 → 고친 사람을 뺀 모두의
+  휴대폰에 알림 (ledger_push.py), 고치기 창의 '수정 이력' (history)
+- 기록마다 사진 PHOTO_MAX장까지 (photo_add·photo_delete). 화면이 휴대폰에서 줄인 JPEG(큰 것·썸네일)를 올리고
+  OUTPUT_DIR/ledger_photos/{id}.jpg·{id}_t.jpg에 둠. 사진도 쓴 사람과 관리자만 붙이거나 뺄 수 있음
 """
 import hashlib
 import hmac
 import json
+import os
 import re
 import secrets
-from datetime import date
+from datetime import date, datetime
 
-from config import LEDGER_ADMIN_NAME
+from config import LEDGER_ADMIN_NAME, OUTPUT_DIR
 from storage import _db, _now, _get_meta, _set_meta
 
 NAME_MAX = 20
@@ -28,6 +32,12 @@ MEMO_LIMIT = 1000   # 메모 자동완성용: 지금까지 쓴 메모(최근 순
 SEARCH_LIMIT = 300  # 모든 달 검색: 최근 것부터 이만큼까지
 SEARCH_Q_MAX = 40
 PBKDF2_ROUNDS = 120_000
+PHOTO_DIR = os.path.join(OUTPUT_DIR, 'ledger_photos')
+PHOTO_MAX = 3                      # 기록마다
+PHOTO_BYTES = 4 * 1024 * 1024      # 큰 사진 (화면이 긴 쪽 1600px로 줄여 보냄)
+THUMB_BYTES = 300 * 1024           # 썸네일 (긴 쪽 240px)
+HISTORY_LIMIT = 100                # 수정 이력: 최근 것부터
+HISTORY_MERGE_SECONDS = 30         # 같은 사람이 이만큼 안에 잇달아 바꾼 것은 이력 한 줄로 (저장 한 번 = 기록 + 사진들)
 COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
 DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
 MONTH_RE = re.compile(r'^\d{4}-\d{2}$')
@@ -234,12 +244,28 @@ def state(month):
         prev = f'{y - 1}-12' if m == 1 else f'{y}-{m - 1:02d}'
         prev_rows = conn.execute("""SELECT user_id, category_id, used_on, amount FROM ledger_entries
                                     WHERE used_on >= ? AND used_on < ?""", (f'{prev}-01', f'{prev}-99')).fetchall()
+        entries = _with_photos(conn, entries)
     return {'month': month,
-            'entries': [dict(r) for r in entries],
+            'entries': entries,
             'prev': {'month': prev, 'entries': [dict(r) for r in prev_rows]},
             'categories': [dict(r) for r in cats],
             'members': [{'id': r['id'], 'name': r['name'], 'admin': bool(r['is_admin'])} for r in members],
             'memos': [{'memo': r['memo'], 'category_id': r['category_id']} for r in memos]}
+
+
+def _with_photos(conn, rows):
+    """기록 목록(Row)을 dict로, 사진이 있으면 photos: [사진 id, ...] (붙인 순서)"""
+    entries = [dict(r) for r in rows]
+    ids = [e['id'] for e in entries]
+    photos = {}
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        for r in conn.execute(f"SELECT id, entry_id FROM ledger_photos WHERE entry_id IN ({','.join('?' * len(chunk))}) ORDER BY id",
+                              chunk):
+            photos.setdefault(r['entry_id'], []).append(r['id'])
+    for e in entries:
+        e['photos'] = photos.get(e['id'], [])
+    return entries
 
 
 def _search_like(text):
@@ -262,7 +288,8 @@ def search(q):
                                WHERE lower(replace(e.memo, ' ', '')) LIKE ? ESCAPE '\\'
                                   OR lower(replace(c.name, ' ', '')) LIKE ? ESCAPE '\\' OR e.amount = ?
                                ORDER BY e.used_on DESC, e.id DESC LIMIT ?""", (like, like, amount, SEARCH_LIMIT + 1)).fetchall()
-    return {'q': q, 'entries': [dict(r) for r in rows[:SEARCH_LIMIT]], 'more': len(rows) > SEARCH_LIMIT}
+        entries = _with_photos(conn, rows[:SEARCH_LIMIT])
+    return {'q': q, 'entries': entries, 'more': len(rows) > SEARCH_LIMIT}
 
 
 def recent(limit=3):
@@ -309,8 +336,9 @@ def _entry_values(amount, used_on, category_id, memo, conn):
 
 def _snapshot(conn, entry_id):
     """변경 기록(ledger_changes)에 남길 그때의 기록 (분류 이름도 그때 것으로)"""
-    r = conn.execute("""SELECT e.amount, e.used_on, e.memo, e.user_id, c.name AS category, c.kind FROM ledger_entries e
-                        JOIN ledger_categories c ON c.id = e.category_id WHERE e.id = ?""", (entry_id,)).fetchone()
+    r = conn.execute("""SELECT e.amount, e.used_on, e.memo, e.user_id, c.name AS category, c.kind,
+                               (SELECT COUNT(*) FROM ledger_photos p WHERE p.entry_id = e.id) AS photos
+                        FROM ledger_entries e JOIN ledger_categories c ON c.id = e.category_id WHERE e.id = ?""", (entry_id,)).fetchone()
     return json.dumps(dict(r), ensure_ascii=False) if r else None
 
 
@@ -345,15 +373,109 @@ def edit_entry(user, entry_id, amount, used_on, category_id, memo):
         before = _snapshot(conn, entry_id)
         conn.execute("UPDATE ledger_entries SET amount = ?, used_on = ?, category_id = ?, memo = ?, updated_at = ? WHERE id = ?",
                      (*values, _now(), entry_id))
-        _log_change(conn, entry_id, user['id'], before, _snapshot(conn, entry_id))
+        after = _snapshot(conn, entry_id)
+        if after != before:   # 바꾼 것 없이 저장만 누른 것은 남기지 않음
+            _log_change(conn, entry_id, user['id'], before, after)
 
 
 def delete_entry(user, entry_id):
     with _db() as conn, conn:
         _own_entry(conn, user, entry_id)
         before = _snapshot(conn, entry_id)
+        photos = [r['id'] for r in conn.execute("SELECT id FROM ledger_photos WHERE entry_id = ?", (entry_id,))]
         conn.execute("DELETE FROM ledger_entries WHERE id = ?", (entry_id,))
         _log_change(conn, entry_id, user['id'], before, None)
+    for photo_id in photos:
+        _remove_photo_files(photo_id)
+
+
+def history(entry_id):
+    """그 기록의 수정 이력 (최근 것부터 HISTORY_LIMIT개): [{who, changed_at, before, after}] (before·after는 _snapshot 또는 None).
+    한 번 저장하면 기록 고치기와 사진 올리기·빼기가 따로 남으므로, 같은 사람이 HISTORY_MERGE_SECONDS 안에 잇달아 바꾼 것은
+    한 줄로 묶음 (처음의 before·마지막의 after). 묶어서 바뀐 것이 없으면 뺌. 기록은 로그인한 모두가 보므로 이력도 모두가 봄"""
+    with _db() as conn:
+        rows = conn.execute("""SELECT c.user_id, c.before, c.after, c.changed_at, COALESCE(u.name, '') AS who FROM ledger_changes c
+                               LEFT JOIN ledger_users u ON u.id = c.user_id WHERE c.entry_id = ? ORDER BY c.id""",
+                            (entry_id,)).fetchall()
+    load = lambda v: json.loads(v) if v else None
+    at = lambda v: datetime.strptime(v, '%Y-%m-%d %H:%M:%S')
+    groups = []
+    for r in rows:
+        g = groups[-1] if groups else None
+        if (g and g['user_id'] == r['user_id'] and g['after'] is not None
+                and (at(r['changed_at']) - at(g['changed_at'])).total_seconds() <= HISTORY_MERGE_SECONDS):
+            g.update(after=load(r['after']), changed_at=r['changed_at'])
+        else:
+            groups.append({'user_id': r['user_id'], 'who': r['who'], 'changed_at': r['changed_at'],
+                           'before': load(r['before']), 'after': load(r['after'])})
+    shown = [{k: g[k] for k in ('who', 'changed_at', 'before', 'after')} for g in groups
+             if not (g['before'] is not None and g['before'] == g['after'])]
+    return shown[::-1][:HISTORY_LIMIT]
+
+
+# ==========================================
+# 사진
+# ==========================================
+def photo_path(photo_id, thumb=False):
+    return os.path.join(PHOTO_DIR, f"{int(photo_id)}{'_t' if thumb else ''}.jpg")
+
+
+def _is_jpeg(data):
+    return len(data) > 100 and data[:3] == b'\xff\xd8\xff'
+
+
+def _remove_photo_files(photo_id):
+    for thumb in (False, True):
+        try:
+            os.remove(photo_path(photo_id, thumb))
+        except FileNotFoundError:
+            pass
+
+
+def photo_add(user, entry_id, photo, thumb):
+    """기록에 사진 하나 붙임 (photo·thumb: JPEG 바이트) → 사진 id"""
+    if not _is_jpeg(photo) or not _is_jpeg(thumb):
+        raise LedgerError('사진(JPEG)이 아니에요.')
+    if len(photo) > PHOTO_BYTES or len(thumb) > THUMB_BYTES:
+        raise LedgerError('사진이 너무 커요.')
+    os.makedirs(PHOTO_DIR, exist_ok=True)
+    with _db() as conn, conn:
+        _own_entry(conn, user, entry_id)
+        if conn.execute("SELECT COUNT(*) FROM ledger_photos WHERE entry_id = ?", (entry_id,)).fetchone()[0] >= PHOTO_MAX:
+            raise LedgerError(f'사진은 {PHOTO_MAX}장까지 붙일 수 있어요.')
+        before = _snapshot(conn, entry_id)
+        photo_id = conn.execute("INSERT INTO ledger_photos(entry_id, user_id, created_at) VALUES(?, ?, ?)",
+                                (entry_id, user['id'], _now())).lastrowid
+        try:
+            for data, is_thumb in ((photo, False), (thumb, True)):
+                path = photo_path(photo_id, is_thumb)
+                with open(path + '.tmp', 'wb') as f:
+                    f.write(data)
+                os.replace(path + '.tmp', path)
+        except OSError:
+            _remove_photo_files(photo_id)
+            raise
+        conn.execute("UPDATE ledger_entries SET updated_at = ? WHERE id = ?", (_now(), entry_id))
+        _log_change(conn, entry_id, user['id'], before, _snapshot(conn, entry_id))
+        return photo_id
+
+
+def photo_delete(user, photo_id):
+    with _db() as conn, conn:
+        row = conn.execute("SELECT entry_id FROM ledger_photos WHERE id = ?", (photo_id,)).fetchone()
+        if not row:
+            raise LedgerError('없는 사진이에요.')
+        _own_entry(conn, user, row['entry_id'])
+        before = _snapshot(conn, row['entry_id'])
+        conn.execute("DELETE FROM ledger_photos WHERE id = ?", (photo_id,))
+        conn.execute("UPDATE ledger_entries SET updated_at = ? WHERE id = ?", (_now(), row['entry_id']))
+        _log_change(conn, row['entry_id'], user['id'], before, _snapshot(conn, row['entry_id']))
+    _remove_photo_files(photo_id)
+
+
+def photo_exists(photo_id):
+    with _db() as conn:
+        return bool(conn.execute("SELECT 1 FROM ledger_photos WHERE id = ?", (photo_id,)).fetchone())
 
 
 def _category_values(name, color):

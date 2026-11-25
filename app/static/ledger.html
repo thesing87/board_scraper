@@ -143,6 +143,9 @@
                         <input id="memo" placeholder="메모" maxlength="60" autocomplete="off" aria-label="메모">
                         <div class="dd" id="memo-dd" hidden></div>
                     </div>
+                    <!-- 사진: 기록마다 3장까지. 저장할 때 함께 올리고 뺌 -->
+                    <div class="photos" id="photos"></div>
+                    <input type="file" id="photo-file" accept="image/*" multiple hidden>
                     <div class="cats" id="cats"></div>
                     <div class="cat-tools"><button type="button" class="link-btn" id="cat-edit">편집</button></div>
                     <div class="addbox" id="addbox" hidden>
@@ -158,10 +161,19 @@
                         <button type="button" data-key="7">7</button><button type="button" data-key="8">8</button><button type="button" data-key="9">9</button>
                         <button type="button" data-key="00">00</button><button type="button" data-key="0">0</button><button type="button" data-key="back" aria-label="지우기">⌫</button>
                     </div>
+                    <details class="hist" id="hist" hidden><summary>수정 이력 <span id="hist-n"></span></summary><div id="hist-list"></div></details>
                     <p class="msg" id="entry-msg" role="alert"></p>
                     <div class="edit-row" id="edit-row" hidden><button type="button" class="danger" id="edit-delete">지우기</button><button type="button" id="edit-cancel">취소</button></div>
                     <button type="button" class="save" id="save">저장</button>
                 </div>
+            </div>
+            <!-- 사진 크게 보기 (내역의 썸네일·입력 창의 사진을 누르면) -->
+            <div class="pv" id="pv" role="dialog" aria-modal="true" aria-label="사진" hidden>
+                <img id="pv-img" alt="">
+                <button type="button" class="pv-x" id="pv-close" aria-label="닫기">✕</button>
+                <button type="button" class="pv-go prev" id="pv-prev" aria-label="앞 사진">‹</button>
+                <button type="button" class="pv-go next" id="pv-next" aria-label="다음 사진">›</button>
+                <span class="pv-n" id="pv-n"></span>
             </div>
             <!-- 아래 메뉴: 내역 · 달력 · 분석 · 설정 (tabbar.css, 홈·근무표와 같은 모양) -->
             <nav class="tabbar" id="views" aria-label="아래 메뉴"><div class="tabbar-in"><button type="button" data-view="list"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg><span>내역</span></button><button type="button" data-view="cal"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span>달력</span></button><button type="button" data-view="ana"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12A9 9 0 1 1 12 3v9z"/><path d="M15.5 3.7A9 9 0 0 1 20.3 8.5H15.5z"/></svg><span>분석</span></button><button type="button" data-view="set"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>설정</span></button></div></nav>

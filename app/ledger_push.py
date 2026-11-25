@@ -5,6 +5,7 @@
 - '모두 확정'처럼 잇달아 여럿을 바꾸는 일이 있어 근무표 알림(duty_push.py)처럼 마지막으로 바꾼 뒤 QUIET_SECONDS 동안
   조용하면 고친 사람마다 알림 하나로 모음. 같은 기록을 여러 번 바꾸면 처음과 마지막만 보고, 넣었다가 지운 것·되돌린 것은 뺌
 - 보낸 곳까지는 meta의 ledger_push_cursor(ledger_changes.id)로 기억함. 처음에는 예전 변경을 알리지 않고 지금부터
+- ledger_changes는 고치기 창의 '수정 이력'에도 써서 지우지 않음. 사진만 바뀐 것은 알리지 않음 (FIELDS만 비교)
 - 휴대폰 토큰·FCM 보내기는 duty_push.py의 것을 같이 씀
 """
 import json
@@ -19,7 +20,6 @@ import duty_push
 QUIET_SECONDS = 30
 CHECK_SECONDS = 10
 LINES_SHOWN = 8
-KEEP_DAYS = 30              # ledger_changes를 이만큼만 둠
 CHANNEL = 'ledger_change'   # 앱의 알림 채널 (DutyPush.java와 같게)
 WEEKDAYS = '월화수목금토일'
 LABEL = '가계부 알림'
@@ -81,8 +81,6 @@ def collect(now=None):
         if max(r['changed_at'] for r in rows) > quiet:
             return []
         _set_meta(conn, 'ledger_push_cursor', last_id)
-        old = (now - timedelta(days=KEEP_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
-        conn.execute("DELETE FROM ledger_changes WHERE changed_at < ? AND id <= ?", (old, last_id))
         tokens = duty_push.recipients(conn, 'ledger')
     groups = {}
     for r in rows:

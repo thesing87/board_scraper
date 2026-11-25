@@ -66,6 +66,8 @@
         cedFor: null, caddKind: null, cadd: { name: '', icon: '', color: null, msg: '' },
         // view: 아래 보기(list 내역·cal 달력·ana 분석), ibOpen: 펼쳐 고치는 대기함 항목
         view: 'list', ibOpen: new Set(),
+        // 입력 창의 사진: items [{id}(올린 것) | {full, thumb, url}(저장할 때 올릴 것)], removed: 저장할 때 뺄 사진 id
+        ph: { items: [], removed: [] }, histFor: null,
     };
 
     // ==========================================
@@ -519,7 +521,14 @@
             <div class="it u${mine ? ' mine' : ''}${st.editId === e.id ? ' editing' : ''}" data-entry="${e.id}" style="${userTint(e.user_id)}"${mine ? ' role="button" tabindex="0"' : ''}>
             ${catIcon(c)}<span class="txt"><span class="memo${e.memo ? '' : ' no-memo'}">${hl(e.memo || c.name)}</span>
             <span class="line2">${day}<span class="cat">${hl(c.name)}</span><span class="sep">·</span>${whoTag(e.user_id)}</span></span>
-            <span class="amt ${income ? 'plus' : 'minus'}">${income ? '+' : '−'}${won(e.amount)}</span></div></div>`;
+            ${thumbHtml(e)}<span class="amt ${income ? 'plus' : 'minus'}">${income ? '+' : '−'}${won(e.amount)}</span></div></div>`;
+    }
+    // 사진이 있는 기록: 첫 사진 썸네일 (+남은 장 수). 누르면 크게 보기
+    const photoUrl = (id, thumb) => `/api/ledger/photo/${id}${thumb ? '_t' : ''}.jpg`;
+    function thumbHtml(e) {
+        const ps = e.photos || [];
+        if (!ps.length) return '';
+        return `<button type="button" class="ph-th" data-view="${e.id}" aria-label="사진 ${ps.length}장 보기"><img src="${photoUrl(ps[0], true)}" alt="" loading="lazy">${ps.length > 1 ? `<b>+${ps.length - 1}</b>` : ''}</button>`;
     }
     // 찾은 글자를 노랗게 (띄어쓰기·대소문자 무시하고 맞춘 자리)
     function markText(s, q) {
@@ -584,6 +593,8 @@
     $('search-list').addEventListener('click', e => {
         const del = e.target.closest('[data-del]');
         if (del) { deleteEntry(Number(del.dataset.del)); return; }
+        const view = e.target.closest('[data-view]');
+        if (view) { const x = st.search && st.search.entries.find(y => y.id === Number(view.dataset.view)); if (x) openViewer(x.photos.map(id => photoUrl(id)), 0); return; }
         const b = e.target.closest('[data-entry]');
         const entry = b && st.search && st.search.entries.find(x => x.id === Number(b.dataset.entry));
         if (entry && canEdit(entry)) startEdit(entry);
@@ -637,7 +648,7 @@
     });
     $('entry-close').addEventListener('click', closeEntry);
     $('sheet-wrap').addEventListener('click', e => { if (e.target === $('sheet-wrap')) closeEntry(); });
-    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('sheet-wrap').hidden && $('memo-dd').hidden) closeEntry(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('pv').hidden && !$('sheet-wrap').hidden && $('memo-dd').hidden) closeEntry(); });
     $('keypad').addEventListener('click', e => {
         const b = e.target.closest('[data-key]');
         if (!b) return;
@@ -657,6 +668,9 @@
         $('amount').value = '';
         $('memo').value = '';
         $('entry-msg').textContent = '';
+        setPhotos([]);
+        st.histFor = null;
+        $('hist').hidden = true;
     }
 
     $('save').addEventListener('click', async () => {
@@ -667,9 +681,13 @@
         const editing = st.editId != null;
         $('save').disabled = true;
         const { status, data } = await post('/api/ledger/entry', editing ? { action: 'edit', id: st.editId, ...body } : { action: 'add', ...body });
-        $('save').disabled = false;
+        if (status !== 200) $('save').disabled = false;
         if (status === 401) { showAuth('login'); return; }
         if (status !== 200) { $('entry-msg').textContent = msgOf(data); return; }
+        const failed = await savePhotos(editing ? st.editId : data.id);
+        $('save').disabled = false;
+        $('save').textContent = '저장';
+        if (failed) window.alert(`기록은 저장했지만 ${failed}`);
         clearForm();
         closeEntry();
         await load();
@@ -685,8 +703,161 @@
         setUsedOn(entry.used_on);
         $('memo').value = entry.memo || '';
         $('entry-msg').textContent = '';
+        setPhotos((entry.photos || []).map(id => ({ id })));
+        loadHistory(entry.id);
         render();
         openEntry();
+    }
+
+    // ---------- 사진: 휴대폰에서 줄여(큰 것 긴 쪽 1600px·썸네일 240px JPEG) 저장할 때 올림
+    const PHOTO_MAX = 3;
+    function setPhotos(items) {
+        st.ph.items.forEach(p => { if (p.url) URL.revokeObjectURL(p.url); });
+        st.ph = { items, removed: [] };
+        renderPhotos();
+    }
+    function photoSrc(p, thumb) { return p.url || photoUrl(p.id, thumb); }
+    function renderPhotos() {
+        const items = st.ph.items;
+        $('photos').innerHTML = items.map((p, i) => `<span class="ph-wrap"><button type="button" class="ph" data-ph-view="${i}" aria-label="사진 ${i + 1} 크게 보기"><img src="${photoSrc(p, true)}" alt=""></button>`
+            + `<button type="button" class="ph-x" data-ph-del="${i}" aria-label="사진 ${i + 1} 빼기">✕</button></span>`).join('')
+            + (items.length < PHOTO_MAX ? '<button type="button" class="ph-add" id="ph-add" aria-label="사진 붙이기">📷</button>' : '')
+            + (items.length ? `<span class="ph-n">${items.length}/${PHOTO_MAX}</span>` : '');
+    }
+    renderPhotos();
+    $('photos').addEventListener('click', e => {
+        if (e.target.closest('#ph-add')) { $('photo-file').click(); return; }
+        const del = e.target.closest('[data-ph-del]');
+        if (del) {
+            const [p] = st.ph.items.splice(Number(del.dataset.phDel), 1);
+            if (p.id) st.ph.removed.push(p.id); else URL.revokeObjectURL(p.url);
+            renderPhotos();
+            return;
+        }
+        const v = e.target.closest('[data-ph-view]');
+        if (v) openViewer(st.ph.items.map(p => photoSrc(p, false)), Number(v.dataset.phView));
+    });
+    function loadImage(file) {
+        return new Promise((resolve, reject) => {
+            const url = URL.createObjectURL(file), img = new Image();
+            img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+            img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode')); };
+            img.src = url;
+        });
+    }
+    function shrink(img, max, quality) {
+        const s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.naturalWidth * s));
+        c.height = Math.max(1, Math.round(img.naturalHeight * s));
+        const g = c.getContext('2d');
+        g.fillStyle = '#fff';
+        g.fillRect(0, 0, c.width, c.height);
+        g.drawImage(img, 0, 0, c.width, c.height);
+        return new Promise(resolve => c.toBlob(resolve, 'image/jpeg', quality));
+    }
+    $('photo-file').addEventListener('change', async () => {
+        const files = [...$('photo-file').files];
+        $('photo-file').value = '';
+        $('entry-msg').textContent = '';
+        for (const f of files) {
+            if (st.ph.items.length >= PHOTO_MAX) { $('entry-msg').textContent = `사진은 ${PHOTO_MAX}장까지 붙일 수 있어요.`; break; }
+            try {
+                const img = await loadImage(f);
+                const [full, thumb] = await Promise.all([shrink(img, 1600, 0.82), shrink(img, 240, 0.75)]);
+                if (!full || !thumb) throw new Error('encode');
+                st.ph.items.push({ full, thumb, url: URL.createObjectURL(full) });
+            } catch (err) {
+                $('entry-msg').textContent = '이 사진은 열 수 없어요. 다른 사진을 골라 주세요.';
+            }
+        }
+        renderPhotos();
+    });
+    // 기록을 저장한 뒤: 뺀 사진 지우고 새 사진 올리기. 못 한 것이 있으면 그 이유
+    async function savePhotos(entryId) {
+        const adds = st.ph.items.filter(p => !p.id), removes = st.ph.removed;
+        let failed = '';
+        for (const id of removes) {
+            const { status, data } = await post('/api/ledger/photo', { action: 'delete', id });
+            if (status !== 200) failed = `사진을 빼지 못했어요: ${msgOf(data)}`;
+        }
+        for (let i = 0; i < adds.length; i++) {
+            $('save').textContent = `사진 올리는 중… ${i + 1}/${adds.length}`;
+            try {
+                const res = await fetch(`/api/ledger/photo-upload?entry=${entryId}`, {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/octet-stream', 'X-Thumb-Size': String(adds[i].thumb.size) },
+                    body: new Blob([adds[i].thumb, adds[i].full]),
+                });
+                if (res.status !== 200) { let d = {}; try { d = await res.json(); } catch (e) { /* 본문 없음 */ } failed = `사진을 올리지 못했어요: ${msgOf(d)}`; }
+            } catch (err) {
+                failed = '사진을 올리지 못했어요 (연결이 끊겼어요).';
+            }
+        }
+        return failed;
+    }
+
+    // ---------- 사진 크게 보기
+    let pv = { urls: [], i: 0 };
+    function openViewer(urls, i) {
+        if (!urls.length) return;
+        pv = { urls, i };
+        showViewer();
+        $('pv').hidden = false;
+    }
+    function showViewer() {
+        $('pv-img').src = pv.urls[pv.i];
+        $('pv-n').textContent = pv.urls.length > 1 ? `${pv.i + 1} / ${pv.urls.length}` : '';
+        $('pv-prev').hidden = $('pv-next').hidden = pv.urls.length < 2;
+    }
+    const viewerGo = d => { pv.i = (pv.i + d + pv.urls.length) % pv.urls.length; showViewer(); };
+    const closeViewer = () => { $('pv').hidden = true; $('pv-img').removeAttribute('src'); };
+    $('pv-close').addEventListener('click', closeViewer);
+    $('pv-prev').addEventListener('click', () => viewerGo(-1));
+    $('pv-next').addEventListener('click', () => viewerGo(1));
+    $('pv').addEventListener('click', e => { if (e.target === $('pv')) closeViewer(); });
+    document.addEventListener('keydown', e => {
+        if ($('pv').hidden) return;
+        if (e.key === 'Escape') closeViewer();
+        else if (e.key === 'ArrowLeft') viewerGo(-1);
+        else if (e.key === 'ArrowRight') viewerGo(1);
+    });
+    let pvTouch = null;
+    $('pv').addEventListener('touchstart', e => { pvTouch = e.touches[0].clientX; }, { passive: true });
+    $('pv').addEventListener('touchend', e => {
+        if (pvTouch == null || pv.urls.length < 2) return;
+        const dx = e.changedTouches[0].clientX - pvTouch;
+        pvTouch = null;
+        if (Math.abs(dx) > 50) viewerGo(dx < 0 ? 1 : -1);
+    });
+
+    // ---------- 수정 이력 (고치기 창)
+    async function loadHistory(entryId) {
+        st.histFor = entryId;
+        $('hist').hidden = true;
+        const { status, data } = await get(`/api/ledger/history?entry=${entryId}`);
+        if (st.histFor !== entryId || status !== 200) return;
+        const list = data.history || [];
+        $('hist-n').textContent = list.length;
+        $('hist-list').innerHTML = list.map(histHtml).join('');
+        $('hist').hidden = !list.length;
+    }
+    const md = d => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
+    const memoText = m => m ? `'${esc(m)}'` : '없음';
+    function histHtml(h) {
+        const b = h.before, a = h.after, head = `${md(h.changed_at)} ${h.changed_at.slice(11, 16)} · ${esc(h.who || '?')}`;
+        const money = e => `${e.kind === 'income' ? '+' : ''}${won(e.amount)}`;
+        if (!b || !a) {
+            const e = a || b;
+            return `<div class="h"><small>${head} · ${a ? '넣음' : '지움'}</small>${md(e.used_on)} ${esc(e.category)} ${money(e)}${e.memo ? ` ${memoText(e.memo)}` : ''}${a && a.photos ? ` · 사진 ${a.photos}장` : ''}</div>`;
+        }
+        const parts = [];
+        if (b.amount !== a.amount || b.kind !== a.kind) parts.push(`금액 ${money(b)} → <b>${money(a)}</b>`);
+        if (b.used_on !== a.used_on) parts.push(`날짜 ${md(b.used_on)} → <b>${md(a.used_on)}</b>`);
+        if (b.category !== a.category) parts.push(`분류 ${esc(b.category)} → <b>${esc(a.category)}</b>`);
+        if ((b.memo || '') !== (a.memo || '')) parts.push(`메모 ${memoText(b.memo)} → <b>${memoText(a.memo)}</b>`);
+        if (b.photos != null && a.photos != null && b.photos !== a.photos) parts.push(a.photos > b.photos ? `사진 ${a.photos - b.photos}장 더함` : `사진 ${b.photos - a.photos}장 뺌`);
+        return `<div class="h"><small>${head} · 고침</small>${parts.join(' · ') || '바뀐 것 없음'}</div>`;
     }
     $('used-on').addEventListener('input', showUsedOn);
     $('used-on').addEventListener('change', showUsedOn);
@@ -1014,6 +1185,8 @@
         if (Date.now() - (st.swipedAt || 0) < 400) return;
         const opened = $('list').querySelector('.sw-row.open');
         if (opened) { opened.classList.remove('open'); return; }   // 밀어 둔 줄이 있으면 먼저 닫기만
+        const view = e.target.closest('[data-view]');
+        if (view) { const x = st.data.entries.find(y => y.id === Number(view.dataset.view)); if (x) openViewer(x.photos.map(id => photoUrl(id)), 0); return; }
         const b = e.target.closest('[data-entry]');
         if (!b) return;
         const entry = st.data.entries.find(x => x.id === Number(b.dataset.entry));

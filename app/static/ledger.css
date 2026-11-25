@@ -274,6 +274,19 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 .it .sep { color: var(--faint); }
 .who-tag { display: inline-flex; align-items: center; gap: 3px; }
 .who-tag .av { width: 14px; height: 14px; font-size: 8.5px; }
+/* 내역 줄의 사진 썸네일 (누르면 크게) */
+.it .ph-th { position: relative; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 6px; overflow: hidden; background: var(--soft); flex: 0 0 auto; }
+.it .ph-th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.it .ph-th b { position: absolute; right: 0; bottom: 0; padding: 0 3px; border-radius: 4px 0 0 0; background: rgba(17, 24, 39, .6); color: #fff; font-size: 10px; line-height: 14px; }
+/* 사진 크게 보기 */
+.pv { position: fixed; inset: 0; z-index: 1100; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .92); }
+.pv img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.pv button { position: absolute; border: 0; background: rgba(255, 255, 255, .15); color: #fff; }
+.pv-x { top: calc(env(safe-area-inset-top) + 12px); right: 12px; width: 40px; height: 40px; border-radius: 50%; font-size: 18px; }
+.pv-go { top: 50%; transform: translateY(-50%); width: 44px; height: 64px; font-size: 30px; }
+.pv-go.prev { left: 0; border-radius: 0 10px 10px 0; }
+.pv-go.next { right: 0; border-radius: 10px 0 0 10px; }
+.pv-n { position: absolute; bottom: calc(env(safe-area-inset-bottom) + 16px); left: 0; right: 0; text-align: center; color: #fff; font-size: 13px; }
 .it .amt { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* 칸 바탕은 쓴 사람의 색 (--u-*는 ledger.js의 userTint) */
 .it.u { background: var(--u-bg); color: var(--u-ink); }
@@ -376,6 +389,20 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 .memo-wrap { position: relative; }
 .memo-wrap input { width: 100%; height: 40px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 0 2px; font-size: 15px; }
 .memo-wrap input:focus { outline: 0; border-bottom-color: var(--green-line); }
+/* 입력 창 사진 칸: 썸네일(눌러 크게, ✕로 빼기) + 📷 더하기 */
+.photos { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; }
+.photos .ph { position: relative; width: 56px; height: 56px; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: var(--soft); flex: 0 0 auto; }
+.photos .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photos .ph-x { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: rgba(17, 24, 39, .75); color: #fff; font-size: 11px; line-height: 22px; }
+.photos .ph-wrap { position: relative; }
+.photos .ph-add { width: 56px; height: 56px; padding: 0; border: 1.5px dashed #B6BBC4; border-radius: 8px; background: none; color: var(--muted); font-size: 20px; }
+.photos .ph-n { font-size: 12px; color: var(--faint); }
+/* 수정 이력 (고치기 창, 접어 둠) */
+.hist { margin: 12px 0 0; padding: 8px 12px; border-radius: 10px; background: var(--soft); font-size: 12px; }
+.hist summary { cursor: pointer; font-weight: 700; color: var(--muted); }
+.hist .h { margin-top: 8px; line-height: 1.5; }
+.hist .h small { display: block; color: var(--faint); font-size: 11px; }
+.hist .h b { font-weight: 700; }
 /* 분류 칸: 아이콘 + 이름 격자 */
 .sheet .cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 8px 4px; margin: 12px 0 0; }
 .chip { position: relative; display: inline-flex; align-items: center; gap: 5px; height: auto; padding: 5px 11px; border-radius: 999px; font-size: 13px; cursor: pointer; border: 1.5px solid transparent; user-select: none; }

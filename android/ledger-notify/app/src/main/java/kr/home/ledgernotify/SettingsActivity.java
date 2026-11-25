@@ -433,36 +433,130 @@ public class SettingsActivity extends Activity implements Updater.Host {
         return true;
     }
 
-    /** '이런 알림 안 받기': 알림 글의 낱말(두 글자 이상, 숫자·금액 빼고)을 골라 무시할 표현으로, 또는 직접 넣기 */
+    /** '이런 알림 안 받기' (1.27부터): 위에 알림 원문(끌어서 고르면 아래 칸에), 가운데 낱말 칩(두 개를 차례로 누르면
+     *  원문에서 그 사이를 통째로, 예: hi → pass = "hi-pass"), 아래 입력칸에서 고쳐 '거르기에 추가' */
     private void pickIgnore(String full) {
-        List<String> words = new ArrayList<>();
-        for (String w : full.split("[^가-힣A-Za-z0-9]+")) {
-            if (w.length() < 2 || w.matches("[0-9]+.*") || words.contains(w) || store.ignoredBy(w) != null) continue;
-            words.add(w);
-            if (words.size() >= 15) break;
+        // 낱말: 두 글자 이상, 숫자로 시작하는 것(금액·시각) 빼고, 원문에서의 자리와 함께
+        List<int[]> spans = new ArrayList<>();
+        List<String> seen = new ArrayList<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("[가-힣A-Za-z0-9]+").matcher(full);
+        while (m.find() && spans.size() < 20) {
+            String w = m.group();
+            if (w.length() < 2 || w.matches("[0-9].*") || seen.contains(w)) continue;
+            seen.add(w);
+            spans.add(new int[]{m.start(), m.end()});
         }
-        List<String> items = new ArrayList<>(words);
-        items.add("직접 넣기…");
-        new AlertDialog.Builder(this)
-                .setTitle("어떤 표현이 있으면 거를까요?")
-                .setItems(items.toArray(new String[0]), (d, which) -> {
-                    if (which < words.size()) addIgnore(words.get(which));
-                    else typeIgnore();
-                })
-                .setNegativeButton("취소", null)
-                .show();
-    }
 
-    private void typeIgnore() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(8), dp(20), 0);
         EditText input = new EditText(this);
         input.setSingleLine(true);
-        input.setHint("예: 결제예정");
-        new AlertDialog.Builder(this)
-                .setTitle("무시할 표현 넣기")
-                .setView(input)
-                .setPositiveButton("거르기에 추가", (d, w) -> addIgnore(input.getText().toString()))
+        input.setHint("거를 표현");
+
+        box.addView(text("원문 (끌어서 고르면 아래 칸에 들어가요)", 12, R.color.muted));
+        // 원문: 고칠 수 없고 고르기만 (고른 부분이 바뀔 때마다 입력칸으로)
+        EditText raw = new EditText(this) {
+            @Override protected void onSelectionChanged(int a, int b) {
+                super.onSelectionChanged(a, b);
+                if (input != null && b > a && getText() != null) input.setText(getText().subSequence(Math.min(a, b), Math.max(a, b)).toString().trim());
+            }
+        };
+        raw.setText(full);
+        raw.setKeyListener(null);
+        raw.setTextIsSelectable(true);
+        raw.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        raw.setTextColor(getColor(R.color.text));
+        raw.setPadding(dp(10), dp(8), dp(10), dp(8));
+        GradientDrawable rawBg = new GradientDrawable();
+        rawBg.setColor(getColor(R.color.bg));
+        rawBg.setCornerRadius(dp(8));
+        raw.setBackground(rawBg);
+        LinearLayout.LayoutParams rawLp = gap(4);
+        box.addView(raw, rawLp);
+
+        if (!spans.isEmpty()) {
+            box.addView(text("낱말 (두 개를 누르면 그 사이를 통째로)", 12, R.color.muted), gap(12));
+            WrapLayout chips = new WrapLayout(this, dp(6));
+            List<TextView> chipViews = new ArrayList<>();
+            int[] pick = {-1, -1};   // 처음 누른 칩, 둘째로 누른 칩
+            Runnable paint = () -> {
+                int lo = pick[1] < 0 ? pick[0] : Math.min(pick[0], pick[1]), hi = pick[1] < 0 ? pick[0] : Math.max(pick[0], pick[1]);
+                for (int i = 0; i < chipViews.size(); i++) {
+                    boolean end = i == pick[0] || i == pick[1], mid = !end && lo >= 0 && i > lo && i < hi;
+                    GradientDrawable bg = new GradientDrawable();
+                    bg.setCornerRadius(dp(14));
+                    bg.setColor(getColor(end ? R.color.green_soft : mid ? R.color.bg : R.color.card));
+                    bg.setStroke(dp(1), end ? getColor(R.color.green) : 0xFFD1D5DB);
+                    chipViews.get(i).setBackground(bg);
+                    chipViews.get(i).setTextColor(getColor(end ? R.color.green : R.color.text));
+                }
+            };
+            for (int i = 0; i < spans.size(); i++) {
+                final int idx = i;
+                int[] sp = spans.get(i);
+                TextView c = text(full.substring(sp[0], sp[1]), 13, R.color.text);
+                c.setPadding(dp(10), dp(5), dp(10), dp(5));
+                c.setOnClickListener(v -> {
+                    if (pick[0] < 0 || pick[1] >= 0) { pick[0] = idx; pick[1] = -1; }
+                    else pick[1] = idx;
+                    int a = pick[0], b2 = pick[1] < 0 ? pick[0] : pick[1];
+                    int from = Math.min(spans.get(a)[0], spans.get(b2)[0]), to = Math.max(spans.get(a)[1], spans.get(b2)[1]);
+                    input.setText(full.substring(from, to).trim());
+                    input.setSelection(input.getText().length());
+                    paint.run();
+                });
+                chipViews.add(c);
+                chips.addView(c);
+            }
+            paint.run();
+            box.addView(chips, gap(4));
+        }
+        box.addView(input, gap(12));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+        AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle("어떤 표현이 있으면 거를까요?")
+                .setView(scroll)
+                .setPositiveButton("거르기에 추가", null)
                 .setNegativeButton("취소", null)
-                .show();
+                .create();
+        // 넣지 못하면(빈 칸·이미 있음 등) 창을 닫지 않음
+        dlg.setOnShowListener(x -> dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if (addIgnore(input.getText().toString())) dlg.dismiss();
+        }));
+        dlg.show();
+    }
+
+    /** 칩을 줄이 넘치면 다음 줄로 늘어놓는 칸 */
+    static class WrapLayout extends ViewGroup {
+        private final int gapPx;
+        WrapLayout(android.content.Context c, int gapPx) { super(c); this.gapPx = gapPx; }
+
+        @Override protected void onMeasure(int wSpec, int hSpec) {
+            int width = MeasureSpec.getSize(wSpec), x = 0, y = 0, rowH = 0;
+            for (int i = 0; i < getChildCount(); i++) {
+                View ch = getChildAt(i);
+                ch.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.AT_MOST), MeasureSpec.UNSPECIFIED);
+                if (x > 0 && x + ch.getMeasuredWidth() > width) { x = 0; y += rowH + gapPx; rowH = 0; }
+                x += ch.getMeasuredWidth() + gapPx;
+                rowH = Math.max(rowH, ch.getMeasuredHeight());
+            }
+            setMeasuredDimension(width, y + rowH);
+        }
+
+        @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            int width = r - l, x = 0, y = 0, rowH = 0;
+            for (int i = 0; i < getChildCount(); i++) {
+                View ch = getChildAt(i);
+                int w = ch.getMeasuredWidth(), h = ch.getMeasuredHeight();
+                if (x > 0 && x + w > width) { x = 0; y += rowH + gapPx; rowH = 0; }
+                ch.layout(x, y, x + w, y + h);
+                x += w + gapPx;
+                rowH = Math.max(rowH, h);
+            }
+        }
     }
 
     // ==========================================

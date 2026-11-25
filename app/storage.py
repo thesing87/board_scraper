@@ -393,7 +393,8 @@ def _create_schema(conn):
             duty         INTEGER NOT NULL DEFAULT 1,
             ledger       INTEGER NOT NULL DEFAULT 0
         );
-        -- 가계부 기록을 누가 넣거나·고치거나·지웠는지 (before·after: 그때의 기록 JSON, 없으면 NULL). 휴대폰 알림용, 오래된 것은 지움
+        -- 가계부 기록을 누가 넣거나·고치거나·지웠는지 (before·after: 그때의 기록 JSON, 없으면 NULL).
+        -- 휴대폰 알림(ledger_push.py)과 고치기 창의 '수정 이력'에 씀. 지우지 않고 계속 둠
         CREATE TABLE IF NOT EXISTS ledger_changes (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             entry_id   INTEGER NOT NULL,
@@ -402,6 +403,15 @@ def _create_schema(conn):
             after      TEXT,
             changed_at TEXT NOT NULL
         );
+        CREATE INDEX IF NOT EXISTS idx_ledger_changes_entry ON ledger_changes(entry_id);
+        -- 가계부 기록에 붙인 사진 (파일은 OUTPUT_DIR/ledger_photos/{id}.jpg·{id}_t.jpg, 기록을 지우면 함께 지움)
+        CREATE TABLE IF NOT EXISTS ledger_photos (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id   INTEGER NOT NULL REFERENCES ledger_entries(id) ON DELETE CASCADE,
+            user_id    INTEGER REFERENCES ledger_users(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ledger_photos_entry ON ledger_photos(entry_id);
 
         CREATE TABLE IF NOT EXISTS comic_progress (
             path       TEXT PRIMARY KEY,

@@ -313,6 +313,71 @@ try:
     assert vis('sheet-wrap') and vis('edit-row') and txt('entry-title') == '기록 고치기' and js("return document.getElementById('amount').value") == '15,000'
     typ('amount', '16000'); click('#save'); time.sleep(1.2)
     assert [x['amount'] for x in entries()] == [42000, 16000, 3200000] and not vis('sheet-wrap')
+    # ---- 수정 이력·사진: 고치기 창에 넣음·고침 이력, 사진 2장 붙여 저장 → 내역 썸네일(+1) → 크게 보기 → 1장 빼기
+    feed_id = next(x['id'] for x in entries() if x['memo'] == '사료')
+    def age_changes(spread):
+        # 시험이 빨라 같은 사람이 30초 안에 바꾼 것이 한 줄로 묶이지 않게 지금까지의 변경을 예전으로 (spread: 한 줄씩 1분 간격)
+        with storage._db() as conn:
+            if spread:
+                conn.execute("UPDATE ledger_changes SET changed_at = datetime('now', 'localtime', printf('-%d minutes', (SELECT MAX(id) FROM ledger_changes) - id + 10))")
+            else:
+                conn.execute("UPDATE ledger_changes SET changed_at = datetime(changed_at, '-5 minutes')")
+            conn.commit()
+    age_changes(True)
+    js(pick); time.sleep(1)
+    assert vis('hist') and txt('hist-n') == '2', txt('hist')
+    hist = txt('hist-list')
+    assert '고침' in hist and '15,000원 → 16,000원' in hist and '넣음' in hist, hist
+    assert js("return document.querySelectorAll('#photos .ph').length") == 0 and vis('ph-add')
+    add_photos = """const done = arguments[arguments.length - 1];
+        Promise.all([1, 2].map(n => new Promise(r => { const c = document.createElement('canvas'); c.width = 400 * n; c.height = 300;
+            const g = c.getContext('2d'); g.fillStyle = n === 1 ? '#c33' : '#36c'; g.fillRect(0, 0, c.width, c.height);
+            c.toBlob(b => r(new File([b], `p${n}.png`, { type: 'image/png' })), 'image/png'); })))
+        .then(files => { const dt = new DataTransfer(); files.forEach(f => dt.items.add(f)); const i = document.getElementById('photo-file');
+            i.files = dt.files; i.dispatchEvent(new Event('change')); setTimeout(done, 1500); });"""
+    d.execute_async_script(add_photos)
+    assert js("return document.querySelectorAll('#photos .ph').length") == 2 and txt('photos').endswith('2/3')
+    click('#save'); time.sleep(2.5)
+    with storage._db() as conn:
+        photo_ids = [r[0] for r in conn.execute("SELECT id FROM ledger_photos WHERE entry_id = ? ORDER BY id", (feed_id,))]
+    assert len(photo_ids) == 2 and not vis('sheet-wrap')
+    assert all(os.path.isfile(ledger.photo_path(p, t)) for p in photo_ids for t in (False, True))
+    age_changes(False)
+    with open(ledger.photo_path(photo_ids[0], True), 'rb') as f:
+        assert f.read(3) == b'\xff\xd8\xff'   # 휴대폰에서 JPEG로 줄여 올림
+    thumb = "[...document.querySelectorAll('#list .ph-th')].find(b => b.closest('.it').textContent.includes('사료'))"
+    assert js(f"return {thumb}.textContent") == '+1'
+    time.sleep(.5)
+    assert js(f"return {thumb}.querySelector('img').naturalWidth") > 0
+    js(f"{thumb}.click()"); time.sleep(.8)
+    assert vis('pv') and not vis('sheet-wrap') and txt('pv-n') == '1 / 2'
+    assert js("return document.getElementById('pv-img').naturalWidth") == 400
+    click('#pv-next'); time.sleep(.6)
+    assert txt('pv-n') == '2 / 2' and js("return document.getElementById('pv-img').naturalWidth") == 800
+    click('#pv-close'); time.sleep(.2)
+    assert not vis('pv')
+    # 다른 것은 사진으로 받지 않음, 남의 것이 아니어도 없는 기록에는 못 붙임
+    bad = """const done = arguments[arguments.length - 1];
+        fetch(`/api/ledger/photo-upload?entry=${arguments[0]}`, { method: 'POST', headers: { 'X-Thumb-Size': '200' }, body: new Uint8Array(400) })
+        .then(r => r.json().then(j => done([r.status, j.message])));"""
+    assert d.execute_async_script(bad, feed_id)[0] == 400
+    # 고치기 창에서 1장 빼고 저장 → 파일도 지움, 이력에 사진 더함·뺌
+    js(pick); time.sleep(1)
+    assert js("return document.querySelectorAll('#photos .ph').length") == 2
+    click('#photos [data-ph-del="0"]'); time.sleep(.2)
+    assert js("return document.querySelectorAll('#photos .ph').length") == 1
+    click('#save'); time.sleep(2)
+    with storage._db() as conn:
+        assert [r[0] for r in conn.execute("SELECT id FROM ledger_photos WHERE entry_id = ?", (feed_id,))] == photo_ids[1:]
+    assert not os.path.exists(ledger.photo_path(photo_ids[0])) and not os.path.exists(ledger.photo_path(photo_ids[0], True))
+    assert js(f"return {thumb}.textContent") == ''
+    js(pick); time.sleep(1)
+    hist = txt('hist-list')
+    # 저장 한 번에 올린 사진 2장은 한 줄, 바꾼 것 없이 저장한 것은 없음
+    assert txt('hist-n') == '4' and hist.index('사진 1장 뺌') < hist.index('사진 2장 더함') < hist.index('16,000원'), hist
+    assert '바뀐 것 없음' not in hist
+    click('#edit-cancel'); time.sleep(.3)
+    print('PHOTO OK')
     # 줄의 '지우기'(휴대폰에서 왼쪽으로 밀면 나옴): 확인 창에서 취소하면 그대로
     js("window.confirm = () => false")
     js("[...document.querySelectorAll('#list [data-del]')].find(b => b.parentElement.textContent.includes('사료')).click()"); time.sleep(.5)
@@ -325,6 +390,10 @@ try:
     assert len(entries()) == 3
     js("window.confirm = () => true"); click('#edit-delete'); time.sleep(1.2)
     assert [x['amount'] for x in entries()] == [42000, 3200000]
+    # 기록을 지우면 사진도 함께
+    with storage._db() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM ledger_photos").fetchone()[0] == 0
+    assert not os.path.exists(ledger.photo_path(photo_ids[1])) and not os.path.exists(ledger.photo_path(photo_ids[1], True))
     print('EDIT OK')
 
     # ---- 지은으로 로그인: 관리자 칸 없음, 남의 기록은 못 고침, 거르기

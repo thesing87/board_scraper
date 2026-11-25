@@ -671,6 +671,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/system': ('_handle_system', 'NAS 상태 조회'),
         '/api/ledger/session': ('_handle_ledger_session', '가계부 로그인 처리'),
         '/api/ledger/entry': ('_handle_ledger_entry', '가계부 기록 처리'),
+        '/api/ledger/photo': ('_handle_ledger_photo', '가계부 사진 처리'),
         '/api/ledger/category': ('_handle_ledger_category', '가계부 소비형태 처리'),
         '/api/ledger/admin': ('_handle_ledger_admin', '가계부 사용자 허락 처리'),
         '/api/ledger/inbox': ('_handle_ledger_inbox', '가계부 확인 대기함 처리'),
@@ -691,6 +692,16 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 pass
             except Exception as e:
                 log_msg(f"[API] 가계부 앱 올리기 오류: {short_err(e)}", "ERROR")
+                self._send_json(500, False, '❌ 처리하지 못했습니다.')
+            return
+        # 가계부 사진 붙이기: 본문이 썸네일 JPEG 다음에 큰 JPEG를 이어 붙인 것 (X-Thumb-Size: 썸네일 바이트 수)
+        if pure_path == '/api/ledger/photo-upload':
+            try:
+                self._handle_ledger_photo_upload()
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass
+            except Exception as e:
+                log_msg(f"[API] 가계부 사진 올리기 오류: {short_err(e)}", "ERROR")
                 self._send_json(500, False, '❌ 처리하지 못했습니다.')
             return
         if pure_path.startswith(self.LEDGER_HOOK_PREFIX):
@@ -1303,6 +1314,12 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_data(200, ledger.search(query.get('q', [''])[0]))
         elif pure_path == '/api/ledger/admin' and user['admin']:
             self._send_data(200, ledger.people())
+        elif pure_path == '/api/ledger/history':
+            # 고치기 창의 수정 이력
+            entry = query.get('entry', [''])[0]
+            self._send_data(200, {'history': ledger.history(int(entry)) if entry.isdigit() else []})
+        elif self.LEDGER_PHOTO_RE.fullmatch(pure_path):
+            self._send_ledger_photo(self.LEDGER_PHOTO_RE.fullmatch(pure_path))
         elif pure_path == '/api/ledger/home':
             # 앱 홈 탭: 근무표 요약(사람마다 오늘·내일, 고른 사람의 이번 주)과 가계부 이번 달 요약
             person = query.get('person', [''])[0]
@@ -1314,6 +1331,26 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_data(200, {'user': user, **duty.state(query.get('month', [''])[0], int(person) if person.isdigit() else None)})
         else:
             self._send_json(404, False, '❌ 없는 요청입니다.')
+
+    # 가계부 사진: /api/ledger/photo/{id}.jpg (큰 것)·{id}_t.jpg (썸네일). 사진 id는 다시 쓰지 않아 오래 둬도 됨
+    LEDGER_PHOTO_RE = re.compile(r'/api/ledger/photo/(\d{1,12})(_t)?\.jpg')
+
+    def _send_ledger_photo(self, match):
+        photo_id, thumb = int(match.group(1)), bool(match.group(2))
+        path = ledger.photo_path(photo_id, thumb)
+        if not ledger.photo_exists(photo_id) or not os.path.isfile(path):
+            self._send_json(404, False, '❌ 없는 사진입니다.')
+            return
+        with open(path, 'rb') as f:
+            data = f.read()
+        self.send_response(200)
+        self.send_header('Content-Type', 'image/jpeg')
+        self.send_header('Content-Length', str(len(data)))
+        self.send_header('Cache-Control', 'private, max-age=31536000, immutable')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Referrer-Policy', 'no-referrer')
+        self.end_headers()
+        self.wfile.write(data)
 
     @staticmethod
     def _ledger_summary(user):
@@ -1384,6 +1421,44 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._ledger_reply(lambda: ledger.delete_entry(user, b['id']))
         else:
             self._send_json(400, False, '❌ 잘못된 요청입니다.')
+
+    def _handle_ledger_photo(self):
+        """{action: delete, id} 기록에 붙인 사진 빼기 (붙이기는 /api/ledger/photo-upload)"""
+        user = self._ledger_user()
+        if not user:
+            return
+        b = self._body
+        if b.get('action') == 'delete' and type(b.get('id')) is int:
+            self._ledger_reply(lambda: ledger.photo_delete(user, b['id']))
+        else:
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+
+    def _handle_ledger_photo_upload(self):
+        """?entry=기록 id, 본문 = 썸네일 JPEG + 큰 JPEG (X-Thumb-Size). 쓴 사람·관리자만"""
+        user = self._ledger_user()
+        if not user:
+            return
+        entry = parse_qs(urlparse(self.path).query).get('entry', [''])[0]
+        length = int(self.headers.get('Content-Length') or 0)
+        thumb_size = int(self.headers.get('X-Thumb-Size') or 0)
+        if not entry.isdigit() or not 0 < thumb_size < length:
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        if length > ledger.PHOTO_BYTES + ledger.THUMB_BYTES:
+            self._send_json(413, False, '❌ 사진이 너무 큽니다.')
+            return
+        chunks, left = [], length
+        while left > 0:
+            chunk = self.rfile.read(min(self.STREAM_CHUNK, left))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            left -= len(chunk)
+        if left:
+            self._send_json(400, False, '❌ 사진을 끝까지 받지 못했습니다.')
+            return
+        data = b''.join(chunks)
+        self._ledger_reply(lambda: {'id': ledger.photo_add(user, int(entry), data[thumb_size:], data[:thumb_size])})
 
     def _handle_ledger_category(self):
         """{action: add|edit|delete|reorder(ids: 보일 순서), id, name, color, icon(이모지, edit에서 없으면 그대로), kind(add: expense·income)} (분류는 로그인한 사람 누구나)"""
