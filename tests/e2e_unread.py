@@ -29,14 +29,14 @@ W = time.sleep
 def view():
     return js("""return {title: document.querySelector('.feed-title').textContent, sub: document.querySelector('.feed-sub').textContent,
         page: app.page, ids: [...document.querySelectorAll('.post-card')].map(c => c.id.slice(5)),
-        nav: [...document.querySelectorAll('.kw-item')].slice(0, 2).map(b => b.textContent.replace(/\\s+/g, ' ').trim())}""")
+        nav: [...document.querySelectorAll('.kw-item')].slice(0, 3).map(b => b.textContent.replace(/\\s+/g, ' ').trim())}""")
 try:
-    # 1) 처음 들어오면 전체 게시판의 안 읽은 글 보기 (사이드바 맨 위 '전체'에 안 읽은 수)
+    # 1) 처음 들어오면 전체 게시판의 안 읽은 글 보기 (사이드바 맨 위 'FM키워드' 다음 '전체'에 안 읽은 수)
     d.get(BASE); W(2.5)
     v = view(); print('first screen', v['title'], '|', v['sub'], '|', v['nav'])
     # 화면에 다 보인 짧은 글은 바로 읽음 처리되므로 지금 서버 기준 개수와 비교
     now_total = storage.feed_summary()['unread_count']
-    assert v['title'] == '전체 · 안 읽은 글' and f"{now_total}개" in v['sub'] and v['nav'][0] == f'전체 {now_total}'
+    assert v['title'] == '전체 · 안 읽은 글' and f"{now_total}개" in v['sub'] and v['nav'][0] == 'FM키워드' and v['nav'][1] == f'전체 {now_total}'
     assert v['ids'] == summary['unread_ids'][:10]
     d.save_screenshot(os.path.join(SHOTS, '1_unread.png'))
 
@@ -49,9 +49,12 @@ try:
     # 3) 상단 상태 표시(누르면 새로고침) → 이미 읽은 글은 빠짐
     js("document.getElementById('status-pill').click()"); W(2)
     js("app.page = 1; loadPosts()"); W(1.5)
+    # 페이지는 화면에 다 보인 글의 읽음을 모았다가 조금 뒤에 서버로 보냄: 글 순서는 보내기 전 서버 목록과,
+    # 안 읽은 수(페이지는 이미 읽은 것으로 셈)는 모아 둔 읽음을 보낸 뒤의 서버 수와 비교
     v3 = view(); now = storage.feed_summary()
-    print('after refresh', v3['ids'][:2], v3['sub'])
-    assert v3['ids'][:5] == now['unread_ids'][:5] and not set(v3['ids']) & set(v['ids']) and f"{now['unread_count']}개" in v3['sub'], v3
+    js("return flushReads()"); now_count = storage.feed_summary()['unread_count']
+    print('after refresh', v3['ids'][:2], v3['sub'], '| server', now['unread_ids'][:2], now_count)
+    assert v3['ids'][:5] == now['unread_ids'][:5] and not set(v3['ids']) & set(v['ids']) and f"{now_count}개" in v3['sub'], v3
 
     # 4) 안 읽은 글 보기 중 새 글이 들어오면 배너
     post = {'id': '10999999990', 'title': '새로 들어온 글', 'author': 't', 'date': 'd', 'views': '1', 'votes': '0', 'comment_count': '0',
@@ -81,12 +84,12 @@ try:
     js("document.querySelector('a.brand-link').click()"); W(1.2)
     assert view()['title'] == '전체'
 
-    # 6) 모바일: 칩 맨 앞이 전체, 안 읽은 글이 없으니 '모든 글' 보기 탭이 선택됨
+    # 6) 모바일: 칩 맨 앞이 FM키워드, 그다음 전체, 안 읽은 글이 없으니 '모든 글' 보기 탭이 선택됨
     d.set_window_size(390, 844); d.get(BASE); W(2.5)
     chips = js("return [...document.querySelectorAll('#chip-row .chip')].slice(0, 2).map(c => c.textContent.replace(/\\s+/g, ' ').trim())")
     pressed = js("return document.querySelector('#view-tabs .view-tab[aria-pressed=\"true\"]').textContent.replace(/\\s+/g, ' ').trim()")
     print('chips', chips, 'tab', pressed)
-    assert chips[0].startswith('전체') and pressed.startswith('모든 글')
+    assert chips[0] == 'FM키워드' and chips[1].startswith('전체') and pressed.startswith('모든 글')
     d.save_screenshot(os.path.join(SHOTS, '2_mobile.png'))
     errs = [l for l in d.get_log('browser') if l['level'] == 'SEVERE']
     assert not errs, errs

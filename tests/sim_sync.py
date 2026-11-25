@@ -25,6 +25,10 @@ class FakeDriver:
     def execute_script(self, s): return 1
     def quit(self): pass
 m.create_driver = lambda: FakeDriver()
+# 시험 데이터는 예전 에펨코리아 글인데 수집기는 디시인사이드만 수집함 (에펨코리아는 건너뜀):
+# 목록·글은 아래 가짜로 바꾸므로 이 게시판·글을 디시인사이드 것으로 쳐서 수집 순서만 확인
+import sites
+m.board_site = m.post_site = lambda _: sites.DCINSIDE
 m.run_api_server = lambda: None
 
 # 키워드 1개만 대상으로 시나리오 구성

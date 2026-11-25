@@ -12,7 +12,7 @@ TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(TESTS_DIR)
 APP_DIR = os.path.join(ROOT, 'app')
 DATA_DIR = os.path.join(ROOT, 'output')
-LIVE_URL = 'http://thesing87.iptime.org'
+LIVE_URL = 'https://thesing87.synology.me'   # 서버의 DDNS_URL과 같은 곳 (예전 iptime 주소는 이제 이 사이트가 아님)
 
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)

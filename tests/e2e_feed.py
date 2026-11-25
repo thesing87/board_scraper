@@ -126,14 +126,15 @@ try:
     assert not errors
     ok.append('tab switching, no console errors')
 
-    # 8) 모바일 폭: 검색 펼치기와 게시판 칩 (맨 앞이 전체)
+    # 8) 모바일 폭: 검색 펼치기와 게시판 칩 (맨 앞이 FM키워드, 그다음 전체)
     d.set_window_size(390, 844); d.get(BASE); wait(2.5)
     m = js("""document.querySelector('[data-action="toggle-search"]').click();
-        return { chipFirst: document.querySelector('#chip-row .chip').textContent.replace(/\\s+/g,' ').trim(),
+        const chips = [...document.querySelectorAll('#chip-row .chip')].slice(0, 2).map(c => c.textContent.replace(/\\s+/g,' ').trim());
+        return { chipFirst: chips[0], chipSecond: chips[1],
                  searchVisible: getComputedStyle(document.getElementById('search-form')).display !== 'none',
                  overflow: document.documentElement.scrollWidth > innerWidth }""")
     print('mobile', m)
-    assert m['chipFirst'].startswith('전체') and m['searchVisible'] and not m['overflow']
+    assert m['chipFirst'] == 'FM키워드' and m['chipSecond'].startswith('전체') and m['searchVisible'] and not m['overflow']
     wait(0.5)
     d.save_screenshot(os.path.join(SHOTS, '5_mobile.png'))
     ok.append('mobile chips + search toggle')

@@ -12,6 +12,9 @@ from selenium.webdriver import Chrome
 from selenium.webdriver.chrome.options import Options
 
 storage.init_db()
+# 예전 데이터는 에펨코리아 카테고리뿐인데 에펨코리아는 고를 수 없음 (수집 기능 없앰): 새 키워드를 넣을 디시 카테고리
+storage.add_category('dc:car_new1')
+storage.set_category_checked('dc:car_new1', True, page_name='자동차 갤러리')
 db = sqlite3.connect(config.DB_FILE)
 kws = db.execute('select board, keyword from keywords order by rowid').fetchall()
 groups = storage.list_groups()
@@ -57,8 +60,8 @@ try:
     heads = js("return [...document.querySelectorAll('.kw-group-name')].map(e => e.textContent)")
     in_topbar = js("return !!document.querySelector('.topbar #view-bar-tabs')")
     print('sidebar', side, views, in_topbar, heads)
-    # 사이드바는 게시판(전체 + 사용자 게시판)만, 보기 탭 6개(모든 글·안 읽은 글·새 댓글·인기글·동영상·이미지)와 더보기(보관함·삭제됨)는 상단 바 가운데
-    assert len(side) == len(kws) + 1 and side[0].startswith('전체') and len(views) == 7 and views[3] == '인기글' and views[-1] == '더보기' and heads == []
+    # 사이드바는 맨 위 'FM키워드'와 게시판(전체 + 사용자 게시판)만, 보기 탭 6개(모든 글·안 읽은 글·새 댓글·인기글·동영상·이미지)와 더보기(보관함·삭제됨)는 상단 바 가운데
+    assert len(side) == len(kws) + 2 and side[0] == 'FM키워드' and side[1].startswith('전체') and len(views) == 7 and views[3] == '인기글' and views[-1] == '더보기' and heads == []
     assert in_topbar and js("return document.querySelectorAll('#keyword-groups [data-action=\"set-view\"]').length") == 0
     d.save_screenshot(os.path.join(SHOTS, '1_sidebar.png'))
 
@@ -71,26 +74,31 @@ try:
     print('board view', v)
     assert v['title'] == '싼타페' and f"{distinct_count([('car', '싼타페')])}개 글" in v['sub'] and v['chips'] == 0
 
-    # 3) 수정: 이름 변경 + 기존 키워드(싼하) + 새 키워드 등록
+    # 3) 수정: 이름 변경 + 디시 카테고리에 새 키워드 2개 등록.
+    # 예전에 합쳐 둔 에펨코리아 키워드(싼하)는 편집 화면에 보이지 않지만 저장해도 그대로 남음 (예전 글이 게시판에 계속 보임)
+    storage.save_group(gid, '싼타페', [{'board': 'car', 'keyword': '싼타페'}, {'board': 'car', 'keyword': '싼하'}])
+    d.refresh(); wait(2)
     js("localStorage.setItem('admin_token', 'Secr3t!'); updateAdminUI(); document.querySelector('.topbar [data-action=\"open-settings\"]').click()"); wait(0.4)
     js(f"""
            document.querySelector('[data-action="edit-group"][data-group-id="{gid}"]').click();""")
     wait(0.3)
     js("""const n = document.getElementById('group-name-input'); n.value = '싼타페 모음'; n.dispatchEvent(new Event('input', {bubbles: true}));
-          document.getElementById('group-kw-target').value = 'car';
+          document.querySelector('[data-action="toggle-draft-board"][data-board="dc:car_new1"]').click();""")
+    wait(0.2)
+    js("""document.getElementById('group-kw-target').value = 'dc:car_new1';
           const k = document.getElementById('group-kw-input');
           k.value = '싼하'; document.querySelector('[data-action="add-draft-keyword"]').click();
           k.value = '테스트키워드';""")
     k = d.find_element('id', 'group-kw-input'); k.send_keys('\n'); wait(0.3)
     tags = js("return [...document.querySelectorAll('#group-keywords .kw-tag')].map(t => t.textContent.replace(/\\s+/g, ' ').trim())")
     print('draft tags', tags)
-    assert len(tags) == 3
+    assert len(tags) == 2 and all('에펨' not in t for t in tags), tags
     d.save_screenshot(os.path.join(SHOTS, '2_edit_form.png'))
     js("document.getElementById('group-save-btn').click()"); wait(2)
     show_all()
     v = js("return {title: document.querySelector('.feed-title').textContent, sub: document.querySelector('.feed-sub').textContent, chips: document.querySelectorAll('.kw-chip').length, ids: [...document.querySelectorAll('.post-card')].map(c => c.id)}")
     print('edited', v['title'], v['sub'], v['chips'])
-    assert v['title'] == '싼타페 모음' and f"{distinct_count([('car', '싼타페'), ('car', '싼하')])}개 글" in v['sub']
+    assert v['title'].endswith('싼타페 모음') and f"{distinct_count([('car', '싼타페'), ('car', '싼하')])}개 글" in v['sub']
     assert v['chips'] > 0 and len(v['ids']) == len(set(v['ids']))
     assert db.execute("select 1 from keywords where keyword='테스트키워드'").fetchone()
     d.save_screenshot(os.path.join(SHOTS, '3_edited_feed.png'))
@@ -118,14 +126,14 @@ try:
     d.get(BASE + '#post-' + pid); d.refresh(); wait(3)
     v = js(f"return {{title: document.querySelector('.feed-title').textContent, found: !!document.getElementById('post-{pid}')}}")
     print('anchor', v)
-    assert v['title'].startswith('싼타페 모음') and v['found']
+    assert '싼타페 모음' in v['title'] and v['found']   # 제목 앞에 사이트 표시 (FM·DC)
 
-    # 7) 모바일: 위는 보기 탭 5개와 더보기, 아래 칩은 전체 + 게시판
+    # 7) 모바일: 위는 보기 탭 5개와 더보기, 아래 칩은 FM키워드 + 전체 + 게시판
     d.set_window_size(390, 844); d.get(BASE); wait(2.5)
     chips = js("return [...document.querySelectorAll('#chip-row .chip')].map(c => c.textContent.replace(/\\s+/g, ' ').trim())")
     tabs = js("return document.querySelectorAll('#view-tabs .view-tab').length")
     print('chips', chips, 'tabs', tabs)
-    assert len(chips) == len(storage.list_groups()) + 1 and tabs == 6   # 모바일은 인기글이 더보기 목록에
+    assert len(chips) == len(storage.list_groups()) + 2 and chips[0] == 'FM키워드' and tabs == 6   # 모바일은 인기글이 더보기 목록에
     d.save_screenshot(os.path.join(SHOTS, '4_mobile.png'))
     errs = [l for l in d.get_log('browser') if l['level'] == 'SEVERE']
     assert not errs, errs
