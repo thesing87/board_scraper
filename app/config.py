@@ -134,6 +134,8 @@ COLLECTOR_STALL_MINUTES = int(os.environ.get('COLLECTOR_STALL_MINUTES', 10))
 
 # 하루 요약 알림을 보내는 시각(시). 이 시각이 지난 뒤 첫 주기에 그날 요약을 한 번 보냄 (게시판별로 켬)
 DIGEST_HOUR = int(os.environ.get('DIGEST_HOUR', 8))
+# FM키워드 하루 요약(fm_digest.py): DIGEST_HOUR에 지난 24시간 FM키워드 줄이 찾은 새 글을 한 번 알림 (0이면 안 보냄)
+FM_DIGEST = os.environ.get('FM_DIGEST', '1').strip() != '0'
 # 보관한 글 중 키워드 목록 감시 범위(최근 20개)를 벗어난 글은 이 간격(분)마다 다시 열어 새 댓글 확인
 SAVED_CHECK_MINUTES = int(os.environ.get('SAVED_CHECK_MINUTES', 30))
 

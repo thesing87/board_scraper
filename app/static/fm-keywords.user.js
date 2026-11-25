@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.8.0
+// @version      1.9.0
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -21,7 +21,7 @@
     'use strict';
     const SITE = '__SITE__';
     // 헤더의 @version을 그대로 읽음 (따로 적으면 어긋나므로). 읽지 못할 때만 아래 값을 씀
-    const VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.8.0';
+    const VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.9.0';
     // 오류로 멈추면 키워드 모니터 서버 기록에 한 줄 남김 (화면마다 한 번, 원인을 찾으려고. 에펨코리아 화면 내용은 보내지 않음)
     let reported = false;
     function reportError(where, err) {
@@ -54,6 +54,9 @@
     const KEY_TRAIL = 'fm_bar_trail';
     // 이보다 오래된 검색 결과 목록은 쓰지 않음 (하루)
     const TRAIL_MAX_AGE = 86400000;
+    // 새 글이 한 쪽을 넘친 키워드 {'board|keyword': true}: 검색 결과 한 쪽이 모두 새 글이라 다음 쪽에도 새 글이 더 있을 수 있음
+    // (칩에 '새 N+'. 마지막으로 읽은 곳이 보이는 쪽을 보거나 '모두 읽음'을 누르면 지움. 이 기기에만)
+    const KEY_MORE = 'fm_bar_more';
 
     // 응답 코드와 내용을 그대로 (실패 이유를 보여 줄 때)
     function requestRaw(method, path, body) {
@@ -232,6 +235,12 @@
         .side .pnav .pnew { border-color: #185FA5; color: #185FA5; }
         .pnav .ppos { font-size: 12px; color: #712B13; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .pnav .ppos b { font-variant-numeric: tabular-nums; }
+        /* 글 보관: 이전·다음 글 단추 옆 */
+        .side .arc, .side .arc2 { border: 1px solid #185FA5; border-radius: 7px; background: #fff; color: #185FA5; font-weight: 700; padding: 3px 9px; line-height: 1.2; }
+        .side .arc2 { border-color: #F0997B; color: #712B13; font-weight: 400; }
+        .side .arc:disabled { opacity: .6; cursor: default; }
+        .arcok { font-size: 12px; color: #27500A; background: #EAF3DE; border-radius: 6px; padding: 3px 8px; }
+        .arcerr { font-size: 12px; color: #A32D2D; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
         .picker .x { position: absolute; top: 6px; right: 8px; border: 0; background: none; color: #993C1D; cursor: pointer; font-size: 14px; }
     `;
 
@@ -268,20 +277,30 @@
         return (l.found_ids || []).filter(no => no > l.seen_max && !read.has(no)).length;
     }
     const groupUnread = g => g.links.reduce((n, l) => n + unreadOf(l), 0);
+    const moreKey = l => l.board + '|' + l.keyword;
+    const moreOf = l => !!GM_getValue(KEY_MORE, {})[moreKey(l)];
+    function setMore(l, on) {
+        const all = GM_getValue(KEY_MORE, {});
+        if (!!all[moreKey(l)] === on) return;
+        if (on) all[moreKey(l)] = true; else delete all[moreKey(l)];
+        GM_setValue(KEY_MORE, all);
+    }
+    // 칩·묶음의 '새 N' 글자 (넘쳤으면 'N+')
+    const newText = (n, more) => `${n || ''}${more ? '+' : ''}`;
     // 다음 키워드: 안 읽은 새 글이 남은 키워드 먼저(많은 순), 그다음 오늘 아직 안 본 것 중 가장 오래 안 본 것 (같으면 등록 순). 지금 보는 것은 빼고
     function nextLink() {
         const key = x => (x.l.last_opened ? new Date(x.l.last_opened.replace(' ', 'T')).getTime() : -1);
         const list = allLinks().map((x, i) => ({ ...x, i })).filter(x => !isCurrent(x.l));
-        const withNew = list.filter(x => unreadOf(x.l)).sort((a, b) => unreadOf(b.l) - unreadOf(a.l) || a.i - b.i);
+        const withNew = list.filter(x => unreadOf(x.l) || moreOf(x.l)).sort((a, b) => unreadOf(b.l) - unreadOf(a.l) || a.i - b.i);
         if (withNew.length) return withNew[0];
         return list.filter(x => !openedToday(x.l)).sort((a, b) => key(a) - key(b) || a.i - b.i)[0] || null;
     }
     const chipHtml = (g, l) => {
-        const unread = unreadOf(l);
+        const unread = unreadOf(l), more = moreOf(l);
         return `
-        <a class="chip${isCurrent(l) ? ' on' : ''}${isStale(l.last_opened) ? ' stale' : ''}${openedToday(l) && !unread ? ' done' : ''}" href="${esc(searchUrl(l.board, l.keyword))}"
+        <a class="chip${isCurrent(l) ? ' on' : ''}${isStale(l.last_opened) ? ' stale' : ''}${openedToday(l) && !unread && !more ? ' done' : ''}" href="${esc(searchUrl(l.board, l.keyword))}"
            data-board="${esc(l.board)}" data-keyword="${esc(l.keyword)}" data-group="${g.id}">
-            <span class="kw">${esc(l.keyword)}${unread ? `<span class="newb">${MOBILE ? '' : '새 '}${unread}</span>` : ''}</span>${MOBILE ? '' : `<small>${esc(isCurrent(l) ? '지금 보는 중' : agoText(l.last_opened))}</small>`}</a>`;
+            <span class="kw">${esc(l.keyword)}${unread || more ? `<span class="newb"${more ? ' title="다음 쪽에도 새 글이 더 있을 수 있음"' : ''}>${MOBILE ? '' : '새 '}${newText(unread, more)}</span>` : ''}</span>${MOBILE ? '' : `<small>${esc(isCurrent(l) ? '지금 보는 중' : agoText(l.last_opened))}</small>`}</a>`;
     };
     // 전체 키워드를 차례대로 (카드 순서 → 카드 안 순서, 끝에서는 처음으로). 지금 보는 검색이 목록에 없으면 다음은 첫 키워드, 이전은 마지막
     function seqTarget(delta) {
@@ -352,6 +371,81 @@
         saveCache();
         markNewPosts();
     }
+    // ---------- 글 보관 ----------
+    // 글 화면에서 '보관': 보고 있는 화면의 제목·본문·댓글(지금 보이는 댓글 쪽)을 키워드 모니터에 보내 그 FM키워드 카드의 보관함에 담음.
+    // 원글이 지워져도 남음. 이미지·동영상은 주소만 (서버는 에펨코리아에 요청하지 않음). FM키워드 검색에서 연 글에서만
+    let archive = { state: 'idle', comments: 0, error: '' };   // idle(확인 전)·none·busy·saved
+    let archiveOpen = false, archivePwd = '';
+    function archiveLink() {
+        if (!pagePostNo) return null;
+        const links = allLinks().map(x => x.l);
+        return links.find(isCurrent) || (trailIndex() >= 0 ? trailLink() : null) || null;
+    }
+    function archiveHtml() {
+        if (!archiveLink() || archive.state === 'idle') return '';
+        const err = archive.error && !archiveOpen ? `<span class="arcerr">${esc(archive.error)}</span>` : '';
+        if (archive.state === 'busy') return '<button class="arc" disabled>보관 중…</button>';
+        if (archive.state === 'saved') {
+            return `${err}<span class="arcok" title="키워드 모니터 보관함에 있음">${MOBILE ? '보관됨' : `보관함에 있음 · 댓글 ${archive.comments}`}</span>`
+                + `<button class="arc2" data-archive title="지금 화면의 댓글로 새로 고침">다시 보관</button>`;
+        }
+        return `${err}<button class="arc" data-archive title="이 글을 키워드 모니터 보관함에 담기 (원글이 지워져도 남음)">보관</button>`;
+    }
+    function archivePickerHtml() {
+        if (!archiveOpen) return '';
+        return `<div class="picker" role="dialog" aria-label="글 보관">
+            <button class="x" data-arcclose aria-label="닫기">✕</button>
+            <div class="ph">이 글을 <b>보관함</b>에 담으려면 관리자 비밀번호가 필요합니다</div>
+            <input type="password" data-arcpwd placeholder="관리자 비밀번호 (처음 한 번만)" autocomplete="off" value="${esc(archivePwd)}">
+            <button class="to best" data-arcgo>보관</button>
+            ${archive.error ? `<div class="err">${esc(archive.error)}</div>` : ''}
+        </div>`;
+    }
+    // 지금 화면에서 글 본문·머리(제목·작성자·조회 수 등)·댓글 목록의 HTML
+    function collectPost() {
+        const content = document.querySelector('.rd_body .xe_content')
+            || [...document.querySelectorAll('.xe_content')].find(el => !el.closest('.fdb_lst_ul, #comment, .fdb_lst, li'));
+        if (!content) return null;
+        const top = document.querySelector('.top_area');
+        const head = document.querySelector('.rd_hd') || (top && top.parentElement);
+        const comments = document.querySelector('.fdb_lst_ul') || document.querySelector('ul#comment') || document.querySelector('.fdb_lst');
+        return { no: pagePostNo, head_html: head ? head.outerHTML : '', content_html: content.outerHTML,
+                 comments_html: comments ? comments.outerHTML : '', page_title: document.title };
+    }
+    async function doArchive() {
+        const link = archiveLink();
+        const password = GM_getValue(KEY_PWD, '') || archivePwd.trim();
+        if (!link || archive.state === 'busy') return;
+        if (!password) { archiveOpen = true; archive.error = ''; render(); const i = root.querySelector('[data-arcpwd]'); if (i) i.focus(); return; }
+        const post = collectPost();
+        if (!post) { archive.error = '글 본문을 찾지 못했습니다'; render(); return; }
+        const before = archive.state;
+        archive = { ...archive, state: 'busy', error: '' };
+        render();
+        const { status, data } = await requestRaw('POST', '/api/fm-archive', { ...post, board: link.board, keyword: link.keyword, password });
+        if (status === 200 && data.success) {
+            GM_setValue(KEY_PWD, password);
+            archivePwd = ''; archiveOpen = false;
+            archive = { state: 'saved', comments: data.comments || 0, error: '' };
+        } else {
+            if (status === 401) { GM_setValue(KEY_PWD, ''); archiveOpen = true; }
+            archive = { ...archive, state: before === 'saved' ? 'saved' : 'none',
+                        error: status === 401 ? '비밀번호가 맞지 않습니다'
+                            : (data.message || (status ? `보관하지 못했습니다 (${status})` : '키워드 모니터에 연결하지 못했습니다')).replace(/^❌\s*/, '') };
+        }
+        render();
+    }
+    // 글 화면이면 이미 보관했는지 물어봄 (글 번호만 보냄)
+    let archiveAsked = false;
+    function askArchive() {
+        if (archiveAsked || !archiveLink()) return;
+        archiveAsked = true;
+        request('GET', `/api/fm-archive?no=${pagePostNo}`).then(data => {
+            archive = { state: data.saved ? 'saved' : 'none', comments: data.comments || 0, error: '' };
+            render();
+        }, () => { archive = { state: 'none', comments: 0, error: '' }; render(); });
+    }
+
     // ---------- 검색 결과 이전·다음 글 ----------
     // 검색 결과 화면에서 본 목록(이미 화면에 떠 있는 것)을 순서대로 기억해 두고, 그 목록의 글을 열면 줄에 ◀ 이전 · n/전체 · 다음 ▶ ·
     // 다음 새 글 · 목록. 마지막 글에서는 다음 쪽 검색 결과로. 에펨코리아에는 내가 누른 화면만 열림 (미리 받아 오지 않음)
@@ -374,9 +468,11 @@
         const isNew = p => p.no > l.seen_max && !read.has(p.no) && p.no !== pagePostNo;
         return trail.posts.slice(i + 1).find(isNew) || trail.posts.slice(0, i).find(isNew) || null;
     }
-    function pageUrl(delta) {
+    const pageUrl = delta => shiftPage(trail.url, delta);
+    // 검색 결과 주소의 쪽 번호를 delta만큼 (1쪽이면 page를 뺌)
+    function shiftPage(url, delta) {
         try {
-            const u = new URL(trail.url);
+            const u = new URL(url);
             const page = Math.max(1, (Number(u.searchParams.get('page')) || 1) + delta);
             if (page === 1) u.searchParams.delete('page'); else u.searchParams.set('page', String(page));
             return u.href;
@@ -439,7 +535,7 @@
         } else {
             const addBtn = canAdd() && !(compact && !MOBILE)
                 ? `<button class="add" data-add title="지금 보는 검색을 FM키워드에 추가">+ ${MOBILE ? '추가' : `'${esc(currentKeyword)}' 추가`}</button>` : '';
-            const side = `<span class="side">${postNavHtml()}${addBtn}<button class="fold" data-fold title="키워드 줄 ${MOBILE ? '숨기기' : '접기'}" aria-label="키워드 줄 ${MOBILE ? '숨기기' : '접기'}">${MOBILE ? '▼' : '▲'}</button></span>`;
+            const side = `<span class="side">${postNavHtml()}${archiveHtml()}${addBtn}<button class="fold" data-fold title="키워드 줄 ${MOBILE ? '숨기기' : '접기'}" aria-label="키워드 줄 ${MOBILE ? '숨기기' : '접기'}">${MOBILE ? '▼' : '▲'}</button></span>`;
             if (MOBILE) {
                 // 윗줄: 묶음 이름 (누르면 아랫줄이 그 묶음으로, 같은 것을 다시 누르면 아랫줄 접힘), 아랫줄: 고른 묶음의 키워드
                 const picked = groups.find(g => g.id === mobileGroupId());
@@ -464,6 +560,7 @@
             }
         }
         if (!message && !folded && !(compact && !MOBILE) && canAdd()) html = html.replace(/<\/div>$/, pickerHtml() + '</div>');
+        if (!message && !folded && !(compact && !MOBILE) && archiveOpen) html = html.replace(/<\/div>$/, archivePickerHtml() + '</div>');
         root.innerHTML = `<style>${CSS}</style>${html}`;
         if (!host.isConnected) return;
         // 에펨코리아 화면의 맨 위·맨 아래가 줄에 가리지 않게 그만큼 여백.
@@ -538,6 +635,8 @@
         if (pnav) { goTrail(pnav.dataset.pnav); return; }
         if (e.target.closest('[data-add]')) { addOpen = !addOpen; addError = ''; render(); const pwd = root.querySelector('[data-addpwd]'); if (pwd) pwd.focus(); return; }
         if (e.target.closest('[data-addclose]')) { addOpen = false; render(); return; }
+        if (e.target.closest('[data-archive]') || e.target.closest('[data-arcgo]')) { doArchive(); return; }
+        if (e.target.closest('[data-arcclose]')) { archiveOpen = false; archive.error = ''; render(); return; }
         const addto = e.target.closest('[data-addto]');
         if (addto) { addTo(Number(addto.dataset.addto)); return; }
         // 묶음 이름: 그 묶음의 첫 키워드로 (PC. 화살표·숫자 쪽을 누르면 아래처럼 펼치기·접기)
@@ -579,7 +678,11 @@
         if (e.target.closest('[data-unfold]')) { GM_setValue(KEY_FOLDED, false); render(); }
     });
 
-    root.addEventListener('input', e => { if (e.target.matches('[data-addpwd]')) typedPwd = e.target.value; });
+    root.addEventListener('input', e => {
+        if (e.target.matches('[data-addpwd]')) typedPwd = e.target.value;
+        if (e.target.matches('[data-arcpwd]')) archivePwd = e.target.value;
+    });
+    root.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('[data-arcpwd]')) doArchive(); });
 
     // 휴대폰: 아래로 스크롤하면 줄이 내려가 숨고, 위로 올리거나 맨 위·맨 아래에 닿으면 다시 보임 (10px 안의 떨림은 무시)
     if (!MOBILE) {
@@ -646,7 +749,9 @@
             .kmfm-tag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; background: #185FA5; color: #fff; font-size: 11px; font-weight: 700; line-height: 17px; vertical-align: 1px; }
             .kmfm-line td, li.kmfm-line { padding: 4px !important; text-align: center; color: #185FA5; font-size: 12px; border-bottom: 1px dashed #85B7EB; list-style: none; }
             .kmfm-note { display: flex; align-items: center; gap: 10px; margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: #E6F1FB; color: #0C447C; font-size: 13px; }
-            .kmfm-note button { margin-left: auto; border: 1px solid #185FA5; background: #fff; color: #185FA5; border-radius: 6px; padding: 3px 10px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }`;
+            .kmfm-note { flex-wrap: wrap; }
+            .kmfm-acts { margin-left: auto; display: flex; gap: 6px; }
+            .kmfm-note button, .kmfm-note a.kmfm-btn { border: 1px solid #185FA5; background: #fff; color: #185FA5; border-radius: 6px; padding: 3px 10px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; text-decoration: none; white-space: nowrap; }`;
         (document.head || document.documentElement).appendChild(style);
     }
     function clearMarks() {
@@ -654,6 +759,7 @@
         document.querySelectorAll('.kmfm-tag, .kmfm-line, .kmfm-note').forEach(el => el.remove());
     }
     function markNewPosts() {
+        askArchive();
         clearMarks();
         const cur = allLinks().find(x => isCurrent(x.l));
         const rows = cur ? resultRows() : [];
@@ -688,10 +794,17 @@
         if (added.length) {
             link.found_ids = [...found, ...added].sort((a, b) => a - b);
             saveCache();
-            request('POST', '/api/fm-link', { action: 'found', board: link.board, keyword: link.keyword, max: link.seen_max, ids: added.slice(0, 100) }).catch(() => {});
+            // 제목도 함께 (키워드 모니터의 하루 요약에 씀)
+            const ids = added.slice(0, 100), titles = {};
+            since.forEach(x => { if (ids.includes(x.no)) titles[x.no] = x.title.textContent.replace(/\s+/g, ' ').trim().slice(0, 120); });
+            request('POST', '/api/fm-link', { action: 'found', board: link.board, keyword: link.keyword, max: link.seen_max, ids, titles }).catch(() => {});
         }
-        // 안 읽은 새 글이 남았을 때만 안내 줄·구분선 (다 읽었으면 '모두 읽음'을 누르지 않아도 없음)
-        if (unread.length) {
+        // 한 쪽이 모두 새 글이면 다음 쪽에도 새 글이 더 있을 수 있음 (마지막으로 읽은 곳이 이 쪽에 보이면 넘치지 않은 것)
+        const overflow = !pagePostNo && rows.length >= 2 && since.length === rows.length;
+        if (!pagePostNo) setMore(link, overflow);
+        const nextPage = overflow ? shiftPage(location.href, 1) : '';
+        // 안 읽은 새 글이 남았거나 다음 쪽에 더 있을 수 있을 때만 안내 줄·구분선 (다 읽었으면 '모두 읽음'을 누르지 않아도 없음)
+        if (unread.length || overflow) {
             addStyle();
             unread.forEach(x => {
                 x.row.classList.add('kmfm-new');
@@ -710,15 +823,20 @@
             }
             const note = document.createElement('div');
             note.className = 'kmfm-note';
-            note.innerHTML = `<span>안 읽은 새 글 ${unread.length}개</span><button type="button" data-kmfm-readall>모두 읽음</button>`;
+            const what = unread.length ? `안 읽은 새 글 ${unread.length}개` : '이 쪽 새 글은 다 읽음';
+            note.innerHTML = `<span>${what}${overflow ? ' · 이 쪽이 모두 새 글이라 다음 쪽에도 더 있을 수 있음' : ''}</span><span class="kmfm-acts">${
+                nextPage ? `<a class="kmfm-btn" data-kmfm-next href="${esc(nextPage)}">다음 쪽 보기 ▶</a>` : ''}${
+                unread.length ? '<button type="button" data-kmfm-readall>모두 읽음</button>' : ''}</span>`;
             const list = rows[0].row.closest('table, ul, ol') || rows[0].row;
             list.parentNode.insertBefore(note, list);
-            note.querySelector('[data-kmfm-readall]').addEventListener('click', () => readAll(link, Math.max(...rows.map(x => x.no))));
+            const readAllBtn = note.querySelector('[data-kmfm-readall]');
+            if (readAllBtn) readAllBtn.addEventListener('click', () => readAll(link, Math.max(...rows.map(x => x.no))));
         }
         render();
     }
     // '모두 읽음': 기준을 이 화면의 가장 큰 글 번호로
     function readAll(link, top) {
+        setMore(link, false);
         link.seen_max = Math.max(link.seen_max || 0, top);
         link.read_ids = (link.read_ids || []).filter(no => no > link.seen_max);
         link.found_ids = (link.found_ids || []).filter(no => no > link.seen_max);

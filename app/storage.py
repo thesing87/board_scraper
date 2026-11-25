@@ -175,6 +175,16 @@ def _create_schema(conn):
             updated_at  TEXT NOT NULL,
             PRIMARY KEY (board, keyword)
         );
+        -- FM키워드 줄이 검색 결과에서 찾은 새 글의 제목 (하루 요약에 제목을 보이려고. FM_FOUND_KEEP_DAYS일 지나면 지움)
+        CREATE TABLE IF NOT EXISTS fm_found (
+            board     TEXT NOT NULL,
+            keyword   TEXT NOT NULL,
+            post_no   INTEGER NOT NULL,
+            title     TEXT NOT NULL DEFAULT '',
+            found_at  TEXT NOT NULL,
+            PRIMARY KEY (board, keyword, post_no)
+        );
+        CREATE INDEX IF NOT EXISTS idx_fm_found_at ON fm_found(found_at);
         -- 키워드별 무시할 표현: 이 표현을 지운 뒤에도 키워드가 남아 있는 글만 모음 (예: '싼하'에 '투싼하')
         CREATE TABLE IF NOT EXISTS keyword_ignores (
             board    TEXT NOT NULL,
@@ -961,7 +971,10 @@ def _drop_orphan_keywords(conn):
     """).fetchall()]
     for board, keyword in orphans:
         conn.execute("DELETE FROM keywords WHERE board = ? AND keyword = ?", (board, keyword))
-        conn.execute("DELETE FROM keyword_posts WHERE board = ? AND keyword = ?", (board, keyword))
+        # 같은 키워드의 FM키워드(바로가기)가 남아 있으면 보관함에 담은 글의 연결은 둠 (FM키워드 줄에서 보관한 글, save_fm_archive)
+        conn.execute("DELETE FROM keyword_posts WHERE board = ? AND keyword = ? AND NOT ("
+                     "(board, keyword) IN (SELECT board, keyword FROM fm_links) AND post_id IN (SELECT post_id FROM saved_posts))",
+                     (board, keyword))
         conn.execute("DELETE FROM keyword_ignores WHERE board = ? AND keyword = ?", (board, keyword))
         conn.execute("DELETE FROM rejected_posts WHERE board = ? AND keyword = ?", (board, keyword))
     if orphans:
@@ -998,19 +1011,27 @@ def _migrate_keywords_to_boards(conn):
 def _feed_from(group_id=None, folder_id=None):
     """피드 글 연결의 FROM 절과 파라미터. group_id가 없으면 모든 게시판(등록 키워드 전체),
     folder_id가 있으면 그 묶음의 모든 게시판"""
+    # 키워드에는 수집 키워드와 함께 FM키워드(에펨코리아 바로가기)도 넣음: FM키워드 줄에서 보관한 에펨코리아 글은
+    # 그 바로가기의 키워드로 연결되어 바로가기가 든 게시판에 보임 (save_fm_archive)
     sql = """
         FROM keyword_posts kp
-        JOIN keywords k ON k.board = kp.board AND k.keyword = kp.keyword
+        JOIN (SELECT board, keyword FROM keywords UNION SELECT board, keyword FROM fm_links) k
+            ON k.board = kp.board AND k.keyword = kp.keyword
     """
     if folder_id is not None:
         # 묶음 안의 게시판끼리 같은 키워드를 써도 글이 두 번 잡히지 않게 키워드를 한 번씩만
-        return sql + """JOIN (SELECT DISTINCT board, keyword FROM keyword_group_members
+        return sql + """JOIN (SELECT board, keyword FROM keyword_group_members
+                      WHERE group_id IN (SELECT id FROM keyword_groups WHERE folder_id = ?)
+                      UNION SELECT board, keyword FROM fm_links
                       WHERE group_id IN (SELECT id FROM keyword_groups WHERE folder_id = ?)) fm
                 ON fm.board = kp.board AND fm.keyword = kp.keyword
-        """, (folder_id,)
+        """, (folder_id, folder_id)
     if group_id is None:
         return sql, ()
-    return sql + "JOIN keyword_group_members gm ON gm.board = kp.board AND gm.keyword = kp.keyword AND gm.group_id = ?\n", (group_id,)
+    return sql + """JOIN (SELECT board, keyword FROM keyword_group_members WHERE group_id = ?
+                  UNION SELECT board, keyword FROM fm_links WHERE group_id = ?) gm
+            ON gm.board = kp.board AND gm.keyword = kp.keyword
+    """, (group_id, group_id)
 
 def _feed_summary(conn, id_limit, group_id=None, folder_id=None):
     """중복 제거한 글 수, 동영상 글 수, 안 읽은 새 글 수(전부)와 최신순 ID(최대 id_limit개),
@@ -1091,15 +1112,50 @@ def _fm_seen_state(conn):
     return {(r['board'], r['keyword']): (r['seen_max'], json.loads(r['read_ids'] or '[]'), json.loads(r['found_ids'] or '[]'))
             for r in conn.execute("SELECT board, keyword, seen_max, read_ids, found_ids FROM fm_seen")}
 
-def fm_seen_found(board, keyword, ids):
-    """검색 결과에서 확인한 새 글 번호를 더함 (기준보다 큰 것만). 찾은 새 글 번호 목록 반환, 기준이 없으면 None"""
+def fm_seen_found(board, keyword, ids, titles=None):
+    """검색 결과에서 확인한 새 글 번호를 더함 (기준보다 큰 것만). titles {글 번호: 제목}이 있으면 하루 요약용으로 제목도 남김.
+    찾은 새 글 번호 목록 반환, 기준이 없으면 None"""
     with _db() as conn, conn:
         row = conn.execute("SELECT seen_max, found_ids FROM fm_seen WHERE board = ? AND keyword = ?", (board, keyword)).fetchone()
         if not row:
             return None
-        found = sorted(set(json.loads(row['found_ids'] or '[]')) | {int(i) for i in ids if int(i) > row['seen_max']})[-MAX_FM_READ_IDS:]
+        fresh = {int(i) for i in ids if int(i) > row['seen_max']}
+        found = sorted(set(json.loads(row['found_ids'] or '[]')) | fresh)[-MAX_FM_READ_IDS:]
         conn.execute("UPDATE fm_seen SET found_ids = ?, updated_at = ? WHERE board = ? AND keyword = ?", (json.dumps(found), _now(), board, keyword))
+        conn.executemany("INSERT OR IGNORE INTO fm_found(board, keyword, post_no, title, found_at) VALUES(?, ?, ?, ?, ?)",
+                         [(board, keyword, no, str((titles or {}).get(no, ''))[:FM_TITLE_MAX], _now()) for no in sorted(fresh)])
         return found
+
+FM_TITLE_MAX = 120
+FM_FOUND_KEEP_DAYS = 8
+
+def fm_digest(since):
+    """FM키워드 하루 요약: since 이후 FM키워드 줄이 찾은 새 글을 FM키워드 카드 순서대로.
+    [{name, links: [{board, keyword, found, unread, titles: [{no, title}] (안 읽은 글, 최신순)}]}] (찾은 글이 없는 키워드·카드는 뺌).
+    읽음은 FM키워드 줄과 같게: 기준(seen_max) 이하이거나 읽은 글 번호에 있으면 읽은 글. 오래된 제목 기록은 여기서 지움"""
+    cutoff = (datetime.now() - timedelta(days=FM_FOUND_KEEP_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
+    with _db() as conn, conn:
+        conn.execute("DELETE FROM fm_found WHERE found_at < ?", (cutoff,))
+        seen = _fm_seen_state(conn)
+        names = {r['key']: r['name'] or r['key'] for r in conn.execute("SELECT key, name FROM categories")}
+        out = []
+        for g in conn.execute(f"SELECT id, name FROM keyword_groups ORDER BY {FM_GROUP_ORDER}").fetchall():
+            links = []
+            for l in _group_fm_links(conn, g['id']):
+                rows = conn.execute("SELECT post_no, title FROM fm_found WHERE board = ? AND keyword = ? AND found_at >= ? ORDER BY post_no DESC",
+                                    (l['board'], l['keyword'], since)).fetchall()
+                if not rows:
+                    continue
+                seen_max, read_ids, _ = seen.get((l['board'], l['keyword']), (0, [], []))
+                read = set(read_ids)
+                unread = [r for r in rows if r['post_no'] > (seen_max or 0) and r['post_no'] not in read]
+                links.append({'board': l['board'], 'board_name': names.get(l['board'], l['board']) if l['board'] else '',
+                              'keyword': l['keyword'], 'found': len(rows), 'unread': len(unread),
+                              'found_nos': [r['post_no'] for r in rows],
+                              'titles': [{'no': r['post_no'], 'title': r['title']} for r in unread]})
+            if links:
+                out.append({'name': g['name'], 'links': links})
+        return out
 
 def fm_seen_init(board, keyword, seen_max):
     """처음 여는 키워드의 새 글 기준을 정함 (이미 있으면 그대로). (seen_max, 읽은 글 번호들) 반환"""
@@ -2463,6 +2519,33 @@ def set_post_saved(post_id, saved):
             conn.execute("DELETE FROM saved_posts WHERE post_id = ?", (post_id,))
     return True
 
+def save_fm_archive(post, board, keyword):
+    """FM키워드 줄에서 보관한 에펨코리아 글 (보고 있던 화면에서 읽은 내용, fm_archive.parse_archive): 글을 저장하고
+    그 FM키워드(board, keyword)에 연결해 보관함에 담음. 바로가기가 든 게시판의 피드·보관함에 보임 (_feed_from).
+    이미 있는 글이면 내용·댓글을 새로 고침 (처음 본 댓글 시각은 이어 감). 없는 바로가기면 ValueError. (처음 보관인지, 댓글 수) 반환"""
+    post_id = str(post['id'])
+    with _db() as conn, conn:
+        if not conn.execute("SELECT 1 FROM fm_links WHERE board = ? AND keyword = ?", (board, keyword)).fetchone():
+            raise ValueError('FM키워드에 없는 검색입니다.')
+        first = not conn.execute("SELECT 1 FROM saved_posts WHERE post_id = ?", (post_id,)).fetchone()
+        _upsert_post(conn, post)
+        # 이미 읽은 글이므로 새 글로 세지 않음
+        _link_keyword_post(conn, board, keyword, post_id, False)
+        conn.execute("INSERT OR IGNORE INTO saved_posts(post_id, saved_at) VALUES(?, ?)", (post_id, _now()))
+        conn.execute("INSERT INTO read_posts(post_id, read_at, first_read_at) VALUES(?, ?, ?) "
+                     "ON CONFLICT(post_id) DO UPDATE SET read_at = excluded.read_at", (post_id, _now(), _now()))
+        return first, len(post.get('comments', []))
+
+def fm_archive_status(post_id):
+    """FM키워드 줄의 보관 단추 표시: {'saved', 'comments'(저장한 댓글 수), 'saved_at'}"""
+    with _db() as conn:
+        row = conn.execute("""
+            SELECT sp.saved_at, b.comments_json FROM saved_posts sp JOIN post_bodies b ON b.post_id = sp.post_id WHERE sp.post_id = ?
+        """, (str(post_id),)).fetchone()
+    if not row:
+        return {'saved': False, 'comments': 0, 'saved_at': None}
+    return {'saved': True, 'comments': len(json.loads(row['comments_json'] or '[]')), 'saved_at': row['saved_at']}
+
 def locate_post(post_id):
     """글이 속한 첫 게시판과 그 게시판 피드 안에서의 순번(0부터, 최신순)을 반환.
     게시판이 없으면 group은 None(통합 피드 기준). 수집되지 않은 글이면 None"""
@@ -2470,7 +2553,8 @@ def locate_post(post_id):
     with _db() as conn:
         group_id = conn.execute("""
             SELECT MIN(gm.group_id) FROM keyword_posts kp
-            JOIN keyword_group_members gm ON gm.board = kp.board AND gm.keyword = kp.keyword
+            JOIN (SELECT group_id, board, keyword FROM keyword_group_members
+                  UNION SELECT group_id, board, keyword FROM fm_links) gm ON gm.board = kp.board AND gm.keyword = kp.keyword
             WHERE kp.post_id = ?
         """, (post_id,)).fetchone()[0]
         base, params = _feed_from(group_id)

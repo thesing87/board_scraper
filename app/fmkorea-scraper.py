@@ -235,8 +235,9 @@ def check_saved_posts(driver, stats, skip_sites=()):
     """보관한 글 중 키워드 목록으로 감시하지 않는(키워드별 최근 글 범위를 벗어난) 글을 SAVED_CHECK_MINUTES마다 다시 열어
     새 댓글을 반영. 한 주기에 SAVED_CHECKS_PER_CYCLE개까지만 (오래 확인 안 한 글부터).
     차단이 의심되는 사이트(skip_sites)의 글은 풀릴 때까지 열지 않음 (확인한 것으로 기록하지도 않음)"""
+    # 수집하지 않는 사이트(에펨코리아: 예전에 모은 글·FM키워드 줄에서 보관한 글)의 글은 열지 않음
     due = [p for p in saved_posts_to_check(SAVED_CHECK_MINUTES, recent_post_ids(LIST_PAGE_SIZE), None)
-           if post_site(p['id']) not in skip_sites]
+           if post_site(p['id']) not in skip_sites and site_enabled(post_site(p['id']))]
     for post in due[:SAVED_CHECKS_PER_CYCLE]:
         try:
             stats['details'] += 1

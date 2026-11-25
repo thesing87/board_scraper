@@ -39,6 +39,8 @@ from storage import (
     fm_seen_found,
     fm_seen_read,
     fm_seen_read_all,
+    save_fm_archive,
+    fm_archive_status,
     remove_fm_link,
     reorder_fm_groups,
     move_fm_link,
@@ -91,6 +93,8 @@ import duty
 import duty_push
 import ledger_push
 import apt_trades
+import fm_digest
+from fm_archive import parse_archive
 from card_store import (
     card_benefits,
     add_card_benefit,
@@ -102,6 +106,8 @@ from card_store import (
 from ev_store import ev_presets, add_ev_preset, delete_ev_preset
 
 MAX_BODY_BYTES = 10 * 1024
+# 주소마다 더 큰 본문을 받는 곳: FM키워드 줄이 찾은 새 글 제목(found)을 보내는 바로가기 요청, 보고 있던 글 화면을 보내는 보관
+MAX_BODY_BYTES_BY_PATH = {'/api/fm-link': 64 * 1024, '/api/fm-archive': 4 * 1024 * 1024}
 MAX_READ_IDS = 500
 MAX_QUERY_LENGTH = 50
 MAX_GROUP_NAME_LENGTH = 30
@@ -383,14 +389,14 @@ def build_media_page(page, kind, per_page, group_id=None, folder_id=None, popula
     names = category_names()
     for item in items:
         for link in item['post']['keywords']:
-            link['board_name'] = names.get(link['board'], link['board'])
+            link['board_name'] = names.get(link['board'], link['board']) or '전체'   # FM키워드 전체 검색(보관한 글)
     return {'page': page, 'total_pages': total_pages, 'total': total, 'per_page': per_page, 'items': items}
 
 def _decorate_posts(posts):
     names = category_names()
     for post in posts:
         for link in post.get('keywords', []):
-            link['board_name'] = names.get(link['board'], link['board'])
+            link['board_name'] = names.get(link['board'], link['board']) or '전체'   # FM키워드 전체 검색(보관한 글)
     # 메인 루프가 매 주기 목록의 댓글 수로 변화를 감시하는 최근 글 표시 (필터와 무관하게 키워드 전체 기준)
     syncing_ids = recent_post_ids(LIST_PAGE_SIZE)
     for post in posts:
@@ -439,10 +445,10 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
     def _send_json(self, status, success, message):
         self._send_data(status, {'success': success, 'message': message})
 
-    def _read_json_body(self):
+    def _read_json_body(self, limit=MAX_BODY_BYTES):
         """요청 본문 JSON(객체). 길이·형식이 맞지 않으면 ValueError (JSON 해석 오류·글자 깨짐도 ValueError의 하위)"""
         content_length = int(self.headers.get('Content-Length', 0))
-        if content_length <= 0 or content_length > MAX_BODY_BYTES:
+        if content_length <= 0 or content_length > limit:
             raise ValueError("요청 본문 크기가 올바르지 않습니다.")
         params = json.loads(self.rfile.read(content_length).decode('utf-8'))
         if not isinstance(params, dict):
@@ -536,6 +542,13 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             elif pure_path == '/api/fm-links':
                 # 에펨코리아 화면의 FM키워드 줄(설치한 스크립트)이 가져가는 키워드 목록
                 self._send_data(200, {'groups': fm_links_by_group()})
+            elif pure_path == '/api/fm-archive':
+                # FM키워드 줄의 보관 단추: 이 글을 보관했는지 (글 번호만 받음)
+                no = (query.get('no') or [''])[0]
+                if not no.isdigit() or len(no) > 13:
+                    self._send_json(400, False, '❌ 잘못된 요청입니다.')
+                else:
+                    self._send_data(200, {'success': True, **fm_archive_status(no)})
             elif pure_path == '/fm-keywords.user.js':
                 self._serve_userscript()
             elif pure_path == '/api/state':
@@ -658,6 +671,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/folder': ('_handle_folder', '묶음 처리'),
         '/api/category': ('_handle_category', '카테고리 처리'),
         '/api/fm-link': ('_handle_fm_link', '에펨코리아 바로가기 처리'),
+        '/api/fm-archive': ('_handle_fm_archive', 'FM키워드 글 보관'),
         '/api/site': ('_handle_site', '사이트 이름 처리'),
         '/api/login': ('_handle_login', '로그인 처리'),
         '/api/card': ('_handle_card', '카드 혜택 처리'),
@@ -720,7 +734,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             return
         # 본문(JSON)을 먼저 읽어 둠. 형식이 깨진 요청은 서버 오류(500)가 아니라 잘못된 요청(400)으로 답하고 오류 기록을 남기지 않음
         try:
-            self._body = self._read_json_body()
+            self._body = self._read_json_body(MAX_BODY_BYTES_BY_PATH.get(pure_path, MAX_BODY_BYTES))
         except ValueError as e:
             log_msg(f"[API] 잘못된 요청 본문: {pure_path} {short_err(e)}", "DEBUG")
             self._send_json(400, False, '❌ 잘못된 요청입니다.')
@@ -993,11 +1007,14 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             return
         keyword = keyword.strip()
         if action == 'found':
-            ids = params.get('ids')
-            if not isinstance(ids, list) or len(ids) > 100 or any(number(i) is None for i in ids):
+            ids, titles = params.get('ids'), params.get('titles') or {}
+            if (not isinstance(ids, list) or len(ids) > 100 or any(number(i) is None for i in ids)
+                    or not isinstance(titles, dict) or len(titles) > 100 or any(not isinstance(t, str) for t in titles.values())):
                 self._send_json(400, False, '❌ 잘못된 요청입니다.')
                 return
-            found = fm_seen_found(board, keyword, ids)
+            # 제목 {"글 번호": 제목} (하루 요약에 씀, 예전 FM키워드 줄은 보내지 않음)
+            titles = {int(k): v for k, v in titles.items() if str(k).isdigit()}
+            found = fm_seen_found(board, keyword, ids, titles)
             if found is None:
                 self._send_json(404, False, '❌ 새 글 기준이 없습니다.')
                 return
@@ -1008,6 +1025,27 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_data(200, {'success': True, 'seen_max': seen_max, 'read_ids': read_ids})
         else:
             self._send_data(200, {'success': True, 'seen_max': fm_seen_read_all(board, keyword, top), 'read_ids': []})
+
+    def _handle_fm_archive(self):
+        """FM키워드 줄의 보관 (관리자): {password, board, keyword, no, head_html, content_html, comments_html, page_title}.
+        사용자가 보고 있던 에펨코리아 글 화면의 내용을 그 FM키워드에 연결해 보관함에 담음. 서버는 에펨코리아에 요청하지 않음"""
+        params = self._body
+        if not self._authorize(params.get('password', ''), 'FM키워드 글 보관'):
+            return
+        board, keyword = params.get('board'), params.get('keyword')
+        if (not isinstance(board, str) or not isinstance(keyword, str) or (board and not FM_MID_RE.fullmatch(board))
+                or not keyword.strip() or len(keyword) > MAX_KEYWORD_LENGTH):
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        try:
+            post = parse_archive(params)
+            first, comments = save_fm_archive(post, board.strip().lower(), keyword.strip())
+        except ValueError as ve:
+            self._send_json(400, False, f'❌ {ve}')
+            return
+        log_msg(f"[API] FM키워드 글 {'보관' if first else '다시 보관'}: #{post['id']} {board or '전체'}/{keyword.strip()} "
+                f"(본문 {len(post['content'])}줄, 댓글 {comments}개)")
+        self._send_data(200, {'success': True, 'first': first, **fm_archive_status(post['id'])})
 
     def _handle_folder(self):
         """묶음 만들기·이름 바꾸기·삭제·순서 (관리자 암호 필요)"""
@@ -2186,6 +2224,7 @@ def run_api_server():
     httpd = ThreadedHTTPServer(server_address, KeywordAPIServer)
     threading.Thread(target=_keep_warm, daemon=True).start()
     apt_trades.start()
+    fm_digest.start()
     duty_push.start()
     ledger_push.start()
     if COLLECTOR_STALL_MINUTES:
