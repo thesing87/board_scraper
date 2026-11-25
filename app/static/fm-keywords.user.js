@@ -20,7 +20,8 @@
 (function () {
     'use strict';
     const SITE = '__SITE__';
-    const VERSION = '1.7.2';
+    // 헤더의 @version을 그대로 읽음 (따로 적으면 어긋나므로). 읽지 못할 때만 아래 값을 씀
+    const VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.8.0';
     // 오류로 멈추면 키워드 모니터 서버 기록에 한 줄 남김 (화면마다 한 번, 원인을 찾으려고. 에펨코리아 화면 내용은 보내지 않음)
     let reported = false;
     function reportError(where, err) {
