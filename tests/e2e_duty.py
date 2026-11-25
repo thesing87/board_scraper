@@ -185,11 +185,16 @@ try:
     assert '바꿨어요' in txt('pe-msg')
     d.save_screenshot(os.path.join(SHOTS, 'duty_settings.png'))
     # 휴대폰 설정 화면: 시간 칸이 서로 겹치지 않음 (글자·이름 / 시간 / 색 / 버튼 줄)
-    d.set_window_size(400, 900); time.sleep(.5)
+    # 손가락 기기여야 시간 칸이 type=time (헤드리스 크롬은 판마다 마우스로도 나타나므로 손가락 기기로 흉내, 이 부분에서만)
+    tc = d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source':
+        "const mm0 = window.matchMedia.bind(window); window.matchMedia = q => /pointer:\\s*coarse/.test(q) ? mm0('all') : mm0(q);"})
+    d.set_window_size(400, 900); d.refresh(); time.sleep(2)
+    assert vis('set-view')
     boxes = js("return [...document.querySelectorAll('#types .trow')][0].querySelectorAll('input[type=time]').length ? [...[...document.querySelectorAll('#types .trow')][0].querySelectorAll('input[type=time]')].map(i => { const r = i.getBoundingClientRect(); return [r.left, r.right, r.top]; }) : []")
     assert len(boxes) == 2 and boxes[0][1] <= boxes[1][0] and boxes[0][2] == boxes[1][2], boxes
     assert js("return document.documentElement.scrollWidth <= window.innerWidth")
     d.save_screenshot(os.path.join(SHOTS, 'duty_settings_mobile.png'))
+    d.execute_cdp_cmd('Page.removeScriptToEvaluateOnNewDocument', {'identifier': tc['identifier']})
     d.set_window_size(1280, 900); time.sleep(.4)
     # ---- PC(마우스)의 시간 칸: 글자 칸 + 30분 간격 목록 (끝 시간엔 근무 길이), 숫자로 치기, ↑↓로 10분씩
     # (헤드리스 크롬은 손가락 기기로 나타나므로 마우스 PC로 흉내)

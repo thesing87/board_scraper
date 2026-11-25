@@ -10,7 +10,7 @@ from selenium.webdriver import Chrome
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 
-# 묶음 2개(통합·에펨) + 묶음 없는 게시판 '한국시리즈'. 모바일에서 화살표로 한국시리즈를 묶음 사이·맨 아래로 옮김
+# 묶음 2개(통합·에펨) + 묶음 없는 게시판 '한국시리즈'. 모바일에서 화살표로 한국시리즈를 묶음 사이·맨 아래로 옮김 (칩 줄 맨 앞은 늘 'FM키워드')
 storage.init_db()
 ids = {n: storage.save_group(None, n, [{'board': 'car', 'keyword': n}])[0] for n in ['싼타페', '삼성', '한국시리즈']}
 f1, f2 = storage.save_folder(None, '통합'), storage.save_folder(None, '에펨')
@@ -41,19 +41,19 @@ def tap(el):
     time.sleep(1.2)
 try:
     d.get(f'http://127.0.0.1:{port}/board/'); time.sleep(2)
-    assert chips() == ['전체', '한국시리즈', '통합', '에펨'], chips()
+    assert chips() == ['FM키워드', '전체', '한국시리즈', '통합', '에펨'], chips()
     js("localStorage.setItem('admin_token', 'Secr3t!'); updateAdminUI(); document.querySelector('[data-action=\"open-settings\"]').click()"); time.sleep(0.8)
     down = f"#settings-groups [data-action=move-group][data-group-id='{ids['한국시리즈']}'][data-direction=down]"
     tap(d.find_element(By.CSS_SELECTOR, down))
-    assert chips() == ['전체', '통합', '한국시리즈', '에펨'], chips()
+    assert chips() == ['FM키워드', '전체', '통합', '한국시리즈', '에펨'], chips()
     tap(d.find_element(By.CSS_SELECTOR, down))
-    assert chips() == ['전체', '통합', '에펨', '한국시리즈'], chips()
+    assert chips() == ['FM키워드', '전체', '통합', '에펨', '한국시리즈'], chips()
     # 관리 화면 게시판 목록도 같은 순서, 묶음 화살표는 맨 앞 묶음의 '위로'만 꺼짐 (한국시리즈가 맨 뒤라 에펨 '아래로'는 켜짐)
     assert js("return [...document.querySelectorAll('#settings-groups .group-row-name')].map(e => e.textContent.trim())") == ['싼타페', '삼성', '한국시리즈']
     assert js(f"return document.querySelector('[data-action=move-folder][data-folder-id=\"{f1}\"][data-direction=up]').disabled")
     assert not js(f"return document.querySelector('[data-action=move-folder][data-folder-id=\"{f2}\"][data-direction=down]').disabled")
     js(f"document.querySelector('[data-action=move-folder][data-folder-id=\"{f2}\"][data-direction=down]').click()"); time.sleep(1.2)
-    assert chips() == ['전체', '통합', '한국시리즈', '에펨'], chips()
+    assert chips() == ['FM키워드', '전체', '통합', '한국시리즈', '에펨'], chips()
     print('MOBILE ORDER OK')
 
     # 새 글 배너: × 로 닫으면 같은 수로는 다시 안 뜨고, 새 글이 더 오면 다시 뜸

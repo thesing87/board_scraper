@@ -35,6 +35,8 @@ def menu(key):
     js(f"document.querySelector('.site-nav [data-nav={key}]').click()"); time.sleep(2)
 try:
     toast = lambda: js("const t = document.querySelector('.nav-toast'); return !!t && t.classList.contains('is-shown')")
+    # 메뉴의 '카드'는 관리자 기기에서만 보임: 관리자 로그인 키를 먼저 넣음 (그 뒤 data:로 기록을 새로 시작)
+    d.get(BASE + '/stats/'); js("localStorage.setItem('admin_token', 'Secr3t!')")
     d.get('data:,')
     d.get(BASE + '/'); time.sleep(1.5)
     # 홈이 아닌 페이지는 옮긴 순서대로 뒤로 가면 하나씩 이전 화면 (안내 없음)
