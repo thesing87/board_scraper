@@ -1,14 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 영수증 모양 (안쪽 66dp 안에) -->
+<!-- 굵은 외곽선 집 (노랑 바탕 위, 검은 선 + 오른쪽 아래로 밀린 검은 그림자, 분홍 문).
+     안쪽 66dp에 들어가도록 가운데 기준 75%로 줄임 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M36,30h36v48l-6,-4 -6,4 -6,-4 -6,4 -6,-4 -6,4z" />
-    <path
-        android:fillColor="#0F6E56"
-        android:pathData="M42,40h24v4h-24zM42,49h24v4h-24zM42,58h14v4h-14z" />
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.75"
+        android:scaleY="0.75">
+        <!-- 밀린 그림자 -->
+        <path
+            android:fillColor="#111111"
+            android:pathData="M58,30 L86,52 V84 H32 V52z" />
+        <!-- 집 -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:strokeColor="#111111"
+            android:strokeWidth="5"
+            android:strokeLineJoin="round"
+            android:pathData="M52,24 L80,46 V78 H26 V46z" />
+        <!-- 문 -->
+        <path
+            android:fillColor="#FF5C8A"
+            android:strokeColor="#111111"
+            android:strokeWidth="5"
+            android:strokeLineJoin="round"
+            android:pathData="M45,56 H59 V78 H45z" />
+    </group>
 </vector>

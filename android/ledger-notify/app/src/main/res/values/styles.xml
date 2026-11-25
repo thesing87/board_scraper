@@ -2,6 +2,8 @@
 <resources>
     <!-- 가계부 화면과 같은 초록 -->
     <color name="green">#0F6E56</color>
+    <!-- 앱 아이콘 바탕 (노랑) -->
+    <color name="icon_bg">#FFD43B</color>
     <color name="green_soft">#E1F5EE</color>
     <color name="text">#1F2328</color>
     <color name="muted">#6B7280</color>
