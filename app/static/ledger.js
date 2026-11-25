@@ -518,7 +518,7 @@
         const c = catOf(e.category_id), mine = canEdit(e), income = c.kind === 'income';
         const hl = s => mark ? markText(s, mark) : esc(s);
         const day = dated ? `<span class="cat">${+e.used_on.slice(5, 7)}/${+e.used_on.slice(8)}</span><span class="sep">·</span>` : '';
-        return `<div class="sw-row"${mine ? ' data-own-swipe' : ''}>${mine ? `<button type="button" class="sw-del" data-del="${e.id}">지우기</button>` : ''}
+        return `<div class="sw-row"${mine ? ' data-own-swipe="left"' : ''}>${mine ? `<button type="button" class="sw-del" data-del="${e.id}">지우기</button>` : ''}
             <div class="it u${mine ? ' mine' : ''}${st.editId === e.id ? ' editing' : ''}" data-entry="${e.id}" style="${userTint(e.user_id)}"${mine ? ' role="button" tabindex="0"' : ''}>
             ${catIcon(c)}<span class="txt"><span class="memo${e.memo ? '' : ' no-memo'}">${hl(e.memo || c.name)}</span>
             <span class="line2">${day}<span class="cat">${hl(c.name)}</span><span class="sep">·</span>${whoTag(e.user_id)}</span></span>
@@ -1270,6 +1270,14 @@
         if (!moving) return;
         it.parentElement.classList.toggle('open', dx < -42);
         st.swipedAt = Date.now();   // 민 뒤 손을 뗄 때 생기는 누르기는 고치기로 가지 않게
+    });
+    // 앱(1.31부터)이 탭 넘기기를 시작하면 touchcancel: 민 줄을 원래대로
+    $('list').addEventListener('touchcancel', () => {
+        if (!swipe) return;
+        const { it } = swipe;
+        swipe = null;
+        it.style.transition = ''; it.style.transform = '';
+        it.parentElement.classList.remove('swiping');
     });
 
     // ==========================================

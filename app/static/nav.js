@@ -309,17 +309,19 @@
     });
 })();
 
-// YeYe홈 앱(1.30부터)이 손가락을 댈 때 물음: 거기서 좌우로 밀면 탭을 넘겨도 되는지('h'), 아래로 끌면 새로고침해도 되는지('v').
-// 창·설정이 열려 있으면(페이지의 window.appBusy) 둘 다 안 됨. 옆으로 스크롤되는 줄·자기 밀기가 있는 것([data-own-swipe]) 위에서는 탭 넘기기 안 됨,
-// 페이지가 맨 위가 아니거나 안쪽 스크롤 칸이 내려가 있으면 새로고침 안 됨
+// YeYe홈 앱(1.30부터)이 손가락을 댈 때 물음: 거기서 좌우로 밀면 탭을 넘겨도 되는지('h' 양쪽, 'r' 오른쪽으로 밀 때만 = 왼쪽 탭으로),
+// 아래로 끌면 새로고침해도 되는지('v'). 창·설정이 열려 있으면(페이지의 window.appBusy) 둘 다 안 됨.
+// 옆으로 스크롤되는 줄·자기 밀기가 있는 것([data-own-swipe]) 위에서는 탭 넘기기 안 됨. 단 data-own-swipe="left"(왼쪽으로 밀면 '지우기')는
+// 닫혀 있을 때 오른쪽으로 밀기는 탭 넘기기로 (1.31부터). 페이지가 맨 위가 아니거나 안쪽 스크롤 칸이 내려가 있으면 새로고침 안 됨
 window.appGesture = (x, y) => {
     try { if (window.appBusy && window.appBusy()) return ''; } catch (e) { return ''; }
-    let h = true, v = (window.scrollY || document.documentElement.scrollTop || 0) <= 0;
+    let h = true, r = true, v = (window.scrollY || document.documentElement.scrollTop || 0) <= 0;
     for (let el = document.elementFromPoint(x, y); el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
-        if (el.matches('[data-own-swipe], input[type=range]')) h = false;
+        if (el.matches('[data-own-swipe="left"]:not(.open)')) h = false;
+        else if (el.matches('[data-own-swipe], input[type=range]')) h = r = false;
         const cs = getComputedStyle(el);
-        if (/(auto|scroll)/.test(cs.overflowX) && el.scrollWidth > el.clientWidth + 1) h = false;
+        if (/(auto|scroll)/.test(cs.overflowX) && el.scrollWidth > el.clientWidth + 1) h = r = false;
         if (/(auto|scroll)/.test(cs.overflowY) && el.scrollTop > 0) v = false;
     }
-    return (h ? 'h' : '') + (v ? 'v' : '');
+    return (h && r ? 'h' : r ? 'r' : '') + (v ? 'v' : '');
 };

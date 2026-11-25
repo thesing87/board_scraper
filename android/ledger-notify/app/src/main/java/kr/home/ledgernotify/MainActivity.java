@@ -429,66 +429,149 @@ public class MainActivity extends Activity implements Updater.Host {
     }
 
     // ==========================================
-    // 좌우로 밀어 탭 넘기기 · 끌어내려 새로고침 (1.30부터). 손가락 움직임만 보고 페이지에는 그대로 넘김
+    // 좌우로 밀어 탭 넘기기 · 끌어내려 새로고침 (1.30부터).
+    // 1.31부터 탭 넘기기는 손가락을 따라감: 가로로 조금 밀면 지금 화면이 손가락을 따라 옆으로, 옆 탭이 반대쪽에서 따라 들어옴
+    // (그동안 페이지는 위아래로 스크롤하지 않음). 놓을 때 폭의 30% 넘게 밀었거나 빠르게 튕겼으면 끝까지, 아니면 제자리로.
+    // 끝 탭에서는 살짝 끌리다 돌아옴. 새로고침은 손가락 움직임만 보고 페이지에는 그대로 넘김
     // ==========================================
+    private float downRawX, downRawY;
+    private boolean dragging, settling;
+    private int dragStep, dragTo = -1;       // 왼쪽으로 밀면 1(오른쪽 탭), 오른쪽으로 밀면 -1. dragTo: 들어오는 탭 (끝이면 -1)
+    private float dragOff;
+    private android.view.VelocityTracker velocity;
+
     private boolean onWebTouch(View v, MotionEvent e) {
+        if (settling) return true;               // 넘어가는 애니메이션 중에는 잠깐 받지 않음
         if (v != web) return false;
+        if (velocity != null) {
+            MotionEvent raw = MotionEvent.obtain(e);
+            raw.setLocation(e.getRawX(), e.getRawY());   // 화면이 움직여도 손가락 자리는 화면 기준으로
+            velocity.addMovement(raw);
+            raw.recycle();
+        }
+        float dx = e.getRawX() - downRawX, dy = e.getRawY() - downRawY;
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN: {
                 downX = e.getX();
                 downY = e.getY();
+                downRawX = e.getRawX();
+                downRawY = e.getRawY();
                 downAt = e.getEventTime();
                 tracking = true;
                 pulling = false;
+                dragging = false;
                 gestureOk = null;
+                if (velocity != null) velocity.recycle();
+                velocity = android.view.VelocityTracker.obtain();
                 float d = getResources().getDisplayMetrics().density;
                 web.evaluateJavascript("window.appGesture ? window.appGesture(" + (downX / d) + ", " + (downY / d) + ") : ''",
                         r -> gestureOk = r == null ? "" : r);
-                break;
+                return false;
             }
             case MotionEvent.ACTION_POINTER_DOWN:   // 두 손가락(확대 등)이면 하지 않음
+                if (dragging) return true;
                 tracking = false;
                 if (pulling) endPull(false);
-                break;
+                return false;
             case MotionEvent.ACTION_MOVE: {
-                if (!tracking || refreshing) break;
-                float dx = e.getX() - downX, dy = e.getY() - downY;
-                String ok = gestureOk;
-                if (!pulling && ok != null && ok.contains("v") && web.getScrollY() == 0 && dy > dp(16) && dy > Math.abs(dx) * 2) pulling = true;
-                if (pulling) showPull(dy);
-                break;
-            }
-            case MotionEvent.ACTION_UP: {
-                if (!tracking) break;
-                tracking = false;
-                float dx = e.getX() - downX, dy = e.getY() - downY;
+                if (dragging) {
+                    moveDrag(dx);
+                    return true;
+                }
+                if (!tracking) return false;
                 if (pulling) {
-                    endPull(dy * 0.5f >= dp(PULL_GO));
-                    break;
+                    showPull(dy);
+                    return false;
                 }
                 String ok = gestureOk;
-                if (ok != null && ok.contains("h") && Math.abs(dx) > dp(90) && Math.abs(dx) > Math.abs(dy) * 2.5f
-                        && e.getEventTime() - downAt < 700) swipeTab(dx < 0 ? 1 : -1);
-                break;
+                if (ok == null) return false;    // 페이지의 답을 기다리는 중
+                if (!refreshing && ok.contains("v") && web.getScrollY() == 0 && dy > dp(16) && dy > Math.abs(dx) * 2) {
+                    pulling = true;
+                    showPull(dy);
+                    return false;
+                }
+                if (Math.abs(dx) > dp(16) && Math.abs(dx) > Math.abs(dy) * 1.5f && (ok.contains("h") || (ok.contains("r") && dx > 0))) {
+                    startDrag(e, dx);
+                    return true;
+                }
+                return false;
             }
-            case MotionEvent.ACTION_CANCEL:
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL: {
+                boolean up = e.getActionMasked() == MotionEvent.ACTION_UP, wasDrag = dragging;
                 tracking = false;
-                if (pulling) endPull(false);
-                break;
+                if (dragging) {
+                    float vx = 0;
+                    if (velocity != null) {
+                        velocity.computeCurrentVelocity(1000);
+                        vx = velocity.getXVelocity();
+                    }
+                    boolean fling = dragStep == 1 ? vx < -dp(700) : vx > dp(700);
+                    endDrag(up && dragTo >= 0 && (Math.abs(dragOff) > pages.getWidth() * 0.3f || fling));
+                } else if (pulling) {
+                    endPull(up && dy * 0.5f >= dp(PULL_GO));
+                }
+                if (velocity != null) {
+                    velocity.recycle();
+                    velocity = null;
+                }
+                return wasDrag;   // 페이지는 이미 touchcancel을 받음: 손을 뗀 것도 넘기지 않음 (누르기로 잡히지 않게)
+            }
         }
         return false;
     }
 
-    /** 왼쪽으로 밀면(step 1) 오른쪽 탭, 오른쪽으로 밀면(-1) 왼쪽 탭. 끝에서는 그대로. 새 탭은 옆에서 짧게 밀려 들어옴 */
-    private void swipeTab(int step) {
+    /** 옆 탭 (step 1: 오른쪽, -1: 왼쪽), 끝이면 -1 */
+    private int neighborTab(int step) {
         int i = 0;
         for (int k = 0; k < ORDER.length; k++) if (ORDER[k] == tab) i = k;
         int j = i + step;
-        if (j < 0 || j >= ORDER.length) return;
-        selectTab(ORDER[j]);
-        web.setTranslationX(step * pages.getWidth() * 0.25f);
-        web.setAlpha(0.4f);
-        web.animate().translationX(0).alpha(1).setDuration(180).start();
+        return j < 0 || j >= ORDER.length ? -1 : ORDER[j];
+    }
+
+    /** 탭 넘기기 시작: 페이지에는 손가락이 떨어졌다고 알리고(touchcancel, 위아래 스크롤·줄 밀기 멈춤), 옆 탭을 옆에 붙여 보임 */
+    private void startDrag(MotionEvent e, float dx) {
+        dragging = true;
+        dragStep = dx < 0 ? 1 : -1;
+        dragTo = neighborTab(dragStep);
+        downRawX += dragStep == 1 ? -dp(16) : dp(16);   // 끌기 시작한 자리부터 따라가게
+        MotionEvent cancel = MotionEvent.obtain(e);
+        cancel.setAction(MotionEvent.ACTION_CANCEL);
+        web.onTouchEvent(cancel);
+        cancel.recycle();
+        if (dragTo >= 0) {
+            if (loaded[dragTo].isEmpty()) load(dragTo, null);   // 처음 보는 탭이면 미리 읽기 시작
+            webs[dragTo].setVisibility(View.VISIBLE);
+        }
+        moveDrag(e.getRawX() - downRawX);
+    }
+
+    private void moveDrag(float dx) {
+        float off = dragStep == 1 ? Math.min(0, dx) : Math.max(0, dx);   // 시작한 방향으로만
+        if (dragTo < 0) off *= 0.25f;                                       // 끝 탭: 살짝 끌리기만
+        dragOff = off;
+        web.setTranslationX(off);
+        if (dragTo >= 0) webs[dragTo].setTranslationX(off + dragStep * pages.getWidth());
+    }
+
+    /** 놓음: go면 끝까지 밀고 그 탭으로, 아니면 제자리로 */
+    private void endDrag(boolean go) {
+        dragging = false;
+        int w = pages.getWidth(), to = dragTo, step = dragStep;
+        WebView from = web, in = to >= 0 ? webs[to] : null;
+        float left = go ? w - Math.abs(dragOff) : Math.abs(dragOff);
+        long ms = Math.max(120, Math.min(260, (long) (left / Math.max(1, w) * 320)));
+        settling = true;
+        from.animate().translationX(go ? -step * w : 0).setDuration(ms).start();
+        Runnable done = () -> {
+            settling = false;
+            from.setTranslationX(0);
+            if (in != null) in.setTranslationX(0);
+            if (go) selectTab(to);
+            else if (in != null && in != web) in.setVisibility(View.GONE);
+        };
+        if (in != null) in.animate().translationX(go ? 0 : step * w).setDuration(ms).withEndAction(done).start();
+        else ui.postDelayed(done, ms);
     }
 
     /** 끄는 동안: 손가락의 절반만큼 내려오고, 새로고침이 될 만큼 내려오면 진하게 */

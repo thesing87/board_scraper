@@ -150,6 +150,8 @@
         $('people').innerHTML = people.map(p => `<button type="button" data-person="${p.id}" class="${p.id === st.personId ? 'on' : ''}">${esc(p.name)}</button>`).join('')
             + (people.length ? '<button type="button" class="add" data-add-person>＋ 사람</button>' : '');
         $('add-person').hidden = !st.adding;
+        // 이름 칸: 사람이 있으면 칩 바로 아래(달력 위), 아직 없으면 맨 위
+        if (people.length) $('people').after($('add-person')); else $('no-person').before($('add-person'));
         $('no-person').hidden = !!people.length || st.adding;
         $('roster').hidden = !people.length;
         if (!people.length) return;

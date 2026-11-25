@@ -67,6 +67,13 @@ try:
     assert '이름을' in txt('ap-msg')
     typ('ap-name', '예예'); click('#ap-save'); time.sleep(1)
     assert vis('roster') and txt('people').startswith('예예') and '아직 안 넣었어요' in txt('today')
+    # 보여줄 사람 칩은 오늘 아래·달력 바로 위, '＋ 사람'의 이름 칸은 칩 바로 아래
+    assert js("return document.getElementById('today').nextElementSibling.id") == 'people'
+    assert js("return document.getElementById('people').nextElementSibling.id") == 'add-person'
+    assert js("const p = document.getElementById('people').getBoundingClientRect(), t = document.getElementById('today').getBoundingClientRect(), c = document.getElementById('cal-sec').getBoundingClientRect(); return t.bottom <= p.top && p.bottom <= c.top")
+    click('[data-add-person]'); time.sleep(.2)
+    assert vis('add-person') and js("return document.getElementById('people').nextElementSibling.id") == 'add-person'
+    click('#ap-cancel'); time.sleep(.2)
     assert js("return document.querySelectorAll('#cal [data-day]').length") == int((date(TODAY.year + TODAY.month // 12, TODAY.month % 12 + 1, 1) - timedelta(days=1)).day)
     assert js(f"return document.querySelector('{cell(T)}').classList.contains('today')")
 

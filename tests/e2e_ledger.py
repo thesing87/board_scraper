@@ -687,7 +687,7 @@ try:
     mine = js("const e = document.querySelector('.sw-row[data-own-swipe] .it'); if (!e) return null; e.scrollIntoView({block: 'center'}); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]")
     if mine:
         g = js("return window.appGesture(arguments[0], arguments[1])", *mine)
-        assert 'h' not in g, g
+        assert 'h' not in g and 'r' in g, g   # 내 기록 줄: 왼쪽 밀기는 '지우기', 오른쪽 밀기만 탭 넘기기
     g = js("const r = document.getElementById('people').getBoundingClientRect(); const p = document.getElementById('people'); return p.scrollWidth > p.clientWidth + 1 ? window.appGesture(r.left + 5, r.top + r.height / 2) : 'skip'")
     assert g == 'skip' or 'h' not in g, g
     js("window.scrollTo(0, 0)")
