@@ -1,4 +1,4 @@
-/* 아래 메뉴 (가계부 · 근무표 · YeYe홈 홈이 함께 씀): 아이콘 위 · 이름 아래, 고른 것은 초록.
+/* 아래 메뉴 (가계부 · 근무표 · YeYe홈 홈이 함께 씀): 아이콘 위 · 이름 아래, 고른 것은 검정.
    앱(YeYe홈 1.10)의 위쪽 탭(홈·가계부·근무표)과 같은 모양 */
 .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 900; background: #FFFFFF; border-top: 1px solid #E5E7EB;
     padding-bottom: env(safe-area-inset-bottom); }
@@ -6,7 +6,7 @@
 .tabbar button { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; height: 56px; padding: 0;
     border: 0; border-radius: 0; background: none; color: #5F6673; font-size: 11px; cursor: pointer; }
 .tabbar button svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.tabbar button.on { color: #0F6E56; font-weight: 700; }
+.tabbar button.on { color: #111111; font-weight: 700; }
 .tabbar button.on svg { stroke-width: 2.4; }
 .tabbar[hidden] { display: none; }
 /* 아래 메뉴에 가리지 않게 */

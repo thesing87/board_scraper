@@ -1,9 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 가계부 화면과 같은 초록 -->
+    <!-- 성공·연결됨 같은 '잘 됨' 표시에만 쓰는 초록 (꾸밈 색은 아래 ink·brand) -->
     <color name="green">#0F6E56</color>
     <!-- 앱 아이콘 바탕 (노랑) -->
     <color name="icon_bg">#FFD43B</color>
+    <!-- 앱 색 (아이콘에 맞춘 흰·검정·노랑): 글자·고른 탭·제목은 ink, 고른 칩 바탕은 brand_soft -->
+    <color name="ink">#111111</color>
+    <color name="brand_soft">#FFF3C4</color>
+    <!-- 위쪽 탭 줄: 흰 바탕, 아래 옅은 선, 고르지 않은 탭은 회색 -->
+    <color name="bar">#FFFFFF</color>
+    <color name="bar_line">#ECECEC</color>
+    <color name="tab_dim">#9A9A9A</color>
     <color name="green_soft">#E1F5EE</color>
     <color name="text">#1F2328</color>
     <color name="muted">#6B7280</color>
@@ -12,10 +19,12 @@
     <color name="card">#FFFFFF</color>
 
     <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:colorPrimary">@color/green</item>
-        <item name="android:colorPrimaryDark">@color/green</item>
-        <item name="android:colorAccent">@color/green</item>
-        <item name="android:statusBarColor">@color/green</item>
+        <item name="android:colorPrimary">@color/ink</item>
+        <item name="android:colorPrimaryDark">@color/bar</item>
+        <item name="android:colorAccent">@color/ink</item>
+        <!-- 위쪽 상태 표시줄도 흰 바탕에 어두운 아이콘 -->
+        <item name="android:statusBarColor">@color/bar</item>
+        <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowBackground">@color/bg</item>
     </style>
 </resources>

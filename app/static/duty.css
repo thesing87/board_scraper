@@ -3,6 +3,8 @@
     --bg: #F4F5F7; --surface: #FFFFFF; --border: #E5E7EB; --divider: #F1F2F4; --soft: #F3F4F6;
     --text: #111827; --muted: #5F6673; --faint: #8B919C; --bad: #DC2626;
     --accent: #D4537E; --green: #0F6E56;
+    /* 앱 색 (노랑 아이콘에 맞춤): 버튼·오늘·고치는 중은 검정, ＋는 노랑. 초록은 잘 됨 표시에만 */
+    --brand: #111111; --brand-soft: #FFF3C4; --brand-line: #E0B400; --pop: #FFD43B;
     --font: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
@@ -12,11 +14,11 @@ input, button, select { font: inherit; color: inherit; }
 input { height: 38px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); min-width: 0; }
 input:focus { outline: 2px solid #ED93B1; outline-offset: -1px; }
 button { height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; }
-button.primary { background: var(--green); border-color: var(--green); color: #fff; font-weight: 700; }
+button.primary { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 700; }
 button.small { height: 30px; font-size: 12px; padding: 0 10px; }
 button.danger { color: var(--bad); }
 button.link { height: auto; padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; text-decoration: underline; }
-a { color: var(--green); }
+a { color: var(--brand); }
 
 .page { max-width: 720px; margin: 0 auto; padding: 12px 16px calc(env(safe-area-inset-bottom) + 40px); }
 .site-top-tools { display: flex; align-items: center; gap: 8px; }
@@ -72,9 +74,9 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .cal-sec.editing .edit-bar { display: flex; }
 #edit-btn { display: none; }
 .edit-bar button { font-weight: 700; }
-.cal-sec.editing { border: 2px solid var(--green); padding: 11px 13px; }
-.cal-sec.editing .edit-bar span { color: var(--green); font-weight: 700; }
-.cal-sec.editing #edit-btn { background: var(--green); border-color: var(--green); color: #fff; }
+.cal-sec.editing { border: 2px solid var(--brand); padding: 11px 13px; }
+.cal-sec.editing .edit-bar span { color: var(--brand); font-weight: 700; }
+.cal-sec.editing #edit-btn { background: var(--brand); border-color: var(--brand); color: #fff; }
 .cal-sec:not(.editing) .cal .day { cursor: default; }
 .cal-sec:not(.editing) .cal .day:hover { border-color: var(--divider); }
 /* 달력 */
@@ -84,7 +86,7 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .month-mid { display: flex; align-items: center; gap: 4px; }
 /* 오늘로: 이번 달이면 옅게, 다른 달을 볼 때는 초록 */
 .today-btn { height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; color: var(--faint); }
-.today-btn.away { border-color: #9FE1CB; background: #E1F5EE; color: var(--green); font-weight: 700; }
+.today-btn.away { border-color: var(--pop); background: var(--brand-soft); color: var(--brand); font-weight: 700; }
 .cal { position: relative; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .cal .wd { text-align: center; font-size: 12px; color: var(--faint); padding-bottom: 2px; }
 .cal .wd.sun { color: #D85A30; } .cal .wd.sat { color: #378ADD; }
@@ -92,8 +94,8 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
     display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; -webkit-user-select: none; }
 .cal .day:hover { border-color: #CBD0D8; }
 .cal .day.sun .n { color: #D85A30; } .cal .day.sat .n { color: #378ADD; }
-.cal .day.today { border: 2px solid var(--green); padding-top: 3px; }
-.cal .day.today .n { color: var(--green); font-weight: 700; }
+.cal .day.today { border: 2px solid var(--brand); padding-top: 3px; }
+.cal .day.today .n { color: var(--brand); font-weight: 700; }
 .cal .day .badge { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .cal .pad { height: 58px; }
 .cal .day.sel:not(.today) { border-color: var(--text); }
@@ -139,10 +141,10 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .brush-sec { position: sticky; bottom: calc(env(safe-area-inset-bottom) + 64px); z-index: 5; box-shadow: 0 -4px 16px rgba(17, 24, 39, .08); }
 /* ✎ 고치기 (아래 메뉴 위, 고치는 중엔 칠하기 칸 위) */
 .fab { position: fixed; right: max(18px, calc(50vw - 342px)); bottom: calc(env(safe-area-inset-bottom) + 72px); z-index: 30; width: 56px; height: 56px; padding: 0;
-    border: 0; border-radius: 50%; background: #185FA5; color: #fff; box-shadow: 0 6px 16px rgba(24, 95, 165, .35);
+    border: 0; border-radius: 50%; background: var(--pop); color: var(--brand); box-shadow: 0 6px 16px rgba(0, 0, 0, .18);
     display: flex; align-items: center; justify-content: center; }
 .fab svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; display: block; }
-.fab.editing { background: var(--green); box-shadow: 0 6px 16px rgba(15, 110, 86, .35); bottom: calc(env(safe-area-inset-bottom) + 200px); }
+.fab.editing { background: var(--brand); color: #fff; box-shadow: 0 6px 16px rgba(0, 0, 0, .25); bottom: calc(env(safe-area-inset-bottom) + 200px); }
 .brush-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .brush { display: flex; flex-wrap: wrap; gap: 6px; }
 .brush button { flex: 1 0 52px; height: 40px; padding: 0 6px; border-radius: 9px; font-weight: 700; border: 2px solid transparent; }
@@ -171,7 +173,7 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .trow.bad { background: #FCEBEB; box-shadow: inset 3px 0 0 var(--bad); margin: 0 -14px; padding: 8px 14px; }
 .type-save { display: block; width: 100%; height: 44px; margin-top: 12px; border-radius: 12px; font-size: 15px; color: var(--muted);
     position: sticky; bottom: calc(env(safe-area-inset-bottom) + 66px); z-index: 4; }
-.type-save.primary { color: #fff; box-shadow: 0 4px 14px rgba(15, 110, 86, .3); }
+.type-save.primary { color: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, .2); }
 /* PC 시간 칸: 글자 칸 + 30분 간격 목록 */
 .tpick { position: relative; display: inline-block; }
 .tpick .tinput { width: 70px; text-align: center; font-variant-numeric: tabular-nums; }

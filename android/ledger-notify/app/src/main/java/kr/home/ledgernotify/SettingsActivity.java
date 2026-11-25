@@ -486,10 +486,10 @@ public class SettingsActivity extends Activity implements Updater.Host {
                     boolean end = i == pick[0] || i == pick[1], mid = !end && lo >= 0 && i > lo && i < hi;
                     GradientDrawable bg = new GradientDrawable();
                     bg.setCornerRadius(dp(14));
-                    bg.setColor(getColor(end ? R.color.green_soft : mid ? R.color.bg : R.color.card));
-                    bg.setStroke(dp(1), end ? getColor(R.color.green) : 0xFFD1D5DB);
+                    bg.setColor(getColor(end ? R.color.brand_soft : mid ? R.color.bg : R.color.card));
+                    bg.setStroke(dp(1), end ? getColor(R.color.ink) : 0xFFD1D5DB);
                     chipViews.get(i).setBackground(bg);
-                    chipViews.get(i).setTextColor(getColor(end ? R.color.green : R.color.text));
+                    chipViews.get(i).setTextColor(getColor(end ? R.color.ink : R.color.text));
                 }
             };
             for (int i = 0; i < spans.size(); i++) {
@@ -664,7 +664,7 @@ public class SettingsActivity extends Activity implements Updater.Host {
         bg.setCornerRadius(dp(12));
         bg.setStroke(dp(1), 0xFFE3E5E1);
         c.setBackground(bg);
-        TextView h = text(head, 15, R.color.green);
+        TextView h = text(head, 15, R.color.ink);
         h.setTypeface(Typeface.DEFAULT_BOLD);
         c.addView(h);
         LinearLayout.LayoutParams lp = gap(14);

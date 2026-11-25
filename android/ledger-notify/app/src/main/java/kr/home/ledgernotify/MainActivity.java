@@ -289,36 +289,20 @@ public class MainActivity extends Activity implements Updater.Host {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(getColor(R.color.bg));
 
-        // ---- 위쪽 한 줄: 제목 · 탭(홈 | 가계부 | 근무표, 아이콘 위·이름 아래, 고른 탭은 흰 밑줄) · 새로고침
+        // ---- 위쪽 한 줄: 탭(홈 | 가계부 | 근무표, 아이콘 위·이름 아래, 고른 탭은 검정 + 검정 밑줄, 나머지는 회색)
+        // 흰 바탕, 아래에 옅은 선. 제목·새로고침 버튼은 없음 (새로고침은 페이지 맨 위에서 끌어내리기)
         // (설정은 각 페이지의 아래 메뉴에, 이 휴대폰의 것도 홈 > 설정. 페이지를 못 열면 위 안내 줄을 눌러 앱 설정)
         LinearLayout bar = new LinearLayout(this);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setBackgroundColor(getColor(R.color.green));
-        bar.setPadding(dp(14), 0, dp(2), 0);
-        TextView title = new TextView(this);
-        title.setText(R.string.app_name);   // 시험 앱은 'YeYe홈 테스트'
-        title.setTextColor(0xFFFFFFFF);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setPadding(0, 0, dp(10), 0);
-        title.setGravity(Gravity.CENTER_VERTICAL);
-        title.setIncludeFontPadding(false);
-        bar.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        bar.setBackgroundColor(getColor(R.color.bar));
+        bar.setPadding(dp(8), 0, dp(8), 0);
         bar.addView(tabButton(TAB_HOME, "홈", R.drawable.ic_tab_home), new LinearLayout.LayoutParams(dp(62), ViewGroup.LayoutParams.MATCH_PARENT));
         bar.addView(tabButton(TAB_LEDGER, "가계부", R.drawable.ic_tab_ledger), new LinearLayout.LayoutParams(dp(62), ViewGroup.LayoutParams.MATCH_PARENT));
         bar.addView(tabButton(TAB_DUTY, "근무표", R.drawable.ic_tab_duty), new LinearLayout.LayoutParams(dp(62), ViewGroup.LayoutParams.MATCH_PARENT));
-        bar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
-        ImageView refresh = new ImageView(this);
-        refresh.setImageResource(R.drawable.ic_refresh);
-        refresh.setColorFilter(0xFFFFFFFF);
-        refresh.setScaleType(ImageView.ScaleType.CENTER);
-        refresh.setContentDescription("새로고침");
-        TypedValue rtv = new TypedValue();
-        getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, rtv, true);
-        refresh.setBackgroundResource(rtv.resourceId);
-        refresh.setOnClickListener(v -> refreshTab());
-        bar.addView(refresh, new LinearLayout.LayoutParams(dp(48), ViewGroup.LayoutParams.MATCH_PARENT));
         root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)));
+        View barLine = new View(this);
+        barLine.setBackgroundColor(getColor(R.color.bar_line));
+        root.addView(barLine, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
 
         // ---- 할 일 한 줄 (누르면 그 화면으로)
         banner = new TextView(this);
@@ -351,7 +335,7 @@ public class MainActivity extends Activity implements Updater.Host {
         pullDot.setElevation(dp(4));
         pullIcon = new ImageView(this);
         pullIcon.setImageResource(R.drawable.ic_refresh);
-        pullIcon.setColorFilter(getColor(R.color.green));
+        pullIcon.setColorFilter(getColor(R.color.ink));
         pullIcon.setPadding(dp(9), dp(9), dp(9), dp(9));
         pullDot.addView(pullIcon, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         pages.addView(pullDot, new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP | Gravity.CENTER_HORIZONTAL));
@@ -385,7 +369,7 @@ public class MainActivity extends Activity implements Updater.Host {
         return w;
     }
 
-    /** 위쪽 탭 하나: 아이콘 위·이름 아래 (페이지들의 아래 메뉴와 같은 모양), 고른 탭은 아래에 흰 밑줄 */
+    /** 위쪽 탭 하나: 아이콘 위·이름 아래 (페이지들의 아래 메뉴와 같은 모양), 고른 탭은 아래에 검정 밑줄 */
     private View tabButton(int which, String label, int icon) {
         FrameLayout f = new FrameLayout(this);
         TypedValue tv = new TypedValue();
@@ -405,7 +389,7 @@ public class MainActivity extends Activity implements Updater.Host {
         b.addView(t);
         f.addView(b, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         View line = new View(this);
-        line.setBackgroundColor(0xFFFFFFFF);
+        line.setBackgroundColor(getColor(R.color.ink));
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(40), dp(3), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         f.addView(line, lp);
         tabLines[which] = line;
@@ -632,7 +616,7 @@ public class MainActivity extends Activity implements Updater.Host {
         web = webs[tab];
         for (int k = 0; k < 3; k++) {
             webs[k].setVisibility(k == tab ? View.VISIBLE : View.GONE);
-            int color = k == tab ? 0xFFFFFFFF : 0xB3FFFFFF;   // 고른 탭은 흰색 + 밑줄, 나머지는 흐린 흰색
+            int color = getColor(k == tab ? R.color.ink : R.color.tab_dim);   // 고른 탭은 검정 + 밑줄, 나머지는 회색
             tabIcons[k].setColorFilter(color);
             tabLabels[k].setTextColor(color);
             tabLabels[k].setTypeface(k == tab ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
