@@ -833,6 +833,7 @@
     // ==========================================
     // 앱의 뒤로가기 (YeYe홈 앱이 부름): 열린 것을 하나씩 닫고, 닫을 게 없으면 false
     // ==========================================
+    window.appBusy = () => !$('set-view').hidden || !!st.adding || !!st.editing;   // 앱(1.30부터)의 좌우 밀기·새로고침을 막음
     window.ledgerBack = () => {
         if (!$('set-view').hidden) { if (okToLeave()) closeSettings(); return true; }
         if (st.adding) { openAdd(false); return true; }

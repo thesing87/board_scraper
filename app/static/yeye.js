@@ -276,6 +276,7 @@
     $('set-back').addEventListener('click', closeSettings);
     // 앱이 부름: 홈 탭 위쪽 '설정' → 전체 설정 (로그인 전이면 false → 앱이 자기 설정을 엶), 뒤로가기 → 설정부터 닫음
     window.appOpenSettings = () => { if (!st.me) return false; openSettings(); return true; };
+    window.appBusy = () => !$('set-view').hidden || !!st.ordering;   // 앱(1.30부터)의 좌우 밀기·새로고침을 막음
     window.ledgerBack = () => {
         if (!$('set-view').hidden) { closeSettings(); return true; }
         if (st.ordering) { saveOrder(); st.ordering = false; renderOrdering(); return true; }

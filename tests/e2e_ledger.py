@@ -659,6 +659,8 @@ try:
     click('#app-hint-btn'); time.sleep(.3)                              # → 설정 > 결제 알림 연결
     assert vis('app-connect-btn') and vis('phone-settings-btn') and not vis('app-get') and txt('conn-title') == '아직 연결되지 않았어요', txt('conn-title')
     assert not js("const n = document.querySelector('.site-nav'); return !!n && n.offsetHeight > 0")   # 앱에서는 메뉴 줄(다른 탭) 없음
+    assert js("return document.querySelector('.site-top').offsetHeight") == 0            # 앱에서는 제목 줄도 없음 (1.30)
+    assert js("return window.appGesture(100, 300)") == ''                                 # 설정이 열려 있으면 밀기·새로고침 안 됨
     click('#app-connect-btn'); time.sleep(1.2)
     got = js('return window.__got')
     assert len(got) == 1 and got[0].startswith(BASE + '/api/ledger/hook/'), got
@@ -678,7 +680,19 @@ try:
     assert vis('set-home') and js("return location.hash") == '#settings'
     assert js('return window.ledgerBack()') is True; time.sleep(.5)                          # 목록 → 메인
     assert not vis('set-view') and js("return location.hash") == ''
+    # 앱(1.30)의 좌우 밀기·끌어내려 새로고침: 맨 위 빈 곳은 둘 다, 내 기록 줄 위는 탭 넘기기 안 됨, 창이 열리면 둘 다 안 됨
+    js("window.scrollTo(0, 0)"); time.sleep(.2)
+    g = js("const r = document.getElementById('m-ex').getBoundingClientRect(); return window.appGesture(r.left + 2, r.top + r.height / 2)")
+    assert g == 'hv', g
+    mine = js("const e = document.querySelector('.sw-row[data-own-swipe] .it'); if (!e) return null; e.scrollIntoView({block: 'center'}); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]")
+    if mine:
+        g = js("return window.appGesture(arguments[0], arguments[1])", *mine)
+        assert 'h' not in g, g
+    g = js("const r = document.getElementById('people').getBoundingClientRect(); const p = document.getElementById('people'); return p.scrollWidth > p.clientWidth + 1 ? window.appGesture(r.left + 5, r.top + r.height / 2) : 'skip'")
+    assert g == 'skip' or 'h' not in g, g
+    js("window.scrollTo(0, 0)")
     click('#fab'); time.sleep(.2)
+    assert js("return window.appGesture(100, 300)") == ''
     assert js('return window.ledgerBack()') is True and not vis('sheet-wrap')                # 입력 창 닫힘
     assert js('return window.ledgerBack()') is False
     # 확인할 결제에서 바로 '이런 알림 안 받기' (앱 안에서만): 펼친 줄의 원문을 앱에 넘김

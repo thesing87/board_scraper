@@ -26,6 +26,8 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .in-app .site-nav { display: none !important; }
 /* 앱 안: 설정·로그아웃은 앱 위쪽 줄에 (앱이 window.appOpenSettings를 부름) */
 .in-app .site-top-tools { display: none !important; }
+/* 앱 안(YeYe홈): 제목 줄도 숨김 — 앱 위쪽 줄에 탭 이름이 있음 */
+.in-app .site-top { display: none !important; }
 
 .sec { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
 .sec-title { font-weight: 700; margin-bottom: 8px; }

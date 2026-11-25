@@ -518,7 +518,7 @@
         const c = catOf(e.category_id), mine = canEdit(e), income = c.kind === 'income';
         const hl = s => mark ? markText(s, mark) : esc(s);
         const day = dated ? `<span class="cat">${+e.used_on.slice(5, 7)}/${+e.used_on.slice(8)}</span><span class="sep">·</span>` : '';
-        return `<div class="sw-row">${mine ? `<button type="button" class="sw-del" data-del="${e.id}">지우기</button>` : ''}
+        return `<div class="sw-row"${mine ? ' data-own-swipe' : ''}>${mine ? `<button type="button" class="sw-del" data-del="${e.id}">지우기</button>` : ''}
             <div class="it u${mine ? ' mine' : ''}${st.editId === e.id ? ' editing' : ''}" data-entry="${e.id}" style="${userTint(e.user_id)}"${mine ? ' role="button" tabindex="0"' : ''}>
             ${catIcon(c)}<span class="txt"><span class="memo${e.memo ? '' : ' no-memo'}">${hl(e.memo || c.name)}</span>
             <span class="line2">${day}<span class="cat">${hl(c.name)}</span><span class="sep">·</span>${whoTag(e.user_id)}</span></span>
@@ -1712,6 +1712,9 @@
         $('app-info').textContent = text;
     }
     // ---- 앱의 뒤로가기: 열려 있는 것을 하나 닫으면 true (닫을 게 없으면 false → 앱이 '한 번 더 누르면 종료' 안내)
+    // 앱(1.30부터)이 좌우 밀기·끌어내려 새로고침 전에 물음 (nav.js의 appGesture): 무언가 열려 있으면 true
+    window.appBusy = () => !$('pv').hidden || $('app').classList.contains('settings-open') || !$('memo-dd').hidden
+        || !$('addbox').hidden || !$('sheet-wrap').hidden;
     window.ledgerBack = () => {
         if (!$('pv').hidden) { closeViewer(); return true; }
         if ($('app').classList.contains('settings-open')) { setBack(); return true; }

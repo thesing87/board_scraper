@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -12,6 +13,7 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
@@ -37,6 +39,8 @@ import android.widget.Toast;
  * 주소는 고정 (strings.xml의 site_url).
  * 페이지는 window.LedgerApp(Bridge)로 이 앱을 알아보고, 가계부의 '이 휴대폰 앱에 연결'을 누르면 연결 주소를 넘겨줌.
  * 다른 주소의 링크는 브라우저로 엶 (앱 안에는 홈·가계부·근무표만)
+ * 1.30부터: 좌우로 빠르게 밀면 옆 탭으로 (홈 · 가계부 · 근무표 순서), 페이지 맨 위에서 아래로 끌어 놓으면 그 탭을 새로 읽음.
+ * 손가락을 댈 때 페이지의 window.appGesture(x, y)에 물어 봄 (창이 열렸거나 자기 밀기가 있는 곳이면 하지 않음)
  */
 public class MainActivity extends Activity implements Updater.Host {
     private static final int PICK_FILE = 1, PICK_PHOTO = 2;
@@ -59,6 +63,17 @@ public class MainActivity extends Activity implements Updater.Host {
     private final ImageView[] tabIcons = new ImageView[3];
     private final View[] tabLines = new View[3];
     private TextView banner;
+    private FrameLayout pages;
+    /** 끌어내려 새로고침 표시 (흰 동그라미 + 새로고침 아이콘) */
+    private FrameLayout pullDot;
+    private ImageView pullIcon;
+    private android.animation.ObjectAnimator pullSpin;
+    private static final int[] ORDER = {TAB_HOME, TAB_LEDGER, TAB_DUTY};   // 위쪽 탭 순서 (좌우로 밀 때)
+    private static final int PULL_GO = 72;   // 표시가 이만큼(dp) 내려온 뒤 놓으면 새로고침
+    private float downX, downY;
+    private long downAt;
+    private volatile String gestureOk;       // 페이지의 답: 'h' 탭 넘기기 가능, 'v' 새로고침 가능 (아직 답이 없으면 null)
+    private boolean tracking, pulling, refreshing;
     private ProgressBar progress;
     private String loadedSite = "";
     private volatile String pageOrigin = "";
@@ -301,12 +316,7 @@ public class MainActivity extends Activity implements Updater.Host {
         TypedValue rtv = new TypedValue();
         getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, rtv, true);
         refresh.setBackgroundResource(rtv.resourceId);
-        refresh.setOnClickListener(v -> {
-            loadFailed = false;
-            if (loadedSite.isEmpty()) onResume();
-            else if (loaded[tab].isEmpty()) load(tab, null);
-            else web.reload();
-        });
+        refresh.setOnClickListener(v -> refreshTab());
         bar.addView(refresh, new LinearLayout.LayoutParams(dp(48), ViewGroup.LayoutParams.MATCH_PARENT));
         root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)));
 
@@ -326,12 +336,27 @@ public class MainActivity extends Activity implements Updater.Host {
 
         // ---- 탭마다 웹 화면 하나 (로그인 쿠키는 함께 씀)
         CookieManager.getInstance().setAcceptCookie(true);
-        FrameLayout pages = new FrameLayout(this);
+        pages = new FrameLayout(this);
         for (int k = 0; k < 3; k++) {
             webs[k] = newWeb();
             webs[k].setVisibility(View.GONE);
             pages.addView(webs[k], new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
+        // 끌어내려 새로고침 표시: 페이지 위쪽 가운데, 평소에는 위로 숨어 있음
+        pullDot = new FrameLayout(this);
+        GradientDrawable dot = new GradientDrawable();
+        dot.setShape(GradientDrawable.OVAL);
+        dot.setColor(0xFFFFFFFF);
+        pullDot.setBackground(dot);
+        pullDot.setElevation(dp(4));
+        pullIcon = new ImageView(this);
+        pullIcon.setImageResource(R.drawable.ic_refresh);
+        pullIcon.setColorFilter(getColor(R.color.green));
+        pullIcon.setPadding(dp(9), dp(9), dp(9), dp(9));
+        pullDot.addView(pullIcon, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        pages.addView(pullDot, new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP | Gravity.CENTER_HORIZONTAL));
+        pullDot.setTranslationY(-dp(48));
+        pullDot.setVisibility(View.INVISIBLE);
         web = webs[TAB_HOME];
         root.addView(pages, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         return root;
@@ -346,6 +371,8 @@ public class MainActivity extends Activity implements Updater.Host {
         w.addJavascriptInterface(new Bridge(), "LedgerApp");
         w.setWebViewClient(new Client());
         w.setWebChromeClient(new Chrome());
+        w.setOverScrollMode(View.OVER_SCROLL_NEVER);   // 맨 위에서 끌 때는 새로고침 표시만
+        w.setOnTouchListener(this::onWebTouch);
         w.setDownloadListener((url, ua, disposition, mime, length) -> {
             if (url.contains("/api/ledger/app.apk")) {
                 // 앱 안에서는 받지 않고 바로 새 버전 확인·설치
@@ -393,6 +420,118 @@ public class MainActivity extends Activity implements Updater.Host {
         return f;
     }
 
+    /** 위쪽 새로고침 버튼·끌어내려 새로고침: 보고 있는 탭을 다시 읽음 */
+    private void refreshTab() {
+        loadFailed = false;
+        if (loadedSite.isEmpty()) onResume();
+        else if (loaded[tab].isEmpty()) load(tab, null);
+        else web.reload();
+    }
+
+    // ==========================================
+    // 좌우로 밀어 탭 넘기기 · 끌어내려 새로고침 (1.30부터). 손가락 움직임만 보고 페이지에는 그대로 넘김
+    // ==========================================
+    private boolean onWebTouch(View v, MotionEvent e) {
+        if (v != web) return false;
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN: {
+                downX = e.getX();
+                downY = e.getY();
+                downAt = e.getEventTime();
+                tracking = true;
+                pulling = false;
+                gestureOk = null;
+                float d = getResources().getDisplayMetrics().density;
+                web.evaluateJavascript("window.appGesture ? window.appGesture(" + (downX / d) + ", " + (downY / d) + ") : ''",
+                        r -> gestureOk = r == null ? "" : r);
+                break;
+            }
+            case MotionEvent.ACTION_POINTER_DOWN:   // 두 손가락(확대 등)이면 하지 않음
+                tracking = false;
+                if (pulling) endPull(false);
+                break;
+            case MotionEvent.ACTION_MOVE: {
+                if (!tracking || refreshing) break;
+                float dx = e.getX() - downX, dy = e.getY() - downY;
+                String ok = gestureOk;
+                if (!pulling && ok != null && ok.contains("v") && web.getScrollY() == 0 && dy > dp(16) && dy > Math.abs(dx) * 2) pulling = true;
+                if (pulling) showPull(dy);
+                break;
+            }
+            case MotionEvent.ACTION_UP: {
+                if (!tracking) break;
+                tracking = false;
+                float dx = e.getX() - downX, dy = e.getY() - downY;
+                if (pulling) {
+                    endPull(dy * 0.5f >= dp(PULL_GO));
+                    break;
+                }
+                String ok = gestureOk;
+                if (ok != null && ok.contains("h") && Math.abs(dx) > dp(90) && Math.abs(dx) > Math.abs(dy) * 2.5f
+                        && e.getEventTime() - downAt < 700) swipeTab(dx < 0 ? 1 : -1);
+                break;
+            }
+            case MotionEvent.ACTION_CANCEL:
+                tracking = false;
+                if (pulling) endPull(false);
+                break;
+        }
+        return false;
+    }
+
+    /** 왼쪽으로 밀면(step 1) 오른쪽 탭, 오른쪽으로 밀면(-1) 왼쪽 탭. 끝에서는 그대로. 새 탭은 옆에서 짧게 밀려 들어옴 */
+    private void swipeTab(int step) {
+        int i = 0;
+        for (int k = 0; k < ORDER.length; k++) if (ORDER[k] == tab) i = k;
+        int j = i + step;
+        if (j < 0 || j >= ORDER.length) return;
+        selectTab(ORDER[j]);
+        web.setTranslationX(step * pages.getWidth() * 0.25f);
+        web.setAlpha(0.4f);
+        web.animate().translationX(0).alpha(1).setDuration(180).start();
+    }
+
+    /** 끄는 동안: 손가락의 절반만큼 내려오고, 새로고침이 될 만큼 내려오면 진하게 */
+    private void showPull(float dy) {
+        float p = Math.min(dy * 0.5f, dp(PULL_GO + 40));
+        pullDot.animate().cancel();
+        pullDot.setVisibility(View.VISIBLE);
+        pullDot.setTranslationY(p - dp(48));
+        pullIcon.setRotation(p * 2);
+        pullDot.setAlpha(p >= dp(PULL_GO) ? 1f : 0.5f + 0.5f * p / dp(PULL_GO));
+    }
+
+    /** 놓음: 충분히 끌었으면 표시를 돌리며 새로 읽고(다 읽으면 stopRefresh), 아니면 다시 숨김 */
+    private void endPull(boolean go) {
+        pulling = false;
+        if (!go) {
+            hidePull();
+            return;
+        }
+        refreshing = true;
+        pullDot.setAlpha(1f);
+        pullDot.animate().translationY(dp(16)).setDuration(150).start();
+        pullSpin = android.animation.ObjectAnimator.ofFloat(pullIcon, View.ROTATION, pullIcon.getRotation(), pullIcon.getRotation() + 360);
+        pullSpin.setDuration(800);
+        pullSpin.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        pullSpin.setInterpolator(new android.view.animation.LinearInterpolator());
+        pullSpin.start();
+        refreshTab();
+        ui.postDelayed(this::stopRefresh, 10000);   // 답이 없어도 10초 뒤에는 숨김
+    }
+
+    private void stopRefresh() {
+        if (!refreshing) return;
+        refreshing = false;
+        if (pullSpin != null) pullSpin.cancel();
+        hidePull();
+    }
+
+    private void hidePull() {
+        pullDot.animate().translationY(-dp(48)).alpha(0f).setDuration(180)
+                .withEndAction(() -> { if (!pulling && !refreshing) pullDot.setVisibility(View.INVISIBLE); }).start();
+    }
+
     /** 그 탭의 웹 화면에 페이지를 엶 (path가 null이면 그 탭의 첫 페이지) */
     private void load(int which, String url) {
         if (loadedSite.isEmpty()) return;
@@ -405,6 +544,7 @@ public class MainActivity extends Activity implements Updater.Host {
         if (which != TAB_LEDGER && which != TAB_DUTY) which = TAB_HOME;
         if (tab == which) return;
         if (tab >= 0) webs[tab].evaluateJavascript("window.appTabHidden && window.appTabHidden()", null);
+        stopRefresh();
         tab = which;
         web = webs[tab];
         for (int k = 0; k < 3; k++) {
@@ -513,6 +653,7 @@ public class MainActivity extends Activity implements Updater.Host {
 
         @Override
         public void onPageFinished(WebView view, String url) {
+            if (view == web) stopRefresh();
             showBanner();
             DutyPush.sync(MainActivity.this);
             if (view == webs[TAB_LEDGER]) scrollToInbox();
@@ -528,6 +669,7 @@ public class MainActivity extends Activity implements Updater.Host {
             // 못 연 탭은 다음에 그 탭을 볼 때 다시 엶 (앱을 켤 때 인터넷이 잠깐 끊겼던 경우 등)
             for (int k = 0; k < 3; k++) if (webs[k] == view) loaded[k] = "";
             if (view == web) {
+                stopRefresh();
                 loadFailed = true;
                 showBanner();
             }

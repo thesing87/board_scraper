@@ -143,6 +143,8 @@ html:not(.in-app) .app-only { display: none !important; }
 .in-app .site-nav { display: none !important; }
 /* 앱 안: 설정·로그아웃은 앱 위쪽 줄에 (앱이 window.appOpenSettings를 부름) */
 .in-app .site-top-tools { display: none !important; }
+/* 앱 안(YeYe홈): 제목 줄도 숨김 — 앱 위쪽 줄에 탭 이름이 있음 */
+.in-app .site-top { display: none !important; }
 .app-connect { align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
 
 /* 설정 (머리줄 '설정' → #settings): 메인 칸들은 숨기고 설정만. 탭 5개 (휴대폰은 옆으로 밀기) */
