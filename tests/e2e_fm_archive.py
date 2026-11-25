@@ -1,4 +1,4 @@
-"""FM키워드 줄 1.9.0: 새 글이 한 쪽을 넘칠 때 안내('다음 쪽 보기 ▶', 칩 '새 N+'), 글 화면의 '보관'(보고 있는 화면의 본문·댓글을
+"""FM키워드 줄 1.9.0~1.9.1: 새 글이 한 쪽을 넘칠 때 안내('다음 쪽 보기 ▶', 칩 '새 N+'), 글 화면의 '보관'(보고 있는 화면의 본문·댓글을
 그 FM키워드 카드의 보관함에 담음), 찾은 새 글 제목을 하루 요약용으로 보냄. 하루 요약 메시지(fm_digest)도 확인.
 에펨코리아에는 접속하지 않도록 로컬 페이지에서 GM_* 함수를 흉내 내어 시험"""
 import os, sys
@@ -29,7 +29,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 BASE = f'http://127.0.0.1:{port}'
 with urllib.request.urlopen(BASE + '/fm-keywords.user.js') as r:
     script = r.read().decode('utf-8')
-assert '// @version      1.9.0' in script
+assert '// @version      1.9.1' in script
 
 SHIM = """
 const realMatch = window.matchMedia.bind(window);
@@ -116,6 +116,11 @@ try:
     assert until(lambda: note().startswith('안 읽은 새 글 1개')) and '다음 쪽' not in note(), note()
     assert js("return document.querySelectorAll('.kmfm-line').length") == 1
     assert until(lambda: badge() == '새 4'), badge()
+    # 1.9.1: 2쪽까지 보고 1쪽에 돌아오면 '다음 쪽 보기'가 다시 뜨지 않음 (이어서 확인한 범위를 기억)
+    page(SEARCH, rows([NO + 5, NO + 4, NO + 3]))
+    assert until(lambda: note().startswith('안 읽은 새 글 3개')), note()
+    assert '다음 쪽' not in note() and not js("return !!document.querySelector('[data-kmfm-next]')"), note()
+    assert until(lambda: badge() == '새 4'), badge()
     print('OVERFLOW OK')
 
     # 글 화면(검색에서 연 글): '보관' → 비밀번호 → 보관함에 있음
@@ -172,6 +177,19 @@ try:
     assert f'<a href="https://www.fmkorea.com/{NO + 5}">투싼 글 5</a>' in text and '투싼 글 4' not in text, text
     assert fm_digest.build_message([]) is None
     print('DIGEST OK')
+
+    # 그 뒤 새 글이 한 쪽 넘게 올라와 이어서 본 범위와 떨어지면 다시 '다음 쪽 보기'
+    d.set_window_size(1280, 900); time.sleep(.3)
+    page(SEARCH, rows([NO + 12, NO + 11, NO + 10]))
+    assert until(lambda: '다음 쪽에도 더 있을 수 있음' in note()), note()
+    assert until(lambda: badge().endswith('+')), badge()
+    # 2쪽(바로 아래, 앞서 본 범위에 닿음)을 보면 1쪽에 돌아와도 풀린 채
+    page(SEARCH + '&page=2', rows([NO + 9, NO + 6, NO + 5]))
+    assert until(lambda: note() != '') and '다음 쪽' not in note(), note()
+    page(SEARCH, rows([NO + 12, NO + 11, NO + 10]))
+    assert until(lambda: note().startswith('안 읽은 새 글')) and '다음 쪽' not in note(), note()
+    assert until(lambda: not badge().endswith('+')), badge()
+    print('OVERFLOW AGAIN OK')
 finally:
     d.quit()
     srv.shutdown()

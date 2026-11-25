@@ -29,7 +29,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 BASE = f'http://127.0.0.1:{port}'
 with urllib.request.urlopen(BASE + '/fm-keywords.user.js') as r:
     script = r.read().decode('utf-8')
-assert '// @version      1.9.0' in script
+assert '// @version      1.9.1' in script
 order = [(l['board'], l['keyword']) for g in web_server.json.loads(urllib.request.urlopen(BASE + '/api/fm-links').read())['groups'] for l in g['links']]
 assert len(order) == 3, order
 

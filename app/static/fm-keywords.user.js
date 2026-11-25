@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FM키워드 줄 (키워드 모니터)
 // @namespace    keyword-monitor
-// @version      1.9.0
+// @version      1.9.1
 // @description  에펨코리아 화면에 키워드 모니터의 FM키워드 줄을 붙임. 키워드를 누르면 같은 탭에서 그 검색으로 (PC는 위, 휴대폰은 아래)
 // @match        https://fmkorea.com/*
 // @match        https://*.fmkorea.com/*
@@ -21,7 +21,7 @@
     'use strict';
     const SITE = '__SITE__';
     // 헤더의 @version을 그대로 읽음 (따로 적으면 어긋나므로). 읽지 못할 때만 아래 값을 씀
-    const VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.9.0';
+    const VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.9.1';
     // 오류로 멈추면 키워드 모니터 서버 기록에 한 줄 남김 (화면마다 한 번, 원인을 찾으려고. 에펨코리아 화면 내용은 보내지 않음)
     let reported = false;
     function reportError(where, err) {
@@ -284,6 +284,42 @@
         if (!!all[moreKey(l)] === on) return;
         if (on) all[moreKey(l)] = true; else delete all[moreKey(l)];
         GM_setValue(KEY_MORE, all);
+    }
+    // 다음 쪽까지 이어서 확인했는지 (이 기기에만): 마지막으로 읽은 곳이 보인 쪽부터 위로 빈틈없이 본 글 번호 범위(span)와
+    // 모두 새 글이던 쪽의 번호 범위(pages)를 기억. 그 범위가 지금 쪽까지 닿으면 이 쪽 아래는 이미 본 것이라 넘친 것이 아님
+    // (한 쪽이 모두 새 글이면 1쪽에 돌아올 때마다 '다음 쪽 보기'가 다시 뜨던 것)
+    const KEY_COVER = 'fm_bar_cover';
+    const searchPage = () => Number(new URLSearchParams(location.search).get('page')) || 1;
+    function coveredHere(l, nos, boundary) {
+        const all = GM_getValue(KEY_COVER, {});
+        const c = all[moreKey(l)] || { span: null, pages: {} };
+        const now = Date.now(), p = searchPage();
+        const cur = { lo: Math.min(...nos), hi: Math.max(...nos), t: now };
+        const touches = (a, b) => !!(a && b && a.lo <= b.hi && a.hi >= b.lo);
+        const union = (a, b) => ({ lo: Math.min(a.lo, b.lo), hi: Math.max(a.hi, b.hi) });
+        let span = c.span;
+        if (boundary) span = touches(span, cur) ? union(span, cur) : { lo: cur.lo, hi: cur.hi };
+        else if (touches(span, cur)) span = union(span, cur);
+        else span = span || null;
+        const covered = !!(span && span.lo <= cur.lo && span.hi >= cur.hi);
+        if (covered) {
+            // 먼저 본 바로 위 쪽들도 이어 붙임: 위 쪽을 본 뒤 새 글이 올라왔으면 쪽이 밀려 겹치고, 안 올라왔으면 바로 위에 붙어 있음
+            // (위 쪽이 아래 쪽보다 나중에 보았거나 한 시간 넘게 지났으면 사이에 빈틈이 있을 수 있어 잇지 않음)
+            let below = cur;
+            for (let q = p - 1; q >= 1; q--) {
+                const up = c.pages[q];
+                if (!up || up.t > below.t || below.t - up.t > 3600e3 || !(touches(up, below) || up.lo > below.hi)) break;
+                span = union(span, up);
+                below = up;
+            }
+        }
+        // 모두 새 글인 쪽만 기억 (20쪽, 하루 안)
+        if (!boundary) c.pages[p] = cur; else delete c.pages[p];
+        Object.keys(c.pages).forEach(q => { if (Number(q) > 20 || now - c.pages[q].t > 86400e3) delete c.pages[q]; });
+        c.span = span;
+        all[moreKey(l)] = c;
+        GM_setValue(KEY_COVER, all);
+        return covered;
     }
     // 칩·묶음의 '새 N' 글자 (넘쳤으면 'N+')
     const newText = (n, more) => `${n || ''}${more ? '+' : ''}`;
@@ -800,7 +836,9 @@
             request('POST', '/api/fm-link', { action: 'found', board: link.board, keyword: link.keyword, max: link.seen_max, ids, titles }).catch(() => {});
         }
         // 한 쪽이 모두 새 글이면 다음 쪽에도 새 글이 더 있을 수 있음 (마지막으로 읽은 곳이 이 쪽에 보이면 넘치지 않은 것)
-        const overflow = !pagePostNo && rows.length >= 2 && since.length === rows.length;
+        const listPage = !pagePostNo && rows.length >= 2;
+        const covered = listPage && coveredHere(link, rows.map(x => x.no), since.length < rows.length);
+        const overflow = listPage && since.length === rows.length && !covered;
         if (!pagePostNo) setMore(link, overflow);
         const nextPage = overflow ? shiftPage(location.href, 1) : '';
         // 안 읽은 새 글이 남았거나 다음 쪽에 더 있을 수 있을 때만 안내 줄·구분선 (다 읽었으면 '모두 읽음'을 누르지 않아도 없음)
