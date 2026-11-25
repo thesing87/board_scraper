@@ -63,6 +63,7 @@ public class MainActivity extends Activity implements Updater.Host {
     private String loadedSite = "";
     private volatile String pageOrigin = "";
     private ValueCallback<Uri[]> fileCallback;
+    private WebView fileView;   // 파일 고르기를 연 페이지 (사진을 넘긴 뒤 다시 그리게)
     private boolean askedSite;
     private boolean loadFailed;
     private volatile String updateText = "";
@@ -546,6 +547,7 @@ public class MainActivity extends Activity implements Updater.Host {
         public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> cb, FileChooserParams params) {
             if (fileCallback != null) fileCallback.onReceiveValue(null);
             fileCallback = cb;
+            fileView = view;
             boolean image = PhotoPick.isImage(params.getAcceptTypes());
             try {
                 startActivityForResult(image ? PhotoPick.intent(params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) : params.createIntent(),
@@ -570,9 +572,23 @@ public class MainActivity extends Activity implements Updater.Host {
             fileCallback = null;
             java.util.List<Uri> picked = result == RESULT_OK ? PhotoPick.uris(data) : new java.util.ArrayList<>();
             if (picked.isEmpty()) { cb.onReceiveValue(null); return; }
+            // 바꾸는 동안 맨 위 진행 막대 + 안내 (1.29부터), 넘긴 뒤 페이지를 다시 그림 (앱 안 화면이 사진을 받고도 그대로이던 것)
+            WebView page = fileView;
+            progress.setIndeterminate(true);
+            progress.setVisibility(View.VISIBLE);
+            toast("사진 준비 중…");
             new Thread(() -> {
                 Uri[] out = PhotoPick.toJpegs(this, picked);
-                ui.post(() -> cb.onReceiveValue(out));
+                ui.post(() -> {
+                    progress.setIndeterminate(false);
+                    progress.setVisibility(View.GONE);
+                    cb.onReceiveValue(out);
+                    if (page == null) return;
+                    for (long ms : new long[]{0, 300, 1000, 2500}) ui.postDelayed(() -> {
+                        page.invalidate();
+                        page.evaluateJavascript("window.appPhotosArrived && window.appPhotosArrived()", null);
+                    }, ms);
+                });
             }, "photo-pick").start();
             return;
         }

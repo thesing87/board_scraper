@@ -685,6 +685,7 @@
         if (status !== 200) $('save').disabled = false;
         if (status === 401) { showAuth('login'); return; }
         if (status !== 200) { $('entry-msg').textContent = msgOf(data); return; }
+        if (st.ph.busy) { $('save').textContent = '사진 준비 중…'; await st.ph.busy; }
         const failed = await savePhotos(editing ? st.editId : data.id);
         $('save').disabled = false;
         $('save').textContent = '저장';
@@ -719,9 +720,11 @@
         renderPhotos();
     }
     function photoSrc(p, thumb) { return p.url || photoUrl(p.id, thumb); }
+    // 사진 칸: 올린 사진·저장할 사진은 썸네일(누르면 크게, ✕로 빼기), 아직 준비 중인 사진은 ⏳ 자리
     function renderPhotos() {
         const items = st.ph.items;
-        $('photos').innerHTML = items.map((p, i) => `<span class="ph-wrap"><button type="button" class="ph" data-ph-view="${i}" aria-label="사진 ${i + 1} 크게 보기"><img src="${photoSrc(p, true)}" alt=""></button>`
+        $('photos').innerHTML = items.map((p, i) => p.pending ? '<span class="ph-wrap"><span class="ph wait" role="img" aria-label="사진 준비 중">⏳</span></span>'
+            : `<span class="ph-wrap"><button type="button" class="ph" data-ph-view="${i}" aria-label="사진 ${i + 1} 크게 보기"><img src="${photoSrc(p, true)}" alt=""></button>`
             + `<button type="button" class="ph-x" data-ph-del="${i}" aria-label="사진 ${i + 1} 빼기">✕</button></span>`).join('')
             + (items.length < PHOTO_MAX ? '<button type="button" class="ph-add" id="ph-add" aria-label="사진 붙이기">📷</button>' : '')
             + (items.length ? `<span class="ph-n">${items.length}/${PHOTO_MAX}</span>` : '');
@@ -738,7 +741,10 @@
             return;
         }
         const v = e.target.closest('[data-ph-view]');
-        if (v) openViewer(st.ph.items.map(p => photoSrc(p, false)), Number(v.dataset.phView));
+        if (v) {
+            const ready = st.ph.items.filter(p => !p.pending), at = ready.indexOf(st.ph.items[Number(v.dataset.phView)]);
+            openViewer(ready.map(p => photoSrc(p, false)), Math.max(0, at));
+        }
     });
     // 사진 열기: <img>로, 안 되면 createImageBitmap으로 (둘 다 안 되면 HEIC처럼 이 브라우저가 못 여는 형식)
     function loadByImg(file) {
@@ -768,27 +774,46 @@
         g.drawImage(img, 0, 0, c.width, c.height);
         return new Promise(resolve => c.toBlob(resolve, 'image/jpeg', quality));
     }
-    $('photo-file').addEventListener('change', async () => {
+    function photoNote(text, wait) {
+        $('photo-msg').textContent = text;
+        $('photo-msg').classList.toggle('wait', !!wait);
+    }
+    // 받은 사진: 먼저 ⏳ 자리를 그리고 '사진 준비 중…', 줄인 것이 되면 그 자리에 썸네일. 그사이 창을 닫으면 버림
+    $('photo-file').addEventListener('change', () => {
         const files = [...$('photo-file').files];
         $('photo-file').value = '';
-        $('photo-msg').textContent = '';
-        for (const f of files) {
-            if (st.ph.items.length >= PHOTO_MAX) { $('photo-msg').textContent = `사진은 ${PHOTO_MAX}장까지 붙일 수 있어요.`; break; }
-            try {
-                const img = await loadImage(f);
-                const [full, thumb] = await Promise.all([shrink(img, 1600, 0.82), shrink(img, 240, 0.75)]);
-                if (!full || !thumb) throw new Error('encode');
-                st.ph.items.push({ full, thumb, url: URL.createObjectURL(full) });
-            } catch (err) {
-                // 무엇을 받았는지 함께 (안 될 때 알려 주시면 원인을 찾기 쉬움)
-                $('photo-msg').textContent = `이 사진은 열 수 없어요 (${f.type || '형식 모름'} · ${sizeOf(f.size || 0)}). 다른 사진을 골라 주세요.`;
-            }
-        }
+        photoNote('');
+        if (!files.length) return;
+        const ph = st.ph, room = PHOTO_MAX - ph.items.length;
+        const slots = files.slice(0, Math.max(0, room)).map(f => ({ pending: true, file: f }));
+        ph.items.push(...slots);
         renderPhotos();
+        let note = files.length > room ? `사진은 ${PHOTO_MAX}장까지 붙일 수 있어요.` : '';
+        if (slots.length) photoNote('사진 준비 중…', true);
+        ph.busy = (async () => {
+            for (const slot of slots) {
+                const f = slot.file;
+                try {
+                    const img = await loadImage(f);
+                    const [full, thumb] = await Promise.all([shrink(img, 1600, 0.82), shrink(img, 240, 0.75)]);
+                    if (!full || !thumb) throw new Error('encode');
+                    Object.assign(slot, { pending: false, file: null, full, thumb, url: URL.createObjectURL(full) });
+                } catch (err) {
+                    ph.items.splice(ph.items.indexOf(slot), 1);
+                    // 무엇을 받았는지 함께 (안 될 때 알려 주시면 원인을 찾기 쉬움)
+                    note = `이 사진은 열 수 없어요 (${f.type || '형식 모름'} · ${sizeOf(f.size || 0)}). 다른 사진을 골라 주세요.`;
+                }
+                if (st.ph === ph) renderPhotos();
+            }
+            if (st.ph === ph) photoNote(note);
+        })();
     });
+    // 앱(YeYe홈 1.29부터)이 사진을 넘긴 뒤, 또는 앱 화면으로 돌아왔을 때: 사진 칸을 다시 그림 (앱 안 화면이 바로 안 바뀌던 것)
+    window.appPhotosArrived = () => { if (!$('sheet-wrap').hidden) renderPhotos(); };
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) window.appPhotosArrived(); });
     // 기록을 저장한 뒤: 뺀 사진 지우고 새 사진 올리기. 못 한 것이 있으면 그 이유
     async function savePhotos(entryId) {
-        const adds = st.ph.items.filter(p => !p.id), removes = st.ph.removed;
+        const adds = st.ph.items.filter(p => !p.id && !p.pending), removes = st.ph.removed;
         let failed = '';
         for (const id of removes) {
             const { status, data } = await post('/api/ledger/photo', { action: 'delete', id });

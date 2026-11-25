@@ -338,8 +338,14 @@ try:
             const g = c.getContext('2d'); g.fillStyle = n === 1 ? '#c33' : '#36c'; g.fillRect(0, 0, c.width, c.height);
             c.toBlob(b => r(new File([b], `p${n}.png`, { type: 'image/png' })), 'image/png'); })))
         .then(files => { const dt = new DataTransfer(); files.forEach(f => dt.items.add(f)); const i = document.getElementById('photo-file');
-            i.files = dt.files; i.dispatchEvent(new Event('change')); setTimeout(done, 1500); });"""
+            i.files = dt.files; i.dispatchEvent(new Event('change'));
+            window.__wait = [document.querySelectorAll('#photos .ph.wait').length, document.getElementById('photo-msg').textContent];
+            setTimeout(done, 1500); });"""
     d.execute_async_script(add_photos)
+    # 받자마자 ⏳ 자리 2개와 '사진 준비 중…', 다 되면 썸네일로 바뀌고 안내는 사라짐
+    assert js('return window.__wait') == [2, '사진 준비 중…'], js('return window.__wait')
+    assert js("return document.querySelectorAll('#photos .ph.wait').length") == 0 and not vis('photo-msg')
+    assert js("return typeof window.appPhotosArrived") == 'function'
     assert js("return document.querySelectorAll('#photos .ph').length") == 2 and txt('photos').endswith('2/3')
     click('#save'); time.sleep(2.5)
     with storage._db() as conn:
