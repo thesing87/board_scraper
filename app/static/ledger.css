@@ -3,7 +3,7 @@
     --bg: #F4F5F7; --surface: #FFFFFF; --border: #E5E7EB; --divider: #F1F2F4; --soft: #F3F4F6;
     --text: #111827; --muted: #5F6673; --faint: #8B919C; --bad: #DC2626;
     --green: #0F6E56; --green-bg: #E1F5EE; --green-line: #5DCAA5; --green-text: #085041;
-    /* 앱 색 (노랑 아이콘에 맞춤): 버튼·글자 강조는 검정, ＋는 노랑. 초록(--green)은 연결됨·저장됨 같은 잘 됨 표시에만 */
+    /* 앱 색 (노랑 아이콘에 맞춤): 버튼·글자 강조·＋는 검정(＋는 흰 ＋). 초록(--green)은 연결됨·저장됨 같은 잘 됨 표시에만 */
     --brand: #111111; --brand-soft: #FFF3C4; --brand-line: #E0B400; --pop: #FFD43B;
     --font: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
 }
@@ -370,7 +370,7 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 
 /* ＋ 입력 단추 */
 .fab { position: fixed; right: max(18px, calc(50vw - 342px)); bottom: calc(env(safe-area-inset-bottom) + 72px); z-index: 30; width: 56px; height: 56px; padding: 0;
-    border: 0; border-radius: 50%; background: var(--pop); color: var(--brand); box-shadow: 0 6px 16px rgba(0, 0, 0, .18);
+    border: 0; border-radius: 50%; background: var(--brand); color: #fff; box-shadow: 0 6px 16px rgba(0, 0, 0, .25);
     display: flex; align-items: center; justify-content: center; }
 .fab svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; display: block; }
 .settings-open .fab { display: none; }

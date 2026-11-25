@@ -3,7 +3,7 @@
     --bg: #F4F5F7; --surface: #FFFFFF; --border: #E5E7EB; --divider: #F1F2F4; --soft: #F3F4F6;
     --text: #111827; --muted: #5F6673; --faint: #8B919C; --bad: #DC2626;
     --accent: #D4537E; --green: #0F6E56;
-    /* 앱 색 (노랑 아이콘에 맞춤): 버튼·오늘·고치는 중은 검정, ＋는 노랑. 초록은 잘 됨 표시에만 */
+    /* 앱 색 (노랑 아이콘에 맞춤): 버튼·오늘·＋는 검정(＋는 흰 ＋), 고치는 중의 ＋는 노랑. 초록은 잘 됨 표시에만 */
     --brand: #111111; --brand-soft: #FFF3C4; --brand-line: #E0B400; --pop: #FFD43B;
     --font: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
 }
@@ -141,10 +141,10 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .brush-sec { position: sticky; bottom: calc(env(safe-area-inset-bottom) + 64px); z-index: 5; box-shadow: 0 -4px 16px rgba(17, 24, 39, .08); }
 /* ✎ 고치기 (아래 메뉴 위, 고치는 중엔 칠하기 칸 위) */
 .fab { position: fixed; right: max(18px, calc(50vw - 342px)); bottom: calc(env(safe-area-inset-bottom) + 72px); z-index: 30; width: 56px; height: 56px; padding: 0;
-    border: 0; border-radius: 50%; background: var(--pop); color: var(--brand); box-shadow: 0 6px 16px rgba(0, 0, 0, .18);
+    border: 0; border-radius: 50%; background: var(--brand); color: #fff; box-shadow: 0 6px 16px rgba(0, 0, 0, .25);
     display: flex; align-items: center; justify-content: center; }
 .fab svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; display: block; }
-.fab.editing { background: var(--brand); color: #fff; box-shadow: 0 6px 16px rgba(0, 0, 0, .25); bottom: calc(env(safe-area-inset-bottom) + 200px); }
+.fab.editing { background: var(--pop); color: var(--brand); box-shadow: 0 6px 16px rgba(0, 0, 0, .18); bottom: calc(env(safe-area-inset-bottom) + 200px); }
 .brush-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .brush { display: flex; flex-wrap: wrap; gap: 6px; }
 .brush button { flex: 1 0 52px; height: 40px; padding: 0 6px; border-radius: 9px; font-weight: 700; border: 2px solid transparent; }
