@@ -237,8 +237,12 @@ try:
     js("location.reload()"); time.sleep(2)
     sheet()
     # ---- 최근 메모 드롭다운: 고르면 메모와 그 소비형태
-    js("document.getElementById('memo').focus()"); time.sleep(.3)
-    assert vis('memo-dd') and js("return [...document.querySelectorAll('#memo-dd .m')].map(e => e.textContent)") == ['사료', '이마트 장보기']
+    memo_dd = lambda: js("return [...document.querySelectorAll('#memo-dd .m')].map(e => e.textContent)")
+    for _ in range(20):   # 다시 읽은 뒤 기록(최근 메모)을 받을 때까지
+        js("document.getElementById('memo').blur(); document.getElementById('memo').focus()"); time.sleep(.3)
+        if vis('memo-dd') and memo_dd() == ['사료', '이마트 장보기']:
+            break
+    assert vis('memo-dd') and memo_dd() == ['사료', '이마트 장보기'], memo_dd()
     js("document.querySelectorAll('#memo-dd [data-memo]')[1].dispatchEvent(new MouseEvent('mousedown', {bubbles: true}))")
     assert js("return document.getElementById('memo').value") == '이마트 장보기'
     # 지출 입력의 메모도 치면 자동완성 (앞에서부터 맞는 것 먼저)
@@ -467,6 +471,21 @@ try:
     # 한 줄(가게·때·카드 / 금액 / ✓ / ✕), 분류가 없으면 줄 아래 분류 한 줄 (접힌 채로 바로 고름)
     assert vis('inbox-sec') and txt('inbox-count') == '1' and '블루보틀 성수점' in txt('inbox') and js("return !!document.querySelector('#inbox .ib-quick')")
     assert not js("return !!document.querySelector('#inbox .body')")
+    # 결제 확인 화면 (홈 탭의 '확인할 결제' → /ledger/#inbox): 머리줄과 확인할 결제만, ←로 가계부 첫 화면
+    page_open = lambda: js("return document.getElementById('app').classList.contains('inbox-open')")
+    d.get(BASE + '/ledger/#inbox'); time.sleep(2)
+    assert page_open() and vis('ib-page-head') and vis('inbox-sec') and not vis('hero') and not vis('fab') and txt('ib-page-n') == '1건'
+    assert '블루보틀 성수점' in txt('inbox') and js("return location.hash") == '#inbox'
+    click('#ib-back'); time.sleep(.5)
+    assert not page_open() and vis('hero') and vis('inbox-sec') and not vis('ib-page-head') and js("return location.hash") == ''
+    # 가계부 탭이 이미 열려 있을 때 (앱이 appShowInbox를 부름), 뒤로가기로 닫힘
+    js("window.appShowInbox()"); time.sleep(.5)
+    assert page_open() and not vis('hero')
+    assert js("return window.ledgerBack()") and not page_open() and vis('hero')
+    time.sleep(.5)
+    js("window.appShowInbox()"); time.sleep(.5)
+    js("history.back()"); time.sleep(.6)
+    assert not page_open() and vis('hero')
     # 기록·분류(state)가 대기함보다 늦게 와도 대기함 내용이 나옴 (알림을 눌러 앱을 열 때 자주 그럼)
     slow = d.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source':
         "const f0 = window.fetch; window.fetch = (u, o) => String(u).includes('/api/ledger/state') ? new Promise(r => setTimeout(r, 1500)).then(() => f0(u, o)) : f0(u, o);"})
@@ -629,6 +648,33 @@ try:
     click('#fab'); time.sleep(.2)
     assert js('return window.ledgerBack()') is True and not vis('sheet-wrap')                # 입력 창 닫힘
     assert js('return window.ledgerBack()') is False
+    # 확인할 결제에서 바로 '이런 알림 안 받기' (앱 안에서만): 펼친 줄의 원문을 앱에 넘김
+    d.get(BASE + '/ledger/#inbox'); time.sleep(2)
+    if not js("return document.querySelectorAll('#inbox [data-item]').length"):   # 결제가 없으면 '없어요'
+        assert vis('ib-empty') and not vis('inbox-all')
+    # (연결 주소는 한 시간에 받는 개수가 정해져 있어 대기함에 바로 넣음)
+    from ledger_parse import parse as parse_notice
+    with storage._db() as conn:
+        uid = conn.execute("SELECT user_id FROM ledger_hook_keys ORDER BY last_used DESC LIMIT 1").fetchone()[0]
+        ledger._store_notice(conn, uid, '[삼성카드] 승인 4,400원 거르기시험', parse_notice('[삼성카드] 승인 4,400원 거르기시험'))
+        conn.commit()
+    js("location.hash = ''; location.hash = '#inbox'"); time.sleep(1.5)   # 같은 페이지 안에서 #inbox로 가도 대기함을 새로 읽음
+    assert vis('inbox-sec') and '4,400' in txt('inbox') and not vis('ib-empty'), txt('inbox')
+    assert not js("return !!document.querySelector('#inbox [data-ib-ignore]')")             # 접힌 줄에는 없음
+    click('#inbox [data-ib-toggle]'); time.sleep(.3)
+    js("window.__ign = null"); click('#inbox [data-ib-ignore]'); time.sleep(.3)
+    assert '4,400원 거르기시험' in (js('return window.__ign') or ''), js('return window.__ign')
+    assert vis('inbox-sec') and '4,400' in txt('inbox')                                    # 그 결제는 그대로
+    click('#ib-back'); time.sleep(.5)
+    # 열 수 없는 사진: 사진 칸 바로 아래에 형식·크기와 함께 알림
+    click('#fab'); time.sleep(.3)
+    d.execute_async_script("""const done = arguments[arguments.length - 1];
+        const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array(3000)], 'a.heic', { type: 'image/heic' }));
+        const i = document.getElementById('photo-file'); i.files = dt.files; i.dispatchEvent(new Event('change')); setTimeout(done, 1200);""")
+    assert vis('photo-msg') and txt('photo-msg').startswith('이 사진은 열 수 없어요 (image/heic · 3KB)'), txt('photo-msg')
+    assert js("return document.querySelectorAll('#photos .ph').length") == 0
+    assert js("const m = document.getElementById('photo-msg').getBoundingClientRect(), p = document.getElementById('photos').getBoundingClientRect(); return m.top >= p.bottom && m.top - p.bottom < 40")
+    assert js('return window.ledgerBack()') is True and not vis('sheet-wrap')
     print('AUTO OK')
 
     # ---- 휴대폰: 넘침 없음

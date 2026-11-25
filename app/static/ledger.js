@@ -155,7 +155,7 @@
         if (user.admin) loadPeople();
         load();
         loadInbox();
-        if (location.hash === '#inbox') window.appShowInbox();
+        if (location.hash === '#inbox') showInboxPage();
         // 앱 안이면 로그인됐다고 알림 (연결 전에도 로그인으로 새 버전을 확인)
         try { if (window.LedgerApp && window.LedgerApp.loggedIn) window.LedgerApp.loggedIn(); } catch (e) { /* 예전 앱 */ }
     }
@@ -247,6 +247,7 @@
     $('views').addEventListener('click', e => {
         const b = e.target.closest('[data-view]');
         if (!b) return;
+        if (inboxOpen()) closeInbox();
         if (b.dataset.view === 'set') { if (!$('app').classList.contains('settings-open')) openSettings(); else if (st.setTab) setBack(); return; }
         if ($('app').classList.contains('settings-open')) closeSettings();
         if (st.view !== b.dataset.view) window.scrollTo(0, 0);
@@ -714,6 +715,7 @@
     function setPhotos(items) {
         st.ph.items.forEach(p => { if (p.url) URL.revokeObjectURL(p.url); });
         st.ph = { items, removed: [] };
+        $('photo-msg').textContent = '';
         renderPhotos();
     }
     function photoSrc(p, thumb) { return p.url || photoUrl(p.id, thumb); }
@@ -729,6 +731,7 @@
         if (e.target.closest('#ph-add')) { $('photo-file').click(); return; }
         const del = e.target.closest('[data-ph-del]');
         if (del) {
+            $('photo-msg').textContent = '';
             const [p] = st.ph.items.splice(Number(del.dataset.phDel), 1);
             if (p.id) st.ph.removed.push(p.id); else URL.revokeObjectURL(p.url);
             renderPhotos();
@@ -737,7 +740,8 @@
         const v = e.target.closest('[data-ph-view]');
         if (v) openViewer(st.ph.items.map(p => photoSrc(p, false)), Number(v.dataset.phView));
     });
-    function loadImage(file) {
+    // 사진 열기: <img>로, 안 되면 createImageBitmap으로 (둘 다 안 되면 HEIC처럼 이 브라우저가 못 여는 형식)
+    function loadByImg(file) {
         return new Promise((resolve, reject) => {
             const url = URL.createObjectURL(file), img = new Image();
             img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
@@ -745,11 +749,19 @@
             img.src = url;
         });
     }
+    async function loadImage(file) {
+        try { return await loadByImg(file); } catch (err) {
+            if (!window.createImageBitmap) throw err;
+            return await createImageBitmap(file, { imageOrientation: 'from-image' });
+        }
+    }
+    const sizeOf = s => s >= 1048576 ? `${(s / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(s / 1024))}KB`;
     function shrink(img, max, quality) {
-        const s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+        const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+        const s = Math.min(1, max / Math.max(w, h));
         const c = document.createElement('canvas');
-        c.width = Math.max(1, Math.round(img.naturalWidth * s));
-        c.height = Math.max(1, Math.round(img.naturalHeight * s));
+        c.width = Math.max(1, Math.round(w * s));
+        c.height = Math.max(1, Math.round(h * s));
         const g = c.getContext('2d');
         g.fillStyle = '#fff';
         g.fillRect(0, 0, c.width, c.height);
@@ -759,16 +771,17 @@
     $('photo-file').addEventListener('change', async () => {
         const files = [...$('photo-file').files];
         $('photo-file').value = '';
-        $('entry-msg').textContent = '';
+        $('photo-msg').textContent = '';
         for (const f of files) {
-            if (st.ph.items.length >= PHOTO_MAX) { $('entry-msg').textContent = `사진은 ${PHOTO_MAX}장까지 붙일 수 있어요.`; break; }
+            if (st.ph.items.length >= PHOTO_MAX) { $('photo-msg').textContent = `사진은 ${PHOTO_MAX}장까지 붙일 수 있어요.`; break; }
             try {
                 const img = await loadImage(f);
                 const [full, thumb] = await Promise.all([shrink(img, 1600, 0.82), shrink(img, 240, 0.75)]);
                 if (!full || !thumb) throw new Error('encode');
                 st.ph.items.push({ full, thumb, url: URL.createObjectURL(full) });
             } catch (err) {
-                $('entry-msg').textContent = '이 사진은 열 수 없어요. 다른 사진을 골라 주세요.';
+                // 무엇을 받았는지 함께 (안 될 때 알려 주시면 원인을 찾기 쉬움)
+                $('photo-msg').textContent = `이 사진은 열 수 없어요 (${f.type || '형식 모름'} · ${sizeOf(f.size || 0)}). 다른 사진을 골라 주세요.`;
             }
         }
         renderPhotos();
@@ -1354,8 +1367,12 @@
         if (st.newCatFor != null && !items.some(x => x.id === st.newCatFor)) st.newCatFor = null;
         const act = document.activeElement;
         const focus = act && act.id && $('inbox').contains(act) ? act.id : '';
-        $('inbox-sec').hidden = !items.length;
+        $('inbox-sec').hidden = !items.length && !inboxOpen();
         $('inbox-count').textContent = items.length;
+        $('ib-page-n').textContent = items.length ? `${items.length}건` : '';
+        $('ib-empty').hidden = !!items.length;
+        $('inbox-all').hidden = !items.length;
+        if (!items.length) $('inbox').innerHTML = '';
         if (!items.length || !st.data) return;
         $('inbox').innerHTML = items.map(x => {
             const day = `${+x.used_on.slice(5, 7)}/${+x.used_on.slice(8)}`;
@@ -1400,9 +1417,13 @@
                     <span id="nb-prev">${nbPreviewHtml()}</span></div>
                 <p class="msg" id="nb-msg">${esc(st.newCat.msg || '')}</p></div>` : '';
             const canRule = !x.cancel && cat != null && shop && !(rule && rule.category_id === cat);
+            // 앱 안이면 이 알림 원문으로 바로 거를 표현 고르기 (앱의 '이런 알림 안 받기' 창)
+            const canIgnore = appCanIgnore() && x.raw;
+            const btns = (canRule ? `<button type="button" class="small" data-ib-rule>"${esc(suggestPattern(shop))}"는 늘 ${esc(catOf(cat).name)}</button>` : '')
+                + (canIgnore ? '<button type="button" class="small" data-ib-ignore>이런 알림 안 받기</button>' : '');
             return `<div class="ib open" data-item="${x.id}">${row}<div class="body">
                 ${note}${fields}${chips}${newCat}<span class="raw">${esc(x.raw)}</span>
-                ${canRule ? `<div class="btns"><button type="button" class="small" data-ib-rule>"${esc(suggestPattern(shop))}"는 늘 ${esc(catOf(cat).name)}</button></div>` : ''}</div></div>`;
+                ${btns ? `<div class="btns">${btns}</div>` : ''}</div></div>`;
         }).join('');
         if (focus && $(focus)) $(focus).focus();
     }
@@ -1445,6 +1466,7 @@
         if (!box) return;
         const id = Number(box.dataset.item), item = st.inbox.find(x => x.id === id);
         if (!item) return;
+        if (e.target.closest('[data-ib-ignore]')) { try { window.LedgerApp.pickIgnore(item.raw); } catch (err) { /* 예전 앱 */ } return; }
         const sw = e.target.closest('[data-nb-color]');
         if (sw) { st.newCat.color = sw.dataset.nbColor; st.newCat.msg = ''; renderInbox(); return; }
         if (e.target.closest('[data-nb-open]')) {
@@ -1655,6 +1677,7 @@
     }
     // ---- 앱의 뒤로가기: 열려 있는 것을 하나 닫으면 true (닫을 게 없으면 false → 앱이 '한 번 더 누르면 종료' 안내)
     window.ledgerBack = () => {
+        if (!$('pv').hidden) { closeViewer(); return true; }
         if ($('app').classList.contains('settings-open')) { setBack(); return true; }
         if (!$('memo-dd').hidden) { $('memo-dd').hidden = true; return true; }
         if (!$('addbox').hidden) { $('addbox').hidden = true; return true; }
@@ -1663,6 +1686,7 @@
         const swiped = $('list').querySelector('.sw-row.open');
         if (swiped) { swiped.classList.remove('open'); return true; }
         if (st.search) { openSearch(false); return true; }
+        if (inboxOpen()) { closeInbox(); return true; }
         return false;
     };
     // ==========================================
@@ -1700,13 +1724,33 @@
     }
     // 앱(YeYe홈)이 부름: 위쪽 '설정' → 가계부 설정 (로그인 전이면 false → 앱이 자기 설정을 엶)
     window.appOpenSettings = () => { if (!st.me) return false; openSettings(); return true; };
-    // 홈 탭의 '확인 대기함 n건'을 눌러 왔을 때 (#inbox)
-    window.appShowInbox = () => {
+    // ---- 결제 확인 화면 (#inbox): 홈 탭의 '확인할 결제'를 눌러 옴. 주소에 #inbox 한 칸을 넣어 ←·뒤로가기로 가계부 첫 화면
+    const inboxOpen = () => $('app').classList.contains('inbox-open');
+    function setInboxPage(on) {
+        $('app').classList.toggle('inbox-open', on);
+        if (on) window.scrollTo(0, 0);
+        renderInbox();
+    }
+    function showInboxPage() {
         if (location.hash === '#inbox') history.replaceState(history.state, '', location.pathname + location.search);
-        if (st.me && $('app').classList.contains('settings-open')) closeSettings();
-        let n = 20;
-        (function t() { const e = $('inbox-sec'); if (e && !e.hidden) e.scrollIntoView({ block: 'start' }); else if (n-- > 0) setTimeout(t, 300); })();
-    };
+        if (st.search) openSearch(false);
+        if ($('app').classList.contains('settings-open')) { st.setTab = null; showSettings(false); }
+        if (!inboxOpen()) {
+            const s = history.state || {};
+            history.pushState({ ...s, navDepth: (s.navDepth || 0) + 1, ledgerInbox: 1 }, '', '#inbox');
+        }
+        setInboxPage(true);
+        loadInbox();
+    }
+    function closeInbox() {
+        if (!inboxOpen()) return;
+        if ((history.state || {}).ledgerInbox && location.hash === '#inbox') { history.back(); return; }
+        if (location.hash === '#inbox') history.replaceState(history.state, '', location.pathname + location.search);
+        setInboxPage(false);
+    }
+    $('ib-back').addEventListener('click', closeInbox);
+    // 앱(YeYe홈)이 부름: 가계부 탭이 이미 열려 있을 때 홈 탭의 '확인할 결제'를 누름
+    window.appShowInbox = () => { if (st.me) showInboxPage(); };
     function openSettings(tab) {
         if (!location.hash.startsWith('#settings')) pushSet(null);
         if (tab && st.setTab !== tab) pushSet(tab);
@@ -1723,6 +1767,7 @@
     }
     window.addEventListener('popstate', () => {
         if (!st.me) return;
+        if (inboxOpen() !== (location.hash === '#inbox')) { setInboxPage(location.hash === '#inbox'); if (inboxOpen()) loadInbox(); }
         const on = location.hash.startsWith('#settings');
         st.setTab = on ? location.hash.split('/')[1] || null : null;
         showSettings(on);

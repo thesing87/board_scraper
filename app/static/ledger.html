@@ -72,10 +72,13 @@
                 <!-- 지난달과 비교: 이번 달이면 지난달 같은 날까지, 지난 달이면 그 전달 전체와 -->
                 <div class="hero-cmp" id="m-cmp" hidden></div>
             </section>
+            <!-- 결제 확인 화면 (홈 탭의 '확인할 결제'를 누르면, #inbox): 이 머리줄과 아래 확인할 결제만 보임. ←·뒤로가기로 가계부 첫 화면 -->
+            <div class="set-head ib-page-head" id="ib-page-head"><button type="button" class="set-back" id="ib-back" aria-label="뒤로">←</button><span>결제 확인 <b id="ib-page-n"></b></span></div>
             <!-- 확인할 결제 (휴대폰 결제 알림, ledger.py inbox): 한 줄에 ✓ 확정 · ✕ 버리기, 줄을 누르면 고치기 -->
             <section class="inbox" id="inbox-sec" hidden>
                 <div class="inbox-head"><span>확인할 결제 <b id="inbox-count"></b></span><button type="button" class="link-btn" id="inbox-all">모두 확정 ›</button></div>
                 <div id="inbox"></div>
+                <p class="ib-empty" id="ib-empty" hidden>확인할 결제가 없어요</p>
                 <p class="msg" id="inbox-msg"></p>
             </section>
             <!-- 버린 직후 5초: 되돌리기 -->
@@ -145,6 +148,7 @@
                     </div>
                     <!-- 사진: 기록마다 3장까지. 저장할 때 함께 올리고 뺌 -->
                     <div class="photos" id="photos"></div>
+                    <p class="msg" id="photo-msg" role="alert"></p>
                     <input type="file" id="photo-file" accept="image/*" multiple hidden>
                     <div class="cats" id="cats"></div>
                     <div class="cat-tools"><button type="button" class="link-btn" id="cat-edit">편집</button></div>

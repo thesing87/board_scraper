@@ -116,5 +116,10 @@
             android:name=".CalendarWatch"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+        <!-- 가계부 사진 붙이기: 앱이 JPEG로 바꾼 사진을 앱 안 화면에 넘김 (PhotoPick·PhotoProvider) -->
+        <provider
+            android:name=".PhotoProvider"
+            android:authorities="${applicationId}.photos"
+            android:exported="false" />
     </application>
 </manifest>

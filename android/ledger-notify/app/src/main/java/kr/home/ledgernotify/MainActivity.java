@@ -39,7 +39,7 @@ import android.widget.Toast;
  * 다른 주소의 링크는 브라우저로 엶 (앱 안에는 홈·가계부·근무표만)
  */
 public class MainActivity extends Activity implements Updater.Host {
-    private static final int PICK_FILE = 1;
+    private static final int PICK_FILE = 1, PICK_PHOTO = 2;
     static final int TAB_LEDGER = 0, TAB_DUTY = 1, TAB_HOME = 2;
     private static final String[] PATHS = {"/ledger/", "/duty/", "/yeye/"};
     /** 이 탭으로 열기 (근무표 위젯을 누름) */
@@ -541,13 +541,15 @@ public class MainActivity extends Activity implements Updater.Host {
             progress.setVisibility(p < 100 ? View.VISIBLE : View.GONE);
         }
 
-        /** 관리자 칸의 앱 파일 올리기 등 <input type=file> */
+        /** 관리자 칸의 앱 파일 올리기, 가계부 사진 붙이기(사진은 PhotoPick이 JPEG로 바꿔 넘김) 등 <input type=file> */
         @Override
         public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> cb, FileChooserParams params) {
             if (fileCallback != null) fileCallback.onReceiveValue(null);
             fileCallback = cb;
+            boolean image = PhotoPick.isImage(params.getAcceptTypes());
             try {
-                startActivityForResult(params.createIntent(), PICK_FILE);
+                startActivityForResult(image ? PhotoPick.intent(params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) : params.createIntent(),
+                        image ? PICK_PHOTO : PICK_FILE);
                 return true;
             } catch (ActivityNotFoundException e) {
                 fileCallback = null;
@@ -561,6 +563,17 @@ public class MainActivity extends Activity implements Updater.Host {
         if (req == PICK_FILE && fileCallback != null) {
             fileCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result, data));
             fileCallback = null;
+            return;
+        }
+        if (req == PICK_PHOTO && fileCallback != null) {
+            ValueCallback<Uri[]> cb = fileCallback;
+            fileCallback = null;
+            java.util.List<Uri> picked = result == RESULT_OK ? PhotoPick.uris(data) : new java.util.ArrayList<>();
+            if (picked.isEmpty()) { cb.onReceiveValue(null); return; }
+            new Thread(() -> {
+                Uri[] out = PhotoPick.toJpegs(this, picked);
+                ui.post(() -> cb.onReceiveValue(out));
+            }, "photo-pick").start();
             return;
         }
         super.onActivityResult(req, result, data);
