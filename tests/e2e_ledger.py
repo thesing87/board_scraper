@@ -705,6 +705,8 @@ try:
         conn.commit()
     js("location.hash = ''; location.hash = '#inbox'"); time.sleep(1.5)   # 같은 페이지 안에서 #inbox로 가도 대기함을 새로 읽음
     assert vis('inbox-sec') and '4,400' in txt('inbox') and not vis('ib-empty'), txt('inbox')
+    # 휴대폰 기본 눌림 표시는 끔 (✓·✕를 눌러도 줄 전체가 눌린 것처럼 보이던 것), 버튼은 자기 눌림 모양
+    assert js("return ['.ib-row', '.ib-ok', '.ib-x'].map(q => getComputedStyle(document.querySelector('#inbox ' + q)).webkitTapHighlightColor)") == ['rgba(0, 0, 0, 0)'] * 3
     assert not js("return !!document.querySelector('#inbox [data-ib-ignore]')")             # 접힌 줄에는 없음
     click('#inbox [data-ib-toggle]'); time.sleep(.3)
     js("window.__ign = null"); click('#inbox [data-ib-ignore]'); time.sleep(.3)

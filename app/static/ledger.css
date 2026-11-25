@@ -55,7 +55,9 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .link-btn { height: auto; padding: 2px 4px; border: 0; background: none; color: inherit; font-size: 13px; }
 .inbox .msg:empty { display: none; }
 .ib { margin-bottom: 6px; border-radius: 12px; background: var(--surface); color: var(--text); overflow: hidden; }
-.ib-row { display: flex; align-items: center; gap: 10px; padding: 9px 8px 9px 10px; cursor: pointer; }
+.ib-row { display: flex; align-items: center; gap: 10px; padding: 9px 8px 9px 10px; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background .12s; }
+/* 눌림 표시: 줄의 빈 곳(펼치기)은 줄 배경만, ✓·✕는 그 버튼만 (휴대폰 기본 회색 표시가 줄 전체에 잡히던 것) */
+.ib-row:active:not(:has(button:active)) { background: var(--soft); }
 .ib-m { flex: 1; min-width: 0; }
 .ib-m .shop { display: block; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ib-m small { display: block; font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -65,6 +67,9 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .ib-ok { background: var(--green-bg); color: var(--green); font-weight: 700; }
 .ib-ok:disabled { background: var(--soft); color: var(--faint); opacity: 1; }
 .ib-x { background: none; color: var(--faint); }
+.ib-ok, .ib-x { -webkit-tap-highlight-color: transparent; transition: transform .1s, background .1s, filter .1s; }
+.ib-ok:not(:disabled):active { transform: scale(.88); filter: brightness(.9); }
+.ib-x:active { transform: scale(.88); background: var(--soft); color: var(--muted); }
 .ci.none { background: var(--soft); color: var(--muted); }
 .ib-quick { display: flex; gap: 6px; overflow-x: auto; padding: 0 10px 10px 56px; scrollbar-width: none; }
 .ib-quick::-webkit-scrollbar { display: none; }
