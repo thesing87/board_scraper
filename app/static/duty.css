@@ -74,7 +74,8 @@ a.tool-link { display: inline-flex; align-items: center; padding: 0 12px; border
 .cal-sec.editing .edit-bar { display: flex; }
 #edit-btn { display: none; }
 .edit-bar button { font-weight: 700; }
-.cal-sec.editing { border: 2px solid var(--brand); padding: 11px 13px; }
+/* 고치는 중 테두리는 안쪽 그림자 선으로: 진짜 테두리·여백을 바꾸면 달력 폭이 줄어 여러 날 일정 띠가 잠깐 길어 보였음 */
+.cal-sec.editing { box-shadow: inset 0 0 0 2px var(--brand); }
 .cal-sec.editing .edit-bar span { color: var(--brand); font-weight: 700; }
 .cal-sec.editing #edit-btn { background: var(--brand); border-color: var(--brand); color: #fff; }
 .cal-sec:not(.editing) .cal .day { cursor: default; }
