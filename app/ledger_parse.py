@@ -17,9 +17,14 @@ DATE_TIME_RE = re.compile(r'(?<!\d)(\d{1,2})[/.-](\d{1,2})(?:\s*\([월화수목�
 DATE_RE = re.compile(r'(?<!\d)(\d{1,2})/(\d{1,2})(?!\d)')
 TIME_RE = re.compile(r'(?<!\d)(\d{1,2}):(\d{2})(?!\d)')
 PAY_WORDS = ('승인', '결제', '사용', '출금', '체크', '일시불', '할부', '이용')
-CANCEL_WORDS = ('취소', '환불')
+# '취소할 수 있어요'·'취소 수수료'·'환불 없이' 같은 안내는 취소가 아님
+CANCEL_RE = re.compile(r'취소(?!\s*(?:할|해|하|수수료|가능|규정|기한|시\b))|환불(?!\s*(?:없이|불가|규정|가능))')
 # 금액 바로 앞에 이 낱말이 있으면 결제 금액이 아님 (누적 사용액 등)
-NOT_PAY_BEFORE = ('누적', '잔액', '한도', '잔여', '총', '합계', '포인트', '캐시백', '할인')
+NOT_PAY_BEFORE = ('누적', '잔액', '한도', '잔여', '총', '합계', '포인트', '캐시백', '할인', '수수료', '최대', '적립')
+# 결제 알림이 아닌 것: 광고, 카드 대금 출금, 결제 예정, 할인 받은 내역 (결제 알림은 따로 옴)
+NOT_NOTICE_WORDS = ('(광고)', '결제대금', '출금완료', '출금되었', '결제예정', '결제 예정', '할인내역')
+# 카드 결제 알림은 짧음. 이보다 긴 글은 예약·혜택·할인 안내문 (금액·'결제' 낱말이 섞여 있어도)
+NOTICE_MAX = 300
 # 가게가 아닌 조각
 NOISE_RE = re.compile(
     r'\[[^\]]*\]|\([^)]*\d[^)]*\)|(?:승인|결제|사용|입출금|출금|취소|환불|체크|일시불|이용|안내|알림|완료|해외|국내|온라인|체크카드|신용카드|Web발신)'
@@ -44,12 +49,26 @@ def _card(text):
 def _amount(text):
     for m in AMOUNT_RE.finditer(text):
         before = text[max(0, m.start() - 6):m.start()]
-        if any(w in before for w in NOT_PAY_BEFORE):
+        if any(w in before for w in NOT_PAY_BEFORE) or before.rstrip().endswith('-'):   # '(-4,900원 할인)'
             continue
-        value = int(m.group(1).replace(',', ''))
-        if value > 0:
-            return value
+        # 처음 나온 결제 금액이 0원이면 낸 돈이 없음 (할인으로 0원인 정기결제)
+        return int(m.group(1).replace(',', '')) or None
     return None
+
+
+def _not_payment(text):
+    """금액·결제 낱말이 있어도 결제 알림이 아닌 글"""
+    if len(re.sub(r'\s+', '', text)) > NOTICE_MAX or any(w in text for w in NOT_NOTICE_WORDS):
+        return True
+    # 계좌 알림의 '입출금(1234)'·'입출금 알림'은 들어온 돈인지 나간 돈인지 알려 주지 않음
+    words = [w for w in PAY_WORDS if w in text.replace('입출금', '')]
+    # 입금 알림 (결제 낱말 없이 '입금')
+    if '입금' in text and not words:
+        return True
+    # 계좌에서 카드사로 나간 돈 = 카드 대금 (결제마다 이미 알림이 옴)
+    if words in ([], ['출금']) and re.search(r'(?:' + '|'.join(map(re.escape, CARD_NAMES)) + r')\s*카드', text):
+        return True
+    return False
 
 
 def _when(text, now):
@@ -123,12 +142,13 @@ def parse(text, now=None):
     if not text:
         return None
     amount = _amount(text)
-    if not amount or not any(w in text for w in PAY_WORDS + CANCEL_WORDS):
+    cancel = bool(CANCEL_RE.search(text))
+    if not amount or not (cancel or any(w in text for w in PAY_WORDS)) or _not_payment(text):
         return None
     card = _card(text)
     used_on, hhmm = _when(text, now)
     return {'amount': amount, 'merchant': _merchant(text, card), 'card': card, 'used_on': used_on, 'time': hhmm,
-            'cancel': any(w in text for w in CANCEL_WORDS)}
+            'cancel': cancel}
 
 
 def rule_key(merchant):
