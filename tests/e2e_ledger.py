@@ -108,6 +108,9 @@ try:
     view('cal'); assert vis('totals') and not vis('pane-list') and not vis('type-seg')
     view('ana'); assert vis('pane-ana') and not vis('totals')
     view('list'); assert vis('pane-list') and vis('type-seg')
+    # 모두·지출·수입은 달력·분석처럼 사람 칩 아랫줄 왼쪽 (같은 작은 모양)
+    assert js("const p = document.getElementById('people').getBoundingClientRect(), t = document.getElementById('type-seg').getBoundingClientRect(); return t.top >= p.bottom && Math.abs(t.left - p.left) < 4")
+    assert js("return document.getElementById('type-seg').classList.contains('small') && document.getElementById('type-seg').parentElement.classList.contains('pane-head')")
     # ＋ → 입력 창: 날짜는 짧게 '11/23 (일)', ✕로 닫힘, PC는 키패드 없음(자판으로)
     sheet()
     import datetime as _dt
@@ -387,6 +390,30 @@ try:
     assert txt('hist-n') == '4' and hist.index('사진 1장 뺌') < hist.index('사진 2장 더함') < hist.index('16,000원'), hist
     assert '바뀐 것 없음' not in hist
     click('#edit-cancel'); time.sleep(.3)
+    # 사진은 휴대폰이 사본을 두되 쓸 때마다 확인: 그대로면 304
+    etag_check = """const done = arguments[arguments.length - 1], u = '/api/ledger/photo/' + arguments[0] + '_t.jpg';
+        fetch(u, { cache: 'no-store' }).then(r => { const e = r.headers.get('ETag');
+            return fetch(u, { cache: 'no-store', headers: { 'If-None-Match': e } }).then(r2 => done([r.status, r.headers.get('Cache-Control'), !!e, r2.status])); });"""
+    assert d.execute_async_script(etag_check, photo_ids[1]) == [200, 'private, no-cache', True, 304]
+    # 다른 곳에서 사진을 지움 → 이 화면은 아직 썸네일 (예전 내역) → 누르면 '이 사진은 지워졌어요'와 함께 내역을 새로 읽어 썸네일도 사라짐
+    owner = next(x['user_id'] for x in entries() if x['id'] == feed_id)
+    ledger.photo_delete({'id': owner, 'admin': True}, photo_ids[1])
+    assert js(f"return !!{thumb}")
+    js(f"{thumb}.click()"); time.sleep(1.5)
+    assert vis('pv') and txt('pv-n') == '이 사진은 지워졌어요' and not vis('pv-img')
+    assert not js(f"return !!{thumb}")
+    click('#pv-close'); time.sleep(.2)
+    # 앱이 다른 탭에서 돌아올 때(window.homeRefresh)도 내역을 새로 읽음: 다른 곳에서 고친 금액이 보임
+    with storage._db() as conn:
+        conn.execute("UPDATE ledger_entries SET amount = 17000 WHERE id = ?", (feed_id,)); conn.commit()
+    time.sleep(3.2)
+    js("window.homeRefresh()"); time.sleep(1)
+    assert '17,000' in txt('list'), txt('list')
+    with storage._db() as conn:
+        conn.execute("UPDATE ledger_entries SET amount = 16000 WHERE id = ?", (feed_id,)); conn.commit()
+    time.sleep(3.2)
+    js("window.homeRefresh()"); time.sleep(1)
+    assert '16,000' in txt('list')
     print('PHOTO OK')
     # 줄의 '지우기'(휴대폰에서 왼쪽으로 밀면 나옴): 확인 창에서 취소하면 그대로
     js("window.confirm = () => false")

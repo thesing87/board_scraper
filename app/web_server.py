@@ -1332,7 +1332,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         else:
             self._send_json(404, False, '❌ 없는 요청입니다.')
 
-    # 가계부 사진: /api/ledger/photo/{id}.jpg (큰 것)·{id}_t.jpg (썸네일). 사진 id는 다시 쓰지 않아 오래 둬도 됨
+    # 가계부 사진: /api/ledger/photo/{id}.jpg (큰 것)·{id}_t.jpg (썸네일). 지운 사진이 사본으로 남지 않게 늘 확인(ETag)
     LEDGER_PHOTO_RE = re.compile(r'/api/ledger/photo/(\d{1,12})(_t)?\.jpg')
 
     def _send_ledger_photo(self, match):
@@ -1341,12 +1341,22 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         if not ledger.photo_exists(photo_id) or not os.path.isfile(path):
             self._send_json(404, False, '❌ 없는 사진입니다.')
             return
+        # 휴대폰이 사본을 두되 쓸 때마다 확인 (지운 사진이 사본으로 남아 보이지 않게). 그대로면 304로 다시 받지 않음
+        st = os.stat(path)
+        etag = f'"p{photo_id}{"t" if thumb else ""}-{st.st_size}-{int(st.st_mtime)}"'
+        if (self.headers.get('If-None-Match') or '').strip() == etag:
+            self.send_response(304)
+            self.send_header('ETag', etag)
+            self.send_header('Cache-Control', 'private, no-cache')
+            self.end_headers()
+            return
         with open(path, 'rb') as f:
             data = f.read()
         self.send_response(200)
         self.send_header('Content-Type', 'image/jpeg')
         self.send_header('Content-Length', str(len(data)))
-        self.send_header('Cache-Control', 'private, max-age=31536000, immutable')
+        self.send_header('ETag', etag)
+        self.send_header('Cache-Control', 'private, no-cache')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
         self.end_headers()

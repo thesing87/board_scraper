@@ -177,6 +177,7 @@
         if (status === 401) { showAuth('login'); return; }
         if (status !== 200) { $('entry-msg').textContent = '불러오지 못했어요. 잠시 뒤 다시 해 주세요.'; return; }
         st.data = data;
+        st.loadedAt = Date.now();
         if (st.totView === 'month') loadYear();
         renderAuto();
         for (const kind of ['expense', 'income']) {
@@ -242,7 +243,6 @@
             if (b.dataset.view === on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
         });
         document.querySelectorAll('#app .pane').forEach(p => { p.hidden = p.dataset.pane !== st.view; });
-        $('type-seg').hidden = st.view !== 'list';   // 지출·수입 거르기는 내역에만 (달력·분석은 자기 단추)
     }
     $('views').addEventListener('click', e => {
         const b = e.target.closest('[data-view]');
@@ -844,10 +844,21 @@
         $('pv').hidden = false;
     }
     function showViewer() {
-        $('pv-img').src = pv.urls[pv.i];
+        $('pv-img').hidden = false;
+        // 서버 사진은 열 때마다 새로 (같은 화면에서 전에 본 사진이 지워졌어도 남은 사본이 뜨지 않게)
+        const u = pv.urls[pv.i];
+        $('pv-img').src = u.startsWith('/api/') ? `${u}?v=${Date.now()}` : u;
         $('pv-n').textContent = pv.urls.length > 1 ? `${pv.i + 1} / ${pv.urls.length}` : '';
         $('pv-prev').hidden = $('pv-next').hidden = pv.urls.length < 2;
     }
+    // 사진을 못 받음 (다른 곳에서 지운 사진): 검은 화면 대신 안내, 내역을 새로 읽어 썸네일도 치움
+    $('pv-img').addEventListener('error', () => {
+        if ($('pv').hidden || !$('pv-img').getAttribute('src')) return;
+        $('pv-img').hidden = true;
+        $('pv-n').textContent = '이 사진은 지워졌어요';
+        st.loadedAt = 0;
+        refreshFromOutside();
+    });
     const viewerGo = d => { pv.i = (pv.i + d + pv.urls.length) % pv.urls.length; showViewer(); };
     const closeViewer = () => { $('pv').hidden = true; $('pv-img').removeAttribute('src'); };
     $('pv-close').addEventListener('click', closeViewer);
@@ -1813,7 +1824,15 @@
     });
 
     // 다른 화면에 갔다 오면(휴대폰에서 결제 뒤 열었을 때 등) 대기함을 새로
-    document.addEventListener('visibilitychange', () => { if (!document.hidden && st.me) loadInbox(); });
+    // 내역도 새로: 다른 기기에서 바꾼 것(지운 사진 등)이 앱 화면에 그대로 남지 않게. 방금 읽었으면 건너뜀
+    function refreshFromOutside() {
+        if (!st.me) return;
+        loadInbox();
+        if (Date.now() - (st.loadedAt || 0) > 3000) load();
+    }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshFromOutside(); });
+    // 앱(YeYe홈)이 다른 탭에서 이 탭으로 올 때 부름 (이름은 홈 탭 것과 같이 씀)
+    window.homeRefresh = refreshFromOutside;
     setInterval(() => { if (!document.hidden && st.me) loadInbox(); }, 60000);
 
     boot();
