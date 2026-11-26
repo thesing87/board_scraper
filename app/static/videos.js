@@ -634,6 +634,9 @@
         const info = currentList.find(v => v.path === path);
         if ($('content').hidden === false) scrollMemory[currentDir] = window.scrollY;
         syncRandom(path);
+        // 목록의 검색창 등에 남은 커서를 뺌 (그대로면 키보드가 가려진 검색창으로 감)
+        const focused = document.activeElement;
+        if (focused && focused !== document.body && !$('player').contains(focused)) focused.blur();
         player.path = path;
         player.lastSaved = null;
         // 전에 본 영상이면 처음으로 되감은 위치도 저장 (안 본 영상은 SAVE_MIN초 넘게 봐야 저장)
@@ -868,8 +871,14 @@
         setSeekMenu(false);
     });
     document.addEventListener('pointerdown', e => { if (!$('seek-menu').hidden && !e.target.closest('.seek-wrap')) setSeekMenu(false); });
+    // 건너뛸 수 있는 끝: 영상 길이. 길이를 모르는 영상(앞에 길이 정보가 없는 MKV·WebM 등은 Infinity)은 지금 건너뛸 수 있는 데까지
+    function seekEnd() {
+        if (isFinite(video.duration) && video.duration > 0) return video.duration;
+        const s = video.seekable;
+        return s && s.length ? s.end(s.length - 1) : video.currentTime + seekStep;
+    }
     function seekBy(dir) {
-        video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + dir * seekStep));
+        video.currentTime = Math.max(0, Math.min(seekEnd(), video.currentTime + dir * seekStep));
         const osd = $('seek-osd');
         osd.textContent = `${dir > 0 ? '+' : '−'}${seekStep}초`;
         osd.classList.add('show');
@@ -880,10 +889,12 @@
         if ($('player').hidden || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
         const t = e.target;
-        if (t && t !== video && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-        if (!isFinite(video.duration) || !video.duration) return;
+        // 재생 화면 안의 입력칸만 양보 (재생 화면 뒤에 가려진 검색창에 커서가 남아 있어도 영상을 건너뜀)
+        if (t && t !== video && $('player').contains(t) && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+        // 영상 길이를 모를 때도 늘 여기서 처리 (그냥 넘기면 크롬 기본 재생기가 영상마다 다른 간격으로 건너뜀)
         e.preventDefault();
         e.stopPropagation();
+        if (video.readyState < 1) return;  // 아직 열리는 중
         seekBy(e.key === 'ArrowRight' ? 1 : -1);
     }, true);
     document.addEventListener('keydown', e => {

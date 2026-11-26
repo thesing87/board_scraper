@@ -216,6 +216,15 @@ try:
     d.find_element(By.ID, 'video').send_keys(Keys.ARROW_RIGHT); time.sleep(.5)
     assert abs(js("return document.getElementById('video').currentTime") - 35) < 0.6, js("return document.getElementById('video').currentTime")
     assert js("return document.getElementById('seek-osd').textContent") == '+30초'
+    # 길이를 모르는 영상(앞에 길이 정보가 없는 MKV·WebM은 duration이 Infinity)도 정한 초씩 (크롬 기본 간격으로 넘기지 않음)
+    js("const v = document.getElementById('video'); v.currentTime = 2; Object.defineProperty(v, 'duration', {get: () => Infinity, configurable: true})"); time.sleep(.5)
+    d.find_element(By.ID, 'video').send_keys(Keys.ARROW_RIGHT); time.sleep(.5)
+    assert abs(js("return document.getElementById('video').currentTime") - 32) < 0.6, js("return document.getElementById('video').currentTime")
+    js("delete document.getElementById('video').duration")
+    # 재생 화면 뒤에 가려진 검색창에 커서가 남아 있어도 → 는 영상을 건너뜀
+    js("const v = document.getElementById('video'); v.currentTime = 2; document.getElementById('vsearch-input').focus()"); time.sleep(.5)
+    js("document.getElementById('vsearch-input').dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight', bubbles: true}))"); time.sleep(.5)
+    assert abs(js("return document.getElementById('video').currentTime") - 32) < 0.6, js("return document.getElementById('video').currentTime")
     # 목록이 열린 채 Esc는 목록만 닫음 (재생 화면은 그대로)
     d.find_element(By.ID, 'seek-btn').click(); time.sleep(.3)
     js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))"); time.sleep(.3)
