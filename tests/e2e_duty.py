@@ -233,6 +233,10 @@ try:
     brush('D')
     assert js('return window.ledgerBack()') is True and not vis('brush-sec') and txt('edit-btn') == '고치기'
     assert js('return window.ledgerBack()') is False
+    # '고친 기록' 보기 → 뒤로가기로 달력 (페이지는 그대로)
+    click('#dnav [data-dv="history"]'); time.sleep(.3)
+    assert js('return window.ledgerBack()') is True and vis('cal-sec') and not vis('changes-sec')
+    assert js('return window.ledgerBack()') is False
     # 앱의 다른 탭으로 가면(appTabHidden) 고치기 끝, 앱의 위쪽 '설정'(appOpenSettings)은 근무표 설정을 엶
     click('#edit-btn'); js('window.appTabHidden()')
     assert not vis('brush-sec')

@@ -1826,13 +1826,34 @@
         || !$('addbox').hidden || !$('sheet-wrap').hidden;
     window.ledgerBack = () => {
         if (!$('pv').hidden) { closeViewer(); return true; }
-        if ($('app').classList.contains('settings-open')) { setBack(); return true; }
         if (!$('memo-dd').hidden) { $('memo-dd').hidden = true; return true; }
         if (!$('addbox').hidden) { $('addbox').hidden = true; return true; }
-        if (!$('sheet-wrap').hidden) { closeEntry(); return true; }
+        // 입력·고치기 창: 펼친 분류 목록·수정 이력부터 접고, 그다음 창을 닫음
+        if (!$('sheet-wrap').hidden) {
+            if (st.catOpen) { st.catOpen = false; renderCats(); return true; }
+            if (!$('hist-panel').hidden) { showHist(false); return true; }
+            closeEntry(); return true;
+        }
+        // 설정: 그 페이지에서 펼친 분류 고치기·추가, 반복 결제 고치기부터 접음
+        if ($('app').classList.contains('settings-open')) {
+            if (st.cedFor != null || st.caddKind) { st.cedFor = null; st.caddKind = null; renderCatAdmin(); return true; }
+            if (st.recOpen != null) { st.recOpen = null; renderRecurring(); return true; }
+            setBack(); return true;
+        }
         if (st.newCatFor != null) { st.newCatFor = null; renderInbox(); return true; }
         if (st.search) { openSearch(false); return true; }
+        // 결제 확인: 펼친 결제를 먼저 접음 (접을 때처럼 고친 것은 저장)
+        if (inboxOpen() && st.ibOpen.size) {
+            const ids = [...st.ibOpen];
+            (async () => {
+                for (const id of ids) { await saveIbFields(id); st.ibOpen.delete(id); }
+                renderInbox();
+            })();
+            return true;
+        }
         if (inboxOpen()) { closeInbox(); return true; }
+        // 하루 보기 → 그 달 보기
+        if (st.mode === 'day') { st.mode = 'month'; render(); return true; }
         return false;
     };
     // ==========================================

@@ -693,6 +693,26 @@ try:
     assert js("return window.appGesture(100, 300)") == ''
     assert js('return window.ledgerBack()') is True and not vis('sheet-wrap')                # 입력 창 닫힘
     assert js('return window.ledgerBack()') is False
+    # 창 안에서 펼친 분류 목록은 뒤로가기로 목록만 접힘 (창은 그대로), 한 번 더 → 창 닫힘
+    click('#fab'); time.sleep(.2); click('#cat-pick'); time.sleep(.2)
+    assert vis('cat-list')
+    assert js('return window.ledgerBack()') is True and not vis('cat-list') and vis('sheet-wrap')
+    assert js('return window.ledgerBack()') is True and not vis('sheet-wrap')
+    # 하루 보기 → 그 달 보기 → 닫을 것 없음
+    js("document.querySelector('[data-day]').click()"); time.sleep(.2)
+    assert js("return document.getElementById('period').classList.contains('day')")
+    assert js('return window.ledgerBack()') is True and not js("return document.getElementById('period').classList.contains('day')")
+    assert js('return window.ledgerBack()') is False
+    # 설정 > 분류에서 고치기 칸을 열면 뒤로가기로 그 칸만 접힘
+    js("document.getElementById('set-open').click()"); time.sleep(.3)
+    js("document.querySelector('#set-view [data-tab=\"cats\"]').click()"); time.sleep(.3)
+    js("document.querySelector('#cat-admin [data-ced-open]').click()"); time.sleep(.2)
+    assert js("return !!document.getElementById('ced-name')")
+    assert js('return window.ledgerBack()') is True and not js("return !!document.getElementById('ced-name')") and vis('set-view')
+    for _ in range(3):
+        if not vis('set-view'): break
+        js('window.ledgerBack()'); time.sleep(.5)
+    assert not vis('set-view')
     # 확인할 결제에서 바로 '이런 알림 안 받기' (앱 안에서만): 펼친 줄의 원문을 앱에 넘김
     d.get(BASE + '/ledger/#inbox'); time.sleep(2)
     if not js("return document.querySelectorAll('#inbox [data-item]').length"):   # 결제가 없으면 '없어요'

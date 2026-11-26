@@ -840,6 +840,8 @@
         if (!$('set-view').hidden) { if (okToLeave()) closeSettings(); return true; }
         if (st.adding) { openAdd(false); return true; }
         if (st.editing) { setEditing(false); return true; }
+        // 아래 메뉴 '고친 기록' → '오늘·달력'
+        if (st.dview !== 'cal') { st.dview = 'cal'; window.scrollTo(0, 0); if (st.data) { renderBrush(); renderDView(); } return true; }
         return false;
     };
     // 앱(YeYe홈)이 부름: 위쪽 '설정' → 근무표 설정, 다른 탭으로 감 → 고치기 끝
