@@ -698,11 +698,14 @@ try:
     assert vis('cat-list')
     assert js('return window.ledgerBack()') is True and not vis('cat-list') and vis('sheet-wrap')
     assert js('return window.ledgerBack()') is True and not vis('sheet-wrap')
-    # 하루 보기 → 그 달 보기 → 닫을 것 없음
-    js("document.querySelector('[data-day]').click()"); time.sleep(.2)
-    assert js("return document.getElementById('period').classList.contains('day')")
-    assert js('return window.ledgerBack()') is True and not js("return document.getElementById('period').classList.contains('day')")
+    # 달력 탭에서 날짜 → 그날 내역, 뒤로가기 → 달력 탭(그 달 전체) → 닫을 것 없음
+    click('#views [data-view="cal"]'); time.sleep(.2)
+    js("document.querySelector('#cal [data-day]').click()"); time.sleep(.2)
+    assert js("return document.getElementById('period').classList.contains('day')") and vis('pane-list') and not vis('totals')
+    assert js('return window.ledgerBack()') is True; time.sleep(.2)
+    assert vis('totals') and not vis('pane-list') and not js("return document.getElementById('period').classList.contains('day')")
     assert js('return window.ledgerBack()') is False
+    click('#views [data-view="list"]'); time.sleep(.2)
     # 설정 > 분류에서 고치기 칸을 열면 뒤로가기로 그 칸만 접힘
     js("document.getElementById('set-open').click()"); time.sleep(.3)
     js("document.querySelector('#set-view [data-tab=\"cats\"]').click()"); time.sleep(.3)

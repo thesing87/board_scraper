@@ -58,6 +58,9 @@ public class MainActivity extends Activity implements Updater.Host {
     private WebView web;                     // 지금 보이는 탭의 웹 화면
     private final WebView[] webs = new WebView[3];
     private final String[] loaded = {"", "", ""};   // 탭마다 띄운 주소 (가계부 외에는 그 탭을 처음 볼 때 엶)
+    // 앱이 탭에 새 페이지를 엶(홈 카드 → 가계부 그 기록 등): 다 읽으면 그 탭의 이전 기록을 지워, 뒤로가기가
+    // 예전 가계부 페이지 전체로 돌아가지 않고 페이지 안의 열린 것을 닫은 뒤 홈 탭으로 감
+    private final boolean[] freshLoad = new boolean[3];
     private int tab = -1;
     private final TextView[] tabLabels = new TextView[3];
     private final ImageView[] tabIcons = new ImageView[3];
@@ -240,7 +243,7 @@ public class MainActivity extends Activity implements Updater.Host {
 
     /**
      * 뒤로가기: 페이지에 열린 것(설정·고치기·색 고르기·메모 목록 등)이 있으면 그것부터 닫고,
-     * 가계부·근무표 탭이면 홈 탭으로, 홈 탭이면 '한 번 더 누르면 종료' 안내
+     * 가계부·근무표 탭이면 홈 탭으로 (앱이 탭에 새 페이지를 열면 그 탭의 이전 기록은 지우므로 예전 페이지로 돌아가지 않음), 홈 탭이면 '한 번 더 누르면 종료' 안내
      * → 2초 안에 한 번 더 누르면 앱을 뒤로 보냄 (다시 열면 보던 화면 그대로)
      */
     private long backAt;
@@ -603,6 +606,7 @@ public class MainActivity extends Activity implements Updater.Host {
     private void load(int which, String url) {
         if (loadedSite.isEmpty()) return;
         loaded[which] = url != null ? url : Store.origin(loadedSite) + PATHS[which];
+        freshLoad[which] = true;   // 다 읽으면 그 탭의 이전 기록을 지움 (onPageFinished)
         webs[which].loadUrl(loaded[which]);
     }
 
@@ -720,6 +724,7 @@ public class MainActivity extends Activity implements Updater.Host {
 
         @Override
         public void onPageFinished(WebView view, String url) {
+            for (int k = 0; k < 3; k++) if (webs[k] == view && freshLoad[k]) { freshLoad[k] = false; view.clearHistory(); }
             if (view == web) stopRefresh();
             showBanner();
             DutyPush.sync(MainActivity.this);

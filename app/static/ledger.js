@@ -254,6 +254,7 @@
         if ($('app').classList.contains('settings-open')) closeSettings();
         if (st.view !== b.dataset.view) window.scrollTo(0, 0);
         st.view = b.dataset.view;
+        st.dayFrom = null;
         renderViews();
     });
 
@@ -495,6 +496,8 @@
         if (!b) return;
         if (st.mode === 'day' && ymd(st.day) === b.dataset.day) { st.mode = 'month'; }
         else { st.mode = 'day'; const [y, m, d] = b.dataset.day.split('-').map(Number); st.day = new Date(y, m - 1, d); }
+        // 앱의 뒤로가기로 돌아올 곳 (달력 탭·그 스크롤 위치)
+        if (st.view !== 'list') st.dayFrom = { view: st.view, y: window.scrollY };
         st.view = 'list';   // 그날 내역이 보이게
         render();
     });
@@ -1852,6 +1855,16 @@
             return true;
         }
         if (inboxOpen()) { closeInbox(); return true; }
+        // 달력에서 날짜를 눌러 연 그날 내역 → 달력 탭 (그 달 전체로, 보던 자리로)
+        if (st.dayFrom && st.view === 'list') {
+            const from = st.dayFrom;
+            st.dayFrom = null;
+            st.mode = 'month';
+            st.view = from.view;
+            render();
+            window.scrollTo(0, from.y);
+            return true;
+        }
         // 하루 보기 → 그 달 보기
         if (st.mode === 'day') { st.mode = 'month'; render(); return true; }
         return false;
