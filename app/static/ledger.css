@@ -402,20 +402,26 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 .memo-wrap input { width: 100%; height: 40px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 0 2px; font-size: 15px; }
 .memo-wrap input:focus { outline: 0; border-bottom-color: var(--brand-line); }
 /* 입력 창 사진 칸: 썸네일(눌러 크게, ✕로 빼기) + 📷 더하기 */
-.photos { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; }
-.photos .ph { position: relative; width: 56px; height: 56px; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: var(--soft); flex: 0 0 auto; }
+/* 사진: 분류 줄 오른쪽에 작게 (36px) */
+.photos { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.photos .ph { position: relative; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: var(--soft); flex: 0 0 auto; }
 .photos .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.photos .ph-x { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: rgba(17, 24, 39, .75); color: #fff; font-size: 11px; line-height: 22px; }
+.photos .ph-x { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: rgba(17, 24, 39, .75); color: #fff; font-size: 9px; line-height: 18px; }
 .photos .ph-wrap { position: relative; }
-.photos .ph-add { width: 56px; height: 56px; padding: 0; border: 1.5px dashed #B6BBC4; border-radius: 8px; background: none; color: var(--muted); font-size: 20px; }
-.photos .ph-n { font-size: 12px; color: var(--faint); }
+.photos .ph-add { width: 36px; height: 36px; padding: 0; border: 1.5px dashed #B6BBC4; border-radius: 8px; background: none; color: var(--muted); font-size: 16px; }
+.photos .ph-n { font-size: 11px; color: var(--faint); }
 #photo-msg:empty { display: none; }
 #photo-msg.wait { color: var(--muted); }
-.photos .ph.wait { display: flex; align-items: center; justify-content: center; font-size: 20px; animation: ph-wait 1.2s ease-in-out infinite; }
+.photos .ph.wait { display: flex; align-items: center; justify-content: center; font-size: 16px; animation: ph-wait 1.2s ease-in-out infinite; }
 @keyframes ph-wait { 50% { opacity: .45; } }
 /* 수정 이력 (고치기 창, 접어 둠) */
-.hist { margin: 12px 0 0; padding: 8px 12px; border-radius: 10px; background: var(--soft); font-size: 12px; }
-.hist summary { cursor: pointer; font-weight: 700; color: var(--muted); }
+/* 수정 이력: 분류 줄 끝의 🕘 n, 누르면 그 아래에 */
+.hist-btn { flex: 0 0 auto; height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 13px; }
+.hist-btn[hidden] { display: none; }
+.hist-btn.on { border-color: var(--brand); color: var(--brand); }
+.hist { margin: 8px 0 0; padding: 8px 12px; border-radius: 10px; background: var(--soft); font-size: 12px; }
+.hist[hidden] { display: none; }
+.hist .hist-t { color: var(--muted); }
 .hist .h { margin-top: 8px; line-height: 1.5; }
 .hist .h small { display: block; color: var(--faint); font-size: 11px; }
 .hist .h b { font-weight: 700; }
@@ -434,8 +440,9 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 .cats.editing .chip[data-cat] .ci { box-shadow: 0 0 0 2px currentColor; opacity: .8; }
 .cat-tools { display: flex; justify-content: flex-end; }
 /* 분류 한 칸: '분류  🍚 식비 ⌄', 누르면 아래에 목록 */
-.cat-pick-row { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; }
+.cat-pick-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
 .cat-pick-label { font-size: 13px; color: var(--muted); }
+.cat-pick-row .photos:empty + .hist-btn { margin-left: auto; }
 .cat-pick { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px 0 4px; border: 0; border-radius: 999px; background: var(--soft); font-size: 14px; }
 .cat-pick .ci { width: 28px; height: 28px; font-size: 15px; background: var(--surface) !important; }
 .cat-pick .cn { font-weight: 700; }
@@ -467,11 +474,11 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 /* 숫자 키패드 (휴대폰만) */
 .keypad { display: none; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
 .touch .keypad { display: grid; }
-.keypad button { height: 42px; border: 0; border-radius: 12px; background: var(--soft); font-size: 20px; font-weight: 600; }
+.keypad button { height: 38px; border: 0; border-radius: 12px; background: var(--soft); font-size: 20px; font-weight: 600; }
 .keypad button:active { background: #E5E7EB; }
 .sheet .msg:empty { display: none; }
 /* 저장 줄: 창(스크롤되는 .sheet) 맨 아래에 붙음. 키패드·분류가 길어도 저장은 늘 보임 */
-.sheet-foot { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; margin: 10px -16px 0; padding: 10px 16px calc(env(safe-area-inset-bottom) + 12px);
+.sheet-foot { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; margin: 8px -16px 0; padding: 8px 16px calc(env(safe-area-inset-bottom) + 8px);
     border-top: 1px solid var(--divider); background: var(--surface); }
 .sheet-foot .del { flex: 0 0 auto; width: 52px; height: 48px; padding: 0; border: 1px solid #F3C4C4; border-radius: 14px; background: var(--surface); color: var(--bad);
     display: flex; align-items: center; justify-content: center; }
@@ -576,9 +583,9 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 .rp-day { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
 .rp-day[hidden] { display: none; }
 .rp-day select { height: 30px; border: 1px solid var(--brand-line); border-radius: 8px; padding: 0 4px; background: var(--surface); color: var(--text); font-size: 14px; }
-.rp.linked { display: block; padding: 8px 10px; border-radius: 10px; background: var(--brand-soft); }
+.rp.linked { display: block; margin-top: 6px; padding: 5px 10px; border-radius: 10px; background: var(--brand-soft); font-size: 13px; line-height: 1.3; }
 .rp.linked[hidden] { display: none; }
-.rp-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 600; }
+.rp-top { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; font-weight: 600; }
 .rp-top .link-btn { margin-left: auto; color: var(--brand); font-size: 12.5px; text-decoration: underline; }
 /* 내역 줄의 🔁 */
 .rp-mark { font-size: 11px; line-height: 1; }

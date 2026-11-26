@@ -158,13 +158,14 @@
                         <div class="rp-top"><span id="rp-linked-text"></span><button type="button" class="link-btn" id="rp-open">반복 결제 고치기 ›</button></div>
                         <label class="rp-on"><input type="checkbox" id="rp-future" checked> 다음 달부터도 이 금액·분류·메모로</label>
                     </div>
-                    <!-- 사진: 기록마다 3장까지. 저장할 때 함께 올리고 뺌 -->
-                    <div class="photos" id="photos"></div>
+                    <!-- 한 줄: 분류(고른 것 한 칸, 누르면 목록) · 오른쪽에 사진(기록마다 3장까지, 저장할 때 올리고 뺌) · 수정 이력(🕘 n, 누르면 아래에) -->
+                    <div class="cat-pick-row"><span class="cat-pick-label">분류</span>
+                        <button type="button" class="cat-pick" id="cat-pick" aria-expanded="false" aria-controls="cats"></button>
+                        <div class="photos" id="photos"></div>
+                        <button type="button" class="hist-btn" id="hist" aria-expanded="false" aria-controls="hist-panel" aria-label="수정 이력" title="수정 이력" hidden>🕘 <span id="hist-n"></span></button></div>
                     <p class="msg" id="photo-msg" role="alert"></p>
                     <input type="file" id="photo-file" accept="image/*" multiple hidden>
-                    <!-- 분류: 고른 것 한 칸(그림 · 이름 ⌄), 누르면 목록이 펼쳐지고 고르면 접힘 -->
-                    <div class="cat-pick-row"><span class="cat-pick-label">분류</span>
-                        <button type="button" class="cat-pick" id="cat-pick" aria-expanded="false" aria-controls="cats"></button></div>
+                    <div class="hist" id="hist-panel" hidden><b class="hist-t">수정 이력</b><div id="hist-list"></div></div>
                     <div class="cat-list" id="cat-list" hidden>
                         <div class="cats" id="cats"></div>
                         <div class="cat-tools"><button type="button" class="link-btn" id="cat-edit">편집</button></div>
@@ -182,7 +183,6 @@
                         <button type="button" data-key="7">7</button><button type="button" data-key="8">8</button><button type="button" data-key="9">9</button>
                         <button type="button" data-key="00">00</button><button type="button" data-key="0">0</button><button type="button" data-key="back" aria-label="지우기">⌫</button>
                     </div>
-                    <details class="hist" id="hist" hidden><summary>수정 이력 <span id="hist-n"></span></summary><div id="hist-list"></div></details>
                     <!-- 저장 줄: 창 맨 아래에 붙어 있음 (내용만 위로 스크롤). 고칠 때는 왼쪽에 지우기(휴지통), 취소는 위쪽 ✕ -->
                     <div class="sheet-foot">
                         <p class="msg" id="entry-msg" role="alert"></p>

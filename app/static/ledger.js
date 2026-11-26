@@ -681,6 +681,7 @@
         setPhotos([]);
         st.histFor = null;
         $('hist').hidden = true;
+        showHist(false);
         resetRepeat(null);
     }
 
@@ -1002,6 +1003,7 @@
     async function loadHistory(entryId) {
         st.histFor = entryId;
         $('hist').hidden = true;
+        showHist(false);
         const { status, data } = await get(`/api/ledger/history?entry=${entryId}`);
         if (st.histFor !== entryId || status !== 200) return;
         const list = data.history || [];
@@ -1009,6 +1011,17 @@
         $('hist-list').innerHTML = list.map(histHtml).join('');
         $('hist').hidden = !list.length;
     }
+    // 🕘 n: 누르면 분류 줄 아래에 수정 이력 펼치기·접기
+    function showHist(on) {
+        $('hist-panel').hidden = !on;
+        $('hist').setAttribute('aria-expanded', String(on));
+        $('hist').classList.toggle('on', on);
+    }
+    $('hist').addEventListener('click', () => {
+        const on = $('hist-panel').hidden;
+        showHist(on);
+        if (on) $('hist-panel').scrollIntoView({ block: 'nearest' });
+    });
     const md = d => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
     const memoText = m => m ? `'${esc(m)}'` : '없음';
     function histHtml(h) {

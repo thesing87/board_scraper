@@ -160,7 +160,16 @@ try:
                       " t = document.getElementById('edit-delete').getBoundingClientRect();"
                       " return [b.top >= s.top && b.bottom <= s.bottom && b.bottom <= innerHeight, t.width > 0 && t.bottom <= innerHeight,"
                       " document.getElementById('entry').scrollHeight > document.getElementById('entry').clientHeight]")
-    assert foot()[:2] == [True, True], foot()
+    assert foot() == [True, True, False], foot()   # 처음 뜰 때 내용에 딱 맞음 (스크롤 없음)
+    # 사진·수정 이력은 분류 줄에 (🕘 n을 누르면 그 아래에 이력)
+    assert js("const r = document.getElementById('cat-pick').getBoundingClientRect(), p = document.getElementById('ph-add').getBoundingClientRect(),"
+              " h = document.getElementById('hist').getBoundingClientRect(); return Math.abs(r.top - p.top) < 8 && Math.abs(r.top - h.top) < 8")
+    assert not vis('hist-panel') and txt('hist-n') != ''
+    click('#hist'); time.sleep(.3)
+    assert vis('hist-panel') and '넣음' in txt('hist-list')
+    shot('6a_mobile_hist_open')
+    click('#hist'); time.sleep(.2)
+    assert not vis('hist-panel') and foot() == [True, True, False]
     shot('6b_mobile_edit_top')
     js("document.getElementById('entry').scrollTop = 99999"); time.sleep(.2)
     assert foot()[:2] == [True, True], foot()
