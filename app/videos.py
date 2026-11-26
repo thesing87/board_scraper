@@ -2,7 +2,7 @@
 
 - 바로 재생: MP4·MOV·M4V·WebM은 파일을 그대로 보냄 (Range 요청으로 원하는 위치부터). MKV는 크롬에서 재생됨
 - AVI·WMV 등 브라우저가 못 여는 형식은 목록에 '재생 불가'로 표시하고 내려받기만 (변환은 하지 않음)
-- 썸네일: 처음 볼 때 ffmpeg로 영상 앞부분 한 장면을 뽑아 output/video_thumbs에 저장 (파일이 바뀌면 다시 뽑음)
+- 썸네일: 처음 볼 때 ffmpeg로 영상 길이 가운데(50%) 장면을 뽑아 output/video_thumbs에 저장 (파일이 바뀌면 다시 뽑음)
 - 자막: 영상과 이름이 같은 .srt·.smi를 브라우저용 WebVTT로 바꿔 보냄
 - 경로는 모두 동영상 폴더 기준 상대 경로('/' 구분). 폴더 밖(.. 이나 심볼릭 링크)으로 나가는 경로는 거부
 - 이어 보기 위치는 DB(video_progress)에 저장
@@ -33,6 +33,8 @@ HIDDEN_RE = re.compile(r'^(\.|@eaDir$|#recycle$|#snapshot$)')
 THUMB_DIR = os.path.join(OUTPUT_DIR, 'video_thumbs')
 THUMB_WIDTH = 480
 THUMB_TIMEOUT = 25
+# 썸네일로 뽑는 자리 (영상 길이에 대한 비율)
+THUMB_AT = 0.5
 # 썸네일 ffmpeg는 한 번에 하나만 (NAS CPU 2개·웹서버 메모리 한도 384MB)
 _thumb_lock = threading.Semaphore(1)
 MAX_SUBTITLE_BYTES = 5 * 1024 * 1024
@@ -263,6 +265,17 @@ def folder_samples(rel):
     return out
 
 
+def _duration(ffmpeg, full):
+    """영상 길이 (초). 모르면 0"""
+    try:
+        out = subprocess.run([ffmpeg, '-hide_banner', '-nostdin', '-i', full], capture_output=True, text=True,
+                             errors='replace', timeout=THUMB_TIMEOUT).stderr
+    except (subprocess.TimeoutExpired, OSError):
+        return 0.0
+    m = re.search(r'Duration: (\d+):(\d+):(\d+(?:\.\d+)?)', out)
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else 0.0
+
+
 def _thumb_source(full):
     """폴더의 썸네일로 쓸 영상: 폴더 안 첫 영상 → 첫 하위 폴더 안에서 다시 (3단계까지)"""
     for depth in range(4):
@@ -283,7 +296,7 @@ def _thumb_source(full):
 
 
 def thumbnail(rel):
-    """영상(또는 폴더의 첫 영상) 앞부분 한 장면 JPEG. (바이트, 지문용 키) 또는 None. 한 번 뽑으면 파일로 저장해 둠"""
+    """영상(또는 폴더의 첫 영상) 가운데 장면 JPEG. (바이트, 지문용 키) 또는 None. 한 번 뽑으면 파일로 저장해 둠"""
     full = resolve(rel)
     if not full or not rel:
         return None
@@ -295,7 +308,8 @@ def thumbnail(rel):
         stat = os.stat(full)
     except OSError:
         return None
-    tag = f"t{stat.st_mtime_ns}-{stat.st_size}"
+    # 'm': 가운데 장면으로 바꾼 뒤의 썸네일 (예전 10초 장면 파일과 이름이 달라 새로 뽑음)
+    tag = f"m{stat.st_mtime_ns}-{stat.st_size}"
     key = hashlib.sha1(f"{full}|{tag}".encode('utf-8')).hexdigest()
     path = os.path.join(THUMB_DIR, key[:2], key + '.jpg')
     if os.path.exists(path):
@@ -310,8 +324,10 @@ def thumbnail(rel):
                 return f.read(), tag
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = path + '.tmp.jpg'
-        # 앞부분이 검은 화면인 영상이 많아 10초 뒤 장면을, 짧은 영상이면 처음 장면을
-        for seek in ('10', '0'):
+        # 영상 길이의 가운데(50%) 장면. 길이를 모르면 10초 뒤, 그래도 안 되면 처음 장면
+        duration = _duration(ffmpeg, full)
+        seeks = ([f'{duration * THUMB_AT:.2f}'] if duration > 1 else []) + ['10', '0']
+        for seek in seeks:
             try:
                 subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-ss', seek, '-i', full,
                                 '-frames:v', '1', '-vf', f'scale={THUMB_WIDTH}:-2', '-q:v', '5', tmp],

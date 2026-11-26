@@ -74,6 +74,15 @@
         <div class="player-top">
             <button type="button" class="p-btn" id="player-close" aria-label="목록으로"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg></button>
             <div class="player-title" id="player-title"></div>
+            <!-- ← → 한 번에 건너뛰는 시간: 이 기기에 저장 (videos.js setSeekStep) -->
+            <div class="seek-wrap">
+                <button type="button" class="seek-btn" id="seek-btn" aria-haspopup="true" aria-expanded="false" title="← → 건너뛰기 시간"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8l-4 4 4 4M17 8l4 4-4 4M3 12h18"></path></svg><span id="seek-text">10초</span></button>
+                <div class="seek-menu" id="seek-menu" role="menu" hidden>
+                    <div class="seek-menu-head">← → 한 번에 건너뛰기</div>
+                    <div id="seek-options"></div>
+                    <div class="seek-menu-foot">이 기기에 저장돼요</div>
+                </div>
+            </div>
             <!-- 재생 정보: 끊길 때 원인(네트워크인지 기기 성능인지)을 보려고 (videos.js renderStats) -->
             <button type="button" class="p-btn" id="stats-btn" aria-label="재생 정보" aria-pressed="false" title="재생 정보"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.01"></path></svg></button>
             <a class="p-btn" id="player-download" aria-label="내려받기" title="내려받기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg></a>
@@ -83,6 +92,8 @@
         <div class="player-stage">
             <video id="video" controls controlslist="nofullscreen" playsinline preload="metadata"></video>
             <div class="player-msg" id="player-msg" hidden></div>
+            <!-- ← → 를 누르면 가운데에 잠깐 '+10초' (videos.js seekBy) -->
+            <div class="seek-osd" id="seek-osd" aria-hidden="true"></div>
             <!-- 같은 폴더의 이전·다음 영상: 영상 위 양옆, 누르거나 마우스를 움직이면 떴다가 3초 뒤 사라짐 (videos.js updateNavButtons·showUi, 단축키 Shift+← / Shift+→) -->
             <div class="p-side is-prev">
                 <button type="button" class="p-side-btn" id="prev-btn" aria-label="이전 영상" title="이전 영상" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5v14"></path><path d="M18 6l-9 6 9 6z" fill="currentColor"></path></svg></button>

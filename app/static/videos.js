@@ -491,7 +491,7 @@
     }
     function hideUi() {
         if (video.paused || $('player').hidden) return;
-        if ($('player').querySelector('.player-top:hover, .p-side:hover')) { player.uiTimer = setTimeout(hideUi, UI_HIDE_MS); return; }
+        if ($('player').querySelector('.player-top:hover, .p-side:hover') || !$('seek-menu').hidden) { player.uiTimer = setTimeout(hideUi, UI_HIDE_MS); return; }
         $('player').classList.remove('ui-on');
     }
     $('player').addEventListener('pointermove', e => { if (e.pointerType === 'mouse') showUi(); });
@@ -744,6 +744,8 @@
         clearInterval(stats.timer);
         $('player').hidden = true;
         clearTimeout(player.uiTimer);
+        $('seek-menu').hidden = true;
+        $('seek-btn').setAttribute('aria-expanded', 'false');
         if (fullscreenEl()) toggleFullscreen();
         document.body.classList.remove('is-playing');
     }
@@ -754,8 +756,54 @@
         else location.replace(dirHref(folder));
     }
     $('player-close').addEventListener('click', closePlayer);
+    // ← / →: 어느 영상이든 정한 초씩 (크롬 기본 재생기는 재생바에 초점이 있으면 영상 길이에 비례해 건너뛰어 영상마다 달랐음).
+    // 초는 위쪽 줄 버튼으로 고르고 이 기기에 저장. 재생기 안쪽보다 먼저 받으려고 capture 단계에서 처리
+    const SEEK_STEPS = [5, 10, 15, 30, 60];
+    const SEEK_KEY = 'videos_seek_step';
+    let seekStep = 10;
+    function setSeekStep(sec, save) {
+        seekStep = SEEK_STEPS.includes(sec) ? sec : 10;
+        if (save) storageSet(SEEK_KEY, String(seekStep));
+        $('seek-text').textContent = `${seekStep}초`;
+        $('seek-options').innerHTML = SEEK_STEPS.map(s =>
+            `<button type="button" role="menuitemradio" data-sec="${s}" aria-checked="${s === seekStep}">${s}초</button>`).join('');
+    }
+    function setSeekMenu(open) {
+        $('seek-menu').hidden = !open;
+        $('seek-btn').setAttribute('aria-expanded', String(open));
+        if (!open) showUi();
+    }
+    setSeekStep(Number(storageGet(SEEK_KEY, '10')), false);
+    window.addEventListener('storage', e => { if (e.key === SEEK_KEY) setSeekStep(Number(e.newValue), false); });
+    $('seek-btn').addEventListener('click', () => setSeekMenu($('seek-menu').hidden));
+    $('seek-options').addEventListener('click', e => {
+        const b = e.target.closest('button[data-sec]');
+        if (!b) return;
+        setSeekStep(Number(b.dataset.sec), true);
+        setSeekMenu(false);
+    });
+    document.addEventListener('pointerdown', e => { if (!$('seek-menu').hidden && !e.target.closest('.seek-wrap')) setSeekMenu(false); });
+    function seekBy(dir) {
+        video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + dir * seekStep));
+        const osd = $('seek-osd');
+        osd.textContent = `${dir > 0 ? '+' : '−'}${seekStep}초`;
+        osd.classList.add('show');
+        clearTimeout(player.osdTimer);
+        player.osdTimer = setTimeout(() => osd.classList.remove('show'), 700);
+    }
+    window.addEventListener('keydown', e => {
+        if ($('player').hidden || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        const t = e.target;
+        if (t && t !== video && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+        if (!isFinite(video.duration) || !video.duration) return;
+        e.preventDefault();
+        e.stopPropagation();
+        seekBy(e.key === 'ArrowRight' ? 1 : -1);
+    }, true);
     document.addEventListener('keydown', e => {
         if ($('player').hidden) return;
+        if (e.key === 'Escape' && !$('seek-menu').hidden) { setSeekMenu(false); return; }
         if (e.key === 'Escape' && !document.fullscreenElement) closePlayer();
         // Shift+← / Shift+→: 이전·다음 영상 (화살표만 누르면 브라우저가 앞뒤로 건너뜀)
         if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {

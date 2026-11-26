@@ -16,6 +16,8 @@ for name in [k for k in os.environ if k.startswith('KEYWORDS_')]:
 import storage, web_server, videos
 from selenium.webdriver import Chrome
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.chrome.options import Options
 
 os.makedirs(os.path.join(VIDEOS, '드라마', '1부'))
@@ -195,6 +197,32 @@ try:
     assert js("return document.getElementById('st-dropped').textContent").startswith('최근 0초'), js("return document.getElementById('st-dropped').textContent")
     assert js("return document.getElementById('stats-verdict').textContent")
     assert js("return localStorage.getItem('videos_stats_open')") == '1'
+    # → / ←: 재생바에 초점이 있어도 영상 길이와 상관없이 10초씩
+    js("const v = document.getElementById('video'); v.pause(); v.currentTime = 5"); time.sleep(1)
+    d.find_element(By.ID, 'video').send_keys(Keys.ARROW_RIGHT); time.sleep(.5)
+    assert abs(js("return document.getElementById('video').currentTime") - 15) < 0.6, js("return document.getElementById('video').currentTime")
+    js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowLeft', bubbles: true}))"); time.sleep(.5)
+    assert abs(js("return document.getElementById('video').currentTime") - 5) < 0.6, js("return document.getElementById('video').currentTime")
+    assert js("return document.getElementById('seek-osd').textContent") == '−10초'
+    # 건너뛰기 시간: 위쪽 줄 버튼으로 30초를 고르면 → 가 30초씩, 이 기기(localStorage)에 저장
+    assert js("return document.getElementById('seek-text').textContent") == '10초'
+    d.find_element(By.ID, 'seek-btn').click(); time.sleep(.3)
+    assert not js("return document.getElementById('seek-menu').hidden")
+    assert js("return [...document.querySelectorAll('#seek-options button')].map(b => b.textContent)") == ['5초', '10초', '15초', '30초', '60초']
+    d.find_element(By.CSS_SELECTOR, '#seek-options button[data-sec="30"]').click(); time.sleep(.3)
+    assert js("return document.getElementById('seek-menu').hidden")
+    assert js("return document.getElementById('seek-text').textContent") == '30초'
+    assert js("return localStorage.getItem('videos_seek_step')") == '30'
+    d.find_element(By.ID, 'video').send_keys(Keys.ARROW_RIGHT); time.sleep(.5)
+    assert abs(js("return document.getElementById('video').currentTime") - 35) < 0.6, js("return document.getElementById('video').currentTime")
+    assert js("return document.getElementById('seek-osd').textContent") == '+30초'
+    # 목록이 열린 채 Esc는 목록만 닫음 (재생 화면은 그대로)
+    d.find_element(By.ID, 'seek-btn').click(); time.sleep(.3)
+    js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))"); time.sleep(.3)
+    assert js("return document.getElementById('seek-menu').hidden") and not js("return document.getElementById('player').hidden")
+    js("localStorage.removeItem('videos_seek_step')")
+    ActionChains(d).move_to_element(d.find_element(By.ID, 'video')).perform()  # 위쪽 줄 위에 마우스가 있으면 숨지 않으므로 비킴
+    js("document.getElementById('video').play()"); time.sleep(.5)
     # 원하는 위치로 건너뛰기 (Range)
     js("document.getElementById('video').currentTime = 30"); time.sleep(1.5)
     assert js("return document.getElementById('video').currentTime") >= 30
