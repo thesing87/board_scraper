@@ -250,6 +250,8 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 .hero-cmp { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
 .hero-cmp b { font-weight: 700; font-variant-numeric: tabular-nums; }
 .cmp-up { color: #A32D2D; } .cmp-dn { color: #0F6E56; } .cmp-eq { color: var(--faint); }
+/* 지난달엔 없던 분류: 빨간 동그라미 안 흰 N */
+.cmp-new { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; background: #E24B4A; color: #fff; font-size: 10px; font-weight: 700; line-height: 1; vertical-align: 1px; }
 
 
 /* 거르기: 사람 칩 · 지출/수입 */

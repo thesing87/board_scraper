@@ -358,7 +358,7 @@
         const diffOf = id => {
             if (!prev) return '';
             const p = prevSums.get(id) || 0, d = sums.get(id) - p;
-            if (!p) return '<span class="d cmp-up">새로</span>';
+            if (!p) return '<span class="d cmp-new" title="지난달엔 없던 분류" aria-label="새로">N</span>';
             if (Math.abs(d) < Math.max(1000, p * 0.05)) return '<span class="d cmp-eq">비슷</span>';
             // 지출은 더 쓰면 빨강, 수입은 더 들어오면 초록
             return `<span class="d ${(d > 0) !== income ? 'cmp-up' : 'cmp-dn'}">${d > 0 ? '▲' : '▼'}${shortWon(Math.abs(d))}</span>`;
@@ -368,7 +368,7 @@
             const tick = prev && p ? `<u style="left:${Math.min(100, p / total * 100).toFixed(1)}%" title="지난달 ${won(p)}"></u>` : '';
             return `<div class="lg"><div class="lg-top">${catIcon(c)}<span class="n">${esc(c.name)}</span>${diffOf(id)}
                 <span class="p">${pct}%</span><span class="w">${won(v)}</span></div><div class="lg-bar"><i style="width:${pct}%;background:${c.color}"></i>${tick}</div></div>`;
-        }).join('') + (prev ? `<p class="lg-note">눈금 = 지난달${prev.sameDay ? ` ${prev.sameDay}일까지` : ''} 그 분류 · ▲ 늘어남 ▼ 줄어듦</p>` : '')
+        }).join('') + (prev ? `<p class="lg-note">눈금 = 지난달${prev.sameDay ? ` ${prev.sameDay}일까지` : ''} 그 분류 · ▲ 늘어남 ▼ 줄어듦 · <span class="cmp-new">N</span> 지난달엔 없던 분류</p>` : '')
             : `<p class="empty">${st.ana === 'income' ? '수입' : '지출'} 기록이 없어요</p>`;
         renderList(list);
     }

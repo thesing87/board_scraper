@@ -147,6 +147,14 @@ try:
     d.get(BASE + '/ledger/'); time.sleep(2)
     assert "이미 기록됨" not in txt('inbox')
 
+    # ---- 분석: 지난달엔 없던 분류는 '새로' 대신 빨간 동그라미 N (설명 줄에도)
+    click('#views [data-view="ana"]'); time.sleep(.4)
+    assert js("return [...document.querySelectorAll('#legend .lg-top .cmp-new')].map(e => e.textContent)")[:1] == ['N']
+    assert '새로' not in txt('legend') and 'N 지난달엔 없던 분류' in txt('legend'), txt('legend')
+    assert js("const e = document.querySelector('#legend .lg-top .cmp-new'), c = getComputedStyle(e); return [e.offsetWidth, c.borderRadius, c.color]") == [15, '50%', 'rgb(255, 255, 255)']
+    shot('5b_analysis_new')
+    click('#views [data-view="list"]'); time.sleep(.2)
+
     # ---- 휴대폰: 넘침 없음 (입력 창·설정)
     d.set_window_size(390, 844); time.sleep(.4)
     click('#fab'); time.sleep(.3); click('#rp-check'); time.sleep(.2)
