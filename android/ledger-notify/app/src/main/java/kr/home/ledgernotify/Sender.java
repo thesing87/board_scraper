@@ -38,6 +38,12 @@ final class Sender {
         flushAsync(c, null);
     }
 
+    /** 거른 알림의 '그래도 보내기': 무시할 표현은 건너뛰고 줄에 넣어 보냄 (인터넷이 안 되면 다른 알림처럼 나중에 다시) */
+    static void resend(Context c, String app, String text, Runnable done) {
+        new Store(c).enqueue(app, text);
+        flushAsync(c, done);
+    }
+
     /** '시험 보내기': 거르지 않고 바로 줄에 */
     static void sendTest(Context c, String text, Runnable done) {
         new Store(c).enqueue("시험", text);

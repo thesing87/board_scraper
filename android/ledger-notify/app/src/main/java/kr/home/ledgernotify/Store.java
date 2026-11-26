@@ -244,12 +244,32 @@ final class Store {
             try {
                 String flat = text.replaceAll("\\s+", " ").trim();
                 String preview = flat.length() > 70 ? flat.substring(0, 70) + "…" : flat;
+                // 거른 알림은 '그래도 보내기'로 그대로 보낼 수 있게 글 전체 (결제 알림으로 치는 2000자까지, 줄바꿈도 그대로)
+                String full = filtered ? text : flat.length() > 300 ? flat.substring(0, 300) : flat;
                 log.put(new JSONObject().put("t", System.currentTimeMillis()).put("app", app)
-                        .put("text", preview).put("full", flat.length() > 300 ? flat.substring(0, 300) : flat)
+                        .put("text", preview).put("full", full)
                         .put("status", status).put("ok", ok).put("filtered", filtered));
             } catch (JSONException ignored) { }
             for (int i = 0; i < old.length() && log.length() < LOG_MAX; i++) log.put(old.opt(i));
             put("log", log);
+        }
+    }
+
+    /** 거른 알림을 '그래도 보내기'로 보냈다고 표시 (버튼을 숨겨 두 번 보내지 않게). 이미 보냈거나 없으면 false */
+    boolean markResent(long t, String full) {
+        synchronized (LOCK) {
+            JSONArray a = arr("log");
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject l = a.optJSONObject(i);
+                if (l == null || l.optLong("t") != t || !full.equals(l.optString("full")) || !l.optBoolean("filtered")) continue;
+                if (l.optBoolean("resent")) return false;
+                try {
+                    l.put("resent", true).put("status", l.optString("status").replaceFirst(" — 휴대폰 밖으로 안 나감$", "") + " → 그래도 보냄");
+                } catch (JSONException ignored) { }
+                put("log", a);
+                return true;
+            }
+            return false;
         }
     }
 

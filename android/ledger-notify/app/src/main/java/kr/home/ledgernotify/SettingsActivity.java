@@ -403,6 +403,16 @@ public class SettingsActivity extends Activity implements Updater.Host {
                 lp.topMargin = dp(4);
                 item.addView(no, lp);
             }
+            // 무시할 표현에 걸러진 알림: '그래도 보내기'로 이것만 가계부 확인 대기함에 (무시할 표현은 그대로, 한 번만)
+            if (l.optBoolean("filtered") && !l.optBoolean("resent") && !full.isEmpty()) {
+                final long t = l.optLong("t");
+                final String app = l.optString("app");
+                Button send = button("그래도 보내기", v -> resendFiltered(t, app, full));
+                send.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = dp(4);
+                item.addView(send, lp);
+            }
             logBox.addView(item);
         }
     }
@@ -594,6 +604,23 @@ public class SettingsActivity extends Activity implements Updater.Host {
         Sender.sendTest(this, "[YeYe홈 앱] 시험 승인 1,000원 일시불 " + now + " 앱 연결 시험", () -> ui.post(() -> {
             refresh();
             toast("보냈어요 — 가계부 확인 대기함과 '최근 알림'을 보세요");
+        }));
+    }
+
+    /** 거른 알림 다시 보내기: 연결 주소가 있어야 하고, 같은 줄은 한 번만 (보낸 결과는 '최근 알림' 맨 위에 새 줄로) */
+    private void resendFiltered(long t, String app, String full) {
+        if (store.url().isEmpty()) {
+            toast("연결 주소를 먼저 저장하세요");
+            return;
+        }
+        if (!store.markResent(t, full)) {
+            refresh();
+            return;
+        }
+        refresh();
+        Sender.resend(this, app, full, () -> ui.post(() -> {
+            refresh();
+            toast(store.waiting() > 0 ? "지금은 보내지 못해 인터넷이 되면 다시 보내요" : "보냈어요 — 가계부 확인 대기함을 보세요");
         }));
     }
 
