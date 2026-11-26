@@ -295,35 +295,33 @@ def _thumb_source(full):
     return None
 
 
-def thumbnail(rel):
-    """영상(또는 폴더의 첫 영상) 가운데 장면 JPEG. (바이트, 지문용 키) 또는 None. 한 번 뽑으면 파일로 저장해 둠"""
-    full = resolve(rel)
-    if not full or not rel:
-        return None
-    if os.path.isdir(full):
-        full = _thumb_source(full)
-    if not full or not os.path.isfile(full) or not is_video(full):
-        return None
+def thumb_path(full):
+    """영상의 썸네일 파일 경로와 지문용 키 (영상 경로·크기·수정 시각으로 정함 → 영상이 바뀌면 다른 이름). 영상을 못 읽으면 (None, None)"""
     try:
         stat = os.stat(full)
     except OSError:
-        return None
+        return None, None
     # 'm': 가운데 장면으로 바꾼 뒤의 썸네일 (예전 10초 장면 파일과 이름이 달라 새로 뽑음)
     tag = f"m{stat.st_mtime_ns}-{stat.st_size}"
     key = hashlib.sha1(f"{full}|{tag}".encode('utf-8')).hexdigest()
-    path = os.path.join(THUMB_DIR, key[:2], key + '.jpg')
-    if os.path.exists(path):
-        with open(path, 'rb') as f:
-            return f.read(), tag
+    return os.path.join(THUMB_DIR, key[:2], key + '.jpg'), tag
+
+
+def make_thumbnail(full):
+    """영상의 썸네일 파일을 만들어 둠 (이미 있으면 그대로). 만든(있는) 파일 경로 또는 None.
+    웹서버(처음 볼 때)와 변환 작업기(새 영상을 미리)가 함께 씀"""
+    path, _ = thumb_path(full)
+    if not path or os.path.exists(path):
+        return path
     ffmpeg = _ffmpeg()
     if not ffmpeg:
         return None
     with _thumb_lock:
         if os.path.exists(path):
-            with open(path, 'rb') as f:
-                return f.read(), tag
+            return path
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + '.tmp.jpg'
+        # 두 컨테이너가 같은 영상을 동시에 뽑아도 섞이지 않게 임시 파일은 프로세스마다 따로
+        tmp = f'{path}.{os.getpid()}.tmp.jpg'
         # 영상 길이의 가운데(50%) 장면. 길이를 모르면 10초 뒤, 그래도 안 되면 처음 장면
         duration = _duration(ffmpeg, full)
         seeks = ([f'{duration * THUMB_AT:.2f}'] if duration > 1 else []) + ['10', '0']
@@ -337,9 +335,31 @@ def thumbnail(rel):
                 pass
             if os.path.exists(tmp) and os.path.getsize(tmp) > 0:
                 os.replace(tmp, path)
-                with open(path, 'rb') as f:
-                    return f.read(), tag
+                return path
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
     return None
+
+
+def thumbnail(rel):
+    """영상(또는 폴더의 첫 영상) 가운데 장면 JPEG. (바이트, 지문용 키) 또는 None. 한 번 뽑으면 파일로 저장해 둠"""
+    full = resolve(rel)
+    if not full or not rel:
+        return None
+    if os.path.isdir(full):
+        full = _thumb_source(full)
+    if not full or not os.path.isfile(full) or not is_video(full):
+        return None
+    path, tag = thumb_path(full)
+    if not path or not make_thumbnail(full):
+        return None
+    try:
+        with open(path, 'rb') as f:
+            return f.read(), tag
+    except OSError:
+        return None
 
 
 # ==========================================

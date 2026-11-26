@@ -7,6 +7,8 @@
 자동 변환(VIDEO_AUTO_CONVERT, 기본 켬): 자동 변환 시간(VIDEO_AUTO_HOURS, 기본 새벽 2~8시)에만.
 그 시간이 되면 하루 한 번 동영상 폴더 전체를 훑어 변환이 필요한 영상을 넣고 차례로 변환, 끝나는 시각에 도는 자동 변환도 멈춤.
 직접 누른 '지금 변환'은 시간과 관계없이 늘 먼저
+썸네일 미리 만들기: THUMB_SCAN_SECONDS마다 동영상 폴더를 훑어 썸네일이 없는 영상(새로 들어온 것부터)을 미리 만들어 둠
+(목록을 처음 열 때 기다리지 않게). 쓰지 않게 된 썸네일은 정리 때 지움
 """
 import threading
 import time
@@ -16,12 +18,16 @@ from datetime import date
 from config import VIDEO_AUTO_CONVERT, log_msg, short_err
 import storage
 import video_convert
+import videos
 
 POLL_SECONDS = 3
 # 대시보드 'NAS 상태'가 이 작업기가 살아 있는지 보도록 남기는 기록 간격 (system_status.CONVERT_HEARTBEAT_META)
 HEARTBEAT_SECONDS = 60
 CLEANUP_EVERY = 6 * 3600
 SCAN_CHECK_SECONDS = 300
+# 썸네일 없는 영상을 찾는 간격, 한 번에 만드는 시간 (넘으면 다시 훑어 그사이 새로 들어온 영상부터)
+THUMB_SCAN_SECONDS = 60
+THUMB_BATCH_SECONDS = 120
 
 
 def lane(name):
@@ -59,6 +65,27 @@ def auto_scanner():
         time.sleep(SCAN_CHECK_SECONDS)
 
 
+def thumb_filler():
+    """썸네일이 없는 영상을 찾아 미리 만듦. 뽑지 못한 영상은 이 작업기가 다시 시작하거나 영상이 바뀔 때까지 다시 하지 않음"""
+    failed = set()
+    while True:
+        try:
+            started = time.time()
+            made = 0
+            for full, path in video_convert.missing_thumbnails(failed):
+                if videos.make_thumbnail(full):
+                    made += 1
+                else:
+                    failed.add(path)
+                if time.time() - started > THUMB_BATCH_SECONDS:
+                    break
+            if made:
+                log_msg(f"[썸네일] {made}개 미리 만듦 ({time.time() - started:.0f}초)")
+        except Exception as e:  # noqa: BLE001
+            log_msg(f"[썸네일] 오류: {short_err(e)}", 'WARN')
+        time.sleep(THUMB_SCAN_SECONDS)
+
+
 def heartbeat():
     while True:
         try:
@@ -78,11 +105,15 @@ def main():
     if VIDEO_AUTO_CONVERT:
         threading.Thread(target=auto_scanner, name='convert-auto-scan', daemon=True).start()
         log_msg(f'[변환] 자동 변환 켬 (매일 {video_convert.AUTO_START}시~{video_convert.AUTO_END}시)')
+    threading.Thread(target=thumb_filler, name='thumb-filler', daemon=True).start()
     while True:
         try:
             removed = video_convert.cleanup()
             if removed:
                 log_msg(f"[변환] 원본이 바뀌거나 없어진 변환본 {removed}개 지움")
+            removed = video_convert.cleanup_thumbnails()
+            if removed:
+                log_msg(f"[썸네일] 영상이 바뀌거나 없어진 썸네일 {removed}개 지움")
         except Exception as e:  # noqa: BLE001
             log_msg(f"[변환] 정리 오류: {short_err(e)}", 'WARN')
         time.sleep(CLEANUP_EVERY)

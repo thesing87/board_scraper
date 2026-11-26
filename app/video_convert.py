@@ -51,6 +51,10 @@ PROBE_TIMEOUT = 30
 SPEED_GUESS = ((576, 4.0), (720, 1.6), (99999, 1.0))
 REMUX_SPEED_GUESS = 40.0
 PROGRESS_EVERY = 3
+# 썸네일 미리 만들기: 수정된 지 이만큼 안 된 영상은 아직 복사 중일 수 있어 기다림
+THUMB_SETTLE_SECONDS = 60
+# 썸네일 정리: 만든 지 이만큼 안 된 파일은 지우지 않음
+THUMB_KEEP_SECONDS = 24 * 3600
 
 
 # ==========================================
@@ -261,6 +265,48 @@ def _walk_videos():
             if videos.HIDDEN_RE.match(name) or not videos.is_video(name):
                 continue
             yield (name if rel_top == '.' else f'{rel_top}/{name}'), os.path.join(top, name)
+
+
+def missing_thumbnails(skip_paths=(), now=None):
+    """썸네일이 아직 없는 영상의 실제 경로, 최근에 들어온 것부터.
+    방금(THUMB_SETTLE_SECONDS 안에) 바뀐 영상은 아직 복사 중일 수 있어 다음 차례로 미룸. skip_paths(전에 실패한 썸네일 경로)도 뺌"""
+    now = now or time.time()
+    found = []
+    for _rel, full in _walk_videos():
+        try:
+            mtime = os.stat(full).st_mtime
+        except OSError:
+            continue
+        if now - mtime < THUMB_SETTLE_SECONDS:
+            continue
+        path, _ = videos.thumb_path(full)
+        if path and path not in skip_paths and not os.path.exists(path):
+            found.append((mtime, full, path))
+    found.sort(key=lambda x: x[0], reverse=True)
+    return [(full, path) for _m, full, path in found]
+
+
+def cleanup_thumbnails(now=None):
+    """지금 영상들의 썸네일이 아닌 파일(영상이 바뀌거나 없어진 것, 예전 10초 장면)을 지움.
+    방금 만든 파일은 훑은 뒤 들어온 영상의 것일 수 있어 THUMB_KEEP_SECONDS가 지난 것만. 지운 수"""
+    if not os.path.isdir(videos.THUMB_DIR) or not videos.resolve('') or not os.path.isdir(videos.resolve('')):
+        return 0
+    now = now or time.time()
+    keep = {videos.thumb_path(full)[0] for _rel, full in _walk_videos()}
+    if not keep:
+        return 0  # 동영상 폴더가 비어 보이면(연결이 끊긴 때 등) 아무것도 지우지 않음
+    removed = 0
+    for top, _dirs, files in os.walk(videos.THUMB_DIR):
+        for name in files:
+            path = os.path.join(top, name)
+            try:
+                if path in keep or now - os.path.getmtime(path) < THUMB_KEEP_SECONDS:
+                    continue
+                os.remove(path)
+                removed += 1
+            except OSError:
+                pass
+    return removed
 
 
 def scan_library(keep_going=None):
