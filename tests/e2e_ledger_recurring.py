@@ -54,6 +54,15 @@ try:
 
     # ---- 입력 창: '🔁 매달 반복'은 처음엔 꺼짐, 켜면 매월 (날짜 칸의 날)일
     click('#fab'); time.sleep(.3)
+    # 분류는 고른 것 한 칸 (그림 · 이름 ⌄), 누르면 목록이 펼쳐지고 고르면 접힘
+    assert vis('cat-pick') and not vis('cat-list') and '식비' in txt('cat-pick') and '🍚' in txt('cat-pick'), txt('cat-pick')
+    click('#cat-pick'); time.sleep(.2)
+    assert vis('cat-list') and vis('cat-edit') and js("return document.getElementById('cat-pick').getAttribute('aria-expanded')") == 'true'
+    shot('0_cat_open')
+    click('#cats [data-cat]:nth-child(2)'); time.sleep(.2)
+    assert not vis('cat-list') and '카페' in txt('cat-pick') and '☕' in txt('cat-pick')
+    click('#cat-pick'); time.sleep(.2); click('#cats [data-cat]:nth-child(4)'); time.sleep(.2)   # 생활
+    assert not vis('cat-list') and '생활' in txt('cat-pick')
     assert vis('rp-new') and not vis('rp-linked') and not vis('rp-day-wrap')
     click('#rp-check'); time.sleep(.1)
     assert vis('rp-day-wrap') and js("return document.getElementById('rp-day').value") == str(T.day)

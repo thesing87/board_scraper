@@ -162,8 +162,13 @@
                     <div class="photos" id="photos"></div>
                     <p class="msg" id="photo-msg" role="alert"></p>
                     <input type="file" id="photo-file" accept="image/*" multiple hidden>
-                    <div class="cats" id="cats"></div>
-                    <div class="cat-tools"><button type="button" class="link-btn" id="cat-edit">편집</button></div>
+                    <!-- 분류: 고른 것 한 칸(그림 · 이름 ⌄), 누르면 목록이 펼쳐지고 고르면 접힘 -->
+                    <div class="cat-pick-row"><span class="cat-pick-label">분류</span>
+                        <button type="button" class="cat-pick" id="cat-pick" aria-expanded="false" aria-controls="cats"></button></div>
+                    <div class="cat-list" id="cat-list" hidden>
+                        <div class="cats" id="cats"></div>
+                        <div class="cat-tools"><button type="button" class="link-btn" id="cat-edit">편집</button></div>
+                    </div>
                     <div class="addbox" id="addbox" hidden>
                         <div class="add-row"><input id="new-name" placeholder="이름" maxlength="12"><span class="chip" id="new-preview"></span></div>
                         <div class="icons" id="add-icons"></div>

@@ -274,6 +274,14 @@
     }
     function renderCats() {
         const cats = kindCats();
+        // 고른 분류 한 칸: 그림 · 이름 ⌄ (없으면 '골라 주세요'), 목록은 st.catOpen일 때만
+        const cur = cats.find(c => c.id === selected());
+        $('cat-pick').innerHTML = cur ? `${catIcon(cur)}<span class="cn" style="color:${chipFg(cur.color)}">${esc(cur.name)}</span><span class="chev" aria-hidden="true">⌄</span>`
+            : `<span class="cn none">${st.kind === 'income' ? '수입 종류를 골라 주세요' : '분류를 골라 주세요'}</span><span class="chev" aria-hidden="true">⌄</span>`;
+        $('cat-pick').style.background = cur ? chipBg(cur.color) : '';
+        $('cat-pick').classList.toggle('open', !!st.catOpen);
+        $('cat-pick').setAttribute('aria-expanded', String(!!st.catOpen));
+        $('cat-list').hidden = !st.catOpen;
         $('cats').innerHTML = cats.map(c => `<span class="chip${c.id === selected() ? ' on' : ''}" data-cat="${c.id}" role="button" tabindex="0"
                 style="color:${chipFg(c.color)}">${catIcon(c)}<span class="cn">${esc(c.name)}</span></span>`).join('')
             + '<span class="chip add" id="cat-add" role="button" tabindex="0"><span class="ci">＋</span><span class="cn">추가</span></span>';
@@ -636,6 +644,7 @@
     }
     function closeEntry() {
         $('sheet-wrap').hidden = true;
+        st.catOpen = false;
         document.documentElement.classList.remove('sheet-open');
         $('memo-dd').hidden = true;
         $('addbox').hidden = true;
@@ -678,7 +687,7 @@
     $('save').addEventListener('click', async () => {
         const amount = amountValue();
         if (!amount) { $('entry-msg').textContent = '금액을 넣어 주세요.'; $('amount').focus(); return; }
-        if (selected() == null) { $('entry-msg').textContent = st.kind === 'income' ? '수입 종류를 골라 주세요.' : '소비형태를 골라 주세요.'; return; }
+        if (selected() == null) { $('entry-msg').textContent = st.kind === 'income' ? '수입 종류를 골라 주세요.' : '소비형태를 골라 주세요.'; st.catOpen = true; renderCats(); return; }
         const body = { amount, used_on: $('used-on').value || ymd(new Date()), category_id: selected(), memo: $('memo').value.trim() };
         const editing = st.editId != null;
         if (!$('rp-new').hidden && $('rp-check').checked) body.repeat_day = Number($('rp-day').value);
@@ -1064,6 +1073,7 @@
         if (status !== 200) { $('add-msg').textContent = msgOf(data); return; }
         st.sels[st.kind] = data.id;
         $('addbox').hidden = true;
+        st.catOpen = false;
         load();
     });
 
@@ -1084,7 +1094,15 @@
         if (!chip) return;
         st.sels[st.kind] = Number(chip.dataset.cat);
         $('addbox').hidden = true;
+        st.catOpen = false;
         renderCats();
+    });
+    // 고른 분류 한 칸을 누르면 목록 펼치기·접기
+    $('cat-pick').addEventListener('click', () => {
+        st.catOpen = !st.catOpen;
+        if (!st.catOpen) $('addbox').hidden = true;
+        renderCats();
+        if (st.catOpen) $('cat-list').scrollIntoView({ block: 'nearest' });
     });
     $('cats').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.chip')) { e.preventDefault(); e.target.click(); } });
 
