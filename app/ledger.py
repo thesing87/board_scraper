@@ -569,7 +569,9 @@ def delete_category(category_id):
 # ==========================================
 RECURRING_MAX = 100          # 모두 합쳐
 RECURRING_CATCHUP = 24       # 서버가 오래 꺼져 있었어도 반복마다 이만큼(달)까지만 채움
-RECURRING_MATCH_DAYS = 3     # 결제 알림이 반복일 앞뒤 이만큼 안이고 금액이 같으면 '반복 결제로 이미 기록됨'
+RECURRING_MATCH_DAYS = 3     # 결제 알림이 반복일 앞뒤 이만큼 안이고 금액이 비슷하면 '반복 결제로 이미 기록됨'
+RECURRING_MATCH_RATE = 0.1   # 금액이 반복 금액의 이만큼 안이면 비슷함 (요금이 조금 바뀐 달)
+RECURRING_MATCH_WON = 1000   # 단, 적어도 이만큼(원)까지는
 _recurring_lock = threading.Lock()
 
 
@@ -685,18 +687,23 @@ def delete_recurring(user, rec_id):
 
 
 def _recurring_match(conn, item):
-    """결제 알림과 같은 반복 결제: 금액이 같고, 반복이 넣은 기록이 알림 날 앞뒤 RECURRING_MATCH_DAYS일 안에 있거나
-    곧 넣을 날(next_on)이 그 안이면 {memo, used_on, done(이미 넣었는지)}. 알림 이름이 반복의 메모와 달라도 (예: '신한은행 자동이체' → 'XX 보험')"""
+    """결제 알림과 같은 반복 결제: 금액이 비슷하고(반복 금액의 RECURRING_MATCH_RATE 안, 적어도 RECURRING_MATCH_WON원까지),
+    반복이 넣은 기록이 알림 날 앞뒤 RECURRING_MATCH_DAYS일 안에 있거나 곧 넣을 날(next_on)이 그 안이면
+    {memo, used_on, done(이미 넣었는지), diff(알림 금액 − 반복 금액)}. 여럿이면 금액이 가장 가까운 것.
+    알림 이름이 반복의 메모와 달라도 (예: '신한은행 자동이체' → 'XX 보험')"""
     lo, hi = f'-{RECURRING_MATCH_DAYS} days', f'+{RECURRING_MATCH_DAYS} days'
-    e = conn.execute("""SELECT memo, used_on FROM ledger_entries WHERE recurring_id IS NOT NULL AND amount = ?
-                        AND used_on BETWEEN date(?, ?) AND date(?, ?) ORDER BY ABS(julianday(used_on) - julianday(?)) LIMIT 1""",
-                     (item['amount'], item['used_on'], lo, item['used_on'], hi, item['used_on'])).fetchone()
+    near = "ABS(? - amount) <= MAX(?, amount * ?)"
+    args = (item['amount'], RECURRING_MATCH_WON, RECURRING_MATCH_RATE)
+    e = conn.execute(f"""SELECT memo, used_on, amount FROM ledger_entries WHERE recurring_id IS NOT NULL AND {near}
+                         AND used_on BETWEEN date(?, ?) AND date(?, ?)
+                         ORDER BY ABS(? - amount), ABS(julianday(used_on) - julianday(?)) LIMIT 1""",
+                     (*args, item['used_on'], lo, item['used_on'], hi, item['amount'], item['used_on'])).fetchone()
     if e:
-        return {'memo': e['memo'], 'used_on': e['used_on'], 'done': True}
-    r = conn.execute("""SELECT memo, next_on FROM ledger_recurring WHERE paused = 0 AND amount = ?
-                        AND next_on BETWEEN date(?, ?) AND date(?, ?) LIMIT 1""",
-                     (item['amount'], item['used_on'], lo, item['used_on'], hi)).fetchone()
-    return {'memo': r['memo'], 'used_on': r['next_on'], 'done': False} if r else None
+        return {'memo': e['memo'], 'used_on': e['used_on'], 'done': True, 'diff': item['amount'] - e['amount']}
+    r = conn.execute(f"""SELECT memo, next_on, amount FROM ledger_recurring WHERE paused = 0 AND {near}
+                         AND next_on BETWEEN date(?, ?) AND date(?, ?) ORDER BY ABS(? - amount) LIMIT 1""",
+                     (*args, item['used_on'], lo, item['used_on'], hi, item['amount'])).fetchone()
+    return {'memo': r['memo'], 'used_on': r['next_on'], 'done': False, 'diff': item['amount'] - r['amount']} if r else None
 
 
 # ==========================================

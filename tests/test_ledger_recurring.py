@@ -151,10 +151,17 @@ assert next(x for x in r['recurring'] if x['id'] == rec['id'])['next_on'] == '20
 # ==== 결제 알림과 같은 반복 찾기 ('신한은행 자동이체'로 와도 금액·날짜로): 이미 넣었으면 done, 곧 넣을 것이면 아님
 with storage._db() as conn:
     item = {'amount': 57000, 'used_on': '2027-03-21'}
-    assert ledger._recurring_match(conn, item) == {'memo': 'XX 보험', 'used_on': '2027-03-20', 'done': True}
-    assert ledger._recurring_match(conn, {'amount': 57000, 'used_on': '2027-06-18'}) == {'memo': 'XX 보험', 'used_on': '2027-06-20', 'done': False}
+    assert ledger._recurring_match(conn, item) == {'memo': 'XX 보험', 'used_on': '2027-03-20', 'done': True, 'diff': 0}
+    assert ledger._recurring_match(conn, {'amount': 57000, 'used_on': '2027-06-18'}) == {'memo': 'XX 보험', 'used_on': '2027-06-20', 'done': False, 'diff': 0}
     assert ledger._recurring_match(conn, {'amount': 57000, 'used_on': '2027-06-10'}) is None
-    assert ledger._recurring_match(conn, {'amount': 57001, 'used_on': '2027-03-21'}) is None
+    # 금액이 조금 달라도: 반복 금액의 10% 안 (57,000원 → 5,700원까지), 적어도 1,000원까지 (9,900원 → 1,000원까지)
+    assert ledger._recurring_match(conn, {'amount': 57001, 'used_on': '2027-03-21'})['diff'] == 1
+    assert ledger._recurring_match(conn, {'amount': 62700, 'used_on': '2027-03-21'})['diff'] == 5700
+    assert ledger._recurring_match(conn, {'amount': 51300, 'used_on': '2027-03-21'})['diff'] == -5700
+    assert ledger._recurring_match(conn, {'amount': 62701, 'used_on': '2027-03-21'}) is None
+    assert ledger._recurring_match(conn, {'amount': 10900, 'used_on': '2027-03-21'}) == {'memo': '구독', 'used_on': '2027-03-21', 'done': True, 'diff': 1000}
+    assert ledger._recurring_match(conn, {'amount': 10901, 'used_on': '2027-03-21'}) is None
+    assert ledger._recurring_match(conn, {'amount': 59000, 'used_on': '2027-06-22'})['diff'] == 2000   # 곧 넣을 것도
 
 # ==== 반복에 쓰인 분류는 지우지 못함, 반복을 지워도 기록은 그대로 (반복 표시만 없어짐)
 code, r = call('/api/ledger/category', {'action': 'add', 'name': '보험', 'color': '#378ADD'}, cookie=user)

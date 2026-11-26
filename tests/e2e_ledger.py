@@ -281,7 +281,7 @@ try:
     click('#kind-expense'); time.sleep(.2)
     click('#list [data-entry]'); time.sleep(.3)
     assert vis('sheet-wrap') and txt('entry-title') == '기록 고치기' and js("return document.getElementById('entry').classList.contains('income')")
-    click('#edit-cancel'); time.sleep(.2)
+    click('#entry-close'); time.sleep(.2)
     assert not vis('sheet-wrap')
     click('#kind-expense'); time.sleep(.2)
     # 기록 줄: 분류 아이콘 · 메모가 첫 줄(크게), 분류·이름은 아래 작은 줄, 날짜 머리줄은 '24일 월요일'과 그날 합계
@@ -317,7 +317,7 @@ try:
     # ---- 내 기록 고치기·지우기
     pick = "[...document.querySelectorAll('#list [data-entry]')].find(b => b.textContent.includes('사료')).click()"
     js(pick)                               # 사료 15,000원 → 고치기 창
-    assert vis('sheet-wrap') and vis('edit-row') and txt('entry-title') == '기록 고치기' and js("return document.getElementById('amount').value") == '15,000'
+    assert vis('sheet-wrap') and vis('edit-delete') and txt('entry-title') == '기록 고치기' and js("return document.getElementById('amount').value") == '15,000'
     typ('amount', '16000'); click('#save'); time.sleep(1.2)
     assert [x['amount'] for x in entries()] == [42000, 16000, 3200000] and not vis('sheet-wrap')
     # ---- 수정 이력·사진: 고치기 창에 넣음·고침 이력, 사진 2장 붙여 저장 → 내역 썸네일(+1) → 크게 보기 → 1장 빼기
@@ -389,7 +389,7 @@ try:
     # 저장 한 번에 올린 사진 2장은 한 줄, 바꾼 것 없이 저장한 것은 없음
     assert txt('hist-n') == '4' and hist.index('사진 1장 뺌') < hist.index('사진 2장 더함') < hist.index('16,000원'), hist
     assert '바뀐 것 없음' not in hist
-    click('#edit-cancel'); time.sleep(.3)
+    click('#entry-close'); time.sleep(.3)
     # 사진은 휴대폰이 사본을 두되 쓸 때마다 확인: 그대로면 304
     etag_check = """const done = arguments[arguments.length - 1], u = '/api/ledger/photo/' + arguments[0] + '_t.jpg';
         fetch(u, { cache: 'no-store' }).then(r => { const e = r.headers.get('ETag');

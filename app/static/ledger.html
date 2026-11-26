@@ -178,9 +178,12 @@
                         <button type="button" data-key="00">00</button><button type="button" data-key="0">0</button><button type="button" data-key="back" aria-label="지우기">⌫</button>
                     </div>
                     <details class="hist" id="hist" hidden><summary>수정 이력 <span id="hist-n"></span></summary><div id="hist-list"></div></details>
-                    <p class="msg" id="entry-msg" role="alert"></p>
-                    <div class="edit-row" id="edit-row" hidden><button type="button" class="danger" id="edit-delete">지우기</button><button type="button" id="edit-cancel">취소</button></div>
-                    <button type="button" class="save" id="save">저장</button>
+                    <!-- 저장 줄: 창 맨 아래에 붙어 있음 (내용만 위로 스크롤). 고칠 때는 왼쪽에 지우기(휴지통), 취소는 위쪽 ✕ -->
+                    <div class="sheet-foot">
+                        <p class="msg" id="entry-msg" role="alert"></p>
+                        <button type="button" class="del" id="edit-delete" aria-label="이 기록 지우기" title="지우기" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg></button>
+                        <button type="button" class="save" id="save">저장</button>
+                    </div>
                 </div>
             </div>
             <!-- 사진 크게 보기 (내역의 썸네일·입력 창의 사진을 누르면) -->

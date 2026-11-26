@@ -128,6 +128,15 @@ try:
     d.get(BASE + '/ledger/'); time.sleep(2)
     assert vis('inbox-sec') and "이미 기록됨" in txt('inbox') and "'XX 보험'" in txt('inbox'), txt('inbox')
     shot('5_inbox_hint')
+    # 금액이 조금 달라도 (그달 반복 기록 60,000원의 10% 안): 차이를 함께
+    with storage._db() as conn, conn:
+        conn.execute("UPDATE ledger_inbox SET amount = 58500")
+    d.get(BASE + '/ledger/'); time.sleep(2)
+    assert "이미 기록됨" in txt('inbox') and '1,500원 덜 나옴' in txt('inbox'), txt('inbox')
+    with storage._db() as conn, conn:
+        conn.execute("UPDATE ledger_inbox SET amount = 70000")
+    d.get(BASE + '/ledger/'); time.sleep(2)
+    assert "이미 기록됨" not in txt('inbox')
 
     # ---- 휴대폰: 넘침 없음 (입력 창·설정)
     d.set_window_size(390, 844); time.sleep(.4)
@@ -135,6 +144,25 @@ try:
     assert js("return document.documentElement.scrollWidth <= innerWidth")
     shot('6_mobile_entry')
     click('#entry-close'); time.sleep(.3)
+    # 저장 줄은 창 맨 아래에 붙어 늘 보임 (손가락 기기: 키패드까지 있어 창이 길어도), 고칠 때는 휴지통도
+    js("document.documentElement.classList.add('touch')")
+    click(f'[data-entry="{first["id"]}"]'); time.sleep(.5)
+    foot = lambda: js("const s = document.getElementById('entry').getBoundingClientRect(), b = document.getElementById('save').getBoundingClientRect(),"
+                      " t = document.getElementById('edit-delete').getBoundingClientRect();"
+                      " return [b.top >= s.top && b.bottom <= s.bottom && b.bottom <= innerHeight, t.width > 0 && t.bottom <= innerHeight,"
+                      " document.getElementById('entry').scrollHeight > document.getElementById('entry').clientHeight]")
+    assert foot()[:2] == [True, True], foot()
+    shot('6b_mobile_edit_top')
+    js("document.getElementById('entry').scrollTop = 99999"); time.sleep(.2)
+    assert foot()[:2] == [True, True], foot()
+    js("document.getElementById('entry').scrollTop = 120"); time.sleep(.2)
+    assert foot()[:2] == [True, True], foot()
+    # 저장하지 못하면 저장 줄 안에 이유
+    typ('amount', ''); click('#save'); time.sleep(.3)
+    assert vis('entry-msg') and '금액' in txt('entry-msg')
+    shot('6c_mobile_edit_msg')
+    click('#entry-close'); time.sleep(.3)
+    js("document.documentElement.classList.remove('touch')")
     click('#set-open'); time.sleep(.4); click('[data-tab="repeat"]'); time.sleep(.4); click('.rec-row'); time.sleep(.3)
     assert js("return document.documentElement.scrollWidth <= innerWidth")
     assert js("const e = document.querySelector('.rec-ed'); return e.scrollWidth <= e.clientWidth + 1")

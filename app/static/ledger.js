@@ -266,7 +266,7 @@
         $('kind-expense').setAttribute('aria-checked', String(!income));
         $('kind-income').setAttribute('aria-checked', String(income));
         $('entry-title').textContent = editing ? '기록 고치기' : income ? '수입 입력' : '지출 입력';
-        $('edit-row').hidden = !editing;
+        $('edit-delete').hidden = !editing;
     }
 
     function chipHtml(c, extra) {
@@ -1021,7 +1021,6 @@
     $('used-on').addEventListener('change', showUsedOn);
     // 칸 어디를 눌러도 달력 (PC 크롬은 아이콘을 눌러야만 열림)
     $('used-on').addEventListener('click', e => { try { e.target.showPicker(); } catch (err) { /* 지원 안 함 */ } });
-    $('edit-cancel').addEventListener('click', closeEntry);
     $('edit-delete').addEventListener('click', async () => {
         if (st.editId != null && await deleteEntry(st.editId)) { clearForm(); closeEntry(); }
     });
@@ -1501,9 +1500,10 @@
             else if (x.category_id == null) note = '<span class="note">분류를 골라 주세요</span>';
             else note = rule && rule.category_id === x.category_id ? `<span class="note">규칙 "${esc(rule.pattern)}" → ${esc(catOf(x.category_id).name)}</span>` : '';
             const c = cat != null ? catOf(cat) : null;
-            // 같은 금액의 반복 결제가 앞뒤 3일 안에 있음 (알림 이름이 달라도): 두 번 기록하지 않게 버리기 쉽게
+            // 금액이 비슷한(10%·1,000원 안) 반복 결제가 앞뒤 3일 안에 있음 (알림 이름이 달라도): 두 번 기록하지 않게 버리기 쉽게. 금액이 다르면 차이도
             const rr = !x.cancel && x.recurring;
-            const rp = rr ? `<div class="ib-rp">🔁 ${md(rr.used_on)}에 '${esc(rr.memo || '반복 결제')}'(으)로 ${rr.done ? '이미 기록됨' : '기록될 예정'} · 버려도 돼요</div>` : '';
+            const rpDiff = rr && rr.diff ? ` · ${won(Math.abs(rr.diff))} ${rr.diff > 0 ? '더 나옴' : '덜 나옴'}` : '';
+            const rp = rr ? `<div class="ib-rp">🔁 ${md(rr.used_on)}에 '${esc(rr.memo || '반복 결제')}'(으)로 ${rr.done ? '이미 기록됨' : '기록될 예정'}${rpDiff} · 버려도 돼요</div>` : '';
             const row = `<div class="ib-row" data-ib-toggle role="button" tabindex="0" aria-expanded="${open}">
                 ${c ? catIcon(c) : `<span class="ci none" aria-hidden="true">${x.cancel ? '↩' : '?'}</span>`}
                 <span class="ib-m"><span class="shop">${esc(shop || '가게 이름 없음')}</span><small>${day} ${esc(x.used_time)} · ${esc(x.card || '카드')}${c ? ` · ${esc(c.name)}` : ''}</small></span>

@@ -378,7 +378,7 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 /* 입력 창: 휴대폰은 아래에서 올라옴, PC는 가운데 */
 .sheet-open, .sheet-open body { overflow: hidden; }
 .sheet-wrap { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: flex-end; justify-content: center; background: rgba(17, 24, 39, .4); }
-.sheet { position: relative; width: 100%; max-width: 480px; max-height: 94vh; overflow-y: auto; padding: 12px 16px calc(env(safe-area-inset-bottom) + 14px);
+.sheet { position: relative; width: 100%; max-width: 480px; max-height: 94vh; overflow-y: auto; padding: 12px 16px 0;
     border-radius: 20px 20px 0 0; background: var(--surface); }
 @media (min-width: 641px) { .sheet-wrap { align-items: center; } .sheet { border-radius: 20px; max-height: 88vh; } }
 .sheet-head { display: flex; align-items: center; gap: 8px; }
@@ -459,9 +459,16 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 .keypad button { height: 42px; border: 0; border-radius: 12px; background: var(--soft); font-size: 20px; font-weight: 600; }
 .keypad button:active { background: #E5E7EB; }
 .sheet .msg:empty { display: none; }
-.edit-row { display: flex; gap: 8px; margin-top: 10px; }
-.edit-row button { flex: 1; height: 40px; }
-.save { width: 100%; height: 48px; margin-top: 10px; border: 0; border-radius: 14px; background: var(--brand); color: #fff; font-size: 16px; font-weight: 700; }
+/* 저장 줄: 창(스크롤되는 .sheet) 맨 아래에 붙음. 키패드·분류가 길어도 저장은 늘 보임 */
+.sheet-foot { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; margin: 10px -16px 0; padding: 10px 16px calc(env(safe-area-inset-bottom) + 12px);
+    border-top: 1px solid var(--divider); background: var(--surface); }
+.sheet-foot .del { flex: 0 0 auto; width: 52px; height: 48px; padding: 0; border: 1px solid #F3C4C4; border-radius: 14px; background: var(--surface); color: var(--bad);
+    display: flex; align-items: center; justify-content: center; }
+.sheet-foot .del[hidden] { display: none; }
+.sheet-foot .msg { flex: 0 0 100%; margin: 0; }
+.sheet-foot .del svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.sheet-foot .del:active { background: #FCEBEB; }
+.save { flex: 1; width: 100%; height: 48px; border: 0; border-radius: 14px; background: var(--brand); color: #fff; font-size: 16px; font-weight: 700; }
 .entry.income .save { background: #185FA5; }
 .entry.editing .save { background: #BA7517; }
 .dd { position: absolute; z-index: 15; left: 0; right: 0; top: calc(100% + 4px); background: var(--surface); border: 1px solid #CBD0D8; border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(17, 24, 39, .12); }
