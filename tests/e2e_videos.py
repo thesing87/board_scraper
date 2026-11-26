@@ -289,6 +289,42 @@ try:
     # 목록으로 (닫기)
     js("document.getElementById('player-close').click()"); time.sleep(1.2)
     assert js("return document.getElementById('player').hidden") and js("return location.hash").startswith('#d=')
+    # ---- 랜덤 재생: 폴더(하위 폴더 포함, 맨 위면 전체)에서 바로 재생되는 영상만 (변환이 필요한 AVI는 뺌)
+    paths = [v['path'] for v in req('/api/videos/random?p=')[1]['videos']]
+    assert '드라마/01화.mp4' in paths and '짧은/하위/a.mp4' in paths and '드라마/04화.avi' not in paths, paths
+    assert [v['path'] for v in req(f'/api/videos/random?p={q("짧은")}')[1]['videos']] == ['짧은/하위/a.mp4']
+    assert req(f'/api/videos/random?p={q("없는 폴더")}')[0] == 404
+    total = len(req(f'/api/videos/random?p={q("드라마")}')[1]['videos'])
+    assert total >= 3
+    chip = lambda: js("return document.getElementById('random-chip').hidden ? null : document.getElementById('random-chip-text').textContent")
+    title = lambda: js("return document.getElementById('player-title').textContent")
+    assert js("return document.getElementById('random-text').textContent") == '이 폴더 랜덤 재생' and chip() is None
+    d.find_element(By.ID, 'random-btn').click(); time.sleep(2.5)
+    assert not js("return document.getElementById('player').hidden")
+    assert chip() == f'랜덤 1 / {total}', chip()
+    first = title()
+    assert js("return document.getElementById('next-name').textContent").startswith('랜덤 다음 · ')
+    assert js("return document.getElementById('random-from').textContent") == '폴더: 드라마'
+    js("document.getElementById('next-nav-btn').click()"); time.sleep(2.5)
+    assert chip() == f'랜덤 2 / {total}' and title() != first, (chip(), title())
+    assert js("return document.getElementById('prev-name').textContent") == f'이전 · {first}'
+    js("document.getElementById('prev-btn').click()"); time.sleep(2.5)
+    assert title() == first and chip() == f'랜덤 1 / {total}'
+    # 칩을 누르면 랜덤을 끄고 같은 폴더 순서로, 다시 누르면 켬
+    js("document.getElementById('random-chip').click()"); time.sleep(.3)
+    folder_next = [v['name'] for v in req(f'/api/videos/list?p={q("드라마")}')[1]['videos']]
+    folder_next = folder_next[folder_next.index(first) + 1:]
+    nxt = js("return document.getElementById('next-name').textContent")
+    assert chip() == '랜덤 끔' and (nxt.startswith('다음 · ') if folder_next else nxt == ''), (chip(), nxt, first)
+    assert js("return document.getElementById('random-from').hidden")
+    js("document.getElementById('random-chip').click()"); time.sleep(.3)
+    assert chip() == f'랜덤 1 / {total}'
+    # 목록으로 돌아가면 랜덤 끝
+    js("document.getElementById('player-close').click()"); time.sleep(1.5)
+    assert js("return document.getElementById('player').hidden") and chip() is None
+    # 맨 위 폴더에서는 '전체 랜덤 재생'
+    d.get(BASE + '/videos/#'); time.sleep(1.5)
+    assert js("return document.getElementById('random-text').textContent") == '전체 랜덤 재생'
     # 휴대폰
     d.set_window_size(390, 844); time.sleep(.5)
     assert js("return document.documentElement.scrollWidth <= innerWidth")

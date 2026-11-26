@@ -196,6 +196,15 @@ def search(query, limit=SEARCH_LIMIT):
     return _with_progress([_public(v) for v in found[:limit]]), len(found)
 
 
+def under(rel):
+    """폴더(하위 폴더 포함) 안의 모든 영상 (기억해 둔 전체 목록에서). 맨 위('')면 전체. 없는 폴더면 None"""
+    rel = (rel or '').replace('\\', '/').strip('/')
+    full = resolve(rel)
+    if full is None or not os.path.isdir(full):
+        return None
+    return [_public(v) for v in all_videos() if not rel or v['folder'] == rel or v['folder'].startswith(rel + '/')]
+
+
 def latest(limit=LATEST_LIMIT):
     """최근에 들어온 영상"""
     items = sorted(all_videos(), key=lambda v: v['added'], reverse=True)[:limit]

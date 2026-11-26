@@ -314,6 +314,7 @@
         $('content').hidden = false;
         document.title = data.name ? `${data.name} · 동영상` : '동영상';
         renderCrumbs(data.path);
+        renderRandomButton();
         currentList = data.videos;
         const recent = data.recent || [];
         $('recent').hidden = !recent.length;
@@ -462,25 +463,106 @@
     video.addEventListener('playing', () => { stats.quietUntil = Math.max(stats.quietUntil, performance.now() + 1000); });
     video.addEventListener('waiting', () => { if (performance.now() - seekingAt > 1500 && video.currentTime > 0.5) stats.waits++; });
 
+    // ==========================================
+    // 랜덤 재생: 폴더(하위 폴더 포함, 맨 위면 전체)에서 바로 재생되는 영상을 누를 때마다 새로 섞어 차례로.
+    // 다 돌면 다시 섞어 이어 감(같은 영상이 바로 이어지지 않게). 이전은 방금 본 영상. 목록으로 돌아가면 끝
+    // ==========================================
+    let random = null;  // { base: [{path,name,folder}], order: 섞은 순서(다 돌면 이어 붙임), pos: 지금 위치, on: 켜졌는지 }
+
+    function shuffled(list) {
+        const a = list.slice();
+        for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+    }
+
+    function randomNext() {
+        if (random.pos >= random.order.length - 1) {
+            const more = shuffled(random.base);
+            const cur = random.order[random.pos];
+            if (more.length > 1 && cur && more[0].path === cur.path) more.push(more.shift());
+            random.order = random.order.concat(more);
+        }
+        return random.order[random.pos + 1];
+    }
+
+    // 영상을 열 때: 랜덤 순서의 앞·뒤 영상이면 위치를 옮기고, 랜덤과 상관없는 영상이면 랜덤을 끝냄 (꺼 둔 동안은 그대로 둠)
+    function syncRandom(path) {
+        if (!random || !random.on) return;
+        const at = [random.pos, random.pos + 1, random.pos - 1].find(i => random.order[i] && random.order[i].path === path);
+        if (at === undefined) random = null;
+        else random.pos = at;
+    }
+
+    function renderRandom() {
+        const chip = $('random-chip');
+        chip.hidden = !random;
+        $('random-from').hidden = !(random && random.on);
+        if (!random) return;
+        const total = random.base.length;
+        $('random-chip-text').textContent = random.on ? `랜덤 ${(random.pos % total) + 1} / ${total.toLocaleString()}` : '랜덤 끔';
+        chip.setAttribute('aria-pressed', String(random.on));
+        chip.title = random.on ? '랜덤 재생 끄기 (같은 폴더 순서로)' : '랜덤 재생 다시 켜기';
+        const cur = random.order[random.pos];
+        $('random-from').textContent = `폴더: ${cur && cur.folder ? cur.folder.replace(/\//g, ' / ') : '전체'}`;
+    }
+
+    $('random-chip').addEventListener('click', () => {
+        if (!random) return;
+        random.on = !random.on;
+        player.nextPrepared = false;
+        updateNavButtons();
+    });
+
+    function renderRandomButton() {
+        $('random-text').textContent = currentDir ? '이 폴더 랜덤 재생' : '전체 랜덤 재생';
+    }
+
+    $('random-btn').addEventListener('click', async () => {
+        const btn = $('random-btn');
+        btn.disabled = true;
+        let data = null;
+        try { data = await api(`/api/videos/random?p=${enc(currentDir)}`); } catch (e) {
+            if (e instanceof LoginNeeded) { showLogin(); return; }
+        } finally { btn.disabled = false; }
+        const list = (data && data.videos) || [];
+        if (!list.length) {
+            $('random-text').textContent = '재생할 영상이 없습니다';
+            setTimeout(renderRandomButton, 2000);
+            return;
+        }
+        const order = shuffled(list);
+        random = { base: list, order, pos: 0, on: true };
+        scrollMemory[currentDir] = window.scrollY;
+        history.pushState({ fromList: true }, '', videoHref(order[0].path));
+        route();
+    });
+
     function nextVideo() {
+        if (random && random.on) return randomNext();
         const i = currentList.findIndex(v => v.path === player.path);
         return i >= 0 ? currentList.slice(i + 1).find(v => v.playable) : null;
     }
 
     function prevVideo() {
+        if (random && random.on) return random.pos > 0 ? random.order[random.pos - 1] : null;
         const i = currentList.findIndex(v => v.path === player.path);
         return i > 0 ? currentList.slice(0, i).reverse().find(v => v.playable) : null;
     }
 
     // 영상 위 양옆의 이전·다음 버튼: 같은 폴더에서 재생할 수 있는 앞·뒤 영상 (없으면 흐리게, 이름은 버튼 아래)
     function updateNavButtons() {
-        [['prev-btn', 'prev-name', prevVideo(), '이전'], ['next-nav-btn', 'next-name', nextVideo(), '다음']].forEach(([id, nameId, v, label]) => {
+        const nextLabel = random && random.on ? '랜덤 다음' : '다음';
+        [['prev-btn', 'prev-name', prevVideo(), '이전'], ['next-nav-btn', 'next-name', nextVideo(), nextLabel]].forEach(([id, nameId, v, label]) => {
             const btn = $(id);
             btn.disabled = !v;
             btn.dataset.path = v ? v.path : '';
             btn.title = v ? `${label} 영상: ${v.name}` : `${label} 영상 없음`;
             $(nameId).textContent = v ? `${label} · ${v.name}` : '';
         });
+        renderRandom();
     }
 
     // 위쪽 줄·이전·다음은 누르거나 마우스를 움직이면 떴다가 UI_HIDE_MS 뒤 사라짐 (일시정지 중·버튼 위에 마우스가 있으면 그대로)
@@ -551,6 +633,7 @@
         }
         const info = currentList.find(v => v.path === path);
         if ($('content').hidden === false) scrollMemory[currentDir] = window.scrollY;
+        syncRandom(path);
         player.path = path;
         player.lastSaved = null;
         // 전에 본 영상이면 처음으로 되감은 위치도 저장 (안 본 영상은 SAVE_MIN초 넘게 봐야 저장)
@@ -718,7 +801,7 @@
         saveProgress();
         const next = nextVideo();
         if (next) {
-            $('next-btn').textContent = `다음 영상: ${next.name}`;
+            $('next-btn').textContent = `${random && random.on ? '다음 랜덤 영상' : '다음 영상'}: ${next.name}`;
             $('next-btn').dataset.path = next.path;
             $('player-next').hidden = false;
         }
@@ -746,6 +829,8 @@
         clearTimeout(player.uiTimer);
         $('seek-menu').hidden = true;
         $('seek-btn').setAttribute('aria-expanded', 'false');
+        random = null;
+        renderRandom();
         if (fullscreenEl()) toggleFullscreen();
         document.body.classList.remove('is-playing');
     }

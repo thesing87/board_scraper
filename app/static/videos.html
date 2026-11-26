@@ -47,7 +47,11 @@
                 <div class="videos" id="search-list"></div>
             </section>
             <div id="library-view">
-            <nav class="crumbs" id="crumbs" aria-label="폴더 위치"></nav>
+            <div class="crumbs-row">
+                <nav class="crumbs" id="crumbs" aria-label="폴더 위치"></nav>
+                <!-- 이 폴더(하위 폴더 포함, 맨 위면 전체)를 랜덤으로 재생: 누를 때마다 새로 섞음 (videos.js startRandom) -->
+                <button type="button" class="random-btn" id="random-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"></path></svg><span id="random-text">전체 랜덤 재생</span></button>
+            </div>
             <!-- 이 폴더에 브라우저가 못 여는 영상이 있으면: 자동 변환 순서에 바로 넣기 (videos.js renderConvertBar) -->
             <div class="conv-bar" id="conv-bar" hidden>
                 <span id="conv-bar-text"></span>
@@ -74,6 +78,8 @@
         <div class="player-top">
             <button type="button" class="p-btn" id="player-close" aria-label="목록으로"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg></button>
             <div class="player-title" id="player-title"></div>
+            <!-- 랜덤 재생 중: 몇 번째인지, 누르면 랜덤 끔·다시 켬 (videos.js renderRandom) -->
+            <button type="button" class="random-chip" id="random-chip" aria-pressed="true" title="랜덤 재생 끄기" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"></path></svg><span id="random-chip-text"></span></button>
             <!-- ← → 한 번에 건너뛰는 시간: 이 기기에 저장 (videos.js setSeekStep) -->
             <div class="seek-wrap">
                 <button type="button" class="seek-btn" id="seek-btn" aria-haspopup="true" aria-expanded="false" title="← → 건너뛰기 시간"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8l-4 4 4 4M17 8l4 4-4 4M3 12h18"></path></svg><span id="seek-text">10초</span></button>
@@ -94,6 +100,8 @@
             <div class="player-msg" id="player-msg" hidden></div>
             <!-- ← → 를 누르면 가운데에 잠깐 '+10초' (videos.js seekBy) -->
             <div class="seek-osd" id="seek-osd" aria-hidden="true"></div>
+            <!-- 랜덤 재생 중: 지금 영상이 있는 폴더 -->
+            <div class="random-from" id="random-from" hidden></div>
             <!-- 같은 폴더의 이전·다음 영상: 영상 위 양옆, 누르거나 마우스를 움직이면 떴다가 3초 뒤 사라짐 (videos.js updateNavButtons·showUi, 단축키 Shift+← / Shift+→) -->
             <div class="p-side is-prev">
                 <button type="button" class="p-side-btn" id="prev-btn" aria-label="이전 영상" title="이전 영상" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5v14"></path><path d="M18 6l-9 6 9 6z" fill="currentColor"></path></svg></button>

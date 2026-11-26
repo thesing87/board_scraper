@@ -31,7 +31,14 @@ body.is-playing { overflow: hidden; }
 .vsearch input::-webkit-search-cancel-button { display: none; }
 .vsearch button { position: absolute; right: 6px; width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 20px; cursor: pointer; }
 .search-results h2 { margin: 0 0 12px; font-size: 14px; color: var(--muted); font-weight: 700; }
-.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin: 0 0 14px; font-size: 15px; font-weight: 700; }
+.crumbs-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin: 0 0 14px; }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; font-size: 15px; font-weight: 700; }
+/* 랜덤 재생 (폴더 위치 줄 오른쪽) */
+.random-btn { flex: 0 0 auto; height: 32px; padding: 0 13px 0 11px; display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 999px;
+    background: var(--vid); color: #fff; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.random-btn:hover { background: #6D28D9; }
+.random-btn:disabled { opacity: .6; cursor: default; }
+.random-btn svg { width: 16px; height: 16px; }
 .crumbs a { padding: 4px 6px; border-radius: 6px; color: var(--muted); }
 .crumbs a:hover { background: var(--divider); color: var(--text); }
 .crumbs .sep { color: #B6BBC4; }
@@ -94,6 +101,16 @@ body.is-playing { overflow: hidden; }
 .p-btn { flex: 0 0 auto; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 10px; background: transparent; color: #fff; cursor: pointer; }
 .p-btn:hover { background: rgba(255,255,255,.1); }
 .p-btn svg { width: 22px; height: 22px; }
+/* 랜덤 재생 중: 위쪽 줄의 보라 칩(누르면 끔 → 흐린 칩), 왼쪽 아래 지금 영상의 폴더 */
+.random-chip { flex: 0 0 auto; height: 32px; padding: 0 11px 0 9px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--vid); border-radius: 999px;
+    background: var(--vid); color: #fff; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.random-chip[aria-pressed="false"] { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.3); color: #D4D4D8; }
+.random-chip svg { width: 15px; height: 15px; }
+.random-from { position: absolute; left: calc(env(safe-area-inset-left) + 12px); bottom: calc(env(safe-area-inset-bottom) + 64px); z-index: 2; max-width: 70%;
+    padding: 3px 8px; border-radius: 6px; background: rgba(0,0,0,.6); color: #C4C7CF; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    transition: opacity .25s; pointer-events: none; }
+.player:not(.ui-on) .random-from { opacity: 0; }
+@media (max-width: 520px) { .random-chip { padding: 0 9px 0 7px; font-size: 12px; } }
 /* ← → 건너뛰기 시간: 위쪽 줄의 알약 버튼 + 누르면 아래에 목록 */
 .seek-wrap { position: relative; flex: 0 0 auto; }
 .seek-btn { height: 32px; padding: 0 10px 0 8px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,.3); border-radius: 999px;

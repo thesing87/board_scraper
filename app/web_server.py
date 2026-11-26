@@ -1183,6 +1183,15 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             # 동영상 폴더 전체에서 이름·폴더 검색 (videos.all_videos: 기억해 둔 전체 목록)
             found, total = videos.search(query.get('q', [''])[0][:100])
             self._send_data(200, {'videos': video_convert.annotate({'videos': found})['videos'], 'total': total})
+        elif pure_path == '/api/videos/random':
+            # 랜덤 재생할 영상: 폴더(하위 폴더 포함) 안에서 바로 재생되는 것 (변환이 필요한데 아직 안 된 영상은 뺌). 섞기는 화면이 함
+            found = videos.under(path)
+            if found is None:
+                self._send_data(404, {'found': False})
+                return
+            annotated = video_convert.annotate({'videos': found})['videos']
+            self._send_data(200, {'videos': [{'path': v['path'], 'name': v['name'], 'folder': v['folder']}
+                                             for v in annotated if v['converted'] or not v['convert']]})
         elif pure_path == '/api/videos/latest':
             # 최근에 들어온 영상 (목록 맨 위 '최근 추가')
             self._send_data(200, {'videos': video_convert.annotate({'videos': videos.latest()})['videos']})
