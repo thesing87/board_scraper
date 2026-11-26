@@ -1865,6 +1865,8 @@
             window.scrollTo(0, from.y);
             return true;
         }
+        // 아래 메뉴의 달력·분석 탭 → 내역 탭 (첫 탭에서만 앱이 홈 탭으로)
+        if (st.view !== 'list') { st.view = 'list'; window.scrollTo(0, 0); renderViews(); return true; }
         // 하루 보기 → 그 달 보기
         if (st.mode === 'day') { st.mode = 'month'; render(); return true; }
         return false;

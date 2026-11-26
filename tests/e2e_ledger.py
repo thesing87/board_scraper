@@ -704,8 +704,12 @@ try:
     assert js("return document.getElementById('period').classList.contains('day')") and vis('pane-list') and not vis('totals')
     assert js('return window.ledgerBack()') is True; time.sleep(.2)
     assert vis('totals') and not vis('pane-list') and not js("return document.getElementById('period').classList.contains('day')")
+    # 달력·분석 탭 → 내역 탭 → 닫을 것 없음
+    assert js('return window.ledgerBack()') is True and vis('pane-list') and not vis('totals')
     assert js('return window.ledgerBack()') is False
-    click('#views [data-view="list"]'); time.sleep(.2)
+    click('#views [data-view="ana"]'); time.sleep(.2)
+    assert js('return window.ledgerBack()') is True and vis('pane-list') and not vis('pane-ana')
+    assert js('return window.ledgerBack()') is False
     # 설정 > 분류에서 고치기 칸을 열면 뒤로가기로 그 칸만 접힘
     js("document.getElementById('set-open').click()"); time.sleep(.3)
     js("document.querySelector('#set-view [data-tab=\"cats\"]').click()"); time.sleep(.3)
