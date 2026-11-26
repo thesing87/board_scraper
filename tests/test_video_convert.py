@@ -122,6 +122,21 @@ shutil.rmtree(os.path.join(VIDEOS, 'f', 'sub'))
 shutil.rmtree(os.path.join(VIDEOS, '@eaDir'))
 vc.probe = real_probe
 
+# ---- 쉬는 때: 최근 VIDEO_IDLE_AFTER_PLAY초 안에 누가 영상을 봤으면 미리 고치기를 쉼
+import time as _time
+assert not vc.recently_played()
+vc._play_marked = 0
+vc.mark_playing()
+assert vc.recently_played() and not vc.recently_played(now=_time.time() + vc.VIDEO_IDLE_AFTER_PLAY + 1)
+storage.set_meta(vc.PLAY_META, '0')
+
+# ---- 미리 고치기: 아직 안 본 MP4만 (AVI 등은 아님), 한 번 보면 빠짐
+import video_fix
+todo = vc.unprepared_mp4s()
+assert todo and all(p.endswith('.mp4') for p in todo), todo
+video_fix.layout(todo[0])
+assert todo[0] not in vc.unprepared_mp4s()
+
 if not FFMPEG:
     print('test_video_convert: OK (ffmpeg 없음: 실제 변환은 건너뜀)')
     sys.exit(0)

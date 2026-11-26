@@ -25,8 +25,10 @@ import threading
 import time
 from datetime import datetime
 
-from config import OUTPUT_DIR, VIDEO_AUTO_HOURS
+from config import OUTPUT_DIR, VIDEO_AUTO_HOURS, VIDEO_IDLE_AFTER_PLAY
+import storage
 from storage import _db, _now
+import video_fix
 import videos
 
 CONV_DIR = os.path.join(OUTPUT_DIR, 'video_conv')
@@ -286,6 +288,21 @@ def missing_thumbnails(skip_paths=(), now=None):
     return [(full, path) for _m, full, path in found]
 
 
+def unprepared_mp4s():
+    """표시 순서표를 아직 보지 않은 MP4(video_fix가 기억해 둔 것이 없음)의 실제 경로, 최근 것부터. 변환본이 있으면 그것을 봄"""
+    found = []
+    for _rel, full in _walk_videos():
+        target = converted_file(full) or full
+        if not video_fix.needs_check(target):
+            continue
+        try:
+            found.append((os.stat(full).st_mtime, target))
+        except OSError:
+            pass
+    found.sort(key=lambda x: x[0], reverse=True)
+    return [t for _m, t in found]
+
+
 def cleanup_thumbnails(now=None):
     """지금 영상들의 썸네일이 아닌 파일(영상이 바뀌거나 없어진 것, 예전 10초 장면)을 지움.
     방금 만든 파일은 훑은 뒤 들어온 영상의 것일 수 있어 THUMB_KEEP_SECONDS가 지난 것만. 지운 수"""
@@ -384,6 +401,29 @@ def auto_time(now=None):
     if AUTO_START < AUTO_END:
         return AUTO_START <= hour < AUTO_END
     return hour >= AUTO_START or hour < AUTO_END
+
+
+# 누가 영상을 보는 중인지 (미리 고치기를 쉬려고)
+PLAY_META = 'video_last_play'
+_play_marked = 0.0
+
+
+def mark_playing():
+    """웹서버: 누가 영상을 보고 있음을 기록 (재생 중 이어 보기 위치를 저장할 때마다, 30초에 한 번만 DB에)"""
+    global _play_marked
+    if time.time() - _play_marked < 30:
+        return
+    _play_marked = time.time()
+    storage.set_meta(PLAY_META, str(int(_play_marked)))
+
+
+def recently_played(now=None):
+    """최근 VIDEO_IDLE_AFTER_PLAY초 안에 누가 영상을 봤는지"""
+    try:
+        last = float(storage.get_meta(PLAY_META) or 0)
+    except (TypeError, ValueError):
+        last = 0
+    return (now or time.time()) - last < VIDEO_IDLE_AFTER_PLAY
 
 
 def next_job(lane, now=None):

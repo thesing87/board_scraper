@@ -7,6 +7,9 @@
 자동 변환(VIDEO_AUTO_CONVERT, 기본 켬): 자동 변환 시간(VIDEO_AUTO_HOURS, 기본 새벽 2~8시)에만.
 그 시간이 되면 하루 한 번 동영상 폴더 전체를 훑어 변환이 필요한 영상을 넣고 차례로 변환, 끝나는 시각에 도는 자동 변환도 멈춤.
 직접 누른 '지금 변환'은 시간과 관계없이 늘 먼저
+미리 고치기: 시간과 관계없이 쉬는 때(최근 VIDEO_IDLE_AFTER_PLAY초 안에 아무도 영상을 재생하지 않음)에 표시 순서표가 빠진
+MP4(video_fix)를 최근 것부터 미리 고쳐 둠 (처음 열 때 수십 초 기다리지 않게). 누가 보기 시작하면 멈추고 다음에 이어서
+(한 번 본 영상은 기억해 두므로 다시 보지 않음). 파일에서 필요한 몇십 바이트씩만 읽어 변환보다 훨씬 가벼움
 썸네일 미리 만들기: THUMB_SCAN_SECONDS마다 동영상 폴더를 훑어 썸네일이 없는 영상(새로 들어온 것부터)을 미리 만들어 둠
 (목록을 처음 열 때 기다리지 않게). 쓰지 않게 된 썸네일은 정리 때 지움
 """
@@ -18,6 +21,7 @@ from datetime import date
 from config import VIDEO_AUTO_CONVERT, log_msg, short_err
 import storage
 import video_convert
+import video_fix
 import videos
 
 POLL_SECONDS = 3
@@ -25,6 +29,7 @@ POLL_SECONDS = 3
 HEARTBEAT_SECONDS = 60
 CLEANUP_EVERY = 6 * 3600
 SCAN_CHECK_SECONDS = 300
+FIX_CHECK_SECONDS = 120
 # 썸네일 없는 영상을 찾는 간격, 한 번에 만드는 시간 (넘으면 다시 훑어 그사이 새로 들어온 영상부터)
 THUMB_SCAN_SECONDS = 60
 THUMB_BATCH_SECONDS = 120
@@ -63,6 +68,25 @@ def auto_scanner():
         except Exception as e:  # noqa: BLE001
             log_msg(f"[변환] 자동 변환 오류: {short_err(e)}", 'WARN')
         time.sleep(SCAN_CHECK_SECONDS)
+
+
+def fix_preparer():
+    """쉬는 때 표시 순서표를 아직 안 본 MP4를 최근 것부터 미리 봐 두고 고칠 것은 고쳐 둠"""
+    while True:
+        try:
+            if not video_convert.recently_played():
+                started = time.time()
+                count = 0
+                for full in video_convert.unprepared_mp4s():
+                    if video_convert.recently_played():
+                        break
+                    video_fix.layout(full)
+                    count += 1
+                if count:
+                    log_msg(f"[미리 고치기] 영상 {count}개 미리 봄 ({time.time() - started:.0f}초)")
+        except Exception as e:  # noqa: BLE001
+            log_msg(f"[미리 고치기] 오류: {short_err(e)}", 'WARN')
+        time.sleep(FIX_CHECK_SECONDS)
 
 
 def thumb_filler():
@@ -105,6 +129,7 @@ def main():
     if VIDEO_AUTO_CONVERT:
         threading.Thread(target=auto_scanner, name='convert-auto-scan', daemon=True).start()
         log_msg(f'[변환] 자동 변환 켬 (매일 {video_convert.AUTO_START}시~{video_convert.AUTO_END}시)')
+    threading.Thread(target=fix_preparer, name='fix-preparer', daemon=True).start()
     threading.Thread(target=thumb_filler, name='thumb-filler', daemon=True).start()
     while True:
         try:

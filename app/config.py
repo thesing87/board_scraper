@@ -117,6 +117,8 @@ def _hours(text, default):
     except (AttributeError, ValueError):
         return default
 VIDEO_AUTO_HOURS = _hours(os.environ.get('VIDEO_AUTO_HOURS', '2-8'), (2, 8))
+# 영상 미리 고치기(video_fix)는 시간과 관계없이 쉬는 때에: 최근 이 초 안에 아무도 영상을 재생하지 않았을 때
+VIDEO_IDLE_AFTER_PLAY = int(os.environ.get('VIDEO_IDLE_AFTER_PLAY', 300))
 
 MAX_DATA_PER_KEYWORD = 100
 # 수집한 지 이 일수가 지난 글은 하루 한 번 정리 (각 키워드의 최근 MAX_DATA_PER_KEYWORD개는 새 글 판별 기준이라 유지). 0이면 정리 안 함

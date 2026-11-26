@@ -511,8 +511,8 @@ def _lock_for(key):
         return lock
 
 
-def layout(full):
-    """보낼 가상의 파일 → (전체 크기, [(원본 시작, 길이) 또는 bytes, ...]). 고칠 것이 없으면 None"""
+def _paths(full):
+    """(키, 기억 파일, 고친 moov 파일, 파일 크기). MP4가 아니거나 못 읽으면 None"""
     ext = full.rsplit('.', 1)[-1].lower() if '.' in full else ''
     if ext not in MP4_TYPES:
         return None
@@ -521,8 +521,21 @@ def layout(full):
     except OSError:
         return None
     key = hashlib.sha1(f'{CACHE_VERSION}|{full}|{st.st_size}|{st.st_mtime_ns}'.encode('utf-8')).hexdigest()
-    meta_path = os.path.join(FIX_DIR, key[:2], key + '.json')
-    moov_path = os.path.join(FIX_DIR, key[:2], key + '.moov')
+    return key, os.path.join(FIX_DIR, key[:2], key + '.json'), os.path.join(FIX_DIR, key[:2], key + '.moov'), st.st_size
+
+
+def needs_check(full):
+    """아직 고칠지 보지 않은 MP4인지 (작업기가 쉬는 때 미리 보려고)"""
+    paths = _paths(full)
+    return bool(paths) and not os.path.exists(paths[1])
+
+
+def layout(full):
+    """보낼 가상의 파일 → (전체 크기, [(원본 시작, 길이) 또는 bytes, ...]). 고칠 것이 없으면 None"""
+    paths = _paths(full)
+    if not paths:
+        return None
+    key, meta_path, moov_path, size = paths
     if key in _memo:
         return _memo[key]
     with _lock_for(key):
@@ -562,7 +575,7 @@ def layout(full):
             except OSError:
                 return None
             start, end = meta['moov_start'], meta['moov_end']
-            result = (start + len(moov) + st.st_size - end, [(0, start), moov, (end, st.st_size - end)])
+            result = (start + len(moov) + size - end, [(0, start), moov, (end, size - end)])
         _memo[key] = result
         while len(_memo) > MEMO_SIZE:
             _memo.pop(next(iter(_memo)))

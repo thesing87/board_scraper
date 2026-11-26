@@ -1803,6 +1803,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_json(404, False, '❌ 영상을 찾을 수 없습니다.')
             return
         videos.save_progress(path, round(float(position), 1), round(float(duration), 1))
+        # 재생 중에는 10초마다 옴 → 변환 작업기가 '누가 보는 중'으로 알고 미리 고치기를 쉼
+        video_convert.mark_playing()
         self._send_json(200, True, '저장했습니다.')
 
     def _handle_comics_get(self, pure_path, query):
