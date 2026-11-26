@@ -10,14 +10,19 @@
   휴대폰에 알림 (ledger_push.py), 고치기 창의 '수정 이력' (history)
 - 기록마다 사진 PHOTO_MAX장까지 (photo_add·photo_delete). 화면이 휴대폰에서 줄인 JPEG(큰 것·썸네일)를 올리고
   OUTPUT_DIR/ledger_photos/{id}.jpg·{id}_t.jpg에 둠. 사진도 쓴 사람과 관리자만 붙이거나 뺄 수 있음
+- 매달 반복 결제(자동이체·월급 등, ledger_recurring): 매월 그날(그 달에 없으면 말일) 같은 금액·분류·메모로 기록을 바로 넣음
+  (run_recurring: 화면을 열 때와 웹서버가 10분마다, 서버가 꺼져 있던 달도 채움, 한 달에 한 번만). 만든 기록은 recurring_id로 이어지고
+  반복을 만든 사람의 기록으로 들어감. 고치기·멈추기·지우기는 만든 사람과 관리자만, 지워도 이미 넣은 기록은 그대로
 """
 import hashlib
 import hmac
 import json
 import os
 import re
+import calendar
 import secrets
-from datetime import date, datetime
+import threading
+from datetime import date, datetime, timedelta
 
 from config import LEDGER_ADMIN_NAME, OUTPUT_DIR
 from storage import _db, _now, _get_meta, _set_meta
@@ -226,12 +231,13 @@ def _month_range(month):
 
 
 def state(month):
-    """그 달의 기록(모두의 것), 소비형태, 함께 쓰는 사람, 최근 메모(소비형태와 함께)"""
+    """그 달의 기록(모두의 것), 소비형태, 함께 쓰는 사람, 최근 메모(소비형태와 함께), 매달 반복 결제"""
     month, start, end = _month_range(month)
+    run_recurring()
     with _db() as conn, conn:
         _ensure_admin(conn)
         _seed_categories(conn)
-        entries = conn.execute("""SELECT id, user_id, amount, used_on, category_id, memo, created_at FROM ledger_entries
+        entries = conn.execute("""SELECT id, user_id, amount, used_on, category_id, memo, created_at, recurring_id FROM ledger_entries
                                   WHERE used_on >= ? AND used_on < ? ORDER BY used_on DESC, id DESC""", (start, end)).fetchall()
         cats = conn.execute("SELECT id, name, color, kind, icon FROM ledger_categories ORDER BY position, id").fetchall()
         members = conn.execute("""SELECT id, name, is_admin FROM ledger_users
@@ -245,7 +251,9 @@ def state(month):
         prev_rows = conn.execute("""SELECT user_id, category_id, used_on, amount FROM ledger_entries
                                     WHERE used_on >= ? AND used_on < ?""", (f'{prev}-01', f'{prev}-99')).fetchall()
         entries = _with_photos(conn, entries)
+        recurring = _recurring_list(conn)
     return {'month': month,
+            'recurring': recurring,
             'entries': entries,
             'prev': {'month': prev, 'entries': [dict(r) for r in prev_rows]},
             'categories': [dict(r) for r in cats],
@@ -348,12 +356,15 @@ def _log_change(conn, entry_id, actor_id, before, after):
                  (entry_id, actor_id, before, after, _now()))
 
 
-def add_entry(user, amount, used_on, category_id, memo):
+def add_entry(user, amount, used_on, category_id, memo, repeat_day=None):
+    """기록 넣기. repeat_day(1~31)를 주면 이 기록으로 매달 반복 결제도 만듦 (다음 달 그날부터)"""
     with _db() as conn, conn:
         values = _entry_values(amount, used_on, category_id, memo, conn)
         now = _now()
         entry_id = conn.execute("""INSERT INTO ledger_entries(user_id, amount, used_on, category_id, memo, created_at, updated_at)
                                    VALUES(?, ?, ?, ?, ?, ?, ?)""", (user['id'], *values, now, now)).lastrowid
+        if repeat_day is not None:
+            _start_recurring(conn, entry_id, repeat_day)
         _log_change(conn, entry_id, user['id'], None, _snapshot(conn, entry_id))
         return entry_id
 
@@ -366,13 +377,22 @@ def _own_entry(conn, user, entry_id):
         raise LedgerError('내가 쓴 기록만 고칠 수 있어요.')
 
 
-def edit_entry(user, entry_id, amount, used_on, category_id, memo):
+def edit_entry(user, entry_id, amount, used_on, category_id, memo, repeat_day=None, apply_future=False):
+    """기록 고치기. 반복 결제가 넣은 기록이면 apply_future로 그 반복의 금액·분류·메모도 같이 (다음 달부터),
+    반복이 아닌 기록에 repeat_day를 주면 이 기록으로 매달 반복 결제를 만듦"""
     with _db() as conn, conn:
         _own_entry(conn, user, entry_id)
         values = _entry_values(amount, used_on, category_id, memo, conn)
         before = _snapshot(conn, entry_id)
         conn.execute("UPDATE ledger_entries SET amount = ?, used_on = ?, category_id = ?, memo = ?, updated_at = ? WHERE id = ?",
                      (*values, _now(), entry_id))
+        rec = conn.execute("""SELECT r.id FROM ledger_entries e JOIN ledger_recurring r ON r.id = e.recurring_id
+                              WHERE e.id = ?""", (entry_id,)).fetchone()
+        if rec and apply_future:
+            conn.execute("UPDATE ledger_recurring SET amount = ?, category_id = ?, memo = ?, updated_at = ? WHERE id = ?",
+                         (values[0], values[2], values[3], _now(), rec['id']))
+        elif not rec and repeat_day is not None:
+            _start_recurring(conn, entry_id, repeat_day)
         after = _snapshot(conn, entry_id)
         if after != before:   # 바꾼 것 없이 저장만 누른 것은 남기지 않음
             _log_change(conn, entry_id, user['id'], before, after)
@@ -538,8 +558,145 @@ def delete_category(category_id):
     with _db() as conn, conn:
         if conn.execute("SELECT 1 FROM ledger_entries WHERE category_id = ?", (category_id,)).fetchone():
             raise LedgerError('기록에 쓰인 소비형태는 지울 수 없어요.')
+        if conn.execute("SELECT 1 FROM ledger_recurring WHERE category_id = ?", (category_id,)).fetchone():
+            raise LedgerError('반복 결제에 쓰인 분류는 지울 수 없어요.')
         if not conn.execute("DELETE FROM ledger_categories WHERE id = ?", (category_id,)).rowcount:
             raise LedgerError('없는 소비형태예요.')
+
+
+# ==========================================
+# 매달 반복 결제 (자동이체·월급 등)
+# ==========================================
+RECURRING_MAX = 100          # 모두 합쳐
+RECURRING_CATCHUP = 24       # 서버가 오래 꺼져 있었어도 반복마다 이만큼(달)까지만 채움
+RECURRING_MATCH_DAYS = 3     # 결제 알림이 반복일 앞뒤 이만큼 안이고 금액이 같으면 '반복 결제로 이미 기록됨'
+_recurring_lock = threading.Lock()
+
+
+def _on_day(y, m, day):
+    """y년 m월의 day일 (그 달에 없으면 말일)"""
+    return date(y, m, min(day, calendar.monthrange(y, m)[1]))
+
+
+def _month_after(d, day):
+    """d가 든 달의 다음 달 day일"""
+    y, m = (d.year + 1, 1) if d.month == 12 else (d.year, d.month + 1)
+    return _on_day(y, m, day)
+
+
+def _next_after(day, after):
+    """after 다음(after는 빼고) 처음 오는 매월 day일"""
+    d = _on_day(after.year, after.month, day)
+    return d if d > after else _month_after(after, day)
+
+
+def _repeat_day(day):
+    if type(day) is not int or not 1 <= day <= 31:
+        raise LedgerError('반복할 날을 골라 주세요.')
+    return day
+
+
+def _start_recurring(conn, entry_id, day):
+    """이 기록으로 매달 반복 결제를 만들고 기록을 이어 둠. 처음 넣을 날은 기록한 날·오늘 다음의 그날 (지난 달을 거슬러 넣지 않음)"""
+    day = _repeat_day(day)
+    if conn.execute("SELECT COUNT(*) FROM ledger_recurring").fetchone()[0] >= RECURRING_MAX:
+        raise LedgerError(f'반복 결제는 {RECURRING_MAX}개까지 만들 수 있어요.')
+    e = conn.execute("SELECT user_id, amount, used_on, category_id, memo FROM ledger_entries WHERE id = ?", (entry_id,)).fetchone()
+    nxt = _next_after(day, max(date.fromisoformat(e['used_on']), date.today()))
+    now = _now()
+    rec_id = conn.execute("""INSERT INTO ledger_recurring(user_id, amount, category_id, memo, day, next_on, created_at, updated_at)
+                             VALUES(?, ?, ?, ?, ?, ?, ?, ?)""",
+                          (e['user_id'], e['amount'], e['category_id'], e['memo'], day, nxt.isoformat(), now, now)).lastrowid
+    conn.execute("UPDATE ledger_entries SET recurring_id = ? WHERE id = ?", (rec_id, entry_id))
+    return rec_id
+
+
+def _recurring_list(conn):
+    return [dict(r) for r in conn.execute("""SELECT id, user_id, amount, category_id, memo, day, next_on, paused FROM ledger_recurring
+                                             ORDER BY paused, day, id""")]
+
+
+def recurring_list():
+    with _db() as conn:
+        return _recurring_list(conn)
+
+
+def run_recurring(today=None):
+    """반복일이 된(지난) 반복 결제의 기록을 넣음 (서버가 꺼져 있던 달도, 한 달에 한 번만). 넣은 수"""
+    today = today or date.today()
+    made = 0
+    with _recurring_lock, _db() as conn, conn:
+        for r in conn.execute("SELECT * FROM ledger_recurring WHERE paused = 0 AND next_on <= ?", (today.isoformat(),)).fetchall():
+            nxt, n = date.fromisoformat(r['next_on']), 0
+            while nxt <= today and n < RECURRING_CATCHUP:
+                now = _now()
+                entry_id = conn.execute("""INSERT INTO ledger_entries(user_id, amount, used_on, category_id, memo, created_at, updated_at, recurring_id)
+                                           VALUES(?, ?, ?, ?, ?, ?, ?, ?)""",
+                                        (r['user_id'], r['amount'], nxt.isoformat(), r['category_id'], r['memo'], now, now, r['id'])).lastrowid
+                _log_change(conn, entry_id, r['user_id'], None, _snapshot(conn, entry_id))
+                nxt, n, made = _month_after(nxt, r['day']), n + 1, made + 1
+            if nxt <= today:
+                nxt = _next_after(r['day'], today)
+            conn.execute("UPDATE ledger_recurring SET next_on = ? WHERE id = ?", (nxt.isoformat(), r['id']))
+    return made
+
+
+def _own_recurring(conn, user, rec_id):
+    row = conn.execute("SELECT * FROM ledger_recurring WHERE id = ?", (rec_id,)).fetchone()
+    if not row:
+        raise LedgerError('없는 반복 결제예요.')
+    if row['user_id'] != user['id'] and not user['admin']:
+        raise LedgerError('내가 만든 반복 결제만 고칠 수 있어요.')
+    return row
+
+
+def edit_recurring(user, rec_id, amount, day, category_id, memo):
+    """반복 결제 고치기 (다음에 넣을 것부터). 날을 바꾸면 다음에 넣을 달은 그대로 두고 그 달의 새 날로"""
+    with _db() as conn, conn:
+        row = _own_recurring(conn, user, rec_id)
+        day = _repeat_day(day)
+        amount, _, category_id, memo = _entry_values(amount, row['next_on'], category_id, memo, conn)
+        nxt = date.fromisoformat(row['next_on'])
+        if day != row['day']:
+            nxt = _on_day(nxt.year, nxt.month, day)
+        conn.execute("UPDATE ledger_recurring SET amount = ?, day = ?, category_id = ?, memo = ?, next_on = ?, updated_at = ? WHERE id = ?",
+                     (amount, day, category_id, memo, nxt.isoformat(), _now(), rec_id))
+    run_recurring()   # 새 날이 이미 지났으면 그 달 것을 바로
+
+
+def pause_recurring(user, rec_id, paused):
+    """멈추기·다시 시작. 다시 시작할 때 멈춘 동안 지난 달은 채우지 않음 (오늘부터 처음 오는 그날)"""
+    with _db() as conn, conn:
+        row = _own_recurring(conn, user, rec_id)
+        nxt = date.fromisoformat(row['next_on'])
+        if not paused and nxt < date.today():
+            nxt = _next_after(row['day'], date.today() - timedelta(days=1))
+        conn.execute("UPDATE ledger_recurring SET paused = ?, next_on = ?, updated_at = ? WHERE id = ?",
+                     (1 if paused else 0, nxt.isoformat(), _now(), rec_id))
+    run_recurring()
+
+
+def delete_recurring(user, rec_id):
+    """반복 결제 지우기. 이미 넣은 기록은 그대로 (반복 표시만 없어짐)"""
+    with _db() as conn, conn:
+        _own_recurring(conn, user, rec_id)
+        conn.execute("UPDATE ledger_entries SET recurring_id = NULL WHERE recurring_id = ?", (rec_id,))
+        conn.execute("DELETE FROM ledger_recurring WHERE id = ?", (rec_id,))
+
+
+def _recurring_match(conn, item):
+    """결제 알림과 같은 반복 결제: 금액이 같고, 반복이 넣은 기록이 알림 날 앞뒤 RECURRING_MATCH_DAYS일 안에 있거나
+    곧 넣을 날(next_on)이 그 안이면 {memo, used_on, done(이미 넣었는지)}. 알림 이름이 반복의 메모와 달라도 (예: '신한은행 자동이체' → 'XX 보험')"""
+    lo, hi = f'-{RECURRING_MATCH_DAYS} days', f'+{RECURRING_MATCH_DAYS} days'
+    e = conn.execute("""SELECT memo, used_on FROM ledger_entries WHERE recurring_id IS NOT NULL AND amount = ?
+                        AND used_on BETWEEN date(?, ?) AND date(?, ?) ORDER BY ABS(julianday(used_on) - julianday(?)) LIMIT 1""",
+                     (item['amount'], item['used_on'], lo, item['used_on'], hi, item['used_on'])).fetchone()
+    if e:
+        return {'memo': e['memo'], 'used_on': e['used_on'], 'done': True}
+    r = conn.execute("""SELECT memo, next_on FROM ledger_recurring WHERE paused = 0 AND amount = ?
+                        AND next_on BETWEEN date(?, ?) AND date(?, ?) LIMIT 1""",
+                     (item['amount'], item['used_on'], lo, item['used_on'], hi)).fetchone()
+    return {'memo': r['memo'], 'used_on': r['next_on'], 'done': False} if r else None
 
 
 # ==========================================
@@ -706,6 +863,7 @@ def inbox(user):
             if item['cancel']:
                 item['match'] = _cancel_match(conn, r)
             item['suggest'] = _suggest(history, r)
+            item['recurring'] = None if item['cancel'] else _recurring_match(conn, r)
             items.append(item)
     return items
 

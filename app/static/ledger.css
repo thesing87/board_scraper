@@ -548,3 +548,43 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
     .trash-list .tr .m { font-size: 12px; }
     .undo { font-size: 12px; }
 }
+
+/* ---- 매달 반복 결제 */
+/* 입력 창: '🔁 매달 반복' + 매월 며칠, 반복이 넣은 기록은 '매월 25일 반복 · 반복 결제 고치기 ›'와 '다음 달부터도' */
+.rp { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin: 8px 0 2px; font-size: 13.5px; }
+.rp[hidden] { display: none; }
+.rp .rp-on { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.rp .rp-on input { width: 18px; height: 18px; margin: 0; accent-color: var(--brand); }
+.rp-day { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.rp-day[hidden] { display: none; }
+.rp-day select { height: 30px; border: 1px solid var(--brand-line); border-radius: 8px; padding: 0 4px; background: var(--surface); color: var(--text); font-size: 14px; }
+.rp.linked { display: block; padding: 8px 10px; border-radius: 10px; background: var(--brand-soft); }
+.rp.linked[hidden] { display: none; }
+.rp-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 600; }
+.rp-top .link-btn { margin-left: auto; color: var(--brand); font-size: 12.5px; text-decoration: underline; }
+/* 내역 줄의 🔁 */
+.rp-mark { font-size: 11px; line-height: 1; }
+/* 설정 > 반복 결제 */
+.rec-row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px 14px; border-top: 1px solid var(--divider); cursor: default; }
+.rec-row:first-child { border-top: 0; }
+.rec-row[role="button"] { cursor: pointer; }
+.rec-row[role="button"]:active, .rec-row.open { background: var(--soft); }
+.rec-row .n { flex: 1; min-width: 0; }
+.rec-row .n b { display: block; font-size: 14.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-row .n small { display: block; margin-top: 1px; font-size: 12px; color: var(--muted); }
+.rec-row .amt { font-size: 14.5px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rec-row.paused .ci, .rec-row.paused .n b, .rec-row.paused .amt { opacity: .45; }
+.rec-paused { color: var(--bad); font-weight: 600; }
+.rec-ed { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; background: var(--soft); }
+.rec-ed input, .rec-ed select { height: 38px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; background: var(--surface); color: var(--text); font-size: 14px; }
+.rec-f { display: flex; align-items: center; gap: 6px; }
+.rec-f input { flex: 1; min-width: 0; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rec-f select:last-child { flex: 1; min-width: 0; }
+.rec-ed .ced-act { margin-top: 2px; }
+.rec-ed .msg:empty { display: none; }
+/* 확인할 결제: 같은 반복 결제가 있음 */
+.ib-rp { margin: -4px 10px 8px 56px; font-size: 12px; color: #0C447C; }
+@media (max-width: 480px) {
+    .rp { font-size: 13px; }
+    .rec-row .n small, .ib-rp { font-size: 11px; }
+}

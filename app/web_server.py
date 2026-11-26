@@ -690,6 +690,7 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/ledger/admin': ('_handle_ledger_admin', '가계부 사용자 허락 처리'),
         '/api/ledger/inbox': ('_handle_ledger_inbox', '가계부 확인 대기함 처리'),
         '/api/ledger/rule': ('_handle_ledger_rule', '가계부 가게 규칙 처리'),
+        '/api/ledger/recurring': ('_handle_ledger_recurring', '가계부 반복 결제 처리'),
         '/api/ledger/hook-key': ('_handle_ledger_hook_key', '가계부 연결 키 처리'),
         '/api/ledger/duty': ('_handle_duty', '근무표 처리'),
     }
@@ -1456,17 +1457,43 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         self._send_body(200, body, 'application/json; charset=utf-8', {'Set-Cookie': self._ledger_cookie(token, self.LEDGER_COOKIE_AGE)})
 
     def _handle_ledger_entry(self):
-        """{action: add|edit|delete, id, amount, used_on, category_id, memo}"""
+        """{action: add|edit|delete, id, amount, used_on, category_id, memo, repeat_day, apply_future}.
+        repeat_day(1~31): 이 기록으로 매달 반복 결제 만들기, apply_future: 반복이 넣은 기록을 고칠 때 반복도 같이"""
         user = self._ledger_user()
         if not user:
             return
         b, action = self._body, self._body.get('action')
         if action == 'add':
-            self._ledger_reply(lambda: {'id': ledger.add_entry(user, b.get('amount'), b.get('used_on'), b.get('category_id'), b.get('memo'))})
+            self._ledger_reply(lambda: {'id': ledger.add_entry(user, b.get('amount'), b.get('used_on'), b.get('category_id'), b.get('memo'),
+                                                               b.get('repeat_day'))})
         elif action == 'edit' and type(b.get('id')) is int:
-            self._ledger_reply(lambda: ledger.edit_entry(user, b['id'], b.get('amount'), b.get('used_on'), b.get('category_id'), b.get('memo')))
+            self._ledger_reply(lambda: ledger.edit_entry(user, b['id'], b.get('amount'), b.get('used_on'), b.get('category_id'), b.get('memo'),
+                                                         b.get('repeat_day'), b.get('apply_future') is True))
         elif action == 'delete' and type(b.get('id')) is int:
             self._ledger_reply(lambda: ledger.delete_entry(user, b['id']))
+        else:
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+
+    def _handle_ledger_recurring(self):
+        """매달 반복 결제 {action: edit|pause|resume|delete, id, amount, day, category_id, memo}. 답은 바뀐 반복 목록"""
+        user = self._ledger_user()
+        if not user:
+            return
+        b, action, rec = self._body, self._body.get('action'), self._body.get('id')
+        if type(rec) is not int:
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        def run(fn):
+            def go():
+                fn()
+                return {'recurring': ledger.recurring_list()}
+            self._ledger_reply(go)
+        if action == 'edit':
+            run(lambda: ledger.edit_recurring(user, rec, b.get('amount'), b.get('day'), b.get('category_id'), b.get('memo')))
+        elif action in ('pause', 'resume'):
+            run(lambda: ledger.pause_recurring(user, rec, action == 'pause'))
+        elif action == 'delete':
+            run(lambda: ledger.delete_recurring(user, rec))
         else:
             self._send_json(400, False, '❌ 잘못된 요청입니다.')
 
@@ -2219,6 +2246,17 @@ def _watch_collector():
         except Exception as e:
             log_msg(f"[감시] 수집기 상태 확인 실패: {short_err(e)}", "DEBUG")
 
+def _ledger_recurring_loop():
+    """매달 반복 결제: 아무도 가계부를 열지 않아도 그날 기록이 들어가고 휴대폰 알림이 가게 10분마다"""
+    while True:
+        try:
+            made = ledger.run_recurring()
+            if made:
+                log_msg(f"[가계부] 반복 결제 {made}건 기록")
+        except Exception as e:
+            log_msg(f"[가계부] 반복 결제 기록 실패: {short_err(e)}", "WARN")
+        time.sleep(600)
+
 def run_api_server():
     server_address = ('', WEB_PORT)
     httpd = ThreadedHTTPServer(server_address, KeywordAPIServer)
@@ -2227,6 +2265,7 @@ def run_api_server():
     fm_digest.start()
     duty_push.start()
     ledger_push.start()
+    threading.Thread(target=_ledger_recurring_loop, daemon=True).start()
     if COLLECTOR_STALL_MINUTES:
         threading.Thread(target=_watch_collector, daemon=True).start()
     log_msg(f"[API] 웹서버 시작 (포트 {WEB_PORT})")

@@ -149,6 +149,15 @@
                         <input id="memo" placeholder="메모" maxlength="60" autocomplete="off" aria-label="메모">
                         <div class="dd" id="memo-dd" hidden></div>
                     </div>
+                    <!-- 매달 반복 (자동이체·월급 등): 새 기록·반복이 아닌 기록은 켜기 + 매월 며칠, 반복이 넣은 기록은 '다음 달부터도' -->
+                    <div class="rp" id="rp-new">
+                        <label class="rp-on"><input type="checkbox" id="rp-check"> 🔁 매달 반복</label>
+                        <span class="rp-day" id="rp-day-wrap" hidden>매월 <select id="rp-day" aria-label="반복할 날"></select>일</span>
+                    </div>
+                    <div class="rp linked" id="rp-linked" hidden>
+                        <div class="rp-top"><span id="rp-linked-text"></span><button type="button" class="link-btn" id="rp-open">반복 결제 고치기 ›</button></div>
+                        <label class="rp-on"><input type="checkbox" id="rp-future" checked> 다음 달부터도 이 금액·분류·메모로</label>
+                    </div>
                     <!-- 사진: 기록마다 3장까지. 저장할 때 함께 올리고 뺌 -->
                     <div class="photos" id="photos"></div>
                     <p class="msg" id="photo-msg" role="alert"></p>
@@ -196,6 +205,7 @@
                     </div>
                     <p class="set-cap">가계부</p>
                     <div class="set-grp">
+                        <button type="button" class="set-row" data-tab="repeat"><span class="sico" style="background:#E6F1FB">🔁</span><span class="n">반복 결제<small>자동이체 · 월급 등 매달 같은 것</small></span><span class="v" id="row-repeat"></span><span class="chev">›</span></button>
                         <button type="button" class="set-row" data-tab="cats"><span class="sico" style="background:#FAECE7">🏷️</span><span class="n">분류</span><span class="v" id="row-cats"></span><span class="chev">›</span></button>
                         <button type="button" class="set-row admin-only" data-tab="users" hidden><span class="sico" style="background:#EEEDFE">👥</span><span class="n">함께 쓰는 사람</span><span class="tab-n warm" id="pending-count" hidden></span><span class="chev">›</span></button>
                     </div>
@@ -238,6 +248,12 @@
                 <section class="set-pane" data-pane="trash" hidden>
                     <div class="trash-list set-grp" id="trash-list"></div>
                     <p class="hint">30일 뒤 저절로 지워져요</p>
+                </section>
+                <!-- 반복 결제: 매월 그날 내역에 바로. 줄을 누르면 금액·날·분류·메모 고치기 · 멈추기 · 지우기 -->
+                <section class="set-pane" data-pane="repeat" hidden>
+                    <div class="set-grp rec-list" id="rec-list"></div>
+                    <button type="button" class="primary wide" id="rec-add">＋ 반복 결제 추가</button>
+                    <p class="hint">매월 그날(그 달에 없으면 말일) 같은 금액·분류·메모로 내역에 바로 들어가요. 멈추거나 지워도 이미 들어간 기록은 그대로예요.</p>
                 </section>
                 <!-- 분류: 지출·수입 목록 (아이콘·이름), 줄을 누르면 이름·아이콘·색 고치기·지우기, ⋮⋮를 끌어 순서 바꾸기 -->
                 <section class="set-pane" data-pane="cats" hidden>

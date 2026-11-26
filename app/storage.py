@@ -328,6 +328,20 @@ def _create_schema(conn):
             updated_at  TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_ledger_entries_used_on ON ledger_entries(used_on);
+        -- 매달 반복 결제 (자동이체·월급 등): 매월 day일(그 달에 없으면 말일)에 같은 금액·분류·메모로 기록을 넣음 (ledger.run_recurring).
+        -- next_on: 다음에 넣을 날 (YYYY-MM-DD), paused: 멈춤. 만든 기록은 ledger_entries.recurring_id로 이어짐
+        CREATE TABLE IF NOT EXISTS ledger_recurring (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER NOT NULL REFERENCES ledger_users(id),
+            amount      INTEGER NOT NULL,
+            category_id INTEGER NOT NULL REFERENCES ledger_categories(id),
+            memo        TEXT NOT NULL DEFAULT '',
+            day         INTEGER NOT NULL,
+            next_on     TEXT NOT NULL,
+            paused      INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        );
         -- 가계부 자동 기록: 사람마다 휴대폰 결제 알림을 보낼 연결 키(sha256만), 받은 결제를 확정 전까지 쌓는 대기함, 가게 이름 → 분류 규칙
         CREATE TABLE IF NOT EXISTS ledger_hook_keys (
             user_id     INTEGER PRIMARY KEY REFERENCES ledger_users(id) ON DELETE CASCADE,
@@ -560,6 +574,10 @@ def _add_missing_columns(conn):
     if 'icon' not in {row['name'] for row in conn.execute("PRAGMA table_info(ledger_categories)")}:
         conn.execute("ALTER TABLE ledger_categories ADD COLUMN icon TEXT NOT NULL DEFAULT ''")
         log_msg("[DB] ledger_categories.icon 컬럼 추가")
+    if 'recurring_id' not in {row['name'] for row in conn.execute("PRAGMA table_info(ledger_entries)")}:
+        # 매달 반복 결제가 넣은 기록 (ledger_recurring.id, 반복을 지우면 NULL)
+        conn.execute("ALTER TABLE ledger_entries ADD COLUMN recurring_id INTEGER")
+        log_msg("[DB] ledger_entries.recurring_id 컬럼 추가")
     if 'discarded_at' not in {row['name'] for row in conn.execute("PRAGMA table_info(ledger_inbox)")}:
         conn.execute("ALTER TABLE ledger_inbox ADD COLUMN discarded_at TEXT")
         log_msg("[DB] ledger_inbox.discarded_at 컬럼 추가")

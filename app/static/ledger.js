@@ -185,6 +185,7 @@
             if (!list.some(c => c.id === st.sels[kind])) st.sels[kind] = list.length ? list[0].id : null;
         }
         render();
+        renderRecurring();
         // 대기함이 먼저 와서 분류 목록 없이 칸만 열렸으면 이제 내용까지 (알림을 눌러 열 때 기록 쪽이 늦게 오는 일이 잦음)
         if (st.inbox) renderInbox();
         openPending();
@@ -217,6 +218,7 @@
     const kindOf = e => catOf(e.category_id).kind || 'expense';
     const nameOf = id => ((st.data.members.find(m => m.id === id) || {}).name || '알 수 없음');
     const catOf = id => (st.data.categories.find(c => c.id === id) || { name: '알 수 없음', color: '#888780' });
+    const recOf = id => ((st.data && st.data.recurring) || []).find(r => r.id === id);
 
     // ==========================================
     // 화면 그리기
@@ -521,7 +523,7 @@
         return `<div class="sw-row">
             <div class="it u${mine ? ' mine' : ''}${st.editId === e.id ? ' editing' : ''}" data-entry="${e.id}" style="${userTint(e.user_id)}"${mine ? ' role="button" tabindex="0"' : ''}>
             ${catIcon(c)}<span class="txt"><span class="memo${e.memo ? '' : ' no-memo'}">${hl(e.memo || c.name)}</span>
-            <span class="line2">${day}<span class="cat">${hl(c.name)}</span><span class="sep">·</span>${whoTag(e.user_id)}</span></span>
+            <span class="line2">${day}${e.recurring_id ? '<span class="rp-mark" title="매달 반복">🔁</span>' : ''}<span class="cat">${hl(c.name)}</span><span class="sep">·</span>${whoTag(e.user_id)}</span></span>
             ${thumbHtml(e)}<span class="amt ${income ? 'plus' : 'minus'}">${income ? '+' : '−'}${won(e.amount)}</span></div></div>`;
     }
     // 사진이 있는 기록: 첫 사진 썸네일 (+남은 장 수). 누르면 크게 보기
@@ -670,6 +672,7 @@
         setPhotos([]);
         st.histFor = null;
         $('hist').hidden = true;
+        resetRepeat(null);
     }
 
     $('save').addEventListener('click', async () => {
@@ -678,6 +681,11 @@
         if (selected() == null) { $('entry-msg').textContent = st.kind === 'income' ? '수입 종류를 골라 주세요.' : '소비형태를 골라 주세요.'; return; }
         const body = { amount, used_on: $('used-on').value || ymd(new Date()), category_id: selected(), memo: $('memo').value.trim() };
         const editing = st.editId != null;
+        if (!$('rp-new').hidden && $('rp-check').checked) body.repeat_day = Number($('rp-day').value);
+        // 반복이 넣은 기록: 금액·분류·메모를 바꿨고 '다음 달부터도'면 반복도 같이 (날짜만 바꾼 것은 그 달만)
+        const o = st.rpOrig;
+        if (editing && !$('rp-linked').hidden && $('rp-future').checked && o
+            && (o.amount !== body.amount || o.category_id !== body.category_id || (o.memo || '') !== body.memo)) body.apply_future = true;
         $('save').disabled = true;
         const { status, data } = await post('/api/ledger/entry', editing ? { action: 'edit', id: st.editId, ...body } : { action: 'add', ...body });
         if (status !== 200) $('save').disabled = false;
@@ -704,10 +712,113 @@
         $('memo').value = entry.memo || '';
         $('entry-msg').textContent = '';
         setPhotos((entry.photos || []).map(id => ({ id })));
+        resetRepeat(entry);
         loadHistory(entry.id);
         render();
         openEntry();
     }
+
+    // ---------- 매달 반복: 새 기록·반복이 아닌 기록은 '🔁 매달 반복' + 매월 며칠(처음엔 날짜 칸의 날),
+    // 반복 결제가 넣은 기록은 '매월 25일 반복 · 반복 결제 고치기 ›'와 '다음 달부터도 이 금액·분류·메모로'
+    $('rp-day').innerHTML = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
+    const usedDay = () => +(($('used-on').value || ymd(new Date())).slice(8)) || 1;
+    function resetRepeat(entry) {
+        const rec = entry && entry.recurring_id ? recOf(entry.recurring_id) : null;
+        st.rpDayTouched = false;
+        st.rpFor = rec ? rec.id : null;
+        st.rpOrig = entry ? { amount: entry.amount, category_id: entry.category_id, memo: entry.memo || '' } : null;
+        $('rp-check').checked = false;
+        $('rp-day-wrap').hidden = true;
+        $('rp-new').hidden = !!rec;
+        $('rp-linked').hidden = !rec;
+        $('rp-future').checked = true;
+        if (rec) $('rp-linked-text').textContent = `🔁 매월 ${rec.day}일 반복${rec.paused ? ' (멈춤)' : ''}`;
+    }
+    function setRepeat(on) {
+        $('rp-check').checked = on;
+        $('rp-day-wrap').hidden = !on;
+        if (on && !st.rpDayTouched) $('rp-day').value = String(usedDay());
+    }
+    $('rp-check').addEventListener('change', () => setRepeat($('rp-check').checked));
+    $('rp-day').addEventListener('change', () => { st.rpDayTouched = true; });
+    for (const ev of ['input', 'change']) $('used-on').addEventListener(ev, () => { if ($('rp-check').checked && !st.rpDayTouched) $('rp-day').value = String(usedDay()); });
+    $('rp-open').addEventListener('click', () => {
+        const id = st.rpFor;
+        closeEntry();
+        st.recOpen = id;
+        openSettings('repeat');
+        renderRecurring();
+    });
+
+    // 설정 > 반복 결제: 한 줄씩 (아이콘 · 메모 · '매월 25일 · 분류 · 사람 · 다음 12/25'(멈춘 것은 '멈춤') · 금액).
+    // 만든 사람·관리자는 줄을 누르면 금액·날·분류·메모 고치기 · 멈추기/다시 시작 · 지우기
+    function renderRecurring() {
+        if (!st.data) return;
+        const list = st.data.recurring || [];
+        $('row-repeat').textContent = list.length || '';
+        if (!list.some(r => r.id === st.recOpen)) st.recOpen = null;
+        if (!list.length) { $('rec-list').innerHTML = `<p class="none">아직 없어요. 입력 창에서 '🔁 매달 반복'을 켜거나 아래 버튼으로 만들어요.</p>`; return; }
+        $('rec-list').innerHTML = list.map(r => {
+            const c = catOf(r.category_id), income = c.kind === 'income', mine = canEdit(r);
+            const next = r.paused ? '<span class="rec-paused">멈춤</span>' : `다음 ${md(r.next_on)}`;
+            return `<div class="rec-row${r.paused ? ' paused' : ''}${st.recOpen === r.id ? ' open' : ''}" data-rec="${r.id}"${mine ? ' role="button" tabindex="0"' : ''}>
+                ${catIcon(c)}<span class="n"><b>${esc(r.memo || c.name)}</b><small>매월 ${r.day}일 · ${esc(c.name)} · ${esc(nameOf(r.user_id))} · ${next}</small></span>
+                <span class="amt ${income ? 'plus' : 'minus'}">${income ? '+' : '−'}${won(r.amount)}</span></div>`
+                + (st.recOpen === r.id && mine ? recEditHtml(r) : '');
+        }).join('');
+    }
+    function recEditHtml(r) {
+        const kind = catOf(r.category_id).kind || 'expense';
+        const cats = st.data.categories.filter(c => c.kind === kind)
+            .map(c => `<option value="${c.id}"${c.id === r.category_id ? ' selected' : ''}>${esc(iconOf(c))} ${esc(c.name)}</option>`).join('');
+        const days = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}"${i + 1 === r.day ? ' selected' : ''}>${i + 1}</option>`).join('');
+        return `<div class="ced rec-ed">
+            <div class="rec-f"><input id="rec-amount" inputmode="numeric" value="${r.amount.toLocaleString('ko-KR')}" aria-label="금액" autocomplete="off"><span>원</span></div>
+            <div class="rec-f"><span>매월</span><select id="rec-day" aria-label="반복할 날">${days}</select><span>일</span><select id="rec-cat" aria-label="분류">${cats}</select></div>
+            <input id="rec-memo" value="${esc(r.memo)}" maxlength="60" placeholder="메모" aria-label="메모" autocomplete="off">
+            <div class="ced-act"><button type="button" class="primary" data-rec-save>저장</button><button type="button" data-rec-pause>${r.paused ? '다시 시작' : '멈추기'}</button><button type="button" class="danger" data-rec-del>지우기</button></div>
+            <p class="msg" id="rec-msg"></p></div>`;
+    }
+    async function recPost(body) {
+        const { status, data } = await post('/api/ledger/recurring', body);
+        if (status === 401) { showAuth('login'); return false; }
+        if (status !== 200) { if ($('rec-msg')) $('rec-msg').textContent = msgOf(data); return false; }
+        await load();   // 고친 날이 이미 지나 바로 들어간 기록도 내역에
+        return true;
+    }
+    $('rec-list').addEventListener('click', async e => {
+        const id = st.recOpen, r = recOf(id);
+        if (e.target.closest('[data-rec-save]')) {
+            const amount = parseInt($('rec-amount').value.replace(/[^0-9]/g, ''), 10) || 0;
+            if (!amount) { $('rec-msg').textContent = '금액을 넣어 주세요.'; return; }
+            const body = { action: 'edit', id, amount, day: Number($('rec-day').value), category_id: Number($('rec-cat').value), memo: $('rec-memo').value.trim() };
+            if (await recPost(body)) { st.recOpen = null; renderRecurring(); }
+            return;
+        }
+        if (e.target.closest('[data-rec-pause]')) { if (r) await recPost({ action: r.paused ? 'resume' : 'pause', id }); return; }
+        if (e.target.closest('[data-rec-del]')) {
+            if (!r || !window.confirm(`'${r.memo || catOf(r.category_id).name}' 반복 결제를 지울까요?\n이미 들어간 기록은 그대로예요.`)) return;
+            if (await recPost({ action: 'delete', id })) { st.recOpen = null; renderRecurring(); }
+            return;
+        }
+        const row = e.target.closest('.rec-row[role="button"]');
+        if (row) { const rid = Number(row.dataset.rec); st.recOpen = st.recOpen === rid ? null : rid; renderRecurring(); }
+    });
+    $('rec-list').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.rec-row[role="button"]')) { e.preventDefault(); e.target.click(); } });
+    $('rec-list').addEventListener('input', e => {
+        if (e.target.id !== 'rec-amount') return;
+        const v = e.target.value.replace(/[^0-9]/g, '').slice(0, 10);
+        e.target.value = v ? Number(v).toLocaleString('ko-KR') : '';
+    });
+    // '＋ 반복 결제 추가': 입력 창을 '🔁 매달 반복'이 켜진 채로 (오늘 날짜, 이번 기록도 함께 들어감)
+    $('rec-add').addEventListener('click', () => {
+        closeSettings();
+        clearForm();
+        setUsedOn(ymd(new Date()));
+        render();
+        setRepeat(true);
+        openEntry();
+    });
 
     // ---------- 사진: 휴대폰에서 줄여(큰 것 긴 쪽 1600px·썸네일 240px JPEG) 저장할 때 올림
     const PHOTO_MAX = 3;
@@ -1390,6 +1501,9 @@
             else if (x.category_id == null) note = '<span class="note">분류를 골라 주세요</span>';
             else note = rule && rule.category_id === x.category_id ? `<span class="note">규칙 "${esc(rule.pattern)}" → ${esc(catOf(x.category_id).name)}</span>` : '';
             const c = cat != null ? catOf(cat) : null;
+            // 같은 금액의 반복 결제가 앞뒤 3일 안에 있음 (알림 이름이 달라도): 두 번 기록하지 않게 버리기 쉽게
+            const rr = !x.cancel && x.recurring;
+            const rp = rr ? `<div class="ib-rp">🔁 ${md(rr.used_on)}에 '${esc(rr.memo || '반복 결제')}'(으)로 ${rr.done ? '이미 기록됨' : '기록될 예정'} · 버려도 돼요</div>` : '';
             const row = `<div class="ib-row" data-ib-toggle role="button" tabindex="0" aria-expanded="${open}">
                 ${c ? catIcon(c) : `<span class="ci none" aria-hidden="true">${x.cancel ? '↩' : '?'}</span>`}
                 <span class="ib-m"><span class="shop">${esc(shop || '가게 이름 없음')}</span><small>${day} ${esc(x.used_time)} · ${esc(x.card || '카드')}${c ? ` · ${esc(c.name)}` : ''}</small></span>
@@ -1399,7 +1513,7 @@
             // 접힌 채로도 분류는 바로 고를 수 있게: 분류가 없으면 줄 아래에 분류 한 줄 (옆으로 밀기)
             const quick = !x.cancel && cat == null ? `<div class="ib-quick">${expenseCats().map(c => `<span class="chip" data-ib-cat="${c.id}"
                 style="background:${chipBg(c.color)};color:${chipFg(c.color)}">${esc(iconOf(c))} ${esc(c.name)}</span>`).join('')}</div>` : '';
-            if (!open) return `<div class="ib" data-item="${x.id}">${row}${quick}</div>`;
+            if (!open) return `<div class="ib" data-item="${x.id}">${row}${rp}${quick}</div>`;
             // 금액·가게 칸 오른쪽 X: 한 번에 지우고 바로 입력 (글자가 있을 때만 보임). 휴대폰은 윗줄 금액·날짜, 아랫줄 가게 한 줄 전부
             const fields = x.cancel ? '' : `<div class="edit">
                 <span class="clr-wrap e-amt"><input id="ib-amount-${x.id}" data-f="amount" inputmode="numeric" value="${esc(t ? t.amount : x.amount.toLocaleString('ko-KR'))}" placeholder="금액" aria-label="금액">
@@ -1421,7 +1535,7 @@
             const canIgnore = appCanIgnore() && x.raw;
             const btns = (canRule ? `<button type="button" class="small" data-ib-rule>"${esc(suggestPattern(shop))}"는 늘 ${esc(catOf(cat).name)}</button>` : '')
                 + (canIgnore ? '<button type="button" class="small" data-ib-ignore>이런 알림 안 받기</button>' : '');
-            return `<div class="ib open" data-item="${x.id}">${row}<div class="body">
+            return `<div class="ib open" data-item="${x.id}">${row}${rp}<div class="body">
                 ${note}${fields}${chips}${newCat}<span class="raw">${esc(x.raw)}</span>
                 ${btns ? `<div class="btns">${btns}</div>` : ''}</div></div>`;
         }).join('');
@@ -1694,7 +1808,7 @@
     // 설정 (머리줄 '설정' → 같은 페이지의 #settings): 목록(휴대폰 연결 · 가게 규칙 · 버린 알림 · 분류 · 함께 쓰는 사람 · 전체 설정),
     // 줄을 누르면 그 페이지(#settings/hook 등). 주소에 한 칸씩 넣어 두므로 ←·브라우저·앱의 뒤로가기로 목록, 다시 메인
     // ==========================================
-    const SET_TITLES = { hook: '휴대폰 연결', rules: '가게 규칙', trash: '버린 알림', cats: '분류', users: '함께 쓰는 사람' };
+    const SET_TITLES = { hook: '휴대폰 연결', rules: '가게 규칙', trash: '버린 알림', repeat: '반복 결제', cats: '분류', users: '함께 쓰는 사람' };
     function renderSetTabs() {
         const admin = !!(st.me && st.me.admin);
         if (!SET_TITLES[st.setTab] || (!admin && st.setTab === 'users')) st.setTab = null;
