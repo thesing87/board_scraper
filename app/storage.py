@@ -265,6 +265,19 @@ def _create_schema(conn):
             updated_at TEXT NOT NULL
         );
 
+        -- 동영상 즐겨찾기 (path: 동영상 폴더 기준 상대 경로, 즐겨찾기 보기는 added_at 최근 것부터)
+        CREATE TABLE IF NOT EXISTS video_favorites (
+            path       TEXT PRIMARY KEY,
+            added_at   TEXT NOT NULL
+        );
+
+        -- 동영상 조회수 (10초 넘게 재생하면 1회, 같은 영상은 30분 안에 다시 세지 않음. last_at은 epoch 초)
+        CREATE TABLE IF NOT EXISTS video_views (
+            path       TEXT PRIMARY KEY,
+            count      INTEGER NOT NULL,
+            last_at    REAL NOT NULL
+        );
+
         -- 동영상 형식 조사 결과 (ffmpeg로 읽은 화면·소리 형식, 파일이 바뀌면 다시 읽음). info는 JSON
         CREATE TABLE IF NOT EXISTS video_probe (
             path       TEXT PRIMARY KEY,

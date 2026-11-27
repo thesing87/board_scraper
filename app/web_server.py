@@ -682,6 +682,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         '/api/videos/session': ('_handle_videos_session', '동영상 로그인 처리'),
         '/api/videos/progress': ('_handle_videos_progress', '동영상 이어 보기 저장'),
         '/api/videos/convert': ('_handle_videos_convert', '동영상 변환 처리'),
+        '/api/videos/favorite': ('_handle_videos_favorite', '동영상 즐겨찾기 처리'),
+        '/api/videos/view': ('_handle_videos_view', '동영상 조회수 처리'),
         '/api/system': ('_handle_system', 'NAS 상태 조회'),
         '/api/ledger/session': ('_handle_ledger_session', '가계부 로그인 처리'),
         '/api/ledger/entry': ('_handle_ledger_entry', '가계부 기록 처리'),
@@ -1170,8 +1172,14 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
                 listing['recent'] = videos.recent()
                 for item in listing['recent']:
                     item['playable'] = True
+                # 많이 본 영상 (맨 위 폴더에서만)
+                listing['popular'] = video_convert.annotate({'videos': videos.popular()})['videos']
             video_convert.annotate(listing)
+            listing['favorite_count'] = videos.favorite_count()
             self._send_data(200, {'configured': True, **listing})
+        elif pure_path == '/api/videos/favorites':
+            # 즐겨찾기 보기: 모든 폴더의 즐겨찾기 (최근에 넣은 것부터)
+            self._send_data(200, {'videos': video_convert.annotate({'videos': videos.favorites()})['videos']})
         elif pure_path == '/api/videos/status':
             # 재생 화면이 열 때: 그대로 재생되는지, 변환이 필요한지, 변환 진행 상황
             found = video_convert.status(path.replace('\\', '/').strip('/'))
@@ -1185,7 +1193,8 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
             self._send_data(200, {'videos': video_convert.annotate({'videos': found})['videos'], 'total': total})
         elif pure_path == '/api/videos/random':
             # 랜덤 재생할 영상: 폴더(하위 폴더 포함) 안에서 바로 재생되는 것 (변환이 필요한데 아직 안 된 영상은 뺌). 섞기는 화면이 함
-            found = videos.under(path)
+            # fav=1이면 즐겨찾기한 영상만 (폴더와 상관없이)
+            found = videos.favorites() if query.get('fav', [''])[0] == '1' else videos.under(path)
             if found is None:
                 self._send_data(404, {'found': False})
                 return
@@ -1815,6 +1824,38 @@ class KeywordAPIServer(BaseHTTPRequestHandler):
         # 재생 중에는 10초마다 옴 → 변환 작업기가 '누가 보는 중'으로 알고 미리 고치기를 쉼
         video_convert.mark_playing()
         self._send_json(200, True, '저장했습니다.')
+
+    def _handle_videos_favorite(self):
+        """즐겨찾기 넣기·빼기. {path, on: true|false} → {favorite, count}"""
+        if not self._videos_authorized():
+            self._send_json(401, False, '❌ 로그인이 필요합니다.')
+            return
+        path, on = self._body.get('path'), self._body.get('on')
+        if not isinstance(path, str) or not isinstance(on, bool):
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        path = path.replace('\\', '/').strip('/')
+        # 빼기는 파일이 없어져도 됨 (지워진 영상의 즐겨찾기를 정리)
+        if not videos.configured() or (on and not videos.video_file(path)):
+            self._send_json(404, False, '❌ 영상을 찾을 수 없습니다.')
+            return
+        videos.set_favorite(path, on)
+        self._send_data(200, {'success': True, 'favorite': on, 'count': videos.favorite_count()})
+
+    def _handle_videos_view(self):
+        """조회수 1회 (화면이 10초 넘게 재생하면 보냄, 같은 영상은 30분 안에 다시 세지 않음). {path} → {views}"""
+        if not self._videos_authorized():
+            self._send_json(401, False, '❌ 로그인이 필요합니다.')
+            return
+        path = self._body.get('path')
+        if not isinstance(path, str):
+            self._send_json(400, False, '❌ 잘못된 요청입니다.')
+            return
+        path = path.replace('\\', '/').strip('/')
+        if not videos.configured() or not videos.video_file(path):
+            self._send_json(404, False, '❌ 영상을 찾을 수 없습니다.')
+            return
+        self._send_data(200, {'success': True, 'views': videos.add_view(path)})
 
     def _handle_comics_get(self, pure_path, query):
         if not self._comics_authorized():

@@ -30,6 +30,21 @@ body.is-playing { overflow: hidden; }
 .vsearch input:focus { outline: none; border-color: #A78BFA; box-shadow: 0 0 0 3px rgba(124, 58, 237, .15); }
 .vsearch input::-webkit-search-cancel-button { display: none; }
 .vsearch button { position: absolute; right: 6px; width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 20px; cursor: pointer; }
+/* 전체 / 즐겨찾기 전환 (검색창 아래) */
+.vtabs { display: inline-flex; gap: 2px; margin: 0 0 14px; padding: 3px; border-radius: 999px; background: #E9EAEE; }
+.vtab { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 14px; border-radius: 999px; color: var(--muted); font-size: 13px; font-weight: 700; }
+.vtab[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(17, 24, 39, .08); }
+.vtab svg { width: 14px; height: 14px; }
+#fav-count:not(:empty) { margin-left: 2px; font-variant-numeric: tabular-nums; }
+.star-on { fill: #F59E0B; stroke: none; }
+.fav-title { margin: 0; padding: 4px 0; font-size: 15px; font-weight: 700; }
+/* 썸네일 왼쪽 위 별: 누르면 즐겨찾기 넣고 빼기 (영상은 열지 않음) */
+.fav-star { position: absolute; left: 5px; top: 5px; z-index: 1; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+    border-radius: 50%; background: rgba(17, 24, 39, .5); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.fav-star:hover { background: rgba(17, 24, 39, .72); }
+.fav-star svg { width: 17px; height: 17px; fill: none; stroke: #fff; stroke-width: 2; stroke-linejoin: round; }
+.fav-star.is-on svg { fill: #FBBF24; stroke: #FBBF24; }
+.tile .tag-sub { left: 40px; top: 9px; }
 .search-results h2 { margin: 0 0 12px; font-size: 14px; color: var(--muted); font-weight: 700; }
 .crumbs-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin: 0 0 14px; }
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; font-size: 15px; font-weight: 700; }
@@ -85,6 +100,9 @@ body.is-playing { overflow: hidden; }
 .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.55); }
 .bar i { display: block; height: 100%; background: var(--vid); }
 .tile-name { font-size: 13px; font-weight: 700; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
+/* 조회수 (영상 아래 줄), 많이 본 영상 1·2·3위 */
+.tile-views { color: #6D28D9; }
+.tag-rank { left: 6px; bottom: 8px; background: var(--vid); }
 .tile-sub { font-size: 12px; color: var(--muted); margin-top: -2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty { color: var(--muted); text-align: center; padding: 40px 0; }
 
@@ -106,7 +124,14 @@ body.is-playing { overflow: hidden; }
     background: var(--vid); color: #fff; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
 .random-chip[aria-pressed="false"] { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.3); color: #D4D4D8; }
 .random-chip svg { width: 15px; height: 15px; }
-.random-from { position: absolute; left: calc(env(safe-area-inset-left) + 12px); bottom: calc(env(safe-area-inset-bottom) + 64px); z-index: 2; max-width: 70%;
+/* 즐겨찾기 랜덤: 섞기 아이콘 대신 별 */
+.random-chip .chip-star, .random-chip.is-fav svg:not(.chip-star) { display: none; }
+.random-chip.is-fav .chip-star { display: inline; }
+.random-chip.is-fav[aria-pressed="false"] .chip-star { fill: #A1A1AA; }
+/* 재생 화면 위쪽 줄의 즐겨찾기 별 */
+.fav-btn svg { fill: none; stroke: #fff; }
+.fav-btn[aria-pressed="true"] svg { fill: #FBBF24; stroke: #FBBF24; }
+.random-from { position: absolute; left: calc(env(safe-area-inset-left) + 12px); bottom: calc(env(safe-area-inset-bottom) + 100px); z-index: 2; max-width: 70%;
     padding: 3px 8px; border-radius: 6px; background: rgba(0,0,0,.6); color: #C4C7CF; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     transition: opacity .25s; pointer-events: none; }
 .player:not(.ui-on) .random-from { opacity: 0; }
@@ -130,8 +155,6 @@ body.is-playing { overflow: hidden; }
 .seek-osd { position: absolute; top: 50%; left: 50%; z-index: 3; transform: translate(-50%, -50%); padding: 10px 18px; border-radius: 999px; background: rgba(0,0,0,.62);
     font-size: 20px; font-weight: 700; opacity: 0; pointer-events: none; transition: opacity .2s; white-space: nowrap; }
 .seek-osd.show { opacity: 1; }
-/* 브라우저 재생 막대의 전체화면(영상만 키움)은 끄고 위쪽 줄 버튼을 씀: 크롬은 꺼도 흐린 아이콘이 남아서 숨김 */
-.player-stage video::-webkit-media-controls-fullscreen-button { display: none; }
 #fs-btn .fs-off,.player.is-fs #fs-btn .fs-on { display: none; }
 .player.is-fs #fs-btn .fs-off { display: inline; }
 /* 영상 위 이전·다음 (양옆 가운데) */
@@ -147,12 +170,16 @@ body.is-playing { overflow: hidden; }
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .p-side-name:empty { display: none; }
 /* 안내 판(변환 등)이 가운데를 덮으면 이전·다음은 아래로 비켜남 */
-.player:has(.player-msg:not([hidden])) .p-side { top: auto; bottom: calc(env(safe-area-inset-bottom) + 24px); transform: none; }
-/* 가만히 보고 있으면 위쪽 줄·이전·다음·마우스 커서를 숨김 (일시정지 중에는 계속 보임) */
-.player-top, .p-side { transition: opacity .25s; }
-.player:not(.ui-on) .player-top, .player:not(.ui-on) .p-side { opacity: 0; pointer-events: none; }
+.player:has(.player-msg:not([hidden])) .p-side { top: auto; bottom: calc(env(safe-area-inset-bottom) + 100px); transform: none; }
+/* 가만히 보고 있으면 위쪽 줄·아래 조작 줄·이전·다음·마우스 커서를 숨김 (일시정지 중에는 계속 보임) */
+.player-top, .p-side, .p-bottom { transition: opacity .25s; }
+.player:not(.ui-on) .player-top, .player:not(.ui-on) .p-side, .player:not(.ui-on) .p-bottom { opacity: 0; pointer-events: none; }
 .player:not(.ui-on) { cursor: none; }
-.player-title { flex: 1; min-width: 0; font-weight: 700; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+#player-title { min-width: 0; font-weight: 700; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-views { flex: 0 0 auto; color: #A1A1AA; font-size: 12px; white-space: nowrap; }
+.player-views:empty { display: none; }
+@media (max-width: 520px) { .player-views { display: none; } }
 .player-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
 .player-stage video { width: 100%; height: 100%; max-height: 100%; background: #000; }
 .player-stage video::cue { background: rgba(0,0,0,.6); font-size: 1.1em; }
@@ -181,8 +208,37 @@ body.is-playing { overflow: hidden; }
 .stats-verdict.is-bad { background: rgba(248, 113, 113, .18); color: #FCA5A5; }
 .stats-verdict.is-ok { background: rgba(110, 231, 183, .14); color: #A7F3D0; }
 #stats-btn[aria-pressed="true"] { background: rgba(124, 58, 237, .5); }
-.resume, .player-next { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 76px); transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+.resume { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 104px); transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
     padding: 8px 8px 8px 14px; border-radius: 999px; background: rgba(24,24,28,.94); border: 1px solid #2D2F36; font-size: 13px; white-space: nowrap; }
-.resume button, .player-next button { height: 32px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--vid); color: #fff; font-weight: 700; cursor: pointer; }
-.player-next { padding: 6px; }
-.player-next button { max-width: 80vw; overflow: hidden; text-overflow: ellipsis; }
+.resume button { height: 32px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--vid); color: #fff; font-weight: 700; cursor: pointer; }
+
+/* ===== 아래 조작 줄: 두꺼운 재생바 + 재생·시간·소리·⋮·전체화면 ===== */
+.p-bottom { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; padding: 2px calc(env(safe-area-inset-right) + 10px) calc(env(safe-area-inset-bottom) + 6px) calc(env(safe-area-inset-left) + 10px);
+    background: rgba(0,0,0,.55); }
+/* 막대는 8px이지만 위아래 28px 어디를 눌러도 됨 */
+.seekbar { position: relative; height: 28px; display: flex; align-items: center; padding: 0 6px; cursor: pointer; touch-action: none; outline: none; }
+.sb-track { position: relative; width: 100%; height: 8px; border-radius: 999px; background: rgba(255,255,255,.25); transition: height .12s; }
+.seekbar:hover .sb-track, .seekbar.is-drag .sb-track { height: 10px; }
+.sb-buf, .sb-done { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 999px; }
+.sb-buf { background: rgba(255,255,255,.35); }
+.sb-done { background: var(--vid); }
+.sb-hover { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #fff; opacity: 0; pointer-events: none; }
+.sb-knob { position: absolute; top: 50%; left: 0; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: #fff; border: 3px solid var(--vid); pointer-events: none; }
+.sb-tip { position: absolute; bottom: 30px; left: 0; transform: translateX(-50%); padding: 3px 8px; border-radius: 6px; background: rgba(0,0,0,.85); border: 1px solid rgba(255,255,255,.2);
+    font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; opacity: 0; pointer-events: none; }
+.seekbar.is-hover .sb-tip, .seekbar.is-drag .sb-tip, .seekbar.is-hover .sb-hover { opacity: 1; }
+.seekbar.is-drag .sb-hover { opacity: 0; }
+.p-ctrl { display: flex; align-items: center; gap: 4px; height: 44px; }
+.p-time { margin-left: 4px; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.p-gap { flex: 1; }
+#play-btn .ic-pause, .player.is-playing-now #play-btn .ic-play { display: none; }
+.player.is-playing-now #play-btn .ic-pause { display: inline; }
+#mute-btn .ic-muted, #mute-btn.is-muted .ic-wave { display: none; }
+#mute-btn.is-muted .ic-muted { display: inline; }
+.vol-wrap { display: flex; align-items: center; }
+.vol-wrap input { width: 0; opacity: 0; margin: 0; accent-color: #fff; transition: width .15s, opacity .15s; cursor: pointer; }
+.vol-wrap:hover input, .vol-wrap input:focus-visible { width: 84px; opacity: 1; margin: 0 6px 0 2px; }
+@media (hover: none) { .vol-wrap input { display: none; } }
+.more-wrap { position: relative; }
+.more-menu { top: auto; bottom: calc(100% + 8px); }
+#more-btn[aria-expanded="true"] { background: rgba(255,255,255,.14); }

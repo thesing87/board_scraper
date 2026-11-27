@@ -129,6 +129,42 @@ for bad in ({'path': '드라마/01화.mp4', 'position': 99, 'duration': 40}, {'p
     assert req('/api/videos/progress', bad)[0] in (400, 404), bad
 assert req(f'/api/videos/list?p={q("드라마")}')[1]['videos'][0]['progress']['position'] == 12.5
 assert [r['name'] for r in req('/api/videos/list?p=')[1]['recent']] == ['01화']
+# ---- 즐겨찾기: 넣고 빼기, 목록·검색에 표시, 모아보기(최근에 넣은 것부터), 즐겨찾기만 랜덤 (변환이 필요한 영상은 뺌)
+assert req('/api/videos/favorites')[1]['videos'] == [] and req('/api/videos/list?p=')[1]['favorite_count'] == 0
+for p in ('드라마/02화.mp4', '드라마/04화.avi', '짧은/하위/a.mp4'):
+    assert req('/api/videos/favorite', {'path': p, 'on': True})[0] == 200
+    time.sleep(1.05)   # 넣은 시각(초 단위) 순서를 가리려고
+code, data, _ = req('/api/videos/favorite', {'path': '드라마/02화.mp4', 'on': True})   # 두 번 넣어도 하나
+assert code == 200 and data['count'] == 3, data
+for bad in ({'path': '../secret.mp4', 'on': True}, {'path': '드라마/없음.mp4', 'on': True}, {'path': '드라마/01화.mp4', 'on': 1}, {'path': 3, 'on': True}):
+    assert req('/api/videos/favorite', bad)[0] in (400, 404), bad
+assert [v['path'] for v in req('/api/videos/favorites')[1]['videos']] == ['짧은/하위/a.mp4', '드라마/04화.avi', '드라마/02화.mp4']
+fav_list = req(f'/api/videos/list?p={q("드라마")}')[1]
+assert {v['name']: v['favorite'] for v in fav_list['videos']} == {'01화': False, '02화': True, '03화': False, '04화': True, '05화': False}
+assert fav_list['favorite_count'] == 3
+assert req(f'/api/videos/search?q={q("02")}')[1]['videos'][0]['favorite'] is True
+assert sorted(v['path'] for v in req('/api/videos/random?fav=1')[1]['videos']) == ['드라마/02화.mp4', '짧은/하위/a.mp4']
+code, data, _ = req('/api/videos/favorite', {'path': '드라마/04화.avi', 'on': False})
+assert code == 200 and data['count'] == 2 and [v['name'] for v in req('/api/videos/favorites')[1]['videos']] == ['a', '02화']
+# 지워진 영상은 모아보기에서 빠짐
+assert req('/api/videos/favorite', {'path': '드라마/03화.mkv', 'on': True})[0] == 200
+os.rename(os.path.join(VIDEOS, '드라마', '03화.mkv'), os.path.join(VIDEOS, '드라마', '03화.bak'))
+assert '드라마/03화.mkv' not in [v['path'] for v in videos.favorites()]
+os.rename(os.path.join(VIDEOS, '드라마', '03화.bak'), os.path.join(VIDEOS, '드라마', '03화.mkv'))
+assert req('/api/videos/favorite', {'path': '드라마/03화.mkv', 'on': False})[0] == 200
+# ---- 조회수: 1회씩, 같은 영상은 30분 안에 다시 세지 않음, 목록에 views, 맨 위 폴더에 많이 본 영상 (많은 순)
+assert req('/api/videos/view', {'path': '드라마/02화.mp4'})[1]['views'] == 1
+assert req('/api/videos/view', {'path': '드라마/02화.mp4'})[1]['views'] == 1      # 30분 안: 그대로
+now = time.time()
+assert videos.add_view('드라마/02화.mp4', now + 31 * 60) == 2 and videos.add_view('드라마/02화.mp4', now + 40 * 60) == 2
+assert videos.add_view('드라마/02화.mp4', now + 62 * 60) == 3
+assert req('/api/videos/view', {'path': '짧은/하위/a.mp4'})[1]['views'] == 1
+for bad in ({'path': '../secret.mp4'}, {'path': '드라마/없음.mp4'}, {'path': 3}):
+    assert req('/api/videos/view', bad)[0] in (400, 404), bad
+assert {v['name']: v['views'] for v in req(f'/api/videos/list?p={q("드라마")}')[1]['videos']} == {'01화': 0, '02화': 3, '03화': 0, '04화': 0, '05화': 0}
+assert [(v['name'], v['views']) for v in req('/api/videos/list?p=')[1]['popular']] == [('02화', 3), ('a', 1)]
+assert 'popular' not in req(f'/api/videos/list?p={q("드라마")}')[1]
+assert req(f'/api/videos/search?q={q("02")}')[1]['videos'][0]['views'] == 3
 print('API OK')
 
 # ---- 화면
@@ -158,9 +194,13 @@ try:
     mosaics = js("return [...document.querySelectorAll('#folders .tile')].map(t => [t.querySelector('.tile-name').textContent, t.querySelector('.mosaic').className, t.querySelectorAll('.mosaic img').length, t.querySelector('.folder-label').textContent])")
     # (이 시험 환경에는 ffmpeg가 없어 썸네일 그림은 비지만, 모음 칸 수와 표시는 그대로)
     assert mosaics[0] == ['드라마', 'mosaic is-4', 4, '폴더'] and mosaics[1][:2] == ['짧은', 'mosaic'] and mosaics[1][3] == '영상 1개', mosaics
+    # 많이 본 영상 줄: 조회수 많은 순, 1·2위 표시, 아래 줄에 조회수
+    assert not js("return document.getElementById('popular').hidden")
+    assert js("return [...document.querySelectorAll('#popular-list .tile')].map(t => [t.querySelector('.tile-name').textContent, t.querySelector('.tag-rank') && t.querySelector('.tag-rank').textContent, t.querySelector('.tile-sub').textContent])") == [
+        ['02화', '1위', '드라마 · 조회 3회'], ['a', '2위', '짧은/하위 · 조회 1회']]
     # 최근 추가 줄 (맨 위 폴더에서만)
     assert not js("return document.getElementById('latest').hidden") and js("return document.querySelectorAll('#latest-list .tile').length") == 6
-    assert js("return document.querySelector('#latest-list .tile-sub').textContent").endswith('분 전'), js("return document.querySelector('#latest-list .tile-sub').textContent")
+    assert '분 전' in js("return document.querySelector('#latest-list .tile-sub').textContent"),js("return document.querySelector('#latest-list .tile-sub').textContent")
     # 검색: 쓰는 대로 결과, 지우면 목록으로
     js("const i = document.getElementById('vsearch-input'); i.value = '05'; i.dispatchEvent(new Event('input'))"); time.sleep(1.2)
     assert not js("return document.getElementById('search-results').hidden") and js("return document.getElementById('library-view').hidden")
@@ -172,7 +212,9 @@ try:
     assert '없습니다' in js("return document.getElementById('search-count').textContent")
     js("document.getElementById('vsearch-clear').click()"); time.sleep(.3)
     d.get(BASE + '/videos/#d=' + q('드라마')); time.sleep(1.5)
-    assert js("return document.getElementById('latest').hidden")      # 하위 폴더에서는 없음
+    assert js("return document.getElementById('latest').hidden") and js("return document.getElementById('popular').hidden")      # 하위 폴더에서는 없음
+    assert js("return [...document.querySelectorAll('#videos .tile-sub')].map(e => e.textContent)")[1].endswith(' · 조회 3회')
+    assert '조회' not in js("return document.querySelector('#videos .tile-sub').textContent")
     d.get(BASE + '/videos/#d=' + q('드라마')); time.sleep(1.5)
     tiles = js("return [...document.querySelectorAll('#videos .tile')].map(t => [t.querySelector('.tile-name').textContent, t.classList.contains('is-unplayable'), t.getAttribute('href')])")
     assert [t[0] for t in tiles] == ['01화', '02화', '03화', '04화', '05화'] and tiles[3][1] and tiles[3][2].startswith('#v='), tiles
@@ -187,6 +229,43 @@ try:
     assert '0:12부터' in js("return document.getElementById('resume-text').textContent")
     assert js("return document.querySelector('#video track').src").endswith(urllib.parse.quote('드라마/01화.mp4', safe=''))
     assert js("return document.getElementById('video').error") is None
+    # 제목 옆 조회수 (안 본 영상은 없음), 기본 조작 막대 대신 아래 조작 줄
+    assert js("return document.getElementById('player-views').textContent") == ''
+    assert not js("return document.getElementById('video').controls")
+    assert js("return document.getElementById('p-time').textContent").endswith(' / 0:40')
+    # 재생 단추·Space로 재생·일시정지
+    js("document.getElementById('video').pause()"); time.sleep(.3)
+    d.find_element(By.ID, 'play-btn').click(); time.sleep(.6)
+    assert not js("return document.getElementById('video').paused") and js("return document.getElementById('player').classList.contains('is-playing-now')")
+    ActionChains(d).send_keys(' ').perform(); time.sleep(.4)
+    assert js("return document.getElementById('video').paused")
+    # 재생바: 막대 위아래 넉넉한 곳을 눌러도 그 위치로 (가로 75% → 30초), 마우스를 올리면 그 위치 시간
+    sb = d.find_element(By.ID, 'seekbar')
+    track = d.find_element(By.CSS_SELECTOR, '#seekbar .sb-track')
+    tw = track.size['width']
+    assert sb.size['height'] >= 28 and track.size['height'] >= 8, (sb.size, track.size)
+    off_x = round(tw * 0.75 - tw / 2) + (track.location['x'] - sb.location['x']) + tw // 2 - sb.size['width'] // 2
+    ActionChains(d).move_to_element_with_offset(sb, off_x, -11).perform(); time.sleep(.3)
+    assert js("return document.getElementById('sb-tip').textContent") in ('0:29', '0:30'),js("return document.getElementById('sb-tip').textContent")
+    ActionChains(d).click().perform(); time.sleep(.8)
+    assert abs(js("return document.getElementById('video').currentTime") - 30) < 0.8, js("return document.getElementById('video').currentTime")
+    assert js("return document.getElementById('p-time').textContent")[:4] in ('0:29', '0:30'), js("return document.getElementById('p-time').textContent")
+    # 끌어서 옮기기 (25% → 10초)
+    ActionChains(d).move_to_element_with_offset(sb, off_x, 0).click_and_hold().move_by_offset(-round(tw * 0.5), 0).release().perform(); time.sleep(.8)
+    assert abs(js("return document.getElementById('video').currentTime") - 10) < 0.8, js("return document.getElementById('video').currentTime")
+    # ⋮: 재생 속도, 자막 끄기
+    d.find_element(By.ID, 'more-btn').click(); time.sleep(.3)
+    assert not js("return document.getElementById('more-menu').hidden") and not js("return document.getElementById('subs-row').hidden")
+    d.find_element(By.CSS_SELECTOR, '#rate-options button[data-rate="1.5"]').click(); time.sleep(.3)
+    assert js("return document.getElementById('video').playbackRate") == 1.5 and js("return document.getElementById('more-menu').hidden")
+    d.find_element(By.ID, 'more-btn').click(); time.sleep(.3)
+    d.find_element(By.ID, 'subs-toggle').click(); time.sleep(.3)
+    assert js("return document.getElementById('video').textTracks[0].mode") == 'hidden'
+    d.find_element(By.ID, 'more-btn').click(); time.sleep(.3)
+    d.find_element(By.CSS_SELECTOR, '#rate-options button[data-rate="1"]').click(); time.sleep(.3)
+    d.find_element(By.ID, 'more-btn').click(); time.sleep(.3)
+    d.find_element(By.ID, 'subs-toggle').click(); time.sleep(.3)
+    assert js("return document.getElementById('video').textTracks[0].mode") == 'showing'
     # 재생 정보: 켜면 미리 받은 시간·속도·프레임 등, 다시 열어도 켜진 채
     js("document.getElementById('stats-btn').click()"); time.sleep(2.5)
     assert not js("return document.getElementById('stats').hidden")
@@ -197,9 +276,9 @@ try:
     assert js("return document.getElementById('st-dropped').textContent").startswith('최근 0초'), js("return document.getElementById('st-dropped').textContent")
     assert js("return document.getElementById('stats-verdict').textContent")
     assert js("return localStorage.getItem('videos_stats_open')") == '1'
-    # → / ←: 재생바에 초점이 있어도 영상 길이와 상관없이 10초씩
+    # → / ←: 영상 길이와 상관없이 10초씩
     js("const v = document.getElementById('video'); v.pause(); v.currentTime = 5"); time.sleep(1)
-    d.find_element(By.ID, 'video').send_keys(Keys.ARROW_RIGHT); time.sleep(.5)
+    ActionChains(d).send_keys(Keys.ARROW_RIGHT).perform(); time.sleep(.5)
     assert abs(js("return document.getElementById('video').currentTime") - 15) < 0.6, js("return document.getElementById('video').currentTime")
     js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowLeft', bubbles: true}))"); time.sleep(.5)
     assert abs(js("return document.getElementById('video').currentTime") - 5) < 0.6, js("return document.getElementById('video').currentTime")
@@ -213,12 +292,12 @@ try:
     assert js("return document.getElementById('seek-menu').hidden")
     assert js("return document.getElementById('seek-text').textContent") == '30초'
     assert js("return localStorage.getItem('videos_seek_step')") == '30'
-    d.find_element(By.ID, 'video').send_keys(Keys.ARROW_RIGHT); time.sleep(.5)
+    ActionChains(d).send_keys(Keys.ARROW_RIGHT).perform(); time.sleep(.5)
     assert abs(js("return document.getElementById('video').currentTime") - 35) < 0.6, js("return document.getElementById('video').currentTime")
     assert js("return document.getElementById('seek-osd').textContent") == '+30초'
     # 길이를 모르는 영상(앞에 길이 정보가 없는 MKV·WebM은 duration이 Infinity)도 정한 초씩 (크롬 기본 간격으로 넘기지 않음)
     js("const v = document.getElementById('video'); v.currentTime = 2; Object.defineProperty(v, 'duration', {get: () => Infinity, configurable: true})"); time.sleep(.5)
-    d.find_element(By.ID, 'video').send_keys(Keys.ARROW_RIGHT); time.sleep(.5)
+    ActionChains(d).send_keys(Keys.ARROW_RIGHT).perform(); time.sleep(.5)
     assert abs(js("return document.getElementById('video').currentTime") - 32) < 0.6, js("return document.getElementById('video').currentTime")
     js("delete document.getElementById('video').duration")
     # 재생 화면 뒤에 가려진 검색창에 커서가 남아 있어도 → 는 영상을 건너뜀
@@ -237,10 +316,24 @@ try:
     assert js("return document.getElementById('video').currentTime") >= 30
     js("document.getElementById('video').pause()"); time.sleep(1)
     assert req(f'/api/videos/list?p={q("드라마")}')[1]['videos'][0]['progress']['position'] >= 30
-    # 끝나면 다음 영상
-    js("const v = document.getElementById('video'); v.currentTime = v.duration - 0.3; v.play()"); time.sleep(2.5)
-    assert '02화' in js("return document.getElementById('next-btn').textContent")
-    js("document.getElementById('next-btn').click()"); time.sleep(2.5)
+    # 끝나면 세지 않고 바로 다음 영상, 새 영상 위에 '다음 영상 · 이름'
+    js("const v = document.getElementById('video'); v.currentTime = v.duration - 0.3; v.play()"); time.sleep(2)
+    assert js("return document.getElementById('player-title').textContent") == '02화'
+    assert js("return document.getElementById('seek-osd').textContent") == '다음 영상 · 02화'
+    assert js("return document.getElementById('player-views').textContent") == '조회 3회'
+    # 재생바를 끝까지 넘겨도 바로 다음 영상 (03화), 다시 01화로
+    js("document.getElementById('video').pause()"); time.sleep(.3)
+    sb = d.find_element(By.ID, 'seekbar')
+    ActionChains(d).move_to_element_with_offset(sb, sb.size['width'] // 2 - 2, 0).click().perform(); time.sleep(2.5)
+    assert js("return document.getElementById('player-title').textContent") == '03화'
+    d.get(BASE + '/videos/#d=' + q('드라마')); time.sleep(1.5)
+    js("document.querySelector('#videos .tile').click()"); time.sleep(2.5)
+    js("const v = document.getElementById('video'); v.currentTime = 0; v.play()"); time.sleep(.5)
+    # 10초 넘게 재생하면 조회수 1회
+    time.sleep(10.5)
+    assert js("return document.getElementById('player-views').textContent") == '조회 1회', js("return document.getElementById('player-views').textContent")
+    assert req(f'/api/videos/list?p={q("드라마")}')[1]['videos'][0]['views'] == 1
+    js("const v = document.getElementById('video'); v.currentTime = v.duration - 0.3; v.play()"); time.sleep(2)
     assert js("return document.getElementById('player-title').textContent") == '02화'
     # 영상 위 양옆 이전·다음 버튼: 이름이 아래에, 첫 영상에서는 이전이 꺼짐, Shift+→로 다음 영상
     assert js("return document.getElementById('prev-name').textContent") == '이전 · 01화'
@@ -250,8 +343,10 @@ try:
     assert js("return [document.getElementById('prev-btn').disabled, document.getElementById('next-nav-btn').disabled]") == [True, False]
     js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight', shiftKey: true}))"); time.sleep(2.5)
     assert js("return document.getElementById('player-title').textContent") == '02화'
-    # 재생 중 3초 넘게 가만히 있으면 위쪽 줄·이전·다음이 숨고, 일시정지하면 다시 보임
+    # 재생 중 3초 넘게 가만히 있으면 위쪽 줄·아래 조작 줄·이전·다음이 숨고, 일시정지하면 다시 보임 (조작 줄 위에 마우스가 있으면 그대로)
+    ActionChains(d).move_to_element(d.find_element(By.ID, 'video')).perform()
     js("document.getElementById('video').play()"); time.sleep(4)
+    assert js("return getComputedStyle(document.getElementById('p-bottom')).opacity") == '0'
     assert not js("return document.getElementById('player').classList.contains('ui-on')"), js("return document.getElementById('video').paused")
     assert js("return getComputedStyle(document.querySelector('.p-side.is-next')).opacity") == '0'
     js("document.getElementById('video').pause()"); time.sleep(4)
@@ -334,6 +429,65 @@ try:
     # 맨 위 폴더에서는 '전체 랜덤 재생'
     d.get(BASE + '/videos/#'); time.sleep(1.5)
     assert js("return document.getElementById('random-text').textContent") == '전체 랜덤 재생'
+    # ---- 즐겨찾기 (API 시험에서 '짧은/하위/a.mp4', '드라마/02화.mp4'가 들어 있음)
+    assert js("return document.getElementById('fav-count').textContent") == '2'
+    assert js("return document.getElementById('tab-all').getAttribute('aria-selected')") == 'true'
+    d.get(BASE + '/videos/#d=' + q('드라마')); time.sleep(1.5)
+    stars = lambda sel: js(f"return [...document.querySelectorAll('{sel} .tile')].map(t => t.querySelector('.fav-star').classList.contains('is-on'))")
+    assert stars('#videos') == [False, True, False, False, False], stars('#videos')
+    # 별을 누르면 영상은 열리지 않고 즐겨찾기에 들어감 (서버에도)
+    d.find_elements(By.CSS_SELECTOR, '#videos .tile .fav-star')[0].click(); time.sleep(1)
+    assert js("return document.getElementById('player').hidden") and js("return location.hash") == '#d=' + q('드라마')
+    assert stars('#videos')[0] and js("return document.getElementById('fav-count').textContent") == '3'
+    assert req(f'/api/videos/list?p={q("드라마")}')[1]['videos'][0]['favorite'] is True
+    # '전체' 탭은 보던 폴더로
+    assert js("return document.getElementById('tab-all').getAttribute('href')") == '#d=' + q('드라마')
+    # 즐겨찾기 보기: 최근에 넣은 것부터, 영상 아래에 폴더
+    d.find_element(By.ID, 'tab-fav').click(); time.sleep(1.5)
+    assert js("return document.getElementById('library-view').hidden") and not js("return document.getElementById('fav-view').hidden")
+    assert js("return document.getElementById('tab-fav').getAttribute('aria-selected')") == 'true'
+    assert js("return [...document.querySelectorAll('#fav-list .tile')].map(t => [t.querySelector('.tile-name').textContent, t.querySelector('.tile-sub').textContent.split(' · ')[0]])") == [
+        ['01화', '드라마'], ['a', '짧은/하위'], ['02화', '드라마']]
+    assert js("return document.getElementById('fav-title').textContent") == '즐겨찾기 3개'
+    # 영상을 열고 닫으면 즐겨찾기 보기로 돌아옴
+    js("document.querySelectorAll('#fav-list .tile')[1].click()"); time.sleep(2.5)
+    assert title() == 'a' and js("return document.getElementById('fav-btn').getAttribute('aria-pressed')") == 'true'
+    # 재생 화면 별: 빼면 가운데에 안내, 다시 넣음
+    js("document.getElementById('fav-btn').click()"); time.sleep(1)
+    assert js("return document.getElementById('fav-btn').getAttribute('aria-pressed')") == 'false'
+    assert js("return document.getElementById('seek-osd').textContent") == '즐겨찾기에서 뺐어요'
+    assert req('/api/videos/favorites')[1]['videos'][1]['path'] != '짧은/하위/a.mp4'
+    js("document.getElementById('fav-btn').click()"); time.sleep(1)
+    assert js("return document.getElementById('seek-osd').textContent") == '즐겨찾기에 넣었어요'
+    js("document.getElementById('player-close').click()"); time.sleep(1.5)
+    assert js("return location.hash") == '#fav' and not js("return document.getElementById('fav-view').hidden")
+    # 즐겨찾기만 랜덤: 칩에 별, 다음도 즐겨찾기에서만
+    fav_paths = {v['path'] for v in req('/api/videos/random?fav=1')[1]['videos']}
+    assert fav_paths == {'드라마/01화.mp4', '드라마/02화.mp4', '짧은/하위/a.mp4'}, fav_paths
+    d.find_element(By.ID, 'fav-random-btn').click(); time.sleep(2.5)
+    assert chip() == '랜덤 1 / 3' and js("return document.getElementById('random-chip').classList.contains('is-fav')")
+    seen = {js("return decodeURIComponent(location.hash.slice(3))")}
+    assert js("return document.getElementById('next-name').textContent").startswith('즐겨찾기 랜덤 다음 · ')
+    for _ in range(2):
+        js("document.getElementById('next-nav-btn').click()"); time.sleep(2.5)
+        seen.add(js("return decodeURIComponent(location.hash.slice(3))"))
+    assert seen == fav_paths, seen
+    js("document.getElementById('player-close').click()"); time.sleep(1.5)
+    assert js("return location.hash") == '#fav' and chip() is None
+    # 즐겨찾기 보기에서 별을 빼면 그 자리에 빈 별로 남고 개수가 줄어듦
+    d.find_elements(By.CSS_SELECTOR, '#fav-list .tile .fav-star')[0].click(); time.sleep(1)
+    assert stars('#fav-list') == [False, True, True] and js("return document.getElementById('fav-count').textContent") == '2'
+    # 검색 중에 탭을 누르면 검색을 끝냄
+    js("const i = document.getElementById('vsearch-input'); i.value = '05'; i.dispatchEvent(new Event('input'))"); time.sleep(1.2)
+    assert js("return document.getElementById('fav-view').hidden")
+    d.find_element(By.ID, 'tab-all').click(); time.sleep(1.5)
+    assert js("return document.getElementById('vsearch-input').value") == '' and not js("return document.getElementById('library-view').hidden")
+    # 비어 있으면 안내
+    for v in req('/api/videos/favorites')[1]['videos']:
+        req('/api/videos/favorite', {'path': v['path'], 'on': False})
+    d.get(BASE + '/videos/#fav'); time.sleep(1.5)
+    assert not js("return document.getElementById('fav-empty').hidden") and js("return document.getElementById('fav-random-btn').hidden")
+    d.get(BASE + '/videos/#'); time.sleep(1.5)
     # 휴대폰
     d.set_window_size(390, 844); time.sleep(.5)
     assert js("return document.documentElement.scrollWidth <= innerWidth")

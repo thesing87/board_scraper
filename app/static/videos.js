@@ -26,6 +26,11 @@
     const DROP_BAD_RATIO = 0.05;
     // 변환 진행 상황을 다시 묻는 간격
     const CONVERT_POLL_MS = 2000;
+    // 이만큼(초) 재생하면 조회수 1회 (잘못 눌렀다 바로 닫은 것은 세지 않음. 같은 영상 30분 안에 다시 세지 않는 것은 서버가)
+    const VIEW_AFTER_SEC = 10;
+    // 재생바를 이만큼(초) 끝 가까이로 넘기면 바로 다음 영상
+    const END_JUMP_SEC = 0.5;
+    const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
     // ffmpeg 화면 형식 이름 → 안내에 쓸 이름
     const CODEC_NAMES = { mpeg4: 'MPEG-4 Part 2(DivX·Xvid)', msmpeg4v3: 'MS MPEG-4(DivX 3)', msmpeg4v2: 'MS MPEG-4', wmv3: 'WMV', wmv2: 'WMV',
                           wmv1: 'WMV', vc1: 'VC-1(WMV)', mpeg1video: 'MPEG-1', mpeg2video: 'MPEG-2', flv1: 'FLV', indeo5: 'Indeo' };
@@ -117,25 +122,44 @@
     const scrollMemory = {};
     let currentDir = '';
     let currentList = [];
+    // 즐겨찾기 보기(#fav) 중인지, 즐겨찾기한 영상 경로 (서버가 목록마다 favorite으로 알려 줌)
+    let viewFav = false;
+    const favs = new Set();
+    const scrollKey = () => viewFav ? '\u0000fav' : currentDir;
+    const STAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z"></path></svg>';
+    function noteFavs(list) {
+        (list || []).forEach(v => { if (v.favorite) favs.add(v.path); else if (v.favorite === false) favs.delete(v.path); });
+    }
+    function renderFavCount(count) {
+        if (typeof count === 'number') $('fav-count').textContent = count ? String(count) : '';
+    }
 
     function progressRatio(p) {
         if (!p || !p.duration) return 0;
         return Math.min(1, p.position / p.duration);
     }
 
-    function videoTile(v, sub) {
+    function videoTile(v, sub, rank) {
         const ratio = progressRatio(v.progress);
         const watched = v.progress && v.progress.duration - v.progress.position <= RESUME_END_MARGIN;
         const conv = convertLabel(v);
         return `<a class="tile${conv ? ' is-unplayable' : ''}" href="${videoHref(v.path)}" data-path="${esc(v.path)}">
             <span class="thumb"><img src="${thumbUrl(v.path)}" alt="" loading="lazy" decoding="async">
+                ${favStar(v.path)}
                 <span class="tag tag-ext">${esc(v.ext)}</span>
                 ${v.subtitle ? '<span class="tag tag-sub">자막</span>' : ''}
                 ${conv ? `<span class="tag tag-no">${esc(conv)}</span>` : ''}
                 ${v.progress && v.progress.duration ? `<span class="tag tag-time">${watched ? '다 봄' : `${fmtTime(v.progress.position)} / ${fmtTime(v.progress.duration)}`}</span>` : ''}
+                ${rank ? `<span class="tag tag-rank">${rank}위</span>` : ''}
                 ${ratio ? `<span class="bar"><i style="width:${(ratio * 100).toFixed(1)}%"></i></span>` : ''}</span>
             <span class="tile-name">${esc(v.name)}</span>
-            <span class="tile-sub">${esc(sub ?? fmtSize(v.size))}</span></a>`;
+            <span class="tile-sub">${esc(sub ?? fmtSize(v.size))}${v.views ? ` · <span class="tile-views">조회 ${v.views.toLocaleString()}회</span>` : ''}</span></a>`;
+    }
+
+    function favStar(path) {
+        const on = favs.has(path);
+        const label = on ? '즐겨찾기에서 빼기' : '즐겨찾기에 넣기';
+        return `<span class="fav-star${on ? ' is-on' : ''}" role="button" tabindex="0" aria-pressed="${on}" aria-label="${label}" title="${label}">${STAR}</span>`;
     }
 
     // 변환이 필요한데 아직 안 된 영상의 칸 위 글자 (필요 없거나 다 됐으면 빈 글자)
@@ -208,7 +232,8 @@
     async function loadLatest() {
         let data;
         try { data = await api('/api/videos/latest'); } catch (e) { return; }
-        if (!data || currentDir !== '' || $('content').hidden) return;
+        if (!data || currentDir !== '' || $('content').hidden || viewFav) return;
+        noteFavs(data.videos);
         $('latest').hidden = !data.videos.length;
         $('latest-list').innerHTML = data.videos.map(v => videoTile(v, `${v.folder || '전체'} · ${fmtAgo(v.added)}`)).join('');
     }
@@ -221,7 +246,8 @@
 
     function setSearchMode(on) {
         $('search-results').hidden = !on;
-        $('library-view').hidden = on;
+        $('library-view').hidden = on || viewFav;
+        $('fav-view').hidden = on || !viewFav;
         $('vsearch-clear').hidden = !$('vsearch-input').value;
     }
 
@@ -237,6 +263,7 @@
             return;
         }
         if (seq !== searchSeq || !data) return;
+        noteFavs(data.videos);
         $('search-count').textContent = data.total
             ? `‘${q}’ 영상 ${data.total}개${data.total > data.videos.length ? ` (앞의 ${data.videos.length}개)` : ''}`
             : `‘${q}’에 맞는 영상이 없습니다.`;
@@ -313,6 +340,11 @@
         $('notice').hidden = true;
         $('content').hidden = false;
         document.title = data.name ? `${data.name} · 동영상` : '동영상';
+        viewFav = false;
+        renderTabs();
+        noteFavs(data.videos);
+        noteFavs(data.recent);
+        renderFavCount(data.favorite_count);
         renderCrumbs(data.path);
         renderRandomButton();
         currentList = data.videos;
@@ -324,12 +356,112 @@
         $('videos').innerHTML = data.videos.map(v => videoTile(v)).join('');
         $('latest').hidden = true;
         if (!data.path) loadLatest();
+        const popular = data.popular || [];
+        noteFavs(popular);
+        $('popular').hidden = !popular.length;
+        $('popular-list').innerHTML = popular.map((v, i) => videoTile(v, v.folder || '전체', i < 3 ? i + 1 : 0)).join('');
         // 검색어가 남아 있으면(검색 결과에서 영상을 열었다가 돌아옴) 검색 결과를 다시 보여 줌
         if ($('vsearch-input').value.trim()) runSearch(); else setSearchMode(false);
         renderConvertBar(data.videos);
         $('empty').hidden = !!(data.dirs.length || data.videos.length);
-        window.scrollTo(0, scrollMemory[path] || 0);
+        window.scrollTo(0, scrollMemory[scrollKey()] || 0);
     }
+
+    // ==========================================
+    // 즐겨찾기: 썸네일 왼쪽 위 별·재생 화면 위쪽 줄 별로 넣고 빼기 (서버에 저장 → 폰·PC 같음),
+    // 즐겨찾기 보기(#fav)는 모든 폴더의 즐겨찾기를 최근에 넣은 것부터, 랜덤은 즐겨찾기만
+    // ==========================================
+    function renderTabs() {
+        $('tab-all').setAttribute('aria-selected', String(!viewFav));
+        $('tab-fav').setAttribute('aria-selected', String(viewFav));
+        // '전체'를 누르면 보던 폴더로
+        $('tab-all').setAttribute('href', dirHref(currentDir));
+    }
+
+    async function showFavorites() {
+        closePlayerView();
+        let data;
+        try {
+            await player.pendingSave;
+            data = await api('/api/videos/favorites');
+        } catch (e) {
+            if (e instanceof LoginNeeded) { showLogin(); return; }
+            showNotice(`즐겨찾기를 불러오지 못했습니다. ${esc(e.message || '')}`);
+            return;
+        }
+        if (data && data.configured === false) {
+            showNotice('동영상 폴더가 연결되지 않았습니다.<br>NAS의 동영상 폴더를 웹서버 컨테이너의 <code>/videos</code>에 연결해 주세요.');
+            return;
+        }
+        if (!data || !data.videos) { showNotice('즐겨찾기를 불러오지 못했습니다.'); return; }
+        $('login').hidden = true;
+        $('notice').hidden = true;
+        $('content').hidden = false;
+        document.title = '즐겨찾기 · 동영상';
+        viewFav = true;
+        renderTabs();
+        noteFavs(data.videos);
+        renderFavCount(data.videos.length);
+        currentList = data.videos;
+        $('fav-title').textContent = data.videos.length ? `즐겨찾기 ${data.videos.length.toLocaleString()}개` : '즐겨찾기';
+        $('fav-list').innerHTML = data.videos.map(v => videoTile(v, v.folder || '전체')).join('');
+        $('fav-empty').hidden = !!data.videos.length;
+        $('fav-random-btn').hidden = !data.videos.length;
+        if ($('vsearch-input').value.trim()) runSearch(); else setSearchMode(false);
+        window.scrollTo(0, scrollMemory[scrollKey()] || 0);
+    }
+
+    // 탭을 누르면 검색을 끝내고 그 화면으로
+    ['tab-all', 'tab-fav'].forEach(id => $(id).addEventListener('click', () => {
+        if (!$('vsearch-input').value) return;
+        $('vsearch-input').value = '';
+        clearTimeout(searchTimer);
+        searchSeq++;
+        setSearchMode(false);
+    }));
+
+    async function setFavorite(path, on, retried) {
+        on ? favs.add(path) : favs.delete(path);
+        renderFavMarks(path);
+        const { status, data } = await postJson('/api/videos/favorite', { path, on }).catch(() => ({ status: 0, data: {} }));
+        if (status === 401 && !retried && await renewSession()) return setFavorite(path, on, true);
+        if (status !== 200) {
+            // 저장하지 못하면 되돌림
+            on ? favs.delete(path) : favs.add(path);
+            renderFavMarks(path);
+            return false;
+        }
+        renderFavCount(data.count);
+        return true;
+    }
+
+    // 화면에 보이는 같은 영상의 별(목록 여러 곳·재생 화면)을 모두 맞춤
+    function renderFavMarks(path) {
+        const on = favs.has(path);
+        const label = on ? '즐겨찾기에서 빼기' : '즐겨찾기에 넣기';
+        document.querySelectorAll('a.tile[data-path]').forEach(tile => {
+            if (tile.dataset.path !== path) return;
+            const star = tile.querySelector('.fav-star');
+            if (!star) return;
+            star.classList.toggle('is-on', on);
+            star.setAttribute('aria-pressed', String(on));
+            star.setAttribute('aria-label', label);
+            star.title = label;
+        });
+        if (player.path === path) renderFavButton();
+    }
+
+    // 별을 누르면 영상을 열지 않고 넣고 빼기만 (영상 칸을 누르는 처리보다 먼저 받음)
+    function onStar(e) {
+        const star = e.target.closest && e.target.closest('.fav-star');
+        if (!star) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const tile = star.closest('a.tile');
+        if (tile) setFavorite(tile.dataset.path, !favs.has(tile.dataset.path));
+    }
+    document.addEventListener('click', onStar, true);
+    document.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') onStar(e); }, true);
 
     // ==========================================
     // 재생
@@ -350,7 +482,7 @@
     });
     // 다른 창(탭)에서 바꾸면 이 창에도 맞춤
     window.addEventListener('storage', e => { if (e.key === VOLUME_KEY) applyVolume(); });
-    const player = { path: null, timer: null, lastSaved: null, pendingSave: null, resumeAt: 0 };
+    const player = { path: null, timer: null, lastSaved: null, pendingSave: null, resumeAt: 0, played: 0, lastTime: 0, viewSent: false, autoFrom: null };
 
     function saveProgress(keepalive) {
         if (!player.path || !isFinite(video.duration) || !video.duration) return;
@@ -467,7 +599,7 @@
     // 랜덤 재생: 폴더(하위 폴더 포함, 맨 위면 전체)에서 바로 재생되는 영상을 누를 때마다 새로 섞어 차례로.
     // 다 돌면 다시 섞어 이어 감(같은 영상이 바로 이어지지 않게). 이전은 방금 본 영상. 목록으로 돌아가면 끝
     // ==========================================
-    let random = null;  // { base: [{path,name,folder}], order: 섞은 순서(다 돌면 이어 붙임), pos: 지금 위치, on: 켜졌는지 }
+    let random = null;  // { base: [{path,name,folder}], order: 섞은 순서(다 돌면 이어 붙임), pos: 지금 위치, on: 켜졌는지, fav: 즐겨찾기만인지 }
 
     function shuffled(list) {
         const a = list.slice();
@@ -502,9 +634,11 @@
         $('random-from').hidden = !(random && random.on);
         if (!random) return;
         const total = random.base.length;
+        const what = random.fav ? '즐겨찾기 랜덤' : '랜덤';
         $('random-chip-text').textContent = random.on ? `랜덤 ${(random.pos % total) + 1} / ${total.toLocaleString()}` : '랜덤 끔';
+        chip.classList.toggle('is-fav', !!random.fav);
         chip.setAttribute('aria-pressed', String(random.on));
-        chip.title = random.on ? '랜덤 재생 끄기 (같은 폴더 순서로)' : '랜덤 재생 다시 켜기';
+        chip.title = random.on ? `${what} 재생 끄기 (같은 폴더 순서로)` : `${what} 재생 다시 켜기`;
         const cur = random.order[random.pos];
         $('random-from').textContent = `폴더: ${cur && cur.folder ? cur.folder.replace(/\//g, ' / ') : '전체'}`;
     }
@@ -520,25 +654,29 @@
         $('random-text').textContent = currentDir ? '이 폴더 랜덤 재생' : '전체 랜덤 재생';
     }
 
-    $('random-btn').addEventListener('click', async () => {
-        const btn = $('random-btn');
+    // fav: 즐겨찾기만 (폴더와 상관없이)
+    async function startRandom(fav) {
+        const btn = $(fav ? 'fav-random-btn' : 'random-btn');
+        const text = $(fav ? 'fav-random-text' : 'random-text');
         btn.disabled = true;
         let data = null;
-        try { data = await api(`/api/videos/random?p=${enc(currentDir)}`); } catch (e) {
+        try { data = await api(fav ? '/api/videos/random?fav=1' : `/api/videos/random?p=${enc(currentDir)}`); } catch (e) {
             if (e instanceof LoginNeeded) { showLogin(); return; }
         } finally { btn.disabled = false; }
         const list = (data && data.videos) || [];
         if (!list.length) {
-            $('random-text').textContent = '재생할 영상이 없습니다';
-            setTimeout(renderRandomButton, 2000);
+            text.textContent = '재생할 영상이 없습니다';
+            setTimeout(() => { if (fav) text.textContent = '즐겨찾기 랜덤 재생'; else renderRandomButton(); }, 2000);
             return;
         }
         const order = shuffled(list);
-        random = { base: list, order, pos: 0, on: true };
-        scrollMemory[currentDir] = window.scrollY;
+        random = { base: list, order, pos: 0, on: true, fav };
+        scrollMemory[scrollKey()] = window.scrollY;
         history.pushState({ fromList: true }, '', videoHref(order[0].path));
         route();
-    });
+    }
+    $('random-btn').addEventListener('click', () => startRandom(false));
+    $('fav-random-btn').addEventListener('click', () => startRandom(true));
 
     function nextVideo() {
         if (random && random.on) return randomNext();
@@ -554,7 +692,7 @@
 
     // 영상 위 양옆의 이전·다음 버튼: 같은 폴더에서 재생할 수 있는 앞·뒤 영상 (없으면 흐리게, 이름은 버튼 아래)
     function updateNavButtons() {
-        const nextLabel = random && random.on ? '랜덤 다음' : '다음';
+        const nextLabel = random && random.on ? (random.fav ? '즐겨찾기 랜덤 다음' : '랜덤 다음') : '다음';
         [['prev-btn', 'prev-name', prevVideo(), '이전'], ['next-nav-btn', 'next-name', nextVideo(), nextLabel]].forEach(([id, nameId, v, label]) => {
             const btn = $(id);
             btn.disabled = !v;
@@ -571,13 +709,29 @@
         clearTimeout(player.uiTimer);
         player.uiTimer = setTimeout(hideUi, UI_HIDE_MS);
     }
-    function hideUi() {
-        if (video.paused || $('player').hidden) return;
-        if ($('player').querySelector('.player-top:hover, .p-side:hover') || !$('seek-menu').hidden) { player.uiTimer = setTimeout(hideUi, UI_HIDE_MS); return; }
+    // force: 휴대폰에서 영상을 눌러 숨길 때 (일시정지 중이어도)
+    function hideUi(force) {
+        if ($('player').hidden) return;
+        if (force !== true) {
+            if (video.paused) return;
+            if ($('player').querySelector('.player-top:hover, .p-side:hover, .p-bottom:hover') || !$('seek-menu').hidden || !$('more-menu').hidden || bar.dragging) {
+                player.uiTimer = setTimeout(hideUi, UI_HIDE_MS); return;
+            }
+        }
+        clearTimeout(player.uiTimer);
         $('player').classList.remove('ui-on');
     }
     $('player').addEventListener('pointermove', e => { if (e.pointerType === 'mouse') showUi(); });
-    $('player').addEventListener('pointerdown', showUi);
+    // 영상을 누르면: 마우스는 재생·일시정지, 휴대폰은 조작 줄 보이기·숨기기
+    $('player').addEventListener('pointerdown', e => {
+        if (e.pointerType !== 'mouse' && e.target === video && $('player').classList.contains('ui-on')) { player.tapHide = true; return; }
+        player.tapHide = false;
+        showUi();
+    });
+    video.addEventListener('click', e => {
+        if (player.tapHide) { hideUi(true); return; }
+        if (e.pointerType === 'mouse' || !e.pointerType) togglePlay();
+    });
     video.addEventListener('play', showUi);
     video.addEventListener('pause', showUi);
 
@@ -612,11 +766,210 @@
     $('fs-btn').addEventListener('click', toggleFullscreen);
     video.addEventListener('dblclick', e => { if (e.target === video) toggleFullscreen(); });
 
+    // ==========================================
+    // 아래 조작 줄: 재생·시간·두꺼운 재생바·소리·⋮(속도·자막)·전체화면 (브라우저 기본 조작 막대 대신)
+    // ==========================================
+    function togglePlay() {
+        if (!player.path || video.readyState < 1 && !video.src) return;
+        if (video.paused || video.ended) video.play().catch(() => {}); else video.pause();
+    }
+    function renderPlayState() {
+        const playing = !video.paused && !video.ended;
+        $('player').classList.toggle('is-playing-now', playing);
+        $('play-btn').setAttribute('aria-label', playing ? '일시정지' : '재생');
+        $('play-btn').title = playing ? '일시정지 (Space)' : '재생 (Space)';
+    }
+    ['play', 'pause', 'ended', 'emptied'].forEach(ev => video.addEventListener(ev, renderPlayState));
+    $('play-btn').addEventListener('click', togglePlay);
+
+    // 재생바: 막대 8px, 위아래 28px 어디를 눌러도 됨. 끄는 동안은 그림만 옮기고 놓을 때 건너뜀(끌면서 영상을 계속 찾으면 NAS가 바빠짐)
+    const bar = { dragging: false, ratio: 0 };
+    const barEnd = () => (isFinite(video.duration) && video.duration > 0) ? video.duration : seekEnd();
+    function barRatio(e) {
+        const r = $('seekbar').querySelector('.sb-track').getBoundingClientRect();
+        return r.width ? Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) : 0;
+    }
+    function drawBar(doneRatio) {
+        const end = barEnd();
+        const pct = v => `${(Math.min(1, Math.max(0, v)) * 100).toFixed(2)}%`;
+        const done = doneRatio ?? (end ? video.currentTime / end : 0);
+        $('sb-done').style.width = pct(done);
+        $('sb-knob').style.left = pct(done);
+        let buffered = 0;
+        for (let i = 0; i < video.buffered.length; i++) {
+            if (video.buffered.start(i) <= video.currentTime + 0.5) buffered = Math.max(buffered, video.buffered.end(i));
+        }
+        $('sb-buf').style.width = pct(end ? buffered / end : 0);
+        const shown = doneRatio != null ? doneRatio * end : video.currentTime;
+        $('p-time').textContent = `${fmtTime(shown)} / ${isFinite(video.duration) && video.duration ? fmtTime(video.duration) : '--:--'}`;
+        $('seekbar').setAttribute('aria-valuemax', String(Math.round(end || 0)));
+        $('seekbar').setAttribute('aria-valuenow', String(Math.round(shown || 0)));
+    }
+    function showTip(ratio) {
+        const end = barEnd();
+        const tip = $('sb-tip');
+        tip.textContent = end ? fmtTime(ratio * end) : '';
+        // 막대 양 끝에서는 글자가 화면 밖으로 나가지 않게
+        const track = $('seekbar').querySelector('.sb-track');
+        const w = track.offsetWidth, half = tip.offsetWidth / 2;
+        const x = Math.min(Math.max(ratio * w, half - 6), w - half + 6);
+        tip.style.left = `${x + track.offsetLeft}px`;
+        $('sb-hover').style.left = `${(ratio * 100).toFixed(2)}%`;
+    }
+    function commitSeek(ratio) {
+        const end = barEnd();
+        if (!end) return;
+        const target = ratio * end;
+        // 끝까지 넘기면 바로 다음 영상
+        if (isFinite(video.duration) && target >= video.duration - END_JUMP_SEC && goNextAuto()) return;
+        video.currentTime = Math.max(0, Math.min(end, target));
+    }
+    $('seekbar').addEventListener('pointerdown', e => {
+        if (e.button !== 0 || !player.path || !barEnd()) return;
+        e.preventDefault();
+        bar.dragging = true;
+        $('seekbar').setPointerCapture(e.pointerId);
+        $('seekbar').classList.add('is-drag');
+        bar.ratio = barRatio(e);
+        drawBar(bar.ratio);
+        showTip(bar.ratio);
+    });
+    $('seekbar').addEventListener('pointermove', e => {
+        if (bar.dragging) {
+            bar.ratio = barRatio(e);
+            drawBar(bar.ratio);
+            showTip(bar.ratio);
+        } else if (e.pointerType === 'mouse' && barEnd()) {
+            $('seekbar').classList.add('is-hover');
+            showTip(barRatio(e));
+        }
+    });
+    $('seekbar').addEventListener('pointerleave', () => $('seekbar').classList.remove('is-hover'));
+    function endDrag(e, commit) {
+        if (!bar.dragging) return;
+        bar.dragging = false;
+        $('seekbar').classList.remove('is-drag');
+        if (e.pointerType !== 'mouse') $('seekbar').classList.remove('is-hover');
+        if (commit) commitSeek(bar.ratio);
+        drawBar();
+        showUi();
+    }
+    $('seekbar').addEventListener('pointerup', e => endDrag(e, true));
+    $('seekbar').addEventListener('pointercancel', e => endDrag(e, false));
+    ['timeupdate', 'durationchange', 'progress', 'loadedmetadata', 'seeking', 'emptied'].forEach(ev =>
+        video.addEventListener(ev, () => { if (!bar.dragging) drawBar(); }));
+
+    // 소리: 단추는 음소거, 마우스를 올리면 옆에 크기 막대 (휴대폰은 기기 소리 단추로)
+    function renderVolume() {
+        const muted = video.muted || video.volume === 0;
+        $('mute-btn').classList.toggle('is-muted', muted);
+        $('mute-btn').setAttribute('aria-label', muted ? '소리 켜기' : '음소거');
+        $('mute-btn').title = muted ? '소리 켜기 (M)' : '음소거 (M)';
+        $('vol').value = String(video.muted ? 0 : video.volume);
+    }
+    video.addEventListener('volumechange', renderVolume);
+    renderVolume();
+    $('mute-btn').addEventListener('click', () => {
+        if (video.muted || video.volume === 0) { video.muted = false; if (video.volume === 0) video.volume = 0.5; } else video.muted = true;
+    });
+    $('vol').addEventListener('input', () => { video.volume = Number($('vol').value); video.muted = video.volume === 0; });
+
+    // ⋮: 재생 속도(이번에 보는 동안 다음 영상에도), 자막 보기
+    let rate = 1;
+    function renderRates() {
+        $('rate-options').innerHTML = RATES.map(r =>
+            `<button type="button" role="menuitemradio" data-rate="${r}" aria-checked="${r === rate}">${r === 1 ? '보통' : `${r}배`}</button>`).join('');
+    }
+    renderRates();
+    function applyRate() { video.defaultPlaybackRate = rate; video.playbackRate = rate; }
+    function setMoreMenu(open) {
+        $('more-menu').hidden = !open;
+        $('more-btn').setAttribute('aria-expanded', String(open));
+        if (open) {
+            const track = video.textTracks[0];
+            $('subs-row').hidden = !track;
+            if (track) $('subs-toggle').setAttribute('aria-checked', String(track.mode === 'showing'));
+        } else showUi();
+    }
+    $('more-btn').addEventListener('click', () => setMoreMenu($('more-menu').hidden));
+    $('rate-options').addEventListener('click', e => {
+        const b = e.target.closest('button[data-rate]');
+        if (!b) return;
+        rate = Number(b.dataset.rate);
+        applyRate();
+        renderRates();
+        setMoreMenu(false);
+        flashOsd(rate === 1 ? '보통 속도' : `${rate}배 속도`);
+    });
+    $('subs-toggle').addEventListener('click', () => {
+        const track = video.textTracks[0];
+        if (!track) return;
+        track.mode = track.mode === 'showing' ? 'hidden' : 'showing';
+        player.subsOff = track.mode !== 'showing';
+        setMoreMenu(false);
+    });
+    document.addEventListener('pointerdown', e => { if (!$('more-menu').hidden && !e.target.closest('.more-wrap')) setMoreMenu(false); });
+
+    // 끝까지 넘기거나 영상이 끝나면 바로 다음 영상 (새 영상 위에 '다음 영상 · 이름'). 다음이 없으면 false
+    function goNextAuto() {
+        const next = nextVideo();
+        if (!next) return false;
+        player.autoFrom = next.path;
+        goTo(next.path);
+        return true;
+    }
+
     function goTo(path) {
         if (path) location.replace(videoHref(path));
     }
     $('prev-btn').addEventListener('click', () => goTo($('prev-btn').dataset.path));
     $('next-nav-btn').addEventListener('click', () => goTo($('next-nav-btn').dataset.path));
+
+    function renderFavButton() {
+        const on = !!player.path && favs.has(player.path);
+        const label = on ? '즐겨찾기에서 빼기' : '즐겨찾기에 넣기';
+        $('fav-btn').setAttribute('aria-pressed', String(on));
+        $('fav-btn').setAttribute('aria-label', label);
+        $('fav-btn').title = label;
+    }
+
+    // 가운데에 잠깐 뜨는 글자 (건너뛰기 '+10초'와 같은 자리)
+    function flashOsd(text, ms) {
+        const osd = $('seek-osd');
+        osd.textContent = text;
+        osd.classList.add('show');
+        clearTimeout(player.osdTimer);
+        player.osdTimer = setTimeout(() => osd.classList.remove('show'), ms || (text.length > 6 ? 1400 : 700));
+    }
+
+    // 조회수 (제목 옆)
+    function renderViews(n) {
+        $('player-views').textContent = n ? `조회 ${n.toLocaleString()}회` : '';
+    }
+    // VIEW_AFTER_SEC만큼 실제로 재생하면(건너뛴 시간은 빼고) 1회
+    video.addEventListener('timeupdate', () => {
+        const t = video.currentTime, d = t - player.lastTime;
+        player.lastTime = t;
+        if (!player.path || player.viewSent || video.paused || video.seeking || !(d > 0 && d < 1.5)) return;
+        player.played += d;
+        if (player.played < VIEW_AFTER_SEC) return;
+        player.viewSent = true;
+        const path = player.path;
+        postJson('/api/videos/view', { path }).then(({ status, data }) => {
+            if (status !== 200) { if (player.path === path) player.viewSent = false; return; }
+            const item = currentList.find(v => v.path === path);
+            if (item) item.views = data.views;
+            if (player.path === path) renderViews(data.views);
+        }).catch(() => { if (player.path === path) player.viewSent = false; });
+    });
+
+    $('fav-btn').addEventListener('click', async () => {
+        const path = player.path;
+        if (!path) return;
+        const on = !favs.has(path);
+        const ok = await setFavorite(path, on);
+        if (player.path === path) flashOsd(ok ? (on ? '즐겨찾기에 넣었어요' : '즐겨찾기에서 뺐어요') : '저장하지 못했어요');
+    });
 
     function showMessage(html) {
         $('player-msg').innerHTML = html;
@@ -627,12 +980,12 @@
         // 쿠키가 없으면 먼저 받아 둠 (영상 요청은 401을 알 수 없으므로)
         try {
             const probe = await api(`/api/videos/list?p=${enc(path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')}`);
-            if (probe && probe.videos) currentList = probe.videos;
+            if (probe && probe.videos) { currentList = probe.videos; noteFavs(probe.videos); renderFavCount(probe.favorite_count); }
         } catch (e) {
             if (e instanceof LoginNeeded) { showLogin(); return; }
         }
         const info = currentList.find(v => v.path === path);
-        if ($('content').hidden === false) scrollMemory[currentDir] = window.scrollY;
+        if ($('content').hidden === false) scrollMemory[scrollKey()] = window.scrollY;
         syncRandom(path);
         // 목록의 검색창 등에 남은 커서를 뺌 (그대로면 키보드가 가려진 검색창으로 감)
         const focused = document.activeElement;
@@ -643,12 +996,20 @@
         player.saved = !!(info && info.progress);
         const name = info ? info.name : path.split('/').pop();
         $('player-title').textContent = name;
+        renderViews(info ? info.views : 0);
+        player.played = 0;
+        player.lastTime = 0;
+        player.viewSent = false;
+        renderFavButton();
+        setMoreMenu(false);
+        // 끝나서 저절로 넘어온 영상이면 잠깐 알림
+        if (player.autoFrom === path) setTimeout(() => { if (player.path === path) flashOsd(`다음 영상 · ${name}`, 2000); }, 300);
+        player.autoFrom = null;
         document.title = `${name} · 동영상`;
         $('player-download').href = fileUrl(path, true);
         $('player-download').setAttribute('download', '');
         $('player-msg').hidden = true;
         $('resume').hidden = true;
-        $('player-next').hidden = true;
         updateNavButtons();
         $('player').hidden = false;
         showUi();
@@ -660,7 +1021,7 @@
             track.label = '한국어';
             track.srclang = 'ko';
             track.src = `/api/videos/subs?p=${enc(path)}`;
-            track.default = true;
+            track.default = !player.subsOff;
             video.appendChild(track);
         }
         const saved = info && info.progress;
@@ -759,6 +1120,8 @@
         $('player-msg').classList.remove('is-convert');
         video.src = fileUrl(path);
         video.load();
+        applyRate();
+        drawBar();
         // 처음 여는 영상 중 일부는 서버가 표시 순서를 고쳐 보내느라(video_fix.py) 길면 수십 초 걸림
         clearTimeout(player.prepTimer);
         player.prepTimer = setTimeout(() => {
@@ -802,19 +1165,13 @@
     });
     video.addEventListener('ended', () => {
         saveProgress();
-        const next = nextVideo();
-        if (next) {
-            $('next-btn').textContent = `${random && random.on ? '다음 랜덤 영상' : '다음 영상'}: ${next.name}`;
-            $('next-btn').dataset.path = next.path;
-            $('player-next').hidden = false;
-        }
+        goNextAuto();
     });
     video.addEventListener('error', () => {
         if (!player.path) return;
         showMessage(`이 브라우저에서 재생할 수 없는 영상입니다.<br>MKV는 크롬·엣지(안드로이드 포함)에서 재생됩니다.<br><a href="${fileUrl(player.path, true)}" download>내려받기</a>`);
     });
     $('resume-start').addEventListener('click', () => { video.currentTime = 0; $('resume').hidden = true; video.play().catch(() => {}); });
-    $('next-btn').addEventListener('click', () => location.replace(videoHref($('next-btn').dataset.path)));
 
     function closePlayerView() {
         if ($('player').hidden) return;
@@ -832,6 +1189,8 @@
         clearTimeout(player.uiTimer);
         $('seek-menu').hidden = true;
         $('seek-btn').setAttribute('aria-expanded', 'false');
+        $('more-menu').hidden = true;
+        $('more-btn').setAttribute('aria-expanded', 'false');
         random = null;
         renderRandom();
         if (fullscreenEl()) toggleFullscreen();
@@ -841,7 +1200,8 @@
     function closePlayer() {
         const folder = player.path && player.path.includes('/') ? player.path.slice(0, player.path.lastIndexOf('/')) : currentDir;
         if (history.state && history.state.fromList) history.back();
-        else location.replace(dirHref(folder));
+        // 즐겨찾기 보기에서 열었으면(다음 영상으로 넘어가 뒤로 가기 기록이 없어도) 즐겨찾기 보기로
+        else location.replace(viewFav ? '#fav' : dirHref(folder));
     }
     $('player-close').addEventListener('click', closePlayer);
     // ← / →: 어느 영상이든 정한 초씩 (크롬 기본 재생기는 재생바에 초점이 있으면 영상 길이에 비례해 건너뛰어 영상마다 달랐음).
@@ -879,11 +1239,7 @@
     }
     function seekBy(dir) {
         video.currentTime = Math.max(0, Math.min(seekEnd(), video.currentTime + dir * seekStep));
-        const osd = $('seek-osd');
-        osd.textContent = `${dir > 0 ? '+' : '−'}${seekStep}초`;
-        osd.classList.add('show');
-        clearTimeout(player.osdTimer);
-        player.osdTimer = setTimeout(() => osd.classList.remove('show'), 700);
+        flashOsd(`${dir > 0 ? '+' : '−'}${seekStep}초`);
     }
     window.addEventListener('keydown', e => {
         if ($('player').hidden || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
@@ -900,6 +1256,17 @@
     document.addEventListener('keydown', e => {
         if ($('player').hidden) return;
         if (e.key === 'Escape' && !$('seek-menu').hidden) { setSeekMenu(false); return; }
+        if (e.key === 'Escape' && !$('more-menu').hidden) { setMoreMenu(false); return; }
+        const t = e.target;
+        const typing = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) && $('player').contains(t) && t.type !== 'range';
+        if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            // 단추에 초점이 있을 때 Space는 그 단추를 누름 → 재생 단추 말고는 영상 재생·일시정지로
+            if ((e.key === ' ' && !(t && t.closest && t.closest('button') && t.id !== 'play-btn')) || e.key === 'k' || e.key === 'K') {
+                e.preventDefault(); togglePlay(); showUi(); return;
+            }
+            if (e.key === 'm' || e.key === 'M') { $('mute-btn').click(); showUi(); return; }
+            if (e.key === 'f' || e.key === 'F') { toggleFullscreen(); return; }
+        }
         if (e.key === 'Escape' && !document.fullscreenElement) closePlayer();
         // Shift+← / Shift+→: 이전·다음 영상 (화살표만 누르면 브라우저가 앞뒤로 건너뜀)
         if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
@@ -915,7 +1282,7 @@
         const link = e.target.closest('a.tile[href^="#v="]');
         if (!link) return;
         e.preventDefault();
-        scrollMemory[currentDir] = window.scrollY;
+        scrollMemory[scrollKey()] = window.scrollY;
         history.pushState({ fromList: true }, '', link.getAttribute('href'));
         route();
     });
@@ -927,6 +1294,8 @@
         const params = new URLSearchParams(location.hash.slice(1));
         if (params.has('v')) {
             openPlayer(params.get('v'));
+        } else if (params.has('fav')) {
+            showFavorites();
         } else {
             currentDir = params.get('d') || '';
             showLibrary(currentDir);

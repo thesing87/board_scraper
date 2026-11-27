@@ -6,6 +6,8 @@
 - 자막: 영상과 이름이 같은 .srt·.smi를 브라우저용 WebVTT로 바꿔 보냄
 - 경로는 모두 동영상 폴더 기준 상대 경로('/' 구분). 폴더 밖(.. 이나 심볼릭 링크)으로 나가는 경로는 거부
 - 이어 보기 위치는 DB(video_progress)에 저장
+- 즐겨찾기는 DB(video_favorites)에 저장 → 폰·PC에서 같음. 목록·검색 등의 영상마다 favorite 표시
+- 조회수는 DB(video_views): 화면이 10초 넘게 재생하면 알려 줌, 같은 영상은 VIEW_GAP 안에 다시 세지 않음. 영상마다 views 표시
 """
 import hashlib
 import html
@@ -109,9 +111,7 @@ def list_dir(rel):
             continue
     dirs.sort(key=lambda d: natural_key(d['name']))
     videos.sort(key=lambda v: natural_key(v['name']))
-    progress = progress_for([v['path'] for v in videos])
-    for v in videos:
-        v['progress'] = progress.get(v['path'])
+    _with_progress(videos)
     return {'path': rel, 'name': os.path.basename(rel) if rel else '', 'dirs': dirs, 'videos': videos}
 
 
@@ -180,9 +180,14 @@ def _public(item):
 
 
 def _with_progress(items):
+    """이어 보기 위치·즐겨찾기 표시·조회수를 붙임"""
     progress = progress_for([v['path'] for v in items])
+    views = views_for([v['path'] for v in items])
+    favs = favorite_paths()
     for v in items:
         v['progress'] = progress.get(v['path'])
+        v['favorite'] = v['path'] in favs
+        v['views'] = views.get(v['path'], 0)
     return items
 
 
@@ -473,6 +478,102 @@ def save_progress(rel, position, duration):
                      (rel, position, duration, _now()))
 
 
+# ==========================================
+# 즐겨찾기
+# ==========================================
+def favorite_paths():
+    with _db() as conn:
+        return {r['path'] for r in conn.execute("SELECT path FROM video_favorites").fetchall()}
+
+
+def set_favorite(rel, on):
+    with _db() as conn, conn:
+        if on:
+            conn.execute("INSERT OR IGNORE INTO video_favorites(path, added_at) VALUES(?, ?)", (rel, _now()))
+        else:
+            conn.execute("DELETE FROM video_favorites WHERE path = ?", (rel,))
+
+
+def favorite_count():
+    with _db() as conn:
+        return conn.execute("SELECT COUNT(*) FROM video_favorites").fetchone()[0]
+
+
+def _items_for(paths, limit=None):
+    """DB에 적어 둔 경로들 → 영상 정보 (지금은 없는 영상은 빼고, 순서 그대로). 전체 목록에 아직 없는 새 영상도 파일이 있으면 넣음"""
+    known = {v['path']: v for v in all_videos()} if paths else {}
+    items = []
+    for path in paths:
+        # 기억해 둔 전체 목록은 INDEX_TTL만큼 늦으므로 파일이 아직 있는지는 늘 봄
+        full = video_file(path)
+        if not full:
+            continue
+        item = known.get(path)
+        if item:
+            item = _public(item)
+        else:
+            name = os.path.basename(path)
+            try:
+                size = os.path.getsize(full)
+            except OSError:
+                continue
+            item = {'name': os.path.splitext(name)[0], 'path': path, 'folder': path.rsplit('/', 1)[0] if '/' in path else '',
+                    'ext': _ext(name)[1:], 'size': size, 'playable': _ext(name) in PLAYABLE_TYPES,
+                    'subtitle': any(os.path.exists(os.path.splitext(full)[0] + ext) for ext in SUBTITLE_EXTS)}
+        items.append(item)
+        if limit and len(items) >= limit:
+            break
+    return _with_progress(items)
+
+
+def favorites():
+    """즐겨찾기한 영상 (최근에 넣은 것부터)"""
+    with _db() as conn:
+        rows = conn.execute("SELECT path FROM video_favorites ORDER BY added_at DESC, rowid DESC").fetchall()
+    return _items_for([r['path'] for r in rows])
+
+
+# ==========================================
+# 조회수
+# ==========================================
+VIEW_GAP = 30 * 60
+POPULAR_LIMIT = 12
+
+
+def views_for(paths):
+    """{경로: 조회수}"""
+    paths = list(paths)
+    result = {}
+    if not paths:
+        return result
+    with _db() as conn:
+        for start in range(0, len(paths), 500):
+            chunk = paths[start:start + 500]
+            for r in conn.execute(f"SELECT path, count FROM video_views WHERE path IN ({','.join('?' * len(chunk))})", chunk).fetchall():
+                result[r['path']] = r['count']
+    return result
+
+
+def add_view(rel, now=None):
+    """한 번 봄. 같은 영상을 VIEW_GAP 안에 다시 보면 세지 않음 (이전·다음으로 왔다 갔다, 다시 열기). 조회수를 돌려줌"""
+    now = time.time() if now is None else now
+    with _db() as conn, conn:
+        row = conn.execute("SELECT count, last_at FROM video_views WHERE path = ?", (rel,)).fetchone()
+        if row and now - row['last_at'] < VIEW_GAP:
+            return row['count']
+        count = (row['count'] if row else 0) + 1
+        conn.execute("INSERT INTO video_views(path, count, last_at) VALUES(?, ?, ?) "
+                     "ON CONFLICT(path) DO UPDATE SET count = excluded.count, last_at = excluded.last_at", (rel, count, now))
+        return count
+
+
+def popular(limit=POPULAR_LIMIT):
+    """많이 본 영상 (조회수 많은 순, 같으면 최근에 본 것 먼저)"""
+    with _db() as conn:
+        rows = conn.execute("SELECT path FROM video_views ORDER BY count DESC, last_at DESC LIMIT ?", (limit * 3,)).fetchall()
+    return _items_for([r['path'] for r in rows], limit)
+
+
 def recent(limit=6):
     """최근 본 영상 (지금은 없는 영상은 빼고)"""
     with _db() as conn:
@@ -489,4 +590,9 @@ def recent(limit=6):
                       'progress': {'position': r['position'], 'duration': r['duration'], 'updated_at': r['updated_at']}})
         if len(items) >= limit:
             break
+    favs = favorite_paths() if items else set()
+    views = views_for([item['path'] for item in items])
+    for item in items:
+        item['favorite'] = item['path'] in favs
+        item['views'] = views.get(item['path'], 0)
     return items
