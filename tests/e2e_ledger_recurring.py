@@ -153,6 +153,35 @@ try:
     assert '새로' not in txt('legend') and 'N 지난달엔 없던 분류' in txt('legend'), txt('legend')
     assert js("const e = document.querySelector('#legend .lg-top .cmp-new'), c = getComputedStyle(e); return [e.offsetWidth, c.borderRadius, c.color]") == [15, '50%', 'rgb(255, 255, 255)']
     shot('5b_analysis_new')
+    # ---- 분석의 분류를 누르면 그 분류의 이번 달 상세 (아래에서 올라오는 창)
+    me = {'id': uid, 'admin': True}
+    life = first['category_id']
+    ledger.add_entry(me, 12000, TODAY, life, '다이소')
+    ledger.add_entry(me, 5000, T.replace(day=1).isoformat(), life, '세제')
+    d.get(BASE + '/ledger/'); time.sleep(2)
+    click('#views [data-view="ana"]'); time.sleep(.4)
+    assert not vis('cd-wrap')
+    click(f'#legend [data-cd="{life}"]'); time.sleep(.4)
+    assert vis('cd-wrap') and '생활' in txt('cd-title') and f'{T.month}월' in txt('cd-title'), txt('cd-title')
+    assert txt('cd-total') == '−77,000원' and '3건' in txt('cd-stat') and '평균 25,667원' in txt('cd-stat') and '가장 큼 60,000원' in txt('cd-stat'), txt('cd-stat')
+    assert 'N' in txt('cd-cmp') and '없던 분류' in txt('cd-cmp'), txt('cd-cmp')
+    assert js("return [...document.querySelectorAll('#cd-list .memo')].map(e => e.textContent)") == ['XX 보험', '다이소', '세제']   # 큰 것부터
+    import calendar
+    assert js("return document.querySelectorAll('#cd-days i').length") == calendar.monthrange(T.year, T.month)[1]
+    assert js("return document.querySelectorAll('#cd-days i[style]').length") == (1 if T.day == 1 else 2)   # 기록이 있는 날만 막대
+    assert js("return [...document.querySelectorAll('#legend .lg')].filter(e => !e.classList.contains('dim')).length") == 1   # 고른 분류만 진하게
+    shot('5c_category_detail')
+    # 내 기록을 누르면 상세를 닫고 고치기
+    js("[...document.querySelectorAll('#cd-list .it.mine')].find(e => e.textContent.includes('다이소')).click()"); time.sleep(.5)
+    assert not vis('cd-wrap') and vis('sheet-wrap') and js("return document.getElementById('amount').value") == '12,000'
+    assert not js("return [...document.querySelectorAll('#legend .lg.dim')].length")
+    click('#entry-close'); time.sleep(.3)
+    # 앱의 뒤로가기·바깥을 누르면 닫힘
+    click(f'#legend [data-cd="{life}"]'); time.sleep(.3)
+    assert js("return window.appBusy()") and js("return window.ledgerBack()") is True and not vis('cd-wrap')
+    click(f'#legend [data-cd="{life}"]'); time.sleep(.3)
+    js("document.getElementById('cd-wrap').dispatchEvent(new MouseEvent('click', {bubbles: true}))"); time.sleep(.2)
+    assert not vis('cd-wrap') and not js("return document.documentElement.classList.contains('sheet-open')")
     click('#views [data-view="list"]'); time.sleep(.2)
 
     # ---- 휴대폰: 넘침 없음 (입력 창·설정)

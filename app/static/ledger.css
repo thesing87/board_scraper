@@ -345,6 +345,27 @@ button.wide { width: 100%; height: 44px; margin-bottom: 10px; border-radius: 12p
 #donut { margin: 0 auto; }
 #legend { flex: 1; min-width: 200px; }
 .lg { padding: 5px 0; }
+/* 분석의 분류 줄: 누르면 상세. 상세가 열려 있으면 그 분류만 진하게 */
+.lg[data-cd] { margin: 0 -6px; padding: 5px 6px; border-radius: 8px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.lg[data-cd]:active { background: var(--soft); }
+.lg.dim { opacity: .35; }
+#donut .dim { opacity: .25; }
+/* 분류 상세 창 */
+.sheet.cd { padding-bottom: calc(env(safe-area-inset-bottom) + 16px); }
+.cd-head { display: flex; align-items: center; gap: 10px; }
+.cd-head .ci { width: 36px; height: 36px; font-size: 18px; }
+.cd-head b { flex: 1; min-width: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-sum { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin: 12px 0 0; }
+.cd-total { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.cd-cmp { font-size: 13px; color: var(--muted); }
+.cd-stat { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 6px 0 0; font-size: 12.5px; color: var(--muted); }
+.cd-stat b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+.cd-chart { margin: 14px 0 4px; }
+.cd-chart[hidden] { display: none; }
+.cd-days { display: flex; align-items: flex-end; gap: 2px; height: 52px; padding-bottom: 1px; border-bottom: 1px solid var(--border); }
+.cd-days i { flex: 1; height: 2px; border-radius: 2px 2px 0 0; background: var(--soft); }
+.cd-axis { display: flex; justify-content: space-between; margin-top: 3px; font-size: 11px; color: var(--faint); }
+.cd-list { margin-top: 12px; }
 .lg-top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .lg-top .ci { width: 28px; height: 28px; font-size: 14px; }
 .lg-top .n { flex: 1; }

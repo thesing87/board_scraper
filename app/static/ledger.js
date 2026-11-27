@@ -186,6 +186,7 @@
         }
         render();
         renderRecurring();
+        if (st.cdFor != null) renderCatDetail();
         // 대기함이 먼저 와서 분류 목록 없이 칸만 열렸으면 이제 내용까지 (알림을 눌러 열 때 기록 쪽이 늦게 오는 일이 잦음)
         if (st.inbox) renderInbox();
         openPending();
@@ -366,7 +367,7 @@
         $('legend').innerHTML = parts.length ? parts.map(([id, v]) => {
             const c = catOf(id), pct = Math.round(v / total * 100), p = prevSums.get(id) || 0;
             const tick = prev && p ? `<u style="left:${Math.min(100, p / total * 100).toFixed(1)}%" title="지난달 ${won(p)}"></u>` : '';
-            return `<div class="lg"><div class="lg-top">${catIcon(c)}<span class="n">${esc(c.name)}</span>${diffOf(id)}
+            return `<div class="lg${st.cdFor != null && st.cdFor !== id ? ' dim' : ''}" data-cd="${id}" role="button" tabindex="0" aria-label="${esc(c.name)} 상세"><div class="lg-top">${catIcon(c)}<span class="n">${esc(c.name)}</span>${diffOf(id)}
                 <span class="p">${pct}%</span><span class="w">${won(v)}</span></div><div class="lg-bar"><i style="width:${pct}%;background:${c.color}"></i>${tick}</div></div>`;
         }).join('') + (prev ? `<p class="lg-note">눈금 = 지난달${prev.sameDay ? ` ${prev.sameDay}일까지` : ''} 그 분류 · ▲ 늘어남 ▼ 줄어듦 · <span class="cmp-new">N</span> 지난달엔 없던 분류</p>` : '')
             : `<p class="empty">${st.ana === 'income' ? '수입' : '지출'} 기록이 없어요</p>`;
@@ -394,7 +395,7 @@
             parts.forEach(([id, v]) => {
                 const a1 = a0 + v / total * Math.PI * 2, big = a1 - a0 > Math.PI ? 1 : 0;
                 const [x1, y1] = p(a0, R), [x2, y2] = p(a1, R), [x3, y3] = p(a1, r), [x4, y4] = p(a0, r);
-                svg += `<path d="M${x1} ${y1}A${R} ${R} 0 ${big} 1 ${x2} ${y2}L${x3} ${y3}A${r} ${r} 0 ${big} 0 ${x4} ${y4}Z" fill="${catOf(id).color}" stroke="#fff" stroke-width="2"><title>${esc(catOf(id).name)} ${won(v)}</title></path>`;
+                svg += `<path d="M${x1} ${y1}A${R} ${R} 0 ${big} 1 ${x2} ${y2}L${x3} ${y3}A${r} ${r} 0 ${big} 0 ${x4} ${y4}Z" fill="${catOf(id).color}" stroke="#fff" stroke-width="2"${st.cdFor != null && st.cdFor !== id ? ' class="dim"' : ''}><title>${esc(catOf(id).name)} ${won(v)}</title></path>`;
                 a0 = a1;
             });
         }
@@ -1823,14 +1824,93 @@
         const text = app ? `${app.versionName} · ${kb(app.size)} · ${app.uploaded_at.slice(5, 10).replace('-', '/')} 올림` : '';
         $('app-info').textContent = text;
     }
+    // ==========================================
+    // 분석: 분류 줄을 누르면 그 분류의 상세 (아래에서 올라오는 창). 지금 보는 달(일별이면 그날)·사람 거르기 그대로.
+    // 합계 · 지난달 차이(같은 날까지) · 건수·평균·가장 큼 · 날짜별 막대(달로 볼 때) · 기록(큰 것부터, 내 기록은 누르면 고치기)
+    // ==========================================
+    function openCatDetail(id) {
+        st.cdFor = id;
+        renderCatDetail();
+        if (st.cdFor == null) return;
+        $('cd-wrap').hidden = false;
+        document.documentElement.classList.add('sheet-open');
+        $('cd').scrollTop = 0;
+        renderSummary();   // 그래프·목록에서 고른 분류만 진하게
+    }
+    function closeCatDetail() {
+        const was = st.cdFor != null;
+        st.cdFor = null;
+        $('cd-wrap').hidden = true;
+        if ($('sheet-wrap').hidden) document.documentElement.classList.remove('sheet-open');
+        if (was && st.data) renderSummary();
+    }
+    function renderCatDetail() {
+        const id = st.cdFor;
+        if (id == null || !st.data) return;
+        const c = catOf(id), income = c.kind === 'income';
+        const items = scoped().filter(e => e.category_id === id)
+            .sort((a, b) => b.amount - a.amount || (a.used_on < b.used_on ? 1 : a.used_on > b.used_on ? -1 : b.id - a.id));
+        if (!items.length) { closeCatDetail(); return; }
+        const total = items.reduce((t, e) => t + e.amount, 0);
+        const d = st.day, when = st.mode === 'day' ? `${d.getMonth() + 1}/${d.getDate()}` : `${d.getMonth() + 1}월`;
+        $('cd-ico').innerHTML = catIcon(c);
+        $('cd-title').textContent = `${c.name} · ${when}${st.who ? ` · ${nameOf(st.who)}` : ''}`;
+        $('cd-total').textContent = `${income ? '+' : '−'}${won(total)}`;
+        $('cd-total').className = `cd-total ${income ? 'plus' : 'minus'}`;
+        // 지난달 (이번 달이면 같은 날까지) 그 분류와 차이 — 분석의 ▲▼와 같은 기준
+        const prev = prevScope();
+        let cmp = '';
+        if (prev) {
+            const p = prev.filter(e => e.category_id === id).reduce((t, e) => t + e.amount, 0), diff = total - p;
+            const than = `지난달${prev.sameDay ? ` ${prev.sameDay}일까지` : ''}`;
+            if (!p) cmp = `<span class="cmp-new">N</span> ${than}${prev.sameDay ? '는' : '엔'} 없던 분류`;
+            else if (Math.abs(diff) < Math.max(1000, p * 0.05)) cmp = `<span class="cmp-eq">${than}와 비슷</span> (${won(p)})`;
+            else cmp = `<b class="${(diff > 0) !== income ? 'cmp-up' : 'cmp-dn'}">${diff > 0 ? '▲' : '▼'} ${won(Math.abs(diff))}</b> ${than}보다`;
+        }
+        $('cd-cmp').innerHTML = cmp;
+        $('cd-stat').innerHTML = `<span><b>${items.length}건</b></span><span>평균 <b>${won(Math.round(total / items.length))}</b></span>`
+            + (items.length > 1 ? `<span>가장 큼 <b>${won(items[0].amount)}</b></span>` : '');
+        // 날짜별 막대 (달로 볼 때만): 날마다 그 분류 합계, 가장 큰 날 = 가득
+        $('cd-chart').hidden = st.mode !== 'month';
+        if (st.mode === 'month') {
+            const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(), byDay = new Array(last + 1).fill(0);
+            items.forEach(e => { byDay[+e.used_on.slice(8)] += e.amount; });
+            const max = Math.max(...byDay);
+            $('cd-days').innerHTML = byDay.slice(1).map((v, i) => `<i${v ? ` style="height:${Math.max(8, Math.round(v / max * 100))}%;background:${c.color}"` : ''} title="${i + 1}일${v ? ` ${won(v)}` : ''}"></i>`).join('');
+            $('cd-axis').innerHTML = `<span>1일</span><span>15일</span><span>${last}일</span>`;
+        }
+        $('cd-list').innerHTML = items.map(e => rowHtml(e, null, true)).join('');
+    }
+    $('legend').addEventListener('click', e => {
+        const row = e.target.closest('[data-cd]');
+        if (row) openCatDetail(Number(row.dataset.cd));
+    });
+    $('legend').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-cd]')) { e.preventDefault(); e.target.click(); } });
+    $('cd-close').addEventListener('click', closeCatDetail);
+    $('cd-wrap').addEventListener('click', e => { if (e.target === $('cd-wrap')) closeCatDetail(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('cd-wrap').hidden && $('sheet-wrap').hidden && $('pv').hidden) closeCatDetail(); });
+    // 상세의 기록: 내 기록은 상세를 닫고 고치기, 사진 썸네일은 크게 보기, 남의 기록은 그대로
+    $('cd-list').addEventListener('click', e => {
+        const view = e.target.closest('[data-view]');
+        if (view) { const x = st.data.entries.find(y => y.id === Number(view.dataset.view)); if (x) openViewer(x.photos.map(pid => photoUrl(pid)), 0); return; }
+        const row = e.target.closest('.it.mine[data-entry]');
+        if (!row) return;
+        const entry = st.data.entries.find(x => x.id === Number(row.dataset.entry));
+        if (!entry) return;
+        closeCatDetail();
+        startEdit(entry);
+    });
+    $('cd-list').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.it.mine')) { e.preventDefault(); e.target.click(); } });
+
     // ---- 앱의 뒤로가기: 열려 있는 것을 하나 닫으면 true (닫을 게 없으면 false → 앱이 '한 번 더 누르면 종료' 안내)
     // 앱(1.30부터)이 좌우 밀기·끌어내려 새로고침 전에 물음 (nav.js의 appGesture): 무언가 열려 있으면 true
     window.appBusy = () => !$('pv').hidden || $('app').classList.contains('settings-open') || !$('memo-dd').hidden
-        || !$('addbox').hidden || !$('sheet-wrap').hidden;
+        || !$('addbox').hidden || !$('sheet-wrap').hidden || !$('cd-wrap').hidden;
     window.ledgerBack = () => {
         if (!$('pv').hidden) { closeViewer(); return true; }
         if (!$('memo-dd').hidden) { $('memo-dd').hidden = true; return true; }
         if (!$('addbox').hidden) { $('addbox').hidden = true; return true; }
+        if (!$('cd-wrap').hidden && $('sheet-wrap').hidden) { closeCatDetail(); return true; }
         // 입력·고치기 창: 펼친 분류 목록·수정 이력부터 접고, 그다음 창을 닫음
         if (!$('sheet-wrap').hidden) {
             if (st.catOpen) { st.catOpen = false; renderCats(); return true; }

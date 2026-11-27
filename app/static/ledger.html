@@ -191,6 +191,16 @@
                     </div>
                 </div>
             </div>
+            <!-- 분석의 분류를 누르면: 그 분류의 이 달(사람 거르기 그대로) 상세 — 합계·지난달 차이·건수·평균·가장 큼·날짜별 막대·기록(큰 것부터) -->
+            <div class="sheet-wrap" id="cd-wrap" hidden>
+                <div class="sheet cd" id="cd" role="dialog" aria-modal="true" aria-labelledby="cd-title">
+                    <div class="cd-head"><span id="cd-ico"></span><b id="cd-title"></b><button type="button" class="icon" id="cd-close" aria-label="닫기">✕</button></div>
+                    <div class="cd-sum"><span class="cd-total" id="cd-total"></span><span class="cd-cmp" id="cd-cmp"></span></div>
+                    <div class="cd-stat" id="cd-stat"></div>
+                    <div class="cd-chart" id="cd-chart"><div class="cd-days" id="cd-days"></div><div class="cd-axis" id="cd-axis"></div></div>
+                    <div class="cd-list" id="cd-list"></div>
+                </div>
+            </div>
             <!-- 사진 크게 보기 (내역의 썸네일·입력 창의 사진을 누르면) -->
             <div class="pv" id="pv" role="dialog" aria-modal="true" aria-label="사진" hidden>
                 <img id="pv-img" alt="">
